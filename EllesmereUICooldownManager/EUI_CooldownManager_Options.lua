@@ -6445,6 +6445,8 @@ initFrame:SetScript("OnEvent", function(self)
                        and not (ns.CdmFrameOverflowBar and ns.CdmFrameOverflowBar(icon)) then
                         for i = 1, #sd.assignedSpells do
                             local dec = ns.HostedBuffMarkerToSpell(sd.assignedSpells[i])
+                                or (ns.HostedDebuffMarkerToSpell
+                                    and ns.HostedDebuffMarkerToSpell(sd.assignedSpells[i]))
                             if dec and (dec == _sid
                                 or (ns.IsVariantOf and ns.IsVariantOf(dec, _sid))) then
                                 if not insertPos or i > insertPos then insertPos = i end
@@ -7766,7 +7768,11 @@ initFrame:SetScript("OnEvent", function(self)
     -- Lists the class's CDM-trackable buffs plus a Custom Spell ID entry. No
     -- durations (aura-driven, never cast-timed) and no item/preset rows (those are
     -- cast-timer / CD-utility concepts that do not belong on an aura tracker).
-    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged)
+    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, auraKind)
+        local isDebuffPicker = auraKind == "debuff"
+        local targetBD = ns.barDataByKey and ns.barDataByKey[targetBarKey]
+        local targetIsDebuffBar = isDebuffPicker and targetBD
+            and targetBD.barType == "debuffs"
         if _spellPickerMenu and _spellPickerMenu:IsShown() then
             _spellPickerMenu:Hide()
             if _spellPickerMenu._anchorFrame == anchorFrame then return end
@@ -7792,11 +7798,21 @@ initFrame:SetScript("OnEvent", function(self)
         -- buff. The hosted flag table is the membership truth (assignedSpells
         -- stores hosted buffs as negative markers, and a PLAIN id entry is the
         -- spell's COOLDOWN form -- which must not hide its buff form here).
-        local allSpells = ns.GetCDMSpellsForBar and ns.GetCDMSpellsForBar("buffs", true) or {}
+        local sourceBarKey = isDebuffPicker and "debuffs" or "buffs"
+        local wantedGroup = isDebuffPicker and "debuff" or "buff"
+        local allSpells = ns.GetCDMSpellsForBar
+            and ns.GetCDMSpellsForBar(sourceBarKey, true) or {}
         local already = {}
         local sdCur = ns.GetBarSpellData(targetBarKey)
-        if sdCur and sdCur.hostedBuffSpellIDs then
-            for sid in pairs(sdCur.hostedBuffSpellIDs) do already[sid] = true end
+        local hostedSet = sdCur and (isDebuffPicker
+            and sdCur.hostedDebuffSpellIDs or sdCur.hostedBuffSpellIDs)
+        if hostedSet then
+            for sid in pairs(hostedSet) do already[sid] = true end
+        end
+        if targetIsDebuffBar and sdCur and sdCur.assignedSpells then
+            for _, sid in ipairs(sdCur.assignedSpells) do
+                if type(sid) == "number" and sid > 0 then already[sid] = true end
+            end
         end
         -- Collided-buff slots (Diabolist Demonic Art vs Diabolic Ritual) are
         -- hosted by cooldownID, not by the shared spellID in `already` --
@@ -7805,7 +7821,7 @@ initFrame:SetScript("OnEvent", function(self)
         local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
-            if sp.cdmCatGroup == "buff" and sp.spellID and not already[sp.spellID]
+            if sp.cdmCatGroup == wantedGroup and sp.spellID and not already[sp.spellID]
                and not (sp.cdID and alreadyCd and alreadyCd[sp.cdID]) then
                 knownSpells[#knownSpells + 1] = sp
             end
@@ -7839,8 +7855,9 @@ initFrame:SetScript("OnEvent", function(self)
             if onChanged then onChanged() end
         end
 
-        -- Custom Spell ID (no duration -- aura-driven).
-        do
+        -- Buffs can use arbitrary player auras. Debuffs need a compatibility
+        -- definition (cast/aura rank mapping), so their picker stays catalog-only.
+        if not isDebuffPicker then
             local csItem = EllesmereUI.SafeCreateFrame("Button", nil, inner)
             csItem:SetHeight(ITEM_H)
             csItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -7858,15 +7875,18 @@ initFrame:SetScript("OnEvent", function(self)
             csItem:SetScript("OnClick", function()
                 menu:Hide()
                 ShowCustomSpellIDPopup(targetBarKey, false, function(sid)
-                    ns.AddBuffToCDUtilBar(targetBarKey, sid)
+                    if isDebuffPicker then
+                        if targetIsDebuffBar then ns.AddTrackedSpell(targetBarKey, sid)
+                        else ns.AddDebuffToCDUtilBar(targetBarKey, sid) end
+                    else
+                        ns.AddBuffToCDUtilBar(targetBarKey, sid)
+                    end
                     AfterAdd()
                 end)
             end)
             mH = mH + ITEM_H
-        end
 
         -- Divider below Custom Spell ID.
-        do
             local csDiv = inner:CreateTexture(nil, "ARTWORK")
             csDiv:SetHeight(1); csDiv:SetTexture(1, 1, 1, 0.10)
             csDiv:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH - 4)
@@ -7915,7 +7935,12 @@ initFrame:SetScript("OnEvent", function(self)
                    and ns.AddHostedBuffByCdID then
                     ns.AddHostedBuffByCdID(targetBarKey, sp.cdID)
                 else
-                    ns.AddBuffToCDUtilBar(targetBarKey, sp.spellID)
+                    if isDebuffPicker then
+                        if targetIsDebuffBar then ns.AddTrackedSpell(targetBarKey, sp.spellID)
+                        else ns.AddDebuffToCDUtilBar(targetBarKey, sp.spellID) end
+                    else
+                        ns.AddBuffToCDUtilBar(targetBarKey, sp.spellID)
+                    end
                 end
                 AfterAdd()
                 -- Gray this row in place; keep the picker open.
@@ -7930,7 +7955,7 @@ initFrame:SetScript("OnEvent", function(self)
         for _, sp in ipairs(knownSpells) do MakeSpellRow(sp) end
 
         -- "Missing Buffs?" footer -- opens Blizzard's CDM to Display more buffs.
-        do
+        if not isDebuffPicker then
             local fDiv = inner:CreateTexture(nil, "ARTWORK")
             fDiv:SetHeight(1); fDiv:SetTexture(1, 1, 1, 0.10)
             fDiv:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH - 4)
@@ -8437,7 +8462,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         local bd = SelectedCDMBar()
         local isCustomBuff = bd and bd.barType == "custom_buff"
-        local isBuffBar = bd and ns.IsBarBuffFamily(bd)
+        local isBuffBar = bd and (ns.IsBarBuffFamily(bd)
+            or (ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(bd)))
 
         -- Per-icon buff settings key = the slot's DISPLAYED spell (its canonical /
         -- GetSpellID-derived id, _previewSpellID). NOT the cooldownInfo base: for
@@ -8521,7 +8547,8 @@ initFrame:SetScript("OnEvent", function(self)
         local primaryCat   = isCooldownType and 0 or (isUtilityType and 1 or nil)
         local secondaryCat = isCooldownType and 1 or (isUtilityType and 0 or nil)
 
-        local isBuffBar = bd and ns.IsBarBuffFamily(bd)
+        local isBuffBar = bd and (ns.IsBarBuffFamily(bd)
+            or (ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(bd)))
 
         -- Buckets for cooldown/utility bars (three-section layout)
         local priUnassigned, priAssigned = {}, {}
@@ -8721,6 +8748,9 @@ initFrame:SetScript("OnEvent", function(self)
                     -- the raw marker.
                     elseif spellID and ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(spellID) then
                         spellID = ns.HostedBuffMarkerToSpell(spellID)
+                    elseif spellID and ns.HostedDebuffMarkerToSpell
+                       and ns.HostedDebuffMarkerToSpell(spellID) then
+                        spellID = ns.HostedDebuffMarkerToSpell(spellID)
                     end
                 end
                 if spellID and spellID ~= 0 then
@@ -15041,6 +15071,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local tip
                 if bdHov and ns.IsBarBuffFamily(bdHov) then
                     tip = "Add a Buff Spell"
+                elseif bdHov and ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(bdHov) then
+                    tip = "Add a Debuff Spell"
                 else
                     tip = "Add a CD/Utility Spell"
                 end
@@ -15072,7 +15104,20 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
             end
 
-            if ns.IsBarBuffFamily(bd) then
+            local isDebuffBar = ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(bd)
+            if isDebuffBar then
+                -- The debuff picker applies the assignment itself and stays open
+                -- for multi-add. Refresh in place so its preview anchor remains
+                -- valid instead of rebuilding the whole options page beneath it.
+                ShowBuffToCDPicker(self, bd.key, function()
+                    if ns.CollectAndReanchor then ns.CollectAndReanchor() end
+                    C_Timer.After(0.05, function()
+                        if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
+                        if pf.Update then pf:Update() end
+                        UpdateCDMPreviewAndResize()
+                    end)
+                end, "debuff")
+            elseif ns.IsBarBuffFamily(bd) then
                 -- Buff bars use ShowBuffBarPicker (walks the BuffIcon
                 -- viewer pool). Click routes AddTrackedSpell -- the
                 -- family sweep removes the spell from every other
@@ -15172,12 +15217,49 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end)
 
+        -- Third "+" button: host a target debuff on a CD/utility bar. Red keeps
+        -- it visually distinct from the standard and gold buff add actions.
+        local DEBUFF_ADD_R, DEBUFF_ADD_G, DEBUFF_ADD_B = 0.95, 0.28, 0.32
+        local debuffAddBtn = EllesmereUI.SafeCreateFrame("Button", nil, pf)
+        PP.Size(debuffAddBtn, 36, 36); debuffAddBtn:Hide()
+        local debuffAddBg = debuffAddBtn:CreateTexture(nil, "BACKGROUND")
+        debuffAddBg:SetAllPoints(); debuffAddBg:SetTexture(0.08, 0.08, 0.08, 0.6)
+        if PP then PP.CreateBorder(debuffAddBtn, 0.3, 0.3, 0.3, 0.5, 1, "OVERLAY", 7) end
+        local debuffAddLbl = debuffAddBtn:CreateFontString(nil, "OVERLAY")
+        debuffAddLbl:SetFont(FONT_PATH, 22, GetCDMOptOutline())
+        debuffAddLbl:SetPoint("CENTER", 0, 1); debuffAddLbl:SetText("+")
+        debuffAddLbl:SetTextColor(DEBUFF_ADD_R, DEBUFF_ADD_G, DEBUFF_ADD_B, 0.75)
+        debuffAddBtn:SetScript("OnEnter", function()
+            debuffAddLbl:SetTextColor(DEBUFF_ADD_R, DEBUFF_ADD_G, DEBUFF_ADD_B, 1)
+            if EllesmereUI.ShowWidgetTooltip then
+                EllesmereUI.ShowWidgetTooltip(debuffAddBtn, EllesmereUI.L("Add a Debuff Spell"))
+            end
+        end)
+        debuffAddBtn:SetScript("OnLeave", function()
+            debuffAddLbl:SetTextColor(DEBUFF_ADD_R, DEBUFF_ADD_G, DEBUFF_ADD_B, 0.75)
+            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        end)
+        debuffAddBtn:SetScript("OnClick", function(self)
+            local bd = SelectedCDMBar()
+            if not bd or ns.IsBarBuffFamily(bd)
+                or (ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(bd))
+                or bd.barType == "custom_buff" then return end
+            ShowBuffToCDPicker(self, bd.key, function()
+                if ns.CollectAndReanchor then ns.CollectAndReanchor() end
+                C_Timer.After(0.05, function()
+                    if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
+                    if pf.Update then pf:Update() end
+                    UpdateCDMPreviewAndResize()
+                end)
+            end, "debuff")
+        end)
+
         -- Update: mirrors tracked spells with interactive slots
         pf.Update = function(self)
             local bd = SelectedCDMBar()
             if not bd then
                 for i = 1, MAX_PREVIEW_ICONS do previewSlots[i]:Hide() end
-                addBtn:Hide(); buffAddBtn:Hide(); self:SetHeight(1); return
+                addBtn:Hide(); buffAddBtn:Hide(); debuffAddBtn:Hide(); self:SetHeight(1); return
             end
 
             local iconSize = bd.iconSize or 36
@@ -15198,6 +15280,7 @@ initFrame:SetScript("OnEvent", function(self)
             if numRows < 1 then numRows = 1 end
 
             local isBuffBar = ns.IsBarBuffFamily(bd)
+            local isDebuffBar = ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(bd)
             local isCustomBuffBar = (bd.barType == "custom_buff")
             local isFocusKick = (bd.key == "focuskick")
 
@@ -15474,6 +15557,8 @@ initFrame:SetScript("OnEvent", function(self)
                         local cdClaim = ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(id)
                         local hostedSid = (not cdClaim) and ns.HostedBuffMarkerToSpell
                             and ns.HostedBuffMarkerToSpell(id)
+                        local hostedDebuffSid = (not cdClaim) and ns.HostedDebuffMarkerToSpell
+                            and ns.HostedDebuffMarkerToSpell(id)
                         if cdClaim then
                             -- Cd-claimed collided-buff slot hosted on a CD/util bar
                             -- (Diabolist Demonic Art vs Diabolic Ritual): `tracked`
@@ -15510,16 +15595,17 @@ initFrame:SetScript("OnEvent", function(self)
                                 slot._previewCdID = cdClaim
                                 slot._previewHostedBuff = true
                             end
-                        elseif hostedSid then
+                        elseif hostedSid or hostedDebuffSid then
                             -- Hosted-buff marker: previews as its spell, flagged so
                             -- the per-icon menu takes the buff branch while the same
                             -- id's cooldown slot keeps the cd/util one.
-                            local displayID = ResolveToLive(hostedSid)
+                            local auraSid = hostedSid or hostedDebuffSid
+                            local displayID = ResolveToLive(auraSid)
                             tex = C_Spell.GetSpellTexture(displayID)
-                            if not tex and displayID ~= hostedSid then
-                                tex = C_Spell.GetSpellTexture(hostedSid)
+                            if not tex and displayID ~= auraSid then
+                                tex = C_Spell.GetSpellTexture(auraSid)
                             end
-                            slot._previewSpellID = hostedSid
+                            slot._previewSpellID = auraSid
                             slot._previewHostedBuff = true
                         elseif id <= -100 then
                             -- On-use bag item: negated itemID
@@ -15706,13 +15792,19 @@ initFrame:SetScript("OnEvent", function(self)
             -- Second "+" (buff) button sits one slot right of the standard "+",
             -- on CD/utility bars only (buff-family / custom_buff / focuskick bars
             -- track buffs their own way).
-            if not isBuffBar and not isCustomBuffBar and not isFocusKick then
+            if not isBuffBar and not isDebuffBar and not isCustomBuffBar and not isFocusKick then
                 PP.Size(buffAddBtn, iconSize, iconH); buffAddBtn:ClearAllPoints()
                 PP.Point(buffAddBtn, "TOPLEFT", self, "TOPLEFT", addPx + iconSize + spacing, addPy)
                 if PP.GetBorders(buffAddBtn) then PP.SetBorderSize(buffAddBtn, 1) end
                 buffAddBtn:Show()
+                PP.Size(debuffAddBtn, iconSize, iconH); debuffAddBtn:ClearAllPoints()
+                PP.Point(debuffAddBtn, "TOPLEFT", self, "TOPLEFT",
+                    addPx + 2 * (iconSize + spacing), addPy)
+                if PP.GetBorders(debuffAddBtn) then PP.SetBorderSize(debuffAddBtn, 1) end
+                debuffAddBtn:Show()
             else
                 buffAddBtn:Hide()
+                debuffAddBtn:Hide()
             end
 
             -- Bar background covers spell grid only (not the + column)
@@ -15767,7 +15859,7 @@ initFrame:SetScript("OnEvent", function(self)
                 self:SetHeight(totalH + 10 + rh:GetStringHeight() + 20)
             end
 
-            if isBuffBar then
+            if isBuffBar or isDebuffBar then
                 if self._buffInfoText then self._buffInfoText:Hide() end
                 if self._buffInfoClick then self._buffInfoClick:Hide() end
                 -- Clean up hidden rows from previous implementation
@@ -16102,8 +16194,10 @@ initFrame:SetScript("OnEvent", function(self)
             return barData
         end
 
-        local isDefault = (barData.key == "cooldowns" or barData.key == "utility" or barData.key == "buffs")
+        local isDefault = (barData.key == "cooldowns" or barData.key == "utility"
+            or barData.key == "buffs" or barData.key == "debuffs")
         local isBuffBar = ns.IsBarBuffFamily(barData)
+            or (ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(barData))
         -- FocusKick is the special nameplate-anchored bar. Most options panel
         -- sections are hidden for it; only Icon Display + a custom Nameplate
         -- Anchor row are shown.
@@ -16180,7 +16274,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local order, seen, byKey = {}, {}, {}
                 for _, b in ipairs(bars) do
                     if b.key and not b.isGhostBar and b.key ~= "cooldowns"
-                       and b.key ~= "utility" and b.key ~= "buffs" and b.key ~= "focuskick" then
+                       and b.key ~= "utility" and b.key ~= "buffs"
+                       and b.key ~= "debuffs" and b.key ~= "focuskick" then
                         byKey[b.key] = b
                     end
                 end
@@ -16214,7 +16309,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local mH = 4
                 local customCount = 0
                 for _, b in ipairs(bars) do
-                    if b.key ~= "cooldowns" and b.key ~= "utility" and b.key ~= "buffs" and not b.isGhostBar then
+                    if b.key ~= "cooldowns" and b.key ~= "utility"
+                       and b.key ~= "buffs" and b.key ~= "debuffs" and not b.isGhostBar then
                         customCount = customCount + 1
                     end
                 end
@@ -16275,7 +16371,8 @@ initFrame:SetScript("OnEvent", function(self)
                     -- FocusKick is treated as a built-in: cannot be deleted
                     -- or renamed even though its barType is "cooldowns".
                     local isFocusKick = (b.key == "focuskick")
-                    local isCustom = (b.key ~= "cooldowns" and b.key ~= "utility" and b.key ~= "buffs" and not isFocusKick)
+                    local isCustom = (b.key ~= "cooldowns" and b.key ~= "utility"
+                        and b.key ~= "buffs" and b.key ~= "debuffs" and not isFocusKick)
 
                     -- Hint above the custom-bar band (only when reorderable).
                     if reorderable and not hintShown and ordByKey[b.key] then
@@ -16559,6 +16656,7 @@ initFrame:SetScript("OnEvent", function(self)
                     { type = "cooldowns",   label = EllesmereUI.L("+ Add New Cooldowns Bar") },
                     { type = "utility",     label = EllesmereUI.L("+ Add New Utility Bar") },
                     { type = "buffs",       label = EllesmereUI.L("+ Add New Buff Bar") },
+                    { type = "debuffs",     label = EllesmereUI.L("+ Add New Debuff Bar") },
                 }
                 for _, entry in ipairs(addBarTypes) do
                     local addItem = EllesmereUI.SafeCreateFrame("Button", nil, menu)
@@ -16733,7 +16831,9 @@ initFrame:SetScript("OnEvent", function(self)
         local function ForEachExtrasSyncBar(fn)
             local pp = DB(); if not pp or not ns.GetActiveCDMConfig(true) then return end
             for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
-                if not b.isGhostBar and b.barType ~= "buffs" and b.key ~= "buffs" and b.barType ~= "custom_buff" and b.key ~= "focuskick" then fn(b) end
+                if not b.isGhostBar and b.barType ~= "buffs" and b.key ~= "buffs"
+                   and b.barType ~= "debuffs" and b.key ~= "debuffs"
+                   and b.barType ~= "custom_buff" and b.key ~= "focuskick" then fn(b) end
             end
         end
 
@@ -16902,7 +17002,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 3: Number of Rows | Bar Opacity (cd/utility/buff, excl. focuskick)
-        local isCDOrUtilityRow3 = (barData.barType == "cooldowns" or barData.barType == "utility" or barData.barType == "buffs") and not isFocusKick
+        local isCDOrUtilityRow3 = (barData.barType == "cooldowns"
+            or barData.barType == "utility" or barData.barType == "buffs"
+            or barData.barType == "debuffs") and not isFocusKick
         local row3Right
         if isCDOrUtilityRow3 then
             row3Right = { type="slider", text="Bar Opacity",
@@ -17683,7 +17785,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        local isBuffGlowBar = isBuffBar or (barData.barType == "custom_buff")
+        local isBuffGlowBar = isBuffBar or isDebuffBar or (barData.barType == "custom_buff")
         local scaleAnimRow
         if isBuffGlowBar then
             -- Row 1: Always Show Buffs (native buff bars only) | Icon Scale.
@@ -17691,7 +17793,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- tracked buff. No edit-mode change, no reload. custom_buff bars
             -- draw their own always-on icons, so the toggle is hidden there.
             local row1Left
-            if isBuffBar then
+            if isBuffBar or isDebuffBar then
                 row1Left = { type="toggle", text="Always Show Buffs",
                     -- Mutually exclusive with "Keep Buffs in Same Place" (Bar Layout).
                     -- Disabled while that is the active choice. The extra

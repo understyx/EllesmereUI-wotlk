@@ -65,32 +65,37 @@ end
 -- textures created after this file loads) can use the same gradient code.
 do
     local probe = UIParent and UIParent:CreateTexture(nil, "BACKGROUND")
-    if probe and not probe.SetGradient and probe.SetGradientAlpha then
+    if probe and probe.SetGradientAlpha then
         local textureMethods = getmetatable(probe)
         textureMethods = textureMethods and textureMethods.__index
         if type(textureMethods) == "table" then
-            function textureMethods:SetGradient(orientation, minColor, maxColor)
-                local minR, minG, minB, minA = minColor:GetRGBA()
-                local maxR, maxG, maxB, maxA = maxColor:GetRGBA()
+            local origSetGradient = textureMethods.SetGradient
+            function textureMethods:SetGradient(orientation, minColor, maxColor, ...)
+                if type(minColor) == "table" and minColor.GetRGBA then
+                    local minR, minG, minB, minA = minColor:GetRGBA()
+                    local maxR, maxG, maxB, maxA = maxColor:GetRGBA()
 
-                -- These extended direction names are used by EllesmereUI's
-                -- options. The legacy API reverses a gradient by swapping its
-                -- endpoints.
-                if orientation == "HORIZONTAL_REV" then
-                    orientation = "HORIZONTAL"
-                    minR, minG, minB, minA, maxR, maxG, maxB, maxA =
-                        maxR, maxG, maxB, maxA, minR, minG, minB, minA
-                elseif orientation == "VERTICAL_REV" then
-                    orientation = "VERTICAL"
-                    minR, minG, minB, minA, maxR, maxG, maxB, maxA =
-                        maxR, maxG, maxB, maxA, minR, minG, minB, minA
+                    -- These extended direction names are used by EllesmereUI's
+                    -- options. The legacy API reverses a gradient by swapping its
+                    -- endpoints.
+                    if orientation == "HORIZONTAL_REV" then
+                        orientation = "HORIZONTAL"
+                        minR, minG, minB, minA, maxR, maxG, maxB, maxA =
+                            maxR, maxG, maxB, maxA, minR, minG, minB, minA
+                    elseif orientation == "VERTICAL_REV" then
+                        orientation = "VERTICAL"
+                        minR, minG, minB, minA, maxR, maxG, maxB, maxA =
+                            maxR, maxG, maxB, maxA, minR, minG, minB, minA
+                    end
+
+                    return self:SetGradientAlpha(
+                        orientation,
+                        minR, minG, minB, minA,
+                        maxR, maxG, maxB, maxA
+                    )
+                elseif origSetGradient then
+                    return origSetGradient(self, orientation, minColor, maxColor, ...)
                 end
-
-                return self:SetGradientAlpha(
-                    orientation,
-                    minR, minG, minB, minA,
-                    maxR, maxG, maxB, maxA
-                )
             end
         end
     end

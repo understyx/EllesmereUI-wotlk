@@ -199,6 +199,7 @@ local VIEWER_NAMES = {
     "UtilityCooldownViewer",
     "BuffIconCooldownViewer",
     "BuffBarCooldownViewer",
+    "DebuffIconCooldownViewer",
 }
 
 -- Blizzard creates these 4 viewer frames once and never replaces the frame
@@ -220,6 +221,7 @@ local VIEWER_TO_BAR = {
     EssentialCooldownViewer = "cooldowns",
     UtilityCooldownViewer   = "utility",
     BuffIconCooldownViewer  = "buffs",
+    DebuffIconCooldownViewer = "debuffs",
 }
 
 -- Master guard: suspend ALL hook logic while Blizzard CDM settings is open.
@@ -467,7 +469,8 @@ function ns.CdmBarHasShiftCdState(barKey)
     for _, sid in ipairs(list) do
         if sid and sid ~= 0 then
             local eff
-            local hSid = ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid)
+            local hSid = (ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid))
+                or (ns.HostedDebuffMarkerToSpell and ns.HostedDebuffMarkerToSpell(sid))
             if hSid then
                 -- Hosted buff: buff-family own entry only (hosted frames
                 -- never inherit this bar's tier).
@@ -605,6 +608,7 @@ end
 local _cdidRouteMap = {}
 
 local _divertedSpellsBuff = {}
+local _divertedSpellsDebuff = {}
 local _divertedSpellsCD   = {}
 -- cooldownID-level buff diversions: a collided buff (two viewer slots sharing
 -- one canonical spellID, e.g. Diabolist Demonic Art vs Diabolic Ritual) is
@@ -614,6 +618,7 @@ local _divertedSpellsCD   = {}
 -- outranks a whole-pair sid claim.
 local _divertedBuffCdIDs  = {}
 ns._divertedSpellsBuff = _divertedSpellsBuff
+ns._divertedSpellsDebuff = _divertedSpellsDebuff
 ns._divertedSpellsCD   = _divertedSpellsCD
 
 -- Sentinel: set true at the end of RebuildSpellRouteMap on a successful
@@ -654,6 +659,7 @@ local _routeMapBuilt = false
 function ns.RebuildSpellRouteMap()
     wipe(_cdidRouteMap)
     wipe(_divertedSpellsBuff)
+    wipe(_divertedSpellsDebuff)
     wipe(_divertedSpellsCD)
     wipe(_divertedBuffCdIDs)
     _routeMapBuilt = false
@@ -669,7 +675,10 @@ function ns.RebuildSpellRouteMap()
     local function CollectDiversionsFor(bd)
         local sd = ns.GetBarSpellData(bd.key)
         if not sd or not sd.assignedSpells then return end
-        local targetMap = IsBuffFamily and IsBuffFamily(bd) and _divertedSpellsBuff or _divertedSpellsCD
+        local barType = ns.GetBarType and ns.GetBarType(bd)
+        local targetMap = barType == "buffs" and _divertedSpellsBuff
+            or barType == "debuffs" and _divertedSpellsDebuff
+            or _divertedSpellsCD
         for _, sid in ipairs(sd.assignedSpells) do
             if type(sid) == "number" and sid > 0 then
                 SVV(targetMap, sid, bd.key, false)
@@ -683,13 +692,16 @@ function ns.RebuildSpellRouteMap()
     -- false for custom_buff. We write directly to _divertedSpellsBuff here.
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
-           and ((bd.barType == "buffs" and bd.key ~= "buffs")
+           and (((bd.barType == "buffs" and bd.key ~= "buffs")
+                or (bd.barType == "debuffs" and bd.key ~= "debuffs"))
                 or bd.barType == "custom_buff") then
             local sd = ns.GetBarSpellData(bd.key)
             if sd and sd.assignedSpells then
                 for _, sid in ipairs(sd.assignedSpells) do
                     if type(sid) == "number" and sid > 0 then
-                        SVV(_divertedSpellsBuff, sid, bd.key, false)
+                        local auraMap = bd.barType == "debuffs"
+                            and _divertedSpellsDebuff or _divertedSpellsBuff
+                        SVV(auraMap, sid, bd.key, false)
                     end
                 end
             end
@@ -711,7 +723,8 @@ function ns.RebuildSpellRouteMap()
     -- instead of the custom bar the user built for it.
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
-           and (bd.key == "cooldowns" or bd.key == "utility" or bd.key == "buffs") then
+           and (bd.key == "cooldowns" or bd.key == "utility"
+                or bd.key == "buffs" or bd.key == "debuffs") then
             CollectDiversionsFor(bd)
         end
     end
@@ -719,8 +732,10 @@ function ns.RebuildSpellRouteMap()
     -- the user deliberately placed on a custom bar wins over the default bar.
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
-           and bd.key ~= "cooldowns" and bd.key ~= "utility" and bd.key ~= "buffs"
-           and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" then
+           and bd.key ~= "cooldowns" and bd.key ~= "utility"
+           and bd.key ~= "buffs" and bd.key ~= "debuffs"
+           and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+           and bd.barType ~= "custom_buff" then
             CollectDiversionsFor(bd)
         end
     end
@@ -758,6 +773,22 @@ function ns.RebuildSpellRouteMap()
             if claims then
                 for cdID in pairs(claims) do
                     _divertedBuffCdIDs[cdID] = bd.key
+                end
+            end
+        end
+    end
+    -- Pass 3c: hosted target debuffs. Run after the debuff-bar passes so an
+    -- explicit host wins, while the separate map keeps Haunt's cooldown slot.
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
+        if bd.enabled and not bd.isGhostBar
+           and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+           and bd.barType ~= "custom_buff" then
+            local sd = ns.GetBarSpellData(bd.key)
+            if sd and sd.hostedDebuffSpellIDs then
+                for sid in pairs(sd.hostedDebuffSpellIDs) do
+                    if type(sid) == "number" and sid > 0 then
+                        SVV(_divertedSpellsDebuff, sid, bd.key, false)
+                    end
                 end
             end
         end
@@ -819,7 +850,9 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
         return viewerDefaultBar
     end
 
-    local divertMap = (viewerDefaultBar == "buffs") and _divertedSpellsBuff or _divertedSpellsCD
+    local divertMap = viewerDefaultBar == "buffs" and _divertedSpellsBuff
+        or viewerDefaultBar == "debuffs" and _divertedSpellsDebuff
+        or _divertedSpellsCD
 
     local info = gci(cdID)
     if not info then
@@ -2078,7 +2111,8 @@ local function DecorateFrame(frame, barData)
     -- override, charge logic) must never touch it, or they'd blank the duration
     -- swipe on every GCD. viewerFrame is stable per pooled frame, so flag it once.
     fd._isBuffViewerFrame = (frame.viewerFrame == _G.BuffIconCooldownViewer
-        or frame.viewerFrame == _G.BuffBarCooldownViewer) or nil
+        or frame.viewerFrame == _G.BuffBarCooldownViewer
+        or frame.viewerFrame == _G.DebuffIconCooldownViewer) or nil
 
     local iconWidget = frame.Icon
     if iconWidget and not iconWidget.GetTexture then
@@ -2899,6 +2933,7 @@ local function DecorateFrame(frame, barData)
         -- otherwise kept that direction for the whole session (buffs randomly
         -- rendering with a reversed swipe depending on pool history).
         local isBuff = (barData.barType == "buffs" or barData.key == "buffs"
+            or barData.barType == "debuffs" or barData.key == "debuffs"
             or barData.barType == "custom_buff"
             or fd._isBuffViewerFrame or frame._isPlaceholderFrame) and true or false
         fd.cooldown:SetReverse(isBuff)
@@ -3207,14 +3242,19 @@ local function CategorizeFrame(frame, viewerBarKey)
         local claimBD = barDataByKey[claimBarKey]
         local claimType = claimBD and claimBD.barType or claimBarKey
         local viewerIsBuff = (viewerBarKey == "buffs")
+        local viewerIsDebuff = (viewerBarKey == "debuffs")
         local claimIsBuff  = (claimType == "buffs" or claimType == "custom_buff")
+        local claimIsDebuff = (claimType == "debuffs")
         -- Same family always routes. A BUFF viewer resolving to a CD/util bar is
         -- also honored: that only happens for an explicit HOSTED buff (the sole
         -- writer of a CD/util bar key into _divertedSpellsBuff is the hosted-buff
         -- pass in RebuildSpellRouteMap), so the buff's real frame reparents onto
         -- the CD/util bar just like on a buff bar. A CD viewer -> buff bar is still
         -- rejected (falls through) -- that direction is never wanted.
-        if viewerIsBuff == claimIsBuff or viewerIsBuff then
+        if (viewerIsBuff and (claimIsBuff or not claimIsDebuff))
+            or (viewerIsDebuff and (claimIsDebuff or (not claimIsBuff and not claimIsDebuff)))
+            or (not viewerIsBuff and not viewerIsDebuff
+                and not claimIsBuff and not claimIsDebuff) then
             return claimBarKey, displaySID, baseSID
         end
         -- Type mismatch (CD viewer routing to a buff bar). Under the 1-spell-per-bar
@@ -4780,7 +4820,7 @@ local function CollectAndReanchor()
     for viewerName, defaultBarKey in pairs(VIEWER_TO_BAR) do
         local viewer = _G[viewerName]
         if viewer and viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
-            local isBuff = (defaultBarKey == "buffs")
+            local isBuff = (defaultBarKey == "buffs" or defaultBarKey == "debuffs")
             for frame in viewer.itemFramePool:EnumerateActive() do
                 if IsFrameIncluded(frame) then
                     allActiveFrames[frame] = true
@@ -4790,6 +4830,17 @@ local function CollectAndReanchor()
                         --  BUFF PATH: CategorizeFrame + dedup
                         -------------------------------------------------------
                         local targetBar, displaySID, baseSID = CategorizeFrame(frame, defaultBarKey)
+                        -- The synthetic WotLK debuff viewer is a catalog, not an
+                        -- auto-populated Blizzard layout. Only explicitly picked
+                        -- entries belong on the default Debuffs bar; custom-bar
+                        -- and hosted routes already resolve away from this key.
+                        if defaultBarKey == "debuffs" and targetBar == "debuffs" then
+                            local dsd = ns.GetBarSpellData("debuffs")
+                            local picked = dsd and dsd.assignedSpells
+                                and ns.FindVariantIndexInList
+                                and ns.FindVariantIndexInList(dsd.assignedSpells, displaySID)
+                            if not picked then targetBar = nil end
+                        end
                         if targetBar and displaySID and displaySID > 0 then
                             local barSeen = seenSpell[targetBar]
                             if not barSeen then barSeen = {}; seenSpell[targetBar] = barSeen end
@@ -4798,7 +4849,9 @@ local function CollectAndReanchor()
                                 if type(frame.IsShown) ~= "function" or frame:IsShown() then
                                     -- Active buff: route Blizzard's real frame.
                                     local tbd = barDataByKey[targetBar]
-                                    if tbd and tbd.barType ~= "buffs" and tbd.barType ~= "custom_buff" then
+                                    if tbd and tbd.barType ~= "buffs"
+                                       and tbd.barType ~= "debuffs"
+                                       and tbd.barType ~= "custom_buff" then
                                         -- HOSTED buff on a CD/util bar: push the real frame into the
                                         -- CD pipeline (cdFrames) so Phase 3 sorts it with cooldowns by
                                         -- assignedSpells position and draws its native swipe. FC.spellID
@@ -4873,7 +4926,8 @@ local function CollectAndReanchor()
                                     -- buff frame to a non-buff bar for an explicit host) is treated
                                     -- as a CD/util icon: it ALWAYS reserves its slot, and its
                                     -- placeholder routes through the CD pipeline (Phase 3), not barLists.
-                                    local hostCD = bd and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
+                                    local hostCD = bd and bd.barType ~= "buffs"
+                                        and bd.barType ~= "debuffs" and bd.barType ~= "custom_buff"
                                     local showInactive = bd and (bd.showInactiveBuffIcons or bd.hidePlaceholderIcon) and true or false
                                     if hostCD then showInactive = true end
                                     -- Hosted "Visibility When Missing" (per-spell, BUFF
@@ -4915,7 +4969,8 @@ local function CollectAndReanchor()
                                             elseif ssAS.alwaysShow == "off" then showInactive = false end
                                         end
                                     end
-                                    if bd and bd.enabled and (bd.barType == "buffs" or hostCD)
+                                    if bd and bd.enabled and (bd.barType == "buffs"
+                                        or bd.barType == "debuffs" or hostCD)
                                        and showInactive and hostedMissingVis ~= "hiddenShift"
                                        and targetBar ~= ns.FOCUSKICK_BAR_KEY
                                        and not ns._cdmSpecRebuildStale then
@@ -4978,7 +5033,8 @@ local function CollectAndReanchor()
                         local barKey = ResolveCDIDToBar(cdID, defaultBarKey)
                         if barKey then
                             local bd = barDataByKey[barKey]
-                            if bd and bd.barType ~= "buffs" and not bd.isGhostBar then
+                            if bd and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+                               and not bd.isGhostBar then
                                 local displaySID, baseSID = ResolveFrameSpellID(frame)
                                 if displaySID and displaySID > 0 then
                                     if not cdFrames[barKey] then cdFrames[barKey] = {} end
@@ -5448,7 +5504,8 @@ local function CollectAndReanchor()
 
     -- Clean up empty buff bars
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
-        if bd.enabled and ns.IsBarBuffFamily(bd)
+        if bd.enabled and ((ns.IsBarAuraFamily and ns.IsBarAuraFamily(bd))
+            or (ns.IsBarBuffFamily and ns.IsBarBuffFamily(bd)))
            and not bd.isGhostBar and not barLists[bd.key] then
             local icons = cdmBarIcons[bd.key]
             if icons then
@@ -5482,8 +5539,9 @@ local function CollectAndReanchor()
     -- Ensure custom-frame-only CD/utility bars get processed
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
-           and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
-           and bd.key ~= "buffs" and not cdFrames[bd.key] then
+           and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+           and bd.barType ~= "custom_buff"
+           and bd.key ~= "buffs" and bd.key ~= "debuffs" and not cdFrames[bd.key] then
             local sd = ns.GetBarSpellData(bd.key)
             if sd and sd.assignedSpells and #sd.assignedSpells > 0 then
                 cdFrames[bd.key] = {}
@@ -5549,7 +5607,8 @@ local function CollectAndReanchor()
                                 -- Hosted-buff marker: rank the BUFF frame of the
                                 -- decoded spell at this slot. Kept in its own map so
                                 -- the same spell's cooldown entry ranks independently.
-                                local hSid = ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid)
+                                local hSid = (ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid))
+                                    or (ns.HostedDebuffMarkerToSpell and ns.HostedDebuffMarkerToSpell(sid))
                                 if hSid then
                                     if not hostedOrder[hSid] then hostedOrder[hSid] = idx end
                                     if _FindOverride then
@@ -5633,6 +5692,7 @@ local function CollectAndReanchor()
                     end
                     for _, sid in ipairs(spellList) do
                         if sid and ((ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid))
+                                 or (ns.HostedDebuffMarkerToSpell and ns.HostedDebuffMarkerToSpell(sid))
                                  or (ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(sid))) then
                             -- Hosted-buff OR cd-claim (collided-buff slot) marker: the
                             -- buff renders via the reparent/diversion path (route map ->
@@ -6042,16 +6102,18 @@ local function CollectAndReanchor()
                 local bdType = ns.GetBarType and ns.GetBarType(bd) or bd.barType
                 if bd.enabled and cap and cap > 0 and tKey and tKey ~= bd.key
                    and not bd.isGhostBar and bd.key ~= ns.FOCUSKICK_BAR_KEY
-                   and bdType ~= "buffs" and bdType ~= "custom_buff"
-                   and bd.key ~= "buffs" then
+                   and bdType ~= "buffs" and bdType ~= "debuffs"
+                   and bdType ~= "custom_buff"
+                   and bd.key ~= "buffs" and bd.key ~= "debuffs" then
                     local srcList = cdFrames[bd.key]
                     if srcList and #srcList > cap and cdmBarFrames[bd.key] then
                         local tbd = barDataByKey[tKey]
                         local tType = tbd and (ns.GetBarType and ns.GetBarType(tbd) or tbd.barType)
                         local tOK = tbd and tbd.enabled and not tbd.isGhostBar
                             and tKey ~= ns.FOCUSKICK_BAR_KEY
-                            and tType ~= "buffs" and tType ~= "custom_buff"
-                            and tKey ~= "buffs" and cdmBarFrames[tKey]
+                            and tType ~= "buffs" and tType ~= "debuffs"
+                            and tType ~= "custom_buff"
+                            and tKey ~= "buffs" and tKey ~= "debuffs" and cdmBarFrames[tKey]
                         -- No-op rule: never divert while any member of this bar
                         -- has a Shift Icons cooldown-state effect (the shift
                         -- filter changes the effective count on a faster,
@@ -6275,8 +6337,9 @@ local function CollectAndReanchor()
     -- Clean up empty CD/utility bars
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
-           and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
-           and bd.key ~= "buffs" and not cdFrames[bd.key] then
+           and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+           and bd.barType ~= "custom_buff"
+           and bd.key ~= "buffs" and bd.key ~= "debuffs" and not cdFrames[bd.key] then
             local icons = cdmBarIcons[bd.key]
             if icons then
                 for i = 1, #icons do
@@ -6977,7 +7040,10 @@ function ns.SetupViewerHooks()
     for vi, vName in ipairs(VIEWER_NAMES) do
         local v = _G[vName]
         if v and v.itemFramePool then
-            local isBuff = (vi == 3 or vi == 4) -- BuffIcon or BuffBar
+            -- Aura viewers are dynamic: the compatibility debuff pool acquires
+            -- and releases frames as the current target gains or loses debuffs,
+            -- so it needs the same active-state hooks and reanchor path as buffs.
+            local isBuff = (vi == 3 or vi == 4 or vi == 5)
             local isBarViewer = (vi == 4) -- BuffBarCooldownViewer
             if type(v.itemFramePool.Acquire) == "function" then
                 hooksecurefunc(v.itemFramePool, "Acquire", function()

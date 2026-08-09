@@ -25,10 +25,12 @@ local viewerNamesByCategory = {
     [2] = "UtilityCooldownViewer",
     [3] = "BuffIconCooldownViewer",
     [4] = "BuffBarCooldownViewer",
+    [5] = "DebuffIconCooldownViewer",
 }
 
 -- Caching
 local cachedPlayerAuras = {}
+local cachedTargetDebuffs = {}
 local cachedAuraTime = 0
 
 -- Event Tracker Frame
@@ -56,7 +58,10 @@ local function ValidateDefinition(def)
     end
 
     if def.trackingType == "cooldown" and not def.spellID then return false, "Tracking type cooldown requires spellID" end
-    if def.trackingType == "aura" and not (def.spellID or def.auraSpellID) then return false, "Tracking type aura requires spellID or auraSpellID" end
+    if (def.trackingType == "aura" or def.trackingType == "debuff")
+        and not (def.spellID or def.auraSpellID) then
+        return false, "Aura tracking requires spellID or auraSpellID"
+    end
 
     return true
 end
@@ -293,9 +298,18 @@ local function RefreshAdapterVisual(frame)
         if texture then frame.Icon:SetTexture(texture) end
     end
 
+    -- IsUsableSpell includes both the normal execute threshold and proc-based
+    -- exceptions such as Sudden Death, so do not duplicate those rules here.
+    if frame.Icon and def.execute and spellID and IsUsableSpell then
+        local usable = IsUsableSpell(spellID)
+        frame.Icon:SetDesaturated(not usable)
+    end
+
     local isKnown = avail and avail.isKnown or false
     local isAura = def.trackingType == "aura"
+        or def.trackingType == "debuff"
         or def.trackingType == "cooldown_and_aura"
+        or def.trackingType == "cooldown_and_debuff"
     -- Buff-viewer adapters represent aura presence only.  A trinket's ICD is
     -- still retained as cooldown metadata, but it must not keep the tracked-
     -- buff icon visible after the proc aura fades (or make the ICD swipe
@@ -450,6 +464,9 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         auraSpellID = (avail and avail.activeAuraSpellID) or def.auraSpellID,
         hasAura = def.hasAura,
         selfAura = def.selfAura,
+        auraUnit = def.auraUnit,
+        execute = def.execute,
+        class = def.class,
 
         -- Runtime state fields expected by EllesmereUI adapters
         cooldownStart = state and state.cooldownStart or 0,
@@ -466,6 +483,7 @@ end
 -- Aura Caching
 local function UpdateAuraCache()
     wipe(cachedPlayerAuras)
+    wipe(cachedTargetDebuffs)
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HELPFUL")
         if not name then break end
@@ -480,15 +498,31 @@ local function UpdateAuraCache()
             cachedPlayerAuras[spellID] = { duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0 }
         end
     end
+    if UnitExists("target") then
+        for i = 1, 40 do
+            local name, rank, icon, count, debuffType, duration, expirationTime,
+                source, isStealable, nameplateShowPersonal, spellID =
+                UnitAura("target", i, "HARMFUL|PLAYER")
+            if not name then break end
+            if spellID and (source == nil or source == "player") then
+                cachedTargetDebuffs[spellID] = {
+                    duration = duration or 0,
+                    expirationTime = expirationTime or 0,
+                    count = count or 0,
+                }
+            end
+        end
+    end
     cachedAuraTime = GetTime()
 end
 
-local function GetCachedAura(spellID)
+local function GetCachedAura(spellID, unit)
     if not spellID then return nil end
     -- Fallback safety if accessed outside of normal flow
     if GetTime() > cachedAuraTime + 0.5 then
         UpdateAuraCache()
     end
+    if unit == "target" then return cachedTargetDebuffs[spellID] end
     return cachedPlayerAuras[spellID]
 end
 
@@ -547,7 +581,8 @@ local function ReevaluateState()
 
         if avail and avail.isKnown then
             local spellID = avail.activeSpellID
-            if (def.trackingType == "cooldown" or def.trackingType == "cooldown_and_aura")
+            if (def.trackingType == "cooldown" or def.trackingType == "cooldown_and_aura"
+                or def.trackingType == "cooldown_and_debuff")
                 and not def.internalCooldown then
                 if spellID then
                     local start, duration, enabled = GetSpellCooldown(spellID)
@@ -564,11 +599,16 @@ local function ReevaluateState()
                 state.internalCooldownExpiration = nil
             end
 
-            if def.trackingType == "aura" or def.trackingType == "cooldown_and_aura" then
+            if def.trackingType == "aura" or def.trackingType == "debuff"
+                or def.trackingType == "cooldown_and_aura"
+                or def.trackingType == "cooldown_and_debuff" then
                 local auraID = avail.activeAuraSpellID
                 if auraID then
                     local wasAuraActive = state.auraActive == true
-                    local aura = GetCachedAura(auraID)
+                    local auraUnit = (def.trackingType == "debuff"
+                        or def.trackingType == "cooldown_and_debuff")
+                        and "target" or (def.auraUnit or "player")
+                    local aura = GetCachedAura(auraID, auraUnit)
                     if aura then
                         state.auraActive = true
                         state.auraDuration = aura.duration
@@ -632,6 +672,9 @@ tracker:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 tracker:RegisterEvent("PLAYER_ENTERING_WORLD")
 tracker:RegisterEvent("UNIT_AURA")
 tracker:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+tracker:RegisterEvent("SPELL_UPDATE_USABLE")
+tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
+tracker:RegisterEvent("UNIT_HEALTH")
 tracker:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 tracker:SetScript("OnEvent", function(self, event, ...)
@@ -641,11 +684,17 @@ tracker:SetScript("OnEvent", function(self, event, ...)
         ns.RefreshCooldownViewerCompatibility()
     elseif event == "UNIT_AURA" then
         local unit = ...
-        if unit == "player" then
+        if unit == "player" or unit == "target" then
             UpdateAuraCache()
             ReevaluateState()
         end
-    elseif event == "SPELL_UPDATE_COOLDOWN" then
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        UpdateAuraCache()
+        ReevaluateState()
+    elseif event == "UNIT_HEALTH" then
+        local unit = ...
+        if unit == "target" then ReevaluateState() end
+    elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
         ReevaluateState()
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         local _, subEvent, _, _, _, destinationGUID, _, _, spellID = ...
@@ -691,7 +740,29 @@ local function CreateMockPool(categoryID)
                     -- Skip aura-only adapters whose proc is not currently active.
                     -- Their frame is hidden by RefreshAdapterVisual and should not
                     -- participate in the bar layout.
-                    if adapter._adapterActive ~= false then
+                    -- Exception: If the aura is explicitly tracked by a bar that might
+                    -- want to show an inactive placeholder (Always Show Buffs / hosted
+                    -- on a CD bar), we must yield it so the hooks layer can inject one.
+                    local forceYield = false
+                    if adapter._adapterActive == false then
+                        local def = definitions[cdID]
+                        if def then
+                            local sid = def.spellID or def.auraSpellID or def.iconSpellID
+                            if categoryID == 5 then
+                                if ns._divertedSpellsDebuff and ns._divertedSpellsDebuff[sid] then
+                                    forceYield = true
+                                end
+                            elseif categoryID == 3 or categoryID == 4 then
+                                if ns._divertedSpellsBuff and ns._divertedSpellsBuff[sid] then
+                                    forceYield = true
+                                end
+                                if ns._divertedBuffCdIDs and ns._divertedBuffCdIDs[cdID] then
+                                    forceYield = true
+                                end
+                            end
+                        end
+                    end
+                    if adapter._adapterActive ~= false or forceYield then
                         return adapter
                     end
                 end
@@ -727,3 +798,4 @@ InitMockViewer("EssentialCooldownViewer", 1)
 InitMockViewer("UtilityCooldownViewer", 2)
 InitMockViewer("BuffIconCooldownViewer", 3)
 InitMockViewer("BuffBarCooldownViewer", 4)
+InitMockViewer("DebuffIconCooldownViewer", 5)

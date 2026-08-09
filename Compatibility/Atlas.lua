@@ -19,4 +19,5 @@ _G.EUI_AtlasMap = {
     ["UI-HUD-ActionBar-IconFrame-Slot"] = "Interface\\Buttons\\UI-EmptySlot",
     ["common-icon-sound"] = "Interface\\OptionsFrame\\VoiceChat-Play",
     ["common-icon-sound-pressed"] = "Interface\\OptionsFrame\\VoiceChat-Down",
+    ["Interface\\AnimaChannelingDevice\\AnimaChannelingDeviceLineVerticalMask"] = "Interface\\AddOns\\EllesmereUI\\media\\textures\\soft-line",
 }

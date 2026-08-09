@@ -23,6 +23,7 @@ Compatibility\CDMData\Shaman.lua
 Compatibility\CDMData\Mage.lua
 Compatibility\CDMData\Warlock.lua
 Compatibility\CDMData\Druid.lua
+Compatibility\CDMData\Debuffs.lua
 
 # Main Lua
 EllesmereUICooldownManager.lua

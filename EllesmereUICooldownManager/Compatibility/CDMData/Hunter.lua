@@ -79,9 +79,10 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 40,
     spellID = 61006,
-    spellIDs = { 61005, 61006 },
+    spellIDs = { 53351, 61005, 61006 },
     iconSpellID = 61006,
     trackingType = "cooldown",
+    execute = true,
 })
 
 Register({

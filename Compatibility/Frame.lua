@@ -293,8 +293,184 @@ local function GetAtlasPath(atlas)
     return path
 end
 
+local function ParseLinePointArgs(point, arg1, arg2, arg3)
+    local rel, x, y
+    if type(arg1) == "table" or type(arg1) == "userdata" or (type(arg1) == "string" and _G[arg1]) then
+        rel = (type(arg1) == "string") and _G[arg1] or arg1
+        x = tonumber(arg2) or 0
+        y = tonumber(arg3) or 0
+    elseif type(arg1) == "number" then
+        rel = nil
+        x = arg1
+        y = tonumber(arg2) or 0
+    else
+        rel = nil
+        x = 0
+        y = 0
+    end
+    return point or "BOTTOMLEFT", rel, x, y
+end
+
+local function GetPointScreenCoord(point, rel, offX, offY)
+    local f = rel or UIParent
+    local left = (f.GetLeft and f:GetLeft()) or 0
+    local right = (f.GetRight and f:GetRight()) or left
+    local bottom = (f.GetBottom and f:GetBottom()) or 0
+    local top = (f.GetTop and f:GetTop()) or bottom
+    local cx = (left + right) * 0.5
+    local cy = (bottom + top) * 0.5
+
+    offX = offX or 0
+    offY = offY or 0
+
+    if point == "BOTTOMLEFT" then
+        return left + offX, bottom + offY
+    elseif point == "BOTTOM" then
+        return cx + offX, bottom + offY
+    elseif point == "BOTTOMRIGHT" then
+        return right + offX, bottom + offY
+    elseif point == "TOPLEFT" then
+        return left + offX, top + offY
+    elseif point == "TOP" then
+        return cx + offX, top + offY
+    elseif point == "TOPRIGHT" then
+        return right + offX, top + offY
+    elseif point == "LEFT" then
+        return left + offX, cy + offY
+    elseif point == "RIGHT" then
+        return right + offX, cy + offY
+    elseif point == "CENTER" then
+        return cx + offX, cy + offY
+    else
+        return left + offX, bottom + offY
+    end
+end
+
+local function UpdateLineGeometry(line)
+    if not line or not line.ClearAllPoints or not line.SetPoint then return end
+
+    local startPoint = line._startPoint or "BOTTOMLEFT"
+    local startRel = line._startRel
+    local startX = line._startX or 0
+    local startY = line._startY or 0
+
+    local endPoint = line._endPoint or "BOTTOMLEFT"
+    local endRel = line._endRel
+    local endX = line._endX or 0
+    local endY = line._endY or 0
+
+    local x1, y1 = GetPointScreenCoord(startPoint, startRel, startX, startY)
+    local x2, y2 = GetPointScreenCoord(endPoint, endRel, endX, endY)
+
+    local dx = x2 - x1
+    local dy = y2 - y1
+    local length = math.sqrt(dx * dx + dy * dy)
+    local thickness = line._thickness or 1
+    if thickness <= 0 then thickness = 1 end
+
+    local midX = (x1 + x2) * 0.5
+    local midY = (y1 + y2) * 0.5
+
+    line:ClearAllPoints()
+    if length <= 0.001 then
+        line:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x1, y1)
+        line:SetWidth(0.001)
+        line:SetHeight(thickness)
+        if line.SetRotation then line:SetRotation(0) end
+    else
+        line:SetPoint("CENTER", UIParent, "BOTTOMLEFT", midX, midY)
+        line:SetWidth(length)
+        line:SetHeight(thickness)
+        if line.SetRotation then
+            line:SetRotation(math.atan2(dy, dx))
+        end
+    end
+end
+
+local function Line_SetThickness(self, thickness)
+    self._thickness = tonumber(thickness) or 1
+    if self._startPoint and self._endPoint then
+        UpdateLineGeometry(self)
+    end
+end
+
+local function Line_GetThickness(self)
+    return self._thickness or 1
+end
+
+local function Line_SetStartPoint(self, point, arg1, arg2, arg3)
+    local pt, rel, x, y = ParseLinePointArgs(point, arg1, arg2, arg3)
+    self._startPoint = pt
+    self._startRel = rel
+    self._startX = x
+    self._startY = y
+    if self._endPoint then
+        UpdateLineGeometry(self)
+    end
+end
+
+local function Line_SetEndPoint(self, point, arg1, arg2, arg3)
+    local pt, rel, x, y = ParseLinePointArgs(point, arg1, arg2, arg3)
+    self._endPoint = pt
+    self._endRel = rel
+    self._endX = x
+    self._endY = y
+    if self._startPoint then
+        UpdateLineGeometry(self)
+    end
+end
+
+local function Line_GetStartPoint(self)
+    return self._startPoint or "BOTTOMLEFT", self._startRel, self._startX or 0, self._startY or 0
+end
+
+local function Line_GetEndPoint(self)
+    return self._endPoint or "BOTTOMLEFT", self._endRel, self._endX or 0, self._endY or 0
+end
+
+local function Line_SetVertices(self, x1, y1, x2, y2)
+    self._startPoint = "BOTTOMLEFT"
+    self._startRel = nil
+    self._startX = x1 or 0
+    self._startY = y1 or 0
+    self._endPoint = "BOTTOMLEFT"
+    self._endRel = nil
+    self._endX = x2 or 0
+    self._endY = y2 or 0
+    UpdateLineGeometry(self)
+end
+
+local function LineCompat(line)
+    if not line then return line end
+    line._thickness = line._thickness or 1
+    if not line.SetThickness then line.SetThickness = Line_SetThickness end
+    if not line.GetThickness then line.GetThickness = Line_GetThickness end
+    if not line.SetStartPoint then line.SetStartPoint = Line_SetStartPoint end
+    if not line.SetEndPoint then line.SetEndPoint = Line_SetEndPoint end
+    if not line.GetStartPoint then line.GetStartPoint = Line_GetStartPoint end
+    if not line.GetEndPoint then line.GetEndPoint = Line_GetEndPoint end
+    if not line.SetSnapToPixelGrid then line.SetSnapToPixelGrid = function(self, snap) end end
+    if not line.GetSnapToPixelGrid then line.GetSnapToPixelGrid = function(self) return false end end
+    if not line.SetTexelSnappingBias then line.SetTexelSnappingBias = function(self, bias) end end
+    if not line.GetTexelSnappingBias then line.GetTexelSnappingBias = function(self) return 0 end end
+    if not line.SetStartAlpha then line.SetStartAlpha = function(self, alpha) end end
+    if not line.SetEndAlpha then line.SetEndAlpha = function(self, alpha) end end
+    if not line.SetVertices then line.SetVertices = Line_SetVertices end
+    return line
+end
+
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
+
+    if not frame.CreateLine then
+        frame.CreateLine = function(self, name, layer, inheritsFrom, subLayer)
+            local line = self:CreateTexture(name, layer, inheritsFrom, subLayer)
+            if line then
+                LineCompat(line)
+            end
+            return line
+        end
+    end
 
     -- Reverse-fill was added after the 3.3.5 StatusBar API.  Keep the setting
     -- readable on legacy clients so retail-era unit-frame code can use the
@@ -337,7 +513,6 @@ function EUI.API.ApplyFrameCompat(frame)
 
     if not frame.SetColorTexture then
         frame.SetColorTexture = function(self, r, g, b, a)
-            -- Legacy SetTexture does not create a solid texture from RGBA
             -- values. Give it real texture data, then tint that texture.
             self:SetTexture("Interface\\Buttons\\WHITE8X8")
             self:SetVertexColor(r, g, b, a or 1)
@@ -569,6 +744,61 @@ if not GetPhysicalScreenSize then
     end
 end
 
+local function PolyfillSetGradient(region)
+    if not region
+        or not region.SetGradientAlpha
+        or region._SetGradientHooked
+    then
+        return
+    end
+
+    region._SetGradientHooked = true
+
+    local origSetGradient = region.SetGradient
+
+    region.SetGradient = function(self, orientation, minColor, maxColor, ...)
+        if type(minColor) == "table"
+            and minColor.GetRGBA
+            and type(maxColor) == "table"
+            and maxColor.GetRGBA
+        then
+            local minR, minG, minB, minA = minColor:GetRGBA()
+            local maxR, maxG, maxB, maxA = maxColor:GetRGBA()
+
+            if orientation == "HORIZONTAL_REV" then
+                orientation = "HORIZONTAL"
+                minR, minG, minB, minA,
+                maxR, maxG, maxB, maxA =
+                    maxR, maxG, maxB, maxA,
+                    minR, minG, minB, minA
+
+            elseif orientation == "VERTICAL_REV" then
+                orientation = "VERTICAL"
+                minR, minG, minB, minA,
+                maxR, maxG, maxB, maxA =
+                    maxR, maxG, maxB, maxA,
+                    minR, minG, minB, minA
+            end
+
+            return self:SetGradientAlpha(
+                orientation,
+                minR, minG, minB, minA,
+                maxR, maxG, maxB, maxA
+            )
+        end
+
+        if origSetGradient then
+            return origSetGradient(
+                self,
+                orientation,
+                minColor,
+                maxColor,
+                ...
+            )
+        end
+    end
+end
+
 -- Global metatable patching for WoW 3.3.5 frame compatibility methods.
 -- In WoW 3.3.5 all widget instances of the same type share a single C metatable
 -- whose __index is a plain Lua table.  Inserting here fixes EVERY instance of
@@ -705,6 +935,7 @@ local function PatchWidgetMetatable(obj)
                 self:SetVertexColor(r, g, b, a or 1)
             end
         end
+        PolyfillSetGradient(idx)
         if not idx.SetAtlas then
             idx.SetAtlas = function(self, atlas, useAtlasSize)
                 local path = GetAtlasPath(atlas)
@@ -735,6 +966,28 @@ local function PatchWidgetMetatable(obj)
                 if self.SetHighlightTexture then self:SetHighlightTexture(path) end
             end
         end
+        if not idx.CreateLine then
+            idx.CreateLine = function(self, name, layer, inheritsFrom, subLayer)
+                local line = self:CreateTexture(name, layer, inheritsFrom, subLayer)
+                if line then
+                    LineCompat(line)
+                end
+                return line
+            end
+        end
+        if not idx.SetThickness then idx.SetThickness = Line_SetThickness end
+        if not idx.GetThickness then idx.GetThickness = Line_GetThickness end
+        if not idx.SetStartPoint then idx.SetStartPoint = Line_SetStartPoint end
+        if not idx.SetEndPoint then idx.SetEndPoint = Line_SetEndPoint end
+        if not idx.GetStartPoint then idx.GetStartPoint = Line_GetStartPoint end
+        if not idx.GetEndPoint then idx.GetEndPoint = Line_GetEndPoint end
+        if not idx.SetSnapToPixelGrid then idx.SetSnapToPixelGrid = function(self, snap) end end
+        if not idx.GetSnapToPixelGrid then idx.GetSnapToPixelGrid = function(self) return false end end
+        if not idx.SetTexelSnappingBias then idx.SetTexelSnappingBias = function(self, bias) end end
+        if not idx.GetTexelSnappingBias then idx.GetTexelSnappingBias = function(self) return 0 end end
+        if not idx.SetStartAlpha then idx.SetStartAlpha = function(self, alpha) end end
+        if not idx.SetEndAlpha then idx.SetEndAlpha = function(self, alpha) end end
+        if not idx.SetVertices then idx.SetVertices = Line_SetVertices end
         local isCooldown = obj.GetObjectType and obj:GetObjectType() == "Cooldown"
         if isCooldown or idx.SetCooldown then
             ApplyCooldownCompat(idx)
@@ -817,6 +1070,7 @@ local function PatchWidgetMetatable(obj)
                 self:SetVertexColor(r, g, b, a or 1)
             end
         end
+        PolyfillSetGradient(obj)
         if not obj.SetAtlas then
             obj.SetAtlas = function(self, atlas, useAtlasSize)
                 local path = GetAtlasPath(atlas)
@@ -847,6 +1101,28 @@ local function PatchWidgetMetatable(obj)
                 if self.SetHighlightTexture then self:SetHighlightTexture(path) end
             end
         end
+        if not obj.CreateLine then
+            obj.CreateLine = function(self, name, layer, inheritsFrom, subLayer)
+                local line = self:CreateTexture(name, layer, inheritsFrom, subLayer)
+                if line then
+                    LineCompat(line)
+                end
+                return line
+            end
+        end
+        if not obj.SetThickness then obj.SetThickness = Line_SetThickness end
+        if not obj.GetThickness then obj.GetThickness = Line_GetThickness end
+        if not obj.SetStartPoint then obj.SetStartPoint = Line_SetStartPoint end
+        if not obj.SetEndPoint then obj.SetEndPoint = Line_SetEndPoint end
+        if not obj.GetStartPoint then obj.GetStartPoint = Line_GetStartPoint end
+        if not obj.GetEndPoint then obj.GetEndPoint = Line_GetEndPoint end
+        if not obj.SetSnapToPixelGrid then obj.SetSnapToPixelGrid = function(self, snap) end end
+        if not obj.GetSnapToPixelGrid then obj.GetSnapToPixelGrid = function(self) return false end end
+        if not obj.SetTexelSnappingBias then obj.SetTexelSnappingBias = function(self, bias) end end
+        if not obj.GetTexelSnappingBias then obj.GetTexelSnappingBias = function(self) return 0 end end
+        if not obj.SetStartAlpha then obj.SetStartAlpha = function(self, alpha) end end
+        if not obj.SetEndAlpha then obj.SetEndAlpha = function(self, alpha) end end
+        if not obj.SetVertices then obj.SetVertices = Line_SetVertices end
         local isCooldown = obj.GetObjectType and obj:GetObjectType() == "Cooldown"
         if isCooldown or obj.SetCooldown then
             ApplyCooldownCompat(obj)

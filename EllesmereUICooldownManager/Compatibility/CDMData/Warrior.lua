@@ -147,6 +147,22 @@ C_CooldownViewer.RegisterDefinition({
     class = "WARRIOR",
 })
 
+-- Execute has no meaningful long cooldown, but belongs in the ability viewer
+-- so its readiness can be shown. The compatibility renderer desaturates it
+-- using IsUsableSpell, which also honors Sudden Death above execute range.
+C_CooldownViewer.RegisterDefinition({
+    key = "warrior.execute",
+    cooldownID = 101021,
+    category = CDM_CATEGORY_ESSENTIAL,
+    order = 90,
+    spellID = 47471,
+    spellIDs = { 5308, 20658, 20660, 20661, 20662, 25234, 25236, 47470, 47471 },
+    iconSpellID = 47471,
+    trackingType = "cooldown",
+    execute = true,
+    class = "WARRIOR",
+})
+
 -- Mobility, interrupt, crowd-control, and secondary cooldowns
 C_CooldownViewer.RegisterDefinition({
     key = "warrior.charge",

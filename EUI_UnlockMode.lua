@@ -10649,7 +10649,7 @@ local function CreateUnlockFrame()
         line:SetThickness(3)
         line:SetSnapToPixelGrid(false)
         line:SetTexelSnappingBias(0)
-        line:SetTexture("Interface\\AnimaChannelingDevice\\AnimaChannelingDeviceLineVerticalMask")
+        line:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\textures\\soft-line")
         anchorPulsePool[idx] = line
         return line
     end

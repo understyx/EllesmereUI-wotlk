@@ -230,7 +230,9 @@ ns.GetCanonicalSpellIDForFrame = GetCanonicalSpellIDForFrame
 -------------------------------------------------------------------------------
 local function EnumerateCDMViewerSpells(includeBuffViewer)
     local viewers
-    if includeBuffViewer then
+    if includeBuffViewer == "debuff" then
+        viewers = { "DebuffIconCooldownViewer" }
+    elseif includeBuffViewer then
         viewers = { "BuffIconCooldownViewer" }
     else
         viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
@@ -396,6 +398,11 @@ function ns.RemoveSpellFromBar(barKey, spellID)
         hostedSid = removed
     end
     if hostedSid and sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs[hostedSid] = nil end
+    local hostedDebuffSid = ns.HostedDebuffMarkerToSpell
+        and ns.HostedDebuffMarkerToSpell(removed)
+    if hostedDebuffSid and sd.hostedDebuffSpellIDs then
+        sd.hostedDebuffSpellIDs[hostedDebuffSid] = nil
+    end
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
     return removed
@@ -483,6 +490,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
     -- Utility viewers for CD/util bars. ns.* exports because IsBarBuffFamily
     -- is defined further down in this file (forward reference).
     local isBuffType = ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey) or false
+    local isDebuffType = ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(barKey) or false
 
     -- Variant-keyed lookup of spells already on THIS bar (for onEUIBar flag).
     local ourPool = {}
@@ -499,7 +507,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
     -- (sid, cdID, viewerName, viewerOrder, layoutIndex) sorted by render
     -- order across all relevant viewers. Picker only enumerates pool members,
     -- so every returned spell is by definition tracked by Blizzard's CDM.
-    local entries = EnumerateCDMViewerSpells(isBuffType)
+    local entries = EnumerateCDMViewerSpells(isDebuffType and "debuff" or isBuffType)
 
     local spells = {}
     for _, e in ipairs(entries) do
@@ -514,12 +522,40 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                 name        = name,
                 icon        = tex,
                 cdmCat      = e.viewerOrder,  -- preserve viewer grouping for sort
-                cdmCatGroup = isBuffType and "buff" or "cooldown",
+                cdmCatGroup = isDebuffType and "debuff" or (isBuffType and "buff" or "cooldown"),
                 onEUIBar    = isOnThisBar,
                 -- Live viewer pool members are always learned. Catalog
                 -- entries appended below may not be.
                 isKnown     = true,
             }
+        end
+    end
+
+    -- WotLK compatibility debuffs only acquire a live viewer frame while the
+    -- current target actually has the aura. Append the static category so the
+    -- picker remains useful out of combat and before the first application.
+    if isDebuffType and C_CooldownViewer
+       and C_CooldownViewer.GetCooldownViewerCategorySet
+       and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local seenCd = {}
+        for _, e in ipairs(entries) do if e.cdID then seenCd[e.cdID] = true end end
+        local allDebuffs = C_CooldownViewer.GetCooldownViewerCategorySet(5, true) or {}
+        local _, playerClass = UnitClass("player")
+        for _, cdID in ipairs(allDebuffs) do
+            if not seenCd[cdID] then
+                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                local sid = info and (info.spellID or info.auraSpellID)
+                local name = sid and C_Spell.GetSpellName(sid)
+                if name and (not info.class or info.class == playerClass) then
+                    spells[#spells + 1] = {
+                        cdID = cdID, spellID = sid, name = name,
+                        icon = C_Spell.GetSpellTexture(sid),
+                        cdmCat = 0, cdmCatGroup = "debuff",
+                        onEUIBar = (ResolveVariantValue(ourPool, sid) == true),
+                        isKnown = IsPlayerSpell and IsPlayerSpell(sid) or false,
+                    }
+                end
+            end
         end
     end
 
@@ -530,7 +566,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
     -- spells never appear). When the provider is unavailable the catalog is
     -- nil and nothing is appended (identical to the old behavior). Buff
     -- pickers are untouched.
-    if not isBuffType and ns.EnumerateCDMSettingsCatalog then
+    if not isBuffType and not isDebuffType and ns.EnumerateCDMSettingsCatalog then
         local catalog = ns.EnumerateCDMSettingsCatalog()
         if catalog then
             local evc = Enum and Enum.CooldownViewerCategory
@@ -745,8 +781,9 @@ function ns.MigrateSpecToBarFilterModelV6()
     local assignedSet = {}
     for _, bd in ipairs(barList) do
         if bd.enabled and not bd.isGhostBar
-           and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
-           and bd.key ~= "buffs" then
+           and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+           and bd.barType ~= "custom_buff"
+           and bd.key ~= "buffs" and bd.key ~= "debuffs" then
             local bs = prof.barSpells[bd.key]
             if bs and bs.assignedSpells then
                 for _, sid in ipairs(bs.assignedSpells) do
@@ -1392,6 +1429,7 @@ local function ResolveBarType(bdOrKey)
     if key == "cooldowns" then return "cooldowns" end
     if key == "utility"   then return "utility"   end
     if key == "buffs"     then return "buffs"     end
+    if key == "debuffs"   then return "debuffs"   end
 
     return nil
 end
@@ -1420,6 +1458,17 @@ local function IsBarBuffFamily(bdOrKey)
     return barType == "buffs"
 end
 ns.IsBarBuffFamily = IsBarBuffFamily
+
+local function IsBarDebuffFamily(bdOrKey)
+    return ResolveBarType(bdOrKey) == "debuffs"
+end
+ns.IsBarDebuffFamily = IsBarDebuffFamily
+
+local function IsBarAuraFamily(bdOrKey)
+    local barType = ResolveBarType(bdOrKey)
+    return barType == "buffs" or barType == "debuffs"
+end
+ns.IsBarAuraFamily = IsBarAuraFamily
 
 -- Old local alias for backward compat within this file
 local GetBarType = ResolveBarType
@@ -1488,7 +1537,7 @@ local function RebuildCDMSpellCaches()
     if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return end
     local gci = C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return end
-    for cat = 0, 3 do
+    for cat = 0, 5 do
         local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
         if knownIDs then
             for _, cdID in ipairs(knownIDs) do
@@ -1635,11 +1684,14 @@ function ns.AddTrackedSpell(barKey, id)
     -- their own.
     local targetBd = barDataByKey[barKey]
     local p = ECME.db.profile
-    local targetIsBuff = IsBarBuffFamily(barKey)
+    local targetFamily = ResolveBarType(targetBd or barKey)
+    if targetFamily ~= "buffs" and targetFamily ~= "debuffs" then targetFamily = "cooldown" end
     if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars then
         for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
             if b.key ~= barKey and b.barType ~= "custom_buff" then
-                if IsBarBuffFamily(b) == targetIsBuff then
+                local otherFamily = ResolveBarType(b)
+                if otherFamily ~= "buffs" and otherFamily ~= "debuffs" then otherFamily = "cooldown" end
+                if otherFamily == targetFamily then
                     ns.RemoveSpellFromBar(b.key, id)
                 end
             end
@@ -1736,6 +1788,21 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     return true
 end
 
+--- Place a target DEBUFF on a CD/utility bar. A distinct marker keeps the
+--- debuff slot independent from both the spell's cooldown and a same-ID buff.
+function ns.AddDebuffToCDUtilBar(barKey, spellID)
+    if type(spellID) ~= "number" or spellID <= 0 then return false end
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    sd.hostedDebuffSpellIDs = sd.hostedDebuffSpellIDs or {}
+    if sd.hostedDebuffSpellIDs[spellID] then return true end
+    ns.AddTrackedSpell(barKey, ns.HostedDebuffMarker(spellID))
+    sd.hostedDebuffSpellIDs[spellID] = true
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
 --- Host a single collided-buff SLOT (cooldownID) on a CD/util bar. Same
 --- collision escape hatch as ns.AddTrackedBuffByCdID (buff-family bars): two
 --- viewer slots can share one canonical spellID (Diabolist Demonic Art vs
@@ -1787,12 +1854,16 @@ function ns.RemoveTrackedSpell(barKey, idx)
     -- the list). A plain entry WITH a marker present is the same spell's
     -- COOLDOWN slot -- the hosted buff stays.
     local hostedSid = removedID and ns.HostedBuffMarkerToSpell(removedID)
+    local hostedDebuffSid = removedID and ns.HostedDebuffMarkerToSpell
+        and ns.HostedDebuffMarkerToSpell(removedID)
     if not hostedSid and removedID and removedID > 0
        and sd.hostedBuffSpellIDs and sd.hostedBuffSpellIDs[removedID]
        and not ns.ListHasHostedMarker(list, removedID) then
         hostedSid = removedID
     end
-    if hostedSid then
+    if hostedDebuffSid then
+        if sd.hostedDebuffSpellIDs then sd.hostedDebuffSpellIDs[hostedDebuffSid] = nil end
+    elseif hostedSid then
         -- Un-host: clear the flag so the route map stops diverting the buff
         -- here (it returns to the buffs bar). Never ghost-route a hosted
         -- buff -- the ghost bar hides by spellID, so it would also hide the
@@ -1820,7 +1891,7 @@ function ns.RemoveTrackedSpell(barKey, idx)
             and ((sd.customSpellIDs and sd.customSpellIDs[removedID])
               or (ns._myRacialsSet and ns._myRacialsSet[removedID]))
         if removedID and removedID > 0 and not isNonViewer
-           and not IsBarBuffFamily(barKey) then
+           and not (ns.IsBarAuraFamily and ns.IsBarAuraFamily(barKey)) then
             ns.AddSpellToBar(ns.GHOST_CD_BAR_KEY, removedID)
         end
     end
@@ -1869,7 +1940,8 @@ function ns.AddCDMBar(barType, name, numRows)
     -- Count existing custom bars (non-default)
     local customCount = 0
     for _, b in ipairs(bars) do
-        if b.key ~= "cooldowns" and b.key ~= "utility" and b.key ~= "buffs" and not b.isGhostBar then
+        if b.key ~= "cooldowns" and b.key ~= "utility" and b.key ~= "buffs"
+           and b.key ~= "debuffs" and not b.isGhostBar then
             customCount = customCount + 1
         end
     end
@@ -1879,6 +1951,7 @@ function ns.AddCDMBar(barType, name, numRows)
     local typeLabel = barType == "cooldowns" and "Cooldowns"
                    or barType == "utility" and "Utility"
                    or barType == "buffs" and "Buffs"
+                   or barType == "debuffs" and "Debuffs"
                    or barType == "custom_buff" and "Auras"
                    or "Cooldowns"
     -- Count existing custom bars of this type for numbering
@@ -1935,7 +2008,7 @@ end
 -- opposite of what the user wanted (they explicitly created the custom
 -- bar to put those spells somewhere specific).
 function ns.RemoveCDMBar(key)
-    if key == "cooldowns" or key == "utility" or key == "buffs" then return false end
+    if key == "cooldowns" or key == "utility" or key == "buffs" or key == "debuffs" then return false end
     local RegisterCDMUnlockElements = ns.RegisterCDMUnlockElements
     local p = ECME.db.profile
     for i, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do

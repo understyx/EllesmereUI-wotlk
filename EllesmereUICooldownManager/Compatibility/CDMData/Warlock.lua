@@ -110,6 +110,10 @@ Register({
     spellIDs = { 47826, 47827 },
     iconSpellID = 47827,
     trackingType = "cooldown",
+    -- Shadowburn requires the target to be below 20% health.
+    -- IsUsableSpell handles the health threshold check, so the icon
+    -- desaturates automatically when the target is not in execute range.
+    execute = true,
     resolvers = {
         requirements = function()
             return HasLearnedTalent(3, 3) -- Destro: Shadowburn

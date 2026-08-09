@@ -273,6 +273,7 @@ local _cdmViewerNames = {
     "UtilityCooldownViewer",
     "BuffIconCooldownViewer",
     "BuffBarCooldownViewer",
+    "DebuffIconCooldownViewer",
 }
 
 -- External frame cache: stores all addon data keyed by Blizzard frame references
@@ -541,6 +542,26 @@ local DEFAULTS = {
                     bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
                     iconZoom = 0.08, iconShape = "none",
                     verticalOrientation = false, barBgEnabled = false,                    barBgR = 0, barBgG = 0, barBgB = 0,
+                    borderThickness = "thin",
+                    anchorTo = "none", anchorPosition = "left",
+                    anchorOffsetX = 0, anchorOffsetY = 0,
+                    barVisibility = "always", visOnlyInstances = false,
+                    visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
+                    showCooldownText = true, cooldownTextPosition = "center",
+                    showItemCount = true, showTooltip = false, showKeybind = false,
+                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
+                    keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
+                },
+                {
+                    key = "debuffs", name = "Debuffs", enabled = true,
+                    barType = "debuffs",
+                    iconSize = 32, numRows = 1, spacing = 2,
+                    borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
+                    borderClassColor = false, borderTexture = "solid",
+                    bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
+                    iconZoom = 0.08, iconShape = "none",
+                    verticalOrientation = false, barBgEnabled = false,
+                    barBgR = 0, barBgG = 0, barBgB = 0,
                     borderThickness = "thin",
                     anchorTo = "none", anchorPosition = "left",
                     anchorOffsetX = 0, anchorOffsetY = 0,
@@ -890,6 +911,7 @@ end
 --  existing negative-id branch keeps working; anything <= -BASE is a marker.
 -------------------------------------------------------------------------------
 ns.HOSTED_BUFF_MARKER_BASE = 2000000000
+ns.HOSTED_DEBUFF_MARKER_BASE = 2500000000
 
 -------------------------------------------------------------------------------
 --  Equipment-slot entries. A bar entry can store a negated INVENTORY SLOT id
@@ -923,12 +945,24 @@ function ns.HostedBuffMarker(spellID)
 end
 
 -- Decode a hosted-buff marker to its spellID; nil for anything else. Bounded
--- above by CD_CLAIM_MARKER_BASE so a cd-claim marker (below) never misdecodes
+-- above by the debuff marker namespace so other marker kinds never misdecode
 -- as a hosted-buff spellID.
 function ns.HostedBuffMarkerToSpell(id)
     if type(id) == "number" and id <= -ns.HOSTED_BUFF_MARKER_BASE
-       and id > -ns.CD_CLAIM_MARKER_BASE then
+       and id > -ns.HOSTED_DEBUFF_MARKER_BASE then
         return -id - ns.HOSTED_BUFF_MARKER_BASE
+    end
+    return nil
+end
+
+function ns.HostedDebuffMarker(spellID)
+    return -(ns.HOSTED_DEBUFF_MARKER_BASE + spellID)
+end
+
+function ns.HostedDebuffMarkerToSpell(id)
+    if type(id) == "number" and id <= -ns.HOSTED_DEBUFF_MARKER_BASE
+       and id > -ns.CD_CLAIM_MARKER_BASE then
+        return -id - ns.HOSTED_DEBUFF_MARKER_BASE
     end
     return nil
 end
@@ -1705,7 +1739,7 @@ ns.EnsureMappings = EnsureMappings
 --  Every CDM subsystem, including bar structure/settings/positions, is owned
 --  by the active specialization container.
 -------------------------------------------------------------------------------
-local MAIN_BAR_KEYS = { cooldowns = true, utility = true, buffs = true }
+local MAIN_BAR_KEYS = { cooldowns = true, utility = true, buffs = true, debuffs = true }
 
 -- Ghost CD bar: hidden routing sink for CD/utility spells. When the user "removes"
 -- a spell from a CD or utility bar, it routes here instead of being deleted.
@@ -2198,7 +2232,8 @@ end
 
 local CDM_ROOT_NAMES = {
     "BuffIconCooldownViewer", "BuffBarCooldownViewer",
-    "EssentialCooldownViewer", "UtilityCooldownViewer",
+    "DebuffIconCooldownViewer", "EssentialCooldownViewer",
+    "UtilityCooldownViewer",
 }
 
 local function UpdateAllCDMBorders()
@@ -2857,6 +2892,7 @@ local BLIZZ_CDM_FRAMES = {
     cooldowns = "EssentialCooldownViewer",
     utility   = "UtilityCooldownViewer",
     buffs     = "BuffIconCooldownViewer",
+    debuffs   = "DebuffIconCooldownViewer",
 }
 
 -- BuffBarCooldownViewer is the Blizzard buff bar strip. We hide it alongside
@@ -2871,6 +2907,7 @@ local CDM_BAR_CATEGORIES = {
     cooldowns = { 0, 1 },    -- Essential + Utility
     utility   = { 0, 1 },    -- Essential + Utility
     buffs     = { 2, 3 },    -- Tracked Buff + Tracked Debuff
+    debuffs   = { 4 },       -- WotLK compatibility target-debuff viewer
 }
 
 -- Maximum number of custom bars a user can create
@@ -4118,6 +4155,8 @@ BuildCDMBar = function(barIndex)
                     frame:SetPoint("CENTER", UIParent, "CENTER", 0, -320)
                 elseif key == "buffs" then
                     frame:SetPoint("CENTER", UIParent, "CENTER", 0, -365)
+                elseif key == "debuffs" then
+                    frame:SetPoint("CENTER", UIParent, "CENTER", 0, -405)
                 else
                     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
                 end
@@ -4252,7 +4291,9 @@ local function GetStableCDMBarSize(barKey, frame, barData)
     -- the empty frame -- and the unlock overlay that mirrors it -- reflect the
     -- icon size, instead of the generic placeholder that otherwise persisted
     -- until a buff was acquired once.
-    if barData and ((ns.IsBarBuffFamily and ns.IsBarBuffFamily(barData)) or barData.barType == "custom_buff") then
+    if barData and ((ns.IsBarAuraFamily and ns.IsBarAuraFamily(barData))
+        or (ns.IsBarBuffFamily and ns.IsBarBuffFamily(barData))
+        or barData.barType == "custom_buff") then
         return ComputeCDMBarSize(barData, 1)
     end
 
@@ -4550,7 +4591,9 @@ LayoutCDMBar = function(barKey)
     local unlockKey = "CDM_" .. barKey
     -- Freeze buff-family bar size during unlock mode so the mover overlay
     -- stays in sync (overlay doesn't dynamically resize with buff count).
-    local skipResize = EllesmereUI._unlockActive and ns.IsBarBuffFamily(barData)
+    local skipResize = EllesmereUI._unlockActive
+        and ((ns.IsBarAuraFamily and ns.IsBarAuraFamily(barData))
+            or ns.IsBarBuffFamily(barData))
 
 
     -- Bar background
@@ -5606,7 +5649,8 @@ local function RefreshCDMIconAppearance(barKey)
         -- icon's family (base / talent-override) resolves here -- the options side
         -- keys off the live/canonical id, which may differ from fc.spellID.
         local ssb
-        local isBuffFamilyBar = (barData.barType == "buffs" or barKey == "buffs")
+        local isBuffFamilyBar = (barData.barType == "buffs" or barKey == "buffs"
+            or barData.barType == "debuffs" or barKey == "debuffs")
         -- Login / refresh coverage for Max Stacks Glow: a charge spell sitting at
         -- max never fires the swipe hook, so register it here too. Gated on the
         -- feature flag (set once by RescanMaxStacksGlowFlag / the option) so anyone
@@ -5726,6 +5770,7 @@ local function RefreshCDMIconAppearance(barKey)
                 -- (fill-up), not the cd baseline, so "Reverse" flips the same way it
                 -- would on a real buffs bar.
                 local rfBuff = (barData.barType == "buffs" or barKey == "buffs"
+                    or barData.barType == "debuffs" or barKey == "debuffs"
                     or barData.barType == "custom_buff" or (fd and fd._isBuffViewerFrame)) or false
                 local rfReverse = rfBuff
                 local rfFc = _ecmeFC[icon]
@@ -6853,6 +6898,44 @@ ns.EnsureFocusReminderProxy = EnsureFocusReminderProxy
 -- Ghost bars: ensure both buff and CD ghost bars exist in the bars array.
 -- Called from BuildAllCDMBars before iterating bars.
 ns.GHOST_CD_BAR_KEY = GHOST_CD_BAR_KEY
+function ns.EnsureDefaultDebuffBar()
+    local cfg = ns.GetActiveCDMConfig(true)
+    local bars = cfg and cfg.bars
+    if not bars then return end
+    for _, b in ipairs(bars) do
+        if b.key == "debuffs" then return end
+    end
+    local debuffs = {
+        key = "debuffs", name = "Debuffs", barType = "debuffs", enabled = true,
+        iconSize = 32, numRows = 1, spacing = 2,
+        borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
+        borderClassColor = false, borderTexture = "solid", borderThickness = "thin",
+        bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
+        iconZoom = 0.08, iconShape = "none",
+        verticalOrientation = false, barBgEnabled = false,
+        barBgR = 0, barBgG = 0, barBgB = 0,
+        anchorTo = "none", anchorPosition = "left",
+        anchorOffsetX = 0, anchorOffsetY = 0,
+        barVisibility = "always", visOnlyInstances = false,
+        visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
+        showCooldownText = true, cooldownTextPosition = "center",
+        showItemCount = true, showTooltip = false, showKeybind = false,
+        keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
+        keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
+    }
+    local insertAt = #bars + 1
+    for i, b in ipairs(bars) do
+        if b.key == "buffs" then
+            insertAt = i + 1
+            break
+        elseif b.isGhostBar then
+            insertAt = i
+            break
+        end
+    end
+    table.insert(bars, insertAt, debuffs)
+end
+
 local function EnsureGhostBars()
     local p = ECME.db and ECME.db.profile
     if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return end
@@ -7134,7 +7217,10 @@ _CDMApplyVisibility = function()
                         if bt ~= "custom_buff" then
                             if bt == "buffs" and viewerBarKey == "buffs" then
                                 anyVisible = true; break
-                            elseif bt ~= "buffs" and (viewerBarKey == "cooldowns" or viewerBarKey == "utility") then
+                            elseif bt == "debuffs" and viewerBarKey == "debuffs" then
+                                anyVisible = true; break
+                            elseif bt ~= "buffs" and bt ~= "debuffs"
+                               and (viewerBarKey == "cooldowns" or viewerBarKey == "utility") then
                                 anyVisible = true; break
                             end
                         end
@@ -7434,7 +7520,8 @@ BuildAllCDMBars = function()
     -- fires the authoritative ApplyAllWidthHeightMatches pass.
     if EllesmereUI then EllesmereUI._cdmRebuilding = true end
 
-    -- Ensure ghost bars exist before iterating bars
+    -- Ensure built-in and ghost bars exist before iterating bars
+    ns.EnsureDefaultDebuffBar()
     EnsureGhostBars()
     EnsureFocusKickBar()
     ns.RescanMaxStacksGlowFlag()  -- set the Max Stacks Glow gate (once) before refresh
@@ -7704,6 +7791,7 @@ function ns.NormalizeRacialAssignments()
     local lists = {}
     for _, b in ipairs(ns.GetActiveCDMConfig(true).bars) do
         local isBuff = (b.barType == "custom_buff")
+            or (ns.IsBarAuraFamily and ns.IsBarAuraFamily(b))
             or (ns.IsBarBuffFamily and ns.IsBarBuffFamily(b))
         -- b.key guard: a ghost bar (keyless skeleton from a stale override
         -- write) would index barSpells with nil and error.
@@ -7965,9 +8053,10 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
         -- materializer's skip exists to prevent. The manual Repopulate
         -- flow passes nothing and keeps its full sweep.
         if not barData.isGhostBar
-           and barData.key ~= "buffs"
+           and barData.key ~= "buffs" and barData.key ~= "debuffs"
            and (barData.barType == "cooldowns" or barData.barType == "utility"
                 or (barData.barType == "buffs" and not cdUtilOnly)
+                or (barData.barType == "debuffs" and not cdUtilOnly)
                 or MAIN_BAR_KEYS[barData.key]) then
             local sd = ns.GetBarSpellData(barData.key)
             local icons = ns.cdmBarIcons and ns.cdmBarIcons[barData.key]
@@ -8011,6 +8100,8 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
                            and not (fc and fc._overflowLayoutBar) then
                             for i = 1, #sd.assignedSpells do
                                 local dec = ns.HostedBuffMarkerToSpell(sd.assignedSpells[i])
+                                    or (ns.HostedDebuffMarkerToSpell
+                                        and ns.HostedDebuffMarkerToSpell(sd.assignedSpells[i]))
                                 if dec and (dec == hSid
                                     or (ns.IsVariantOf and ns.IsVariantOf(dec, hSid))) then
                                     -- Forward-only: never drag the cursor backward.
@@ -8137,9 +8228,10 @@ function ns.RepopulateFromBlizzard()
     -- is the authority. Extra buff bars ARE filtered for user assignments.
     for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if not barData.isGhostBar
-           and barData.key ~= "buffs"
+           and barData.key ~= "buffs" and barData.key ~= "debuffs"
            and (barData.barType == "cooldowns" or barData.barType == "utility"
                 or barData.barType == "buffs"
+                or barData.barType == "debuffs"
                 or MAIN_BAR_KEYS[barData.key]) then
             local sd = ns.GetBarSpellData(barData.key)
             if sd then
@@ -8228,7 +8320,8 @@ RegisterCDMUnlockElements = function()
 
             -- Buff-type bars can't be anchor targets (their icon count changes
             -- dynamically with auras, causing cascading position shifts).
-            local isBuff = ns.IsBarBuffFamily(barData)
+            local isBuff = (ns.IsBarAuraFamily and ns.IsBarAuraFamily(barData))
+                or ns.IsBarBuffFamily(barData)
             local isDynamic = isBuff or (barData.barType == "custom_buff")
             elements[#elements + 1] = MK({
                 key = "CDM_" .. key,
@@ -9471,7 +9564,8 @@ SlashCmdList.CDMDBG = function()
             local count = list and #list or 0
             local kind
             if bd.isGhostBar then kind = "ghost"
-            elseif bd.key == "cooldowns" or bd.key == "utility" or bd.key == "buffs" then kind = "default"
+            elseif bd.key == "cooldowns" or bd.key == "utility"
+                or bd.key == "buffs" or bd.key == "debuffs" then kind = "default"
             elseif bd.barType == "custom_buff" then kind = "custom_buff"
             else kind = "custom" end
             local label = string.format("[%s] %s (%d)", kind, bd.key, count)
@@ -9710,7 +9804,8 @@ SlashCmdList.EUIORDER = function()
     if not p or not ns.GetActiveCDMConfig(true) then P("no profile") return end
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
-           and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" and bd.key ~= "buffs" then
+           and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+           and bd.barType ~= "custom_buff" and bd.key ~= "buffs" and bd.key ~= "debuffs" then
             local sd = ns.GetBarSpellData(bd.key)
             local list = sd and sd.assignedSpells
             local parts = {}
