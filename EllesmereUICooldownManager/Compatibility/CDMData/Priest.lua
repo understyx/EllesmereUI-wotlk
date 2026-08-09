@@ -20,8 +20,17 @@ end
 
 -- Priest = class 05. Cooldowns = 105XXX, Buffs/Procs = 205XXX.
 
+local AURA_TAGS = {
+    ["priest.power_infusion"] = { external = true },
+    ["priest.pain_suppression"] = { external = true, defensive = true },
+    ["priest.guardian_spirit"] = { external = true, defensive = true },
+    ["priest.dispersion"] = { defensive = true },
+    ["priest.fear_ward"] = { external = true },
+}
+
 local function Register(def)
     def.class = "PRIEST"
+    def.auraTags = def.auraTags or AURA_TAGS[def.key]
     C_CooldownViewer.RegisterDefinition(def)
 end
 
@@ -380,3 +389,24 @@ Register({
         end,
     },
 })
+
+local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTags)
+    Register({
+        key = "priest." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_ESSENTIAL,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+        auraTags = auraTags,
+    })
+end
+
+RegisterBasic("prayer_of_mending", 105017, 110, { 33076, 48112, 48113 }, CDM_CATEGORY_ESSENTIAL, { external = true })
+RegisterBasic("mind_blast",        105018, 120, { 8092, 8102, 8103, 8104, 8105, 8106, 10945, 10946, 10947, 25372, 25375, 48126, 48127 })
+RegisterBasic("shadow_word_death", 105019, 130, { 32379, 32996, 48157, 48158 })
+RegisterBasic("psychic_horror",    105020, 140, { 64044 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("lightwell",         105021, 150, { 724, 27870, 27871, 28275, 48086, 48087 })
+RegisterBasic("holy_fire",         105022, 160, { 14914, 15262, 15263, 15264, 15265, 15266, 15267, 15261, 25384, 48134, 48135 })

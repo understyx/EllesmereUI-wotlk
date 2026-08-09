@@ -20,8 +20,13 @@ end
 
 -- Shaman = class 07. Cooldowns = 107XXX, Buffs/Procs = 207XXX.
 
+local AURA_TAGS = {
+    ["shaman.shamanistic_rage"] = { defensive = true },
+}
+
 local function Register(def)
     def.class = "SHAMAN"
+    def.auraTags = def.auraTags or AURA_TAGS[def.key]
     C_CooldownViewer.RegisterDefinition(def)
 end
 
@@ -401,3 +406,25 @@ Register({
         end,
     },
 })
+
+local function RegisterBasic(key, cooldownID, order, spellIDs, category)
+    Register({
+        key = "shaman." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_ESSENTIAL,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+    })
+end
+
+RegisterBasic("lava_burst",       107019, 100, { 51505, 60043 })
+RegisterBasic("chain_lightning",  107020, 110, { 421, 930, 2860, 10605, 25439, 25442, 49270, 49271 })
+RegisterBasic("flame_shock",      107021, 120, { 8050, 8052, 8053, 10447, 10448, 29228, 25457, 49232, 49233 })
+RegisterBasic("frost_shock",      107022, 130, { 8056, 8058, 10472, 10473, 25464, 49235, 49236 })
+RegisterBasic("fire_nova",        107023, 140, { 1535, 8498, 8499, 11314, 11315, 25546, 25547, 61649, 61657 })
+RegisterBasic("earthbind_totem",  107024, 150, { 2484 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("stoneclaw_totem",  107025, 160, { 5730, 6390, 6391, 6392, 10427, 10428, 25525, 58580, 58581, 58582 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("reincarnation",    107026, 170, { 20608 }, CDM_CATEGORY_UTILITY)

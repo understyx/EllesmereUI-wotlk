@@ -25,9 +25,15 @@ Compatibility\CDMData\Warlock.lua
 Compatibility\CDMData\Druid.lua
 Compatibility\CDMData\Debuffs.lua
 
+# Snapshot strength engine (embedded; CDM supplies configuration and display)
+SnapshotTracker\Tracking\SnapshotData.lua
+SnapshotTracker\Tracking\SnapshotCalc.lua
+SnapshotTracker\Tracking\SnapshotTracker.lua
+
 # Main Lua
 EllesmereUICooldownManager.lua
 EllesmereUICdmHooks.lua
+SnapshotTracker\CDMIntegration.lua
 EllesmereUICdmSpellPicker.lua
 EllesmereUICdmBarGlows.lua
 EllesmereUICdmBuffBars.lua

@@ -15,6 +15,7 @@ local runtimeState = {}     -- cooldownID -> cooldown state plus matched aura id
 local categories = {}       -- categoryID -> array of cooldownIDs
 local adapters = {}         -- cooldownID -> native adapter frame
 local internalCooldownIDsByAura = {} -- proc aura spellID -> array of cooldownIDs
+local auraTagsBySpellID = {} -- aura spellID -> normalized tag set
 
 -- The renderer expects the objects returned by itemFramePool to be real,
 -- anchorable frames.  A Lua table can expose GetSpellID/cooldownInfo, but it
@@ -58,6 +59,9 @@ local function ValidateDefinition(def)
         and (type(def.internalCooldown) ~= "number" or def.internalCooldown < 0) then
         return false, "internalCooldown must be a non-negative number"
     end
+    if def.auraTags ~= nil and type(def.auraTags) ~= "table" then
+        return false, "auraTags must be a table"
+    end
 
     if def.trackingType == "cooldown" and not def.spellID then return false, "Tracking type cooldown requires spellID" end
     if (def.trackingType == "aura" or def.trackingType == "debuff")
@@ -66,6 +70,50 @@ local function ValidateDefinition(def)
     end
 
     return true
+end
+
+local function NormalizeAuraTags(tags)
+    local normalized = {}
+    for key, value in pairs(tags or {}) do
+        local tag
+        if type(key) == "number" then
+            tag = value
+        elseif value then
+            tag = key
+        end
+        if type(tag) == "string" then
+            normalized[string.lower(tag)] = true
+        end
+    end
+    return normalized
+end
+
+local function AddTaggedSpellID(spellID, tags)
+    if type(spellID) ~= "number" then return end
+    local indexed = auraTagsBySpellID[spellID]
+    if not indexed then
+        indexed = {}
+        auraTagsBySpellID[spellID] = indexed
+    end
+    for tag in pairs(tags) do indexed[tag] = true end
+end
+
+local function IndexDefinitionAuraTags(def)
+    local tags = NormalizeAuraTags(def.auraTags)
+    if not next(tags) then return end
+
+    -- A unit aura can use the cast spell, a dedicated aura spell, a lower
+    -- rank, or an equivalent effect ID. Index every identity carried by the
+    -- CDM definition so the frame filters and CDM always share one catalog.
+    AddTaggedSpellID(def.spellID, tags)
+    AddTaggedSpellID(def.auraSpellID, tags)
+    if def.spellIDs then
+        for _, spellID in ipairs(def.spellIDs) do AddTaggedSpellID(spellID, tags) end
+    end
+    if def.auraSpellIDs then
+        for _, spellID in ipairs(def.auraSpellIDs) do AddTaggedSpellID(spellID, tags) end
+    end
+    def.auraTags = tags
 end
 
 -- Adapter Prototype
@@ -447,6 +495,7 @@ function C_CooldownViewer.RegisterDefinition(def)
     end
 
     definitions[def.cooldownID] = def
+    IndexDefinitionAuraTags(def)
 
     if (def.internalCooldown or 0) > 0 then
         local auraSpellID = def.auraSpellID or def.spellID
@@ -468,6 +517,19 @@ function C_CooldownViewer.RegisterDefinition(def)
         end
         return oA < oB
     end)
+end
+
+-- Shared classification API used by the WotLK unit-frame and raid-frame aura
+-- filter polyfill. Tags live on CDM definitions so adding or correcting a
+-- spell in the catalog automatically updates every consumer.
+function C_CooldownViewer.IsAuraSpellTagged(spellID, tag)
+    if type(tag) ~= "string" then return false end
+    local tags = auraTagsBySpellID[spellID]
+    return tags and tags[string.lower(tag)] == true or false
+end
+
+function C_CooldownViewer.GetAuraSpellTags(spellID)
+    return auraTagsBySpellID[spellID]
 end
 
 function C_CooldownViewer.GetCooldownViewerCategorySet(category, includeUnknown)
@@ -514,6 +576,9 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         execute = def.execute,
         class = def.class,
         isTrinketProc = def.isTrinketProc,
+        auraTags = def.auraTags,
+        isDefensive = def.auraTags and def.auraTags.defensive == true or false,
+        isExternal = def.auraTags and def.auraTags.external == true or false,
 
         -- Runtime state fields expected by EllesmereUI adapters
         cooldownStart = state and state.cooldownStart or 0,

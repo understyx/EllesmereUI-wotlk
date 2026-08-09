@@ -20,8 +20,16 @@ end
 
 -- Druid = class 11. Cooldowns = 111XXX, Buffs/Procs = 211XXX.
 
+local AURA_TAGS = {
+    ["druid.innervate"] = { external = true },
+    ["druid.barkskin"] = { defensive = true },
+    ["druid.survival_instincts"] = { defensive = true },
+    ["druid.frenzied_regeneration"] = { defensive = true },
+}
+
 local function Register(def)
     def.class = "DRUID"
+    def.auraTags = def.auraTags or AURA_TAGS[def.key]
     C_CooldownViewer.RegisterDefinition(def)
 end
 
@@ -475,3 +483,23 @@ Register({
         end,
     },
 })
+
+local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTags)
+    Register({
+        key = "druid." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_ESSENTIAL,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+        auraTags = auraTags,
+    })
+end
+
+RegisterBasic("mangle_bear",       111023, 140, { 33878, 33986, 33987, 48563, 48564 })
+RegisterBasic("faerie_fire_feral", 111024, 150, { 16857 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("cower",             111025, 160, { 8998, 9000, 9892, 31709, 27004, 48575 })
+RegisterBasic("natures_grasp",     111026, 170, { 16689, 16810, 16811, 16812, 16813, 17329, 27009, 53312 }, CDM_CATEGORY_UTILITY, { defensive = true })
+RegisterBasic("hurricane",         111027, 180, { 16914, 17401, 17402, 27012, 48467 }, CDM_CATEGORY_ESSENTIAL)

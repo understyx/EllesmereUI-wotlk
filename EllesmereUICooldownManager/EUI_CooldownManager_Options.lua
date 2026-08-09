@@ -8616,7 +8616,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local menuW = 210
         local ITEM_H = 26
-        local MAX_H = 400  -- tall enough for the fullest per-spell menus (buff branch: actions + 10 settings incl. Threshold Text + dividers); this menu has no scroll, so anything over MAX_H gets clipped
+        local MAX_H = 430  -- includes the debuff Snapshot Tracking row; this menu has no scroll, so anything over MAX_H gets clipped
 
         local menu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -10722,6 +10722,73 @@ initFrame:SetScript("OnEvent", function(self)
                         -- on Blizzard-tracked inactive placeholders) don't apply to them.
                         local isInjectedCustom = (sd.spellDurations and (sd.spellDurations[spellID] or 0) > 0)
                             or (sd.customSpellIDs and sd.customSpellIDs[spellID]) or false
+
+                        -- Snapshot strength is a per-debuff choice. The tracker only
+                        -- records auras applied by the player, so a raid/any-source
+                        -- debuff simply stays blank unless this character owns it.
+                        local isDebuffIcon = isHostedDebuff
+                            or (ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(bd))
+                        if isDebuffIcon then
+                            local snapRow = EllesmereUI.SafeCreateFrame("Button", nil, inner)
+                            snapRow:SetHeight(ITEM_H)
+                            snapRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                            snapRow:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                            snapRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+                            local snapLbl = snapRow:CreateFontString(nil, "OVERLAY")
+                            snapLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                            snapLbl:SetPoint("LEFT", 10, 0)
+                            snapLbl:SetJustifyH("LEFT")
+                            snapLbl:SetText(EllesmereUI.L("Snapshot Tracking"))
+
+                            local snapState = snapRow:CreateFontString(nil, "OVERLAY")
+                            snapState:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+                            snapState:SetPoint("RIGHT", -10, 0)
+                            snapState:SetJustifyH("RIGHT")
+
+                            local snapHl = snapRow:CreateTexture(nil, "ARTWORK")
+                            snapHl:SetAllPoints()
+                            snapHl:SetTexture(1, 1, 1, 0)
+                            snapHl:SetAlpha(0)
+
+                            local function UpdateSnapshotRow()
+                                local enabled = rawget(ss, "snapshotTracking") == true
+                                if enabled then
+                                    local ar, ag, ab = EllesmereUI.GetAccentColor()
+                                    snapLbl:SetTextColor(ar, ag, ab, 1)
+                                    snapState:SetText(EllesmereUI.L("Enabled"))
+                                    snapState:SetTextColor(ar, ag, ab, 1)
+                                else
+                                    snapLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                    snapState:SetText(EllesmereUI.L("Disabled"))
+                                    snapState:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                end
+                            end
+                            UpdateSnapshotRow()
+
+                            snapRow:SetScript("OnEnter", function()
+                                snapLbl:SetTextColor(1, 1, 1, 1)
+                                snapHl:SetTexture(1, 1, 1, hlA)
+                                snapHl:SetAlpha(1)
+                                if menu._openSub and menu._openSub:IsShown() then menu._openSub:Hide() end
+                            end)
+                            snapRow:SetScript("OnLeave", function()
+                                snapHl:SetAlpha(0)
+                                UpdateSnapshotRow()
+                            end)
+                            snapRow:SetScript("OnClick", function()
+                                EnsureSS()
+                                if rawget(ss, "snapshotTracking") == true then
+                                    ss.snapshotTracking = nil
+                                else
+                                    ss.snapshotTracking = true
+                                end
+                                UpdateSnapshotRow()
+                                if ns.RescanSnapshotTracking then ns.RescanSnapshotTracking() end
+                                if ns.RefreshSnapshotTracking then ns.RefreshSnapshotTracking() end
+                            end)
+                            mH = mH + ITEM_H
+                        end
 
                         -- Visibility When Missing (HOSTED auras only): what this
                         -- slot shows while the aura is missing. Default (nil) =
@@ -13954,6 +14021,35 @@ initFrame:SetScript("OnEvent", function(self)
             t:SetTexture(1, 1, 1, 0.27)
         end
 
+        -- Horizontal scrollbar (bottom).  The preview deliberately keeps the
+        -- live bar's icon scale, so wide one-row layouts need to scroll rather
+        -- than shrink.  Keep this separate from the vertical track because a
+        -- preview can overflow in both directions at once.
+        local pvHTrack = EllesmereUI.SafeCreateFrame("Frame", nil, wrapper)
+        pvHTrack:SetHeight(4)
+        pvHTrack:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 2, 2)
+        pvHTrack:SetPoint("BOTTOMRIGHT", wrapper, "BOTTOMRIGHT", -8, 2)
+        pvHTrack:SetFrameLevel(wrapper:GetFrameLevel() + 5)
+        do
+            local bg = pvHTrack:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            bg:SetTexture(1, 1, 1, 0.02)
+        end
+        pvHTrack:Hide()
+
+        local pvHThumb = EllesmereUI.SafeCreateFrame("Button", nil, pvHTrack)
+        pvHThumb:SetHeight(4)
+        pvHThumb:SetFrameLevel(pvHTrack:GetFrameLevel() + 1)
+        pvHThumb:EnableMouse(true)
+        pvHThumb:RegisterForDrag("LeftButton")
+        pvHThumb:SetScript("OnDragStart", function() end)
+        pvHThumb:SetScript("OnDragStop", function() end)
+        do
+            local t = pvHThumb:CreateTexture(nil, "ARTWORK")
+            t:SetAllPoints()
+            t:SetTexture(1, 1, 1, 0.27)
+        end
+
         -- Smooth scroll state
         local pvScrollTarget = 0
         local pvSmoothing = false
@@ -13962,27 +14058,66 @@ initFrame:SetScript("OnEvent", function(self)
         local pvSmoothFrame = EllesmereUI.SafeCreateFrame("Frame")
         pvSmoothFrame:Hide()
 
-        local function UpdatePVThumb()
-            local maxScroll = EllesmereUI.SafeScrollRange(sf)
-            if maxScroll <= 0 then pvTrack:Hide(); return end
-            pvTrack:Show()
-            local trackH = pvTrack:GetHeight()
-            local visH = sf:GetHeight()
-            local ratio = visH / (visH + maxScroll)
-            local thumbH = math.max(20, trackH * ratio)
-            pvThumb:SetHeight(thumbH)
-            local curScroll = 0
-            do
-                local ok, val = pcall(sf.GetVerticalScroll, sf)
-                if ok and val then
-                    local ok2, n = pcall(tonumber, val)
-                    if ok2 and n then curScroll = n end
+        local function SafeHorizontalScrollRange()
+            local ok, val = pcall(sf.GetHorizontalScrollRange, sf)
+            if ok and val then
+                local ok2, n = pcall(tonumber, val)
+                if ok2 and n then
+                    local ok3, gt = pcall(function() return n > 0 end)
+                    if ok3 and gt then return n end
                 end
             end
-            local scrollRatio = curScroll / maxScroll
-            local maxTravel = trackH - thumbH
-            pvThumb:ClearAllPoints()
-            pvThumb:SetPoint("TOP", pvTrack, "TOP", 0, -(scrollRatio * maxTravel))
+            return 0
+        end
+
+        local function UpdatePVThumb()
+            local maxScroll = EllesmereUI.SafeScrollRange(sf)
+            if maxScroll <= 0 then
+                pvTrack:Hide()
+            else
+                pvTrack:Show()
+                local trackH = pvTrack:GetHeight()
+                local visH = sf:GetHeight()
+                local ratio = visH / (visH + maxScroll)
+                local thumbH = math.max(20, trackH * ratio)
+                pvThumb:SetHeight(thumbH)
+                local curScroll = 0
+                do
+                    local ok, val = pcall(sf.GetVerticalScroll, sf)
+                    if ok and val then
+                        local ok2, n = pcall(tonumber, val)
+                        if ok2 and n then curScroll = n end
+                    end
+                end
+                local scrollRatio = curScroll / maxScroll
+                local maxTravel = trackH - thumbH
+                pvThumb:ClearAllPoints()
+                pvThumb:SetPoint("TOP", pvTrack, "TOP", 0, -(scrollRatio * maxTravel))
+            end
+
+            local maxHScroll = SafeHorizontalScrollRange()
+            if maxHScroll <= 0 then
+                pvHTrack:Hide()
+            else
+                pvHTrack:Show()
+                local trackW = pvHTrack:GetWidth()
+                local visW = sf:GetWidth()
+                local ratio = visW / (visW + maxHScroll)
+                local thumbW = math.max(30, trackW * ratio)
+                pvHThumb:SetWidth(thumbW)
+                local curScroll = 0
+                do
+                    local ok, val = pcall(sf.GetHorizontalScroll, sf)
+                    if ok and val then
+                        local ok2, n = pcall(tonumber, val)
+                        if ok2 and n then curScroll = n end
+                    end
+                end
+                local scrollRatio = curScroll / maxHScroll
+                local maxTravel = trackW - thumbW
+                pvHThumb:ClearAllPoints()
+                pvHThumb:SetPoint("LEFT", pvHTrack, "LEFT", scrollRatio * maxTravel, 0)
+            end
         end
 
         pvSmoothFrame:SetScript("OnUpdate", function(_, elapsed)
@@ -14014,6 +14149,14 @@ initFrame:SetScript("OnEvent", function(self)
 
         sf:SetScript("OnMouseWheel", function(self, delta)
             local maxScroll = EllesmereUI.SafeScrollRange(self)
+            local maxHScroll = SafeHorizontalScrollRange()
+            if maxHScroll > 0 and (maxScroll <= 0 or (IsShiftKeyDown and IsShiftKeyDown())) then
+                local cur = self:GetHorizontalScroll()
+                self:SetHorizontalScroll(math.max(0, math.min(maxHScroll,
+                    cur - delta * PV_SCROLL_STEP)))
+                UpdatePVThumb()
+                return
+            end
             if maxScroll <= 0 then return end
             local base = pvSmoothing and pvScrollTarget or self:GetVerticalScroll()
             PVSmoothScrollTo(base - delta * PV_SCROLL_STEP)
@@ -14048,6 +14191,35 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end)
         pvThumb:SetScript("OnMouseUp", function(self, button)
+            if button ~= "LeftButton" then return end
+            self:SetScript("OnUpdate", nil)
+        end)
+
+        -- Horizontal thumb drag.
+        pvHThumb:SetScript("OnMouseDown", function(self, button)
+            if button ~= "LeftButton" then return end
+            local cursorX = GetCursorPosition()
+            local dragStartX = cursorX / self:GetEffectiveScale()
+            local dragStartScroll = sf:GetHorizontalScroll()
+            self:SetScript("OnUpdate", function(self2)
+                if not IsMouseButtonDown("LeftButton") then
+                    self2:SetScript("OnUpdate", nil)
+                    return
+                end
+                local cx = GetCursorPosition()
+                cx = cx / self2:GetEffectiveScale()
+                local deltaX = cx - dragStartX
+                local trackW = pvHTrack:GetWidth()
+                local maxTravel = trackW - self2:GetWidth()
+                if maxTravel <= 0 then return end
+                local maxScroll = SafeHorizontalScrollRange()
+                local newScroll = math.max(0, math.min(maxScroll,
+                    dragStartScroll + (deltaX / maxTravel) * maxScroll))
+                sf:SetHorizontalScroll(newScroll)
+                UpdatePVThumb()
+            end)
+        end)
+        pvHThumb:SetScript("OnMouseUp", function(self, button)
             if button ~= "LeftButton" then return end
             self:SetScript("OnUpdate", nil)
         end)
@@ -15523,15 +15695,20 @@ initFrame:SetScript("OnEvent", function(self)
             -- only the perpendicular placement offset flips.
             local pvReversed = ns.CDMRowsReversed and ns.CDMRowsReversed(bd) or false
 
-            -- Total dimensions: spell grid + 1 extra slot for the "+" button
+            -- Total dimensions: spell grid plus every visible add button.  CD
+            -- and utility bars have spell, buff, and debuff add buttons; their
+            -- two extra slots used to sit beyond the declared scroll child and
+            -- therefore could not be reached when the preview was clipped.
             local isVert = (grow == "DOWN" or grow == "UP")
             local totalW, totalH
+            local addSlots = (not isBuffBar and not isDebuffBar
+                and not isCustomBuffBar and not isFocusKick) and 3 or 1
             if isVert then
-                local totalCols = numRows + 1
+                local totalCols = numRows + addSlots
                 totalW = (totalCols * iconSize) + ((totalCols - 1) * spacing)
                 totalH = (stride * iconH) + ((stride - 1) * spacing)
             else
-                local totalCols = stride + 1
+                local totalCols = stride + addSlots
                 totalW = (totalCols * iconSize) + ((totalCols - 1) * spacing)
                 totalH = (numRows * iconH) + ((numRows - 1) * spacing)
             end
@@ -15540,9 +15717,12 @@ initFrame:SetScript("OnEvent", function(self)
             -- header clips any overflow so icon scale remains accurate.
             local curParentW = (parent:GetWidth() - PAD * 2) / previewScale
             if curParentW > 0 then
-                self:SetWidth(curParentW)
+                self:SetWidth(math.max(curParentW, totalW))
             end
-            local startX = math.floor((curParentW - totalW) / 2)
+            if totalW <= curParentW and self._scrollFrame then
+                self._scrollFrame:SetHorizontalScroll(0)
+            end
+            local startX = math.max(0, math.floor((curParentW - totalW) / 2))
             local startY = -5
 
             -- Position helper: places frame at grid position (col, row).
@@ -16271,8 +16451,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         local isDefault = (barData.key == "cooldowns" or barData.key == "utility"
             or barData.key == "buffs" or barData.key == "debuffs")
-        local isBuffBar = ns.IsBarBuffFamily(barData)
-            or (ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(barData))
+        local isDebuffBar = ns.IsBarDebuffFamily and ns.IsBarDebuffFamily(barData)
+        local isBuffBar = ns.IsBarBuffFamily(barData) or isDebuffBar
+        local supportsSnapshotStyle = isDebuffBar
+            or barData.barType == "cooldowns" or barData.barType == "utility"
         -- FocusKick is the special nameplate-anchored bar. Most options panel
         -- sections are hidden for it; only Icon Display + a custom Nameplate
         -- Anchor row are shown.
@@ -19060,6 +19242,149 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
+
+        -------------------------------------------------------------------
+        --  SNAPSHOT TRACKING (debuff bars + bars that can host debuffs)
+        -------------------------------------------------------------------
+        if supportsSnapshotStyle and not isFocusKick then
+            _, h = W:SectionHeader(parent, "SNAPSHOT TRACKING", y);  y = y - h
+
+            local function RefreshSnapshotStyle(rebuildPage)
+                if ns.RefreshSnapshotTracking then ns.RefreshSnapshotTracking() end
+                if rebuildPage then EllesmereUI:RefreshPage() end
+            end
+
+            local SNAP_POS_VALUES = {
+                center="Center", top="Top", bottom="Bottom", left="Left", right="Right",
+                topleft="Top Left", topright="Top Right",
+                bottomleft="Bottom Left", bottomright="Bottom Right",
+            }
+            local SNAP_POS_ORDER = {
+                "center", "top", "bottom", "left", "right", "---",
+                "topleft", "topright", "bottomleft", "bottomright",
+            }
+
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Text Location",
+                  values=SNAP_POS_VALUES, order=SNAP_POS_ORDER,
+                  getValue=function() return BD().snapshotTextPosition or "center" end,
+                  setValue=function(v)
+                      BD().snapshotTextPosition = v
+                      RefreshSnapshotStyle()
+                  end },
+                { type="dropdown", text="When Snapshot Is Unchanged",
+                  values={ show="Show 0%", hide="Don't Show" },
+                  order={ "show", "hide" },
+                  getValue=function() return BD().snapshotShowZero == false and "hide" or "show" end,
+                  setValue=function(v)
+                      BD().snapshotShowZero = (v ~= "hide")
+                      RefreshSnapshotStyle()
+                  end });  y = y - h
+
+            local snapTextBgRow
+            snapTextBgRow, h = W:DualRow(parent, y,
+                { type="slider", text="Text Size", min=6, max=32, step=1, trackWidth=120,
+                  getValue=function() return BD().snapshotTextSize or 11 end,
+                  setValue=function(v)
+                      BD().snapshotTextSize = v
+                      RefreshSnapshotStyle()
+                  end },
+                { type="toggle", text="Text Background",
+                  getValue=function() return BD().snapshotBgEnabled == true end,
+                  setValue=function(v)
+                      BD().snapshotBgEnabled = v and true or nil
+                      RefreshSnapshotStyle(true)
+                  end });  y = y - h
+
+            -- Inline alpha-capable background color swatch.
+            do
+                local rgn = snapTextBgRow._rightRegion
+                local ctrl = rgn and rgn._control
+                if ctrl and EllesmereUI.BuildColorSwatch then
+                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                        rgn, snapTextBgRow:GetFrameLevel() + 3,
+                        function()
+                            return BD().snapshotBgR or 0, BD().snapshotBgG or 0,
+                                BD().snapshotBgB or 0, BD().snapshotBgA or 0.65
+                        end,
+                        function(r, g, b, a)
+                            local bd = BD()
+                            bd.snapshotBgR = r; bd.snapshotBgG = g
+                            bd.snapshotBgB = b; bd.snapshotBgA = a
+                            RefreshSnapshotStyle()
+                        end,
+                        true, 20)
+                    PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+
+                    local block = EllesmereUI.SafeCreateFrame("Frame", nil, swatch)
+                    block:SetAllPoints()
+                    block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+                    block:EnableMouse(true)
+                    block:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(swatch,
+                            EllesmereUI.DisabledTooltip("Text Background"))
+                    end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    EllesmereUI.RegisterWidgetRefresh(function()
+                        if updateSwatch then updateSwatch() end
+                        local on = BD().snapshotBgEnabled == true
+                        swatch:SetAlpha(on and 1 or 0.3)
+                        if on then block:Hide() else block:Show() end
+                    end)
+                    local on = BD().snapshotBgEnabled == true
+                    swatch:SetAlpha(on and 1 or 0.3)
+                    if on then block:Hide() else block:Show() end
+                end
+            end
+
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Background Width",
+                  values={ icon="Match Icon Width", manual="Manual" },
+                  order={ "icon", "manual" },
+                  disabled=function() return BD().snapshotBgEnabled ~= true end,
+                  disabledTooltip="This option requires Text Background",
+                  getValue=function() return BD().snapshotBgWidthMode or "icon" end,
+                  setValue=function(v)
+                      BD().snapshotBgWidthMode = v
+                      RefreshSnapshotStyle(true)
+                  end },
+                { type="slider", text="Manual Width", min=8, max=200, step=1, trackWidth=120,
+                  disabled=function()
+                      return BD().snapshotBgEnabled ~= true
+                          or BD().snapshotBgWidthMode ~= "manual"
+                  end,
+                  disabledTooltip="Set Background Width to Manual",
+                  getValue=function() return BD().snapshotBgWidth or 36 end,
+                  setValue=function(v)
+                      BD().snapshotBgWidth = v
+                      RefreshSnapshotStyle()
+                  end });  y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Background Height",
+                  values={ auto="Automatic", manual="Manual" },
+                  order={ "auto", "manual" },
+                  disabled=function() return BD().snapshotBgEnabled ~= true end,
+                  disabledTooltip="This option requires Text Background",
+                  getValue=function() return BD().snapshotBgHeightMode or "auto" end,
+                  setValue=function(v)
+                      BD().snapshotBgHeightMode = v
+                      RefreshSnapshotStyle(true)
+                  end },
+                { type="slider", text="Manual Height", min=6, max=80, step=1, trackWidth=120,
+                  disabled=function()
+                      return BD().snapshotBgEnabled ~= true
+                          or BD().snapshotBgHeightMode ~= "manual"
+                  end,
+                  disabledTooltip="Set Background Height to Manual",
+                  getValue=function() return BD().snapshotBgHeight or 16 end,
+                  setValue=function(v)
+                      BD().snapshotBgHeight = v
+                      RefreshSnapshotStyle()
+                  end });  y = y - h
+
+            _, h = W:Spacer(parent, y, 8);  y = y - h
+        end
 
         -------------------------------------------------------------------
         --  EXTRAS (not shown for custom aura bars or FocusKick)

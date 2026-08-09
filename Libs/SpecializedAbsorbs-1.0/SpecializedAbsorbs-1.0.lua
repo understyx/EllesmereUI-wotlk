@@ -2,7 +2,7 @@
 -- SpecializedAbsorbs
 ------------------------------------------------------------------------
 
-local MAJOR, MINOR = "SpecializedAbsorbs-1.0", 5
+local MAJOR, MINOR = "SpecializedAbsorbs-1.0", 6
 local lib, oldminor = LibStub:NewLibrary(MAJOR, MINOR)
 if not lib then return end
 local Core
@@ -37,10 +37,8 @@ else
 	local events = Core.Events
 	frame:SetScript("OnEvent", function(self, event, ...) events[event](...) end)
 	Core.Frame = frame
-	LibStub("AceComm-3.0"):Embed(Core)
-	LibStub("AceTimer-3.0"):Embed(Core)
-	LibStub("AceSerializer-3.0"):Embed(Core)
 end
+SpecializedAbsorbs_EmbedStandalone(Core)
 
 ---------------------
 -- Local Variables --
@@ -1027,7 +1025,8 @@ function Events.COMBAT_LOG_EVENT_UNFILTERED(timestamp, etype, srcGUID, srcName, 
 			CombatTriggersOnHeal[srcGUID](srcGUID, srcName, dstGUID, dstName, spellid, amount, overheal)
 		end
 		if absorbed and Core.GUIDtoAbsorbHealSpells[dstGUID] then
-			Core.GUIDtoAbsorbHealSpells[dstGUID] = Core.GUIDtoAbsorbHealSpells[dstGUID] - absorbed
+			Core.GUIDtoAbsorbHealSpells[dstGUID] = max(0, Core.GUIDtoAbsorbHealSpells[dstGUID] - absorbed)
+			callbacks:Fire("HealAbsorbUpdated", dstGUID, Core.GUIDtoAbsorbHealSpells[dstGUID])
 		end
 		if critical and CombatTriggersOnHealCrit[srcGUID] then
 			CombatTriggersOnHealCrit[srcGUID](srcGUID, srcName, dstGUID, dstName, spellid, amount, overheal)
@@ -1046,6 +1045,7 @@ function Events.COMBAT_LOG_EVENT_UNFILTERED(timestamp, etype, srcGUID, srcName, 
 		end
 		if absorbHealSpells[spellid] then
 			Core.GUIDtoAbsorbHealSpells[dstGUID] = absorbHealSpells[spellid]
+			callbacks:Fire("HealAbsorbUpdated", dstGUID, Core.GUIDtoAbsorbHealSpells[dstGUID])
 		end
 	elseif etype == "SPELL_AURA_REMOVED" then
 		local spellid, _, spellschool = ...
@@ -1059,6 +1059,7 @@ function Events.COMBAT_LOG_EVENT_UNFILTERED(timestamp, etype, srcGUID, srcName, 
 		end
 		if absorbHealSpells[spellid] then
 			Core.GUIDtoAbsorbHealSpells[dstGUID] = nil
+			callbacks:Fire("HealAbsorbUpdated", dstGUID, 0)
 		end
 	elseif etype == "SPELL_SUMMON" then
 		local spellid, _, spellschool = ...

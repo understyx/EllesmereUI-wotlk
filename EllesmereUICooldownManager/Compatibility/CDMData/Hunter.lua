@@ -18,11 +18,33 @@ local function HasLearnedTalent(tabIndex, talentIndex)
     return (rank or 0) > 0
 end
 
+local function HasPetSpellByID(spellID)
+    if not HasPetSpells or not GetSpellBookItemName or not GetSpellInfo then
+        return false
+    end
+    local count = HasPetSpells()
+    if type(count) ~= "number" or count < 1 then return false end
+    local wanted = GetSpellInfo(spellID)
+    if not wanted then return false end
+    for index = 1, count do
+        local name = GetSpellBookItemName(index, BOOKTYPE_PET or "pet")
+        if name == wanted then return true end
+    end
+    return false
+end
+
 -- cooldownID Schema: [CD type 1 digit][Class ID 2 digits][Unique ID 3 digits]
 -- Hunter = class 03. Cooldowns = 103XXX, Buffs/Procs = 203XXX.
 
+local AURA_TAGS = {
+    ["hunter.deterrence"] = { defensive = true },
+    ["hunter.misdirection"] = { external = true },
+    ["hunter.roar_of_sacrifice"] = { external = true, defensive = true },
+}
+
 local function Register(def)
     def.class = "HUNTER"
+    def.auraTags = def.auraTags or AURA_TAGS[def.key]
     C_CooldownViewer.RegisterDefinition(def)
 end
 
@@ -180,6 +202,24 @@ Register({
     spellID = 34477,
     iconSpellID = 34477,
     trackingType = "cooldown",
+})
+
+Register({
+    key = "hunter.roar_of_sacrifice",
+    cooldownID = 103021,
+    category = CDM_CATEGORY_UTILITY,
+    order = 45,
+    spellID = 53480,
+    iconSpellID = 53480,
+    trackingType = "cooldown",
+    resolvers = {
+        requirements = function()
+            return HasPetSpellByID(53480)
+        end,
+        resolveSpellID = function()
+            return 53480
+        end,
+    },
 })
 
 Register({
@@ -388,3 +428,30 @@ Register({
     hasAura = true,
     selfAura = true,
 })
+
+local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTags)
+    Register({
+        key = "hunter." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_ESSENTIAL,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+        auraTags = auraTags,
+    })
+end
+
+RegisterBasic("aimed_shot",       103022, 80,  { 19434, 20900, 20901, 20902, 20903, 20904, 27065, 49049, 49050 })
+RegisterBasic("multi_shot",       103023, 90,  { 2643, 14288, 14289, 14290, 25294, 27021, 49047, 49048 })
+RegisterBasic("arcane_shot",      103024, 100, { 3044, 14281, 14282, 14283, 14284, 14285, 14286, 14287, 27019, 49044, 49045 })
+RegisterBasic("raptor_strike",    103025, 110, { 2973, 14260, 14261, 14262, 14263, 14264, 14265, 14266, 27014, 48995, 48996 })
+RegisterBasic("mongoose_bite",    103026, 120, { 1495, 14269, 14270, 14271, 36916, 53339 })
+RegisterBasic("counterattack",    103027, 130, { 19306, 20909, 20910, 27067, 48998, 48999 })
+RegisterBasic("tranquilizing_shot", 103028, 140, { 19801 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("distracting_shot", 103029, 150, { 20736, 14319, 14320, 27022 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("masters_call",     103030, 160, { 53271 }, CDM_CATEGORY_UTILITY, { external = true })
+RegisterBasic("flare",            103031, 170, { 1543 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("immolation_trap",  103032, 180, { 13795, 14302, 14303, 14304, 14305, 27023, 49055, 49056 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("freezing_arrow",   103033, 190, { 60192 }, CDM_CATEGORY_UTILITY)

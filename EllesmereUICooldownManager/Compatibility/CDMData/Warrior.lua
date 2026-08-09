@@ -91,6 +91,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 55694,
     iconSpellID = 55694,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "WARRIOR",
 })
@@ -104,6 +105,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 871,
     iconSpellID = 871,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "WARRIOR",
 })
@@ -117,6 +119,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 2565,
     iconSpellID = 2565,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "WARRIOR",
 })
@@ -128,8 +131,10 @@ C_CooldownViewer.RegisterDefinition({
     order = 70,
 
     spellID = 12975,
+    auraSpellIDs = { 12975, 12976 },
     iconSpellID = 12975,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "WARRIOR",
 })
@@ -191,6 +196,20 @@ C_CooldownViewer.RegisterDefinition({
 })
 
 C_CooldownViewer.RegisterDefinition({
+    key = "warrior.intervene",
+    cooldownID = 101022,
+    category = CDM_CATEGORY_UTILITY,
+    order = 25,
+
+    spellID = 3411,
+    iconSpellID = 3411,
+    trackingType = "cooldown",
+    auraTags = { external = true, defensive = true },
+
+    class = "WARRIOR",
+})
+
+C_CooldownViewer.RegisterDefinition({
     key = "warrior.pummel",
     cooldownID = 101011,
     category = CDM_CATEGORY_UTILITY,
@@ -212,6 +231,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 23920,
     iconSpellID = 23920,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "WARRIOR",
 })
@@ -405,3 +425,33 @@ C_CooldownViewer.RegisterDefinition({
 
     class = "WARRIOR",
 })
+
+local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTags)
+    C_CooldownViewer.RegisterDefinition({
+        key = "warrior." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_ESSENTIAL,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+        auraTags = auraTags,
+        class = "WARRIOR",
+    })
+end
+
+RegisterBasic("mortal_strike",    101023, 100, { 12294, 21551, 21552, 21553, 25248, 30330, 47485, 47486 })
+RegisterBasic("bloodthirst",      101024, 110, { 23881, 23892, 23893, 23894, 25251, 30335, 47449, 47450 })
+RegisterBasic("shield_slam",      101025, 120, { 23922, 23923, 23924, 23925, 25258, 30356, 47487, 47488 })
+RegisterBasic("revenge",          101026, 130, { 6572, 6574, 7379, 11600, 11601, 25288, 25269, 30357, 57823 })
+RegisterBasic("overpower",        101027, 140, { 7384 })
+RegisterBasic("whirlwind",        101028, 150, { 1680 })
+RegisterBasic("thunder_clap",     101029, 160, { 6343, 8198, 8204, 8205, 11580, 11581, 25264, 47501, 47502 })
+RegisterBasic("mocking_blow",     101030, 110, { 694 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("disarm",           101031, 120, { 676 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("retaliation",      101032, 170, { 20230 }, CDM_CATEGORY_ESSENTIAL, { defensive = true })
+RegisterBasic("sweeping_strikes", 101033, 180, { 12328 })
+RegisterBasic("heroic_fury",      101034, 130, { 60970 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("taunt",            101035, 140, { 355 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("shield_bash",      101036, 150, { 72, 1671, 1672, 29704 }, CDM_CATEGORY_UTILITY)

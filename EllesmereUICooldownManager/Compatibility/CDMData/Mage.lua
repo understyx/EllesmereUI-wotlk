@@ -20,8 +20,13 @@ end
 
 -- Mage = class 08. Cooldowns = 108XXX, Buffs/Procs = 208XXX.
 
+local AURA_TAGS = {
+    ["mage.ice_block"] = { defensive = true },
+}
+
 local function Register(def)
     def.class = "MAGE"
+    def.auraTags = def.auraTags or AURA_TAGS[def.key]
     C_CooldownViewer.RegisterDefinition(def)
 end
 
@@ -419,4 +424,36 @@ Register({
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+})
+
+local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTags)
+    Register({
+        key = "mage." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_ESSENTIAL,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+        auraTags = auraTags,
+    })
+end
+
+RegisterBasic("arcane_barrage", 108019, 100, { 44425, 44780, 44781 })
+RegisterBasic("ice_barrier",    108020, 110, { 11426, 13031, 13032, 13033, 27134, 33405, 43038, 43039 }, CDM_CATEGORY_ESSENTIAL, { defensive = true })
+RegisterBasic("fire_ward",      108021, 120, { 543, 8457, 8458, 10223, 10225, 27128, 43010 }, CDM_CATEGORY_UTILITY, { defensive = true })
+RegisterBasic("frost_ward",     108022, 130, { 6143, 8461, 8462, 10177, 28609, 32796, 43012 }, CDM_CATEGORY_UTILITY, { defensive = true })
+
+Register({
+    key = "mage.focus_magic",
+    cooldownID = 208105,
+    category = CDM_CATEGORY_BUFF_BAR,
+    order = 50,
+    spellID = 54646,
+    auraSpellID = 54646,
+    iconSpellID = 54646,
+    trackingType = "aura",
+    hasAura = true,
+    auraTags = { external = true },
 })

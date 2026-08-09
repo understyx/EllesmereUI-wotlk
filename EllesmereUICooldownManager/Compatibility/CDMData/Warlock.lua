@@ -18,10 +18,30 @@ local function HasLearnedTalent(tabIndex, talentIndex)
     return (rank or 0) > 0
 end
 
+local function HasPetSpellByID(spellID)
+    if not HasPetSpells or not GetSpellBookItemName or not GetSpellInfo then
+        return false
+    end
+    local count = HasPetSpells()
+    if type(count) ~= "number" or count < 1 then return false end
+    local wanted = GetSpellInfo(spellID)
+    if not wanted then return false end
+    for index = 1, count do
+        local name = GetSpellBookItemName(index, BOOKTYPE_PET or "pet")
+        if name == wanted then return true end
+    end
+    return false
+end
+
 -- Warlock = class 09. Cooldowns = 109XXX, Buffs/Procs = 209XXX.
+
+local AURA_TAGS = {
+    ["warlock.sacrifice"] = { defensive = true },
+}
 
 local function Register(def)
     def.class = "WARLOCK"
+    def.auraTags = def.auraTags or AURA_TAGS[def.key]
     C_CooldownViewer.RegisterDefinition(def)
 end
 
@@ -233,6 +253,25 @@ Register({
 })
 
 Register({
+    key = "warlock.sacrifice",
+    cooldownID = 109016,
+    category = CDM_CATEGORY_UTILITY,
+    order = 65,
+    spellID = 47986,
+    spellIDs = { 7812, 19438, 19440, 19441, 19442, 19443, 27273, 47985, 47986 },
+    iconSpellID = 47986,
+    trackingType = "cooldown",
+    resolvers = {
+        requirements = function()
+            return HasPetSpellByID(47986)
+        end,
+        resolveSpellID = function()
+            return 47986
+        end,
+    },
+})
+
+Register({
     key = "warlock.shadowflame",
     cooldownID = 109015,
     category = CDM_CATEGORY_UTILITY,
@@ -388,3 +427,23 @@ Register({
     hasAura = true,
     selfAura = true,
 })
+
+local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTags)
+    Register({
+        key = "warlock." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_UTILITY,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+        auraTags = auraTags,
+    })
+end
+
+RegisterBasic("fel_domination", 109017, 70, { 18708 }, CDM_CATEGORY_ESSENTIAL)
+RegisterBasic("shadow_ward",    109018, 80, { 6229, 11739, 11740, 28610, 47890, 47891 }, CDM_CATEGORY_UTILITY, { defensive = true })
+RegisterBasic("spell_lock",     109019, 90, { 19244, 19647 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("devour_magic",   109020, 100, { 19505, 19731, 19734, 19736, 27276, 27277, 48011 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("intercept",      109021, 110, { 30151, 30194, 30198, 47996 }, CDM_CATEGORY_UTILITY)

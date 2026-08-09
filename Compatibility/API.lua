@@ -784,7 +784,7 @@ Enum.PowerType = {
 }
 C_UnitAuras = C_UnitAuras or {}
 C_UA = C_UA or {}
-local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
     if name then
         return {
             name = name,
@@ -798,14 +798,20 @@ local function PackAuraData(name, rank, icon, count, dispelType, duration, expir
             nameplateShowPersonal = nameplateShowPersonal == 1 or nameplateShowPersonal == true,
             spellId = spellId,
             auraInstanceID = spellId or name or 0,
-            castByPlayer = (source == "player")
+            castByPlayer = (source == "player"),
+            isHelpful = auraKind == "HELPFUL",
+            isHarmful = auraKind == "HARMFUL",
         }
     end
     return nil
 end
 
 C_UnitAuras.GetAuraDataByIndex = function(unit, index, filter)
-    return PackAuraData(UnitAura(unit, index, filter))
+    local auraKind = filter and string.find(filter, "HARMFUL") and "HARMFUL" or "HELPFUL"
+    local name, rank, icon, count, dispelType, duration, expirationTime, source,
+        isStealable, nameplateShowPersonal, spellId = UnitAura(unit, index, filter)
+    return PackAuraData(name, rank, icon, count, dispelType, duration,
+        expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
 end
 
 C_UnitAuras.GetPlayerAuraBySpellID = function(spellID)
@@ -815,14 +821,14 @@ C_UnitAuras.GetPlayerAuraBySpellID = function(spellID)
         local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura("player", i)
         if not name then break end
         if name == nameToFind or spellId == spellID then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HELPFUL")
         end
     end
     for i = 1, 40 do
         local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura("player", i, "HARMFUL")
         if not name then break end
         if name == nameToFind or spellId == spellID then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HARMFUL")
         end
     end
     return nil
@@ -834,14 +840,14 @@ C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, iid)
         local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, "HELPFUL")
         if not name then break end
         if spellId == iid then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HELPFUL")
         end
     end
     for i = 1, 40 do
         local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, "HARMFUL")
         if not name then break end
         if spellId == iid then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HARMFUL")
         end
     end
     return nil
@@ -862,7 +868,7 @@ C_UnitAuras.GetAuraDataBySpellName = function(unit, name, filter)
             local auraName, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, f)
             if not auraName then break end
             if auraName == name then
-                return PackAuraData(auraName, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+                return PackAuraData(auraName, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, f)
             end
         end
     end
@@ -870,6 +876,36 @@ C_UnitAuras.GetAuraDataBySpellName = function(unit, name, filter)
 end
 
 C_UnitAuras.IsAuraFilteredOutByInstanceID = function(unit, iid, filter)
+    if not unit or not iid then return true end
+    local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, iid)
+    if not aura then return true end
+
+    local function MatchesToken(token)
+        if token == "HELPFUL" then return aura.isHelpful == true end
+        if token == "HARMFUL" then return aura.isHarmful == true end
+        if token == "PLAYER" then return aura.sourceUnit == "player" end
+        if token == "BIG_DEFENSIVE" or token == "EXTERNAL_DEFENSIVE" then
+            local tag = token == "BIG_DEFENSIVE" and "defensive" or "external"
+            return C_CooldownViewer
+                and C_CooldownViewer.IsAuraSpellTagged
+                and C_CooldownViewer.IsAuraSpellTagged(aura.spellId, tag)
+                or false
+        end
+        -- Other Retail-only classifications are ignored until their WotLK
+        -- catalogs are supplied. Returning nil is important for negated
+        -- unknown tokens too: both forms preserve the old permissive behavior.
+        return nil
+    end
+
+    for rawToken in string.gmatch(filter or "", "[^|]+") do
+        local negated = string.sub(rawToken, 1, 1) == "!"
+        local token = negated and string.sub(rawToken, 2) or rawToken
+        local matches = MatchesToken(token)
+        if matches ~= nil
+            and ((not negated and not matches) or (negated and matches)) then
+            return true
+        end
+    end
     return false
 end
 
@@ -914,10 +950,15 @@ C_UA.GetAuraSlots = function(unit, filter)
         if not name then break end
         slots[#slots + 1] = i
     end
-    return slots
+    -- Retail returns a continuation token followed by the slot IDs. Callers
+    -- intentionally collect the varargs and begin at index 2.
+    return nil, unpack(slots)
 end
 C_UA.GetAuraDataBySlot = function(unit, slot)
-    return PackAuraData(UnitAura(unit, slot))
+    local name, rank, icon, count, dispelType, duration, expirationTime, source,
+        isStealable, nameplateShowPersonal, spellId = UnitAura(unit, slot, "HELPFUL")
+    return PackAuraData(name, rank, icon, count, dispelType, duration,
+        expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HELPFUL")
 end
 
 

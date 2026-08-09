@@ -45,8 +45,35 @@ end
 -- cooldownID Schema: [CD type 1 digit][Class ID 2 digits][Unique ID 3 digits]
 -- Paladin class abilities use 102XXX; paladin buffs and procs use 202XXX.
 -- These IDs are stable handles and must remain globally unique.
+local DEFENSIVE = { defensive = true }
+local EXTERNAL = { external = true }
+local EXTERNAL_DEFENSIVE = { external = true, defensive = true }
+local AURA_TAGS = {
+    ["paladin.divine_shield"] = DEFENSIVE,
+    ["paladin.divine_protection"] = DEFENSIVE,
+    ["paladin.hand_of_protection"] = EXTERNAL_DEFENSIVE,
+    ["paladin.hand_of_freedom"] = EXTERNAL,
+    ["paladin.hand_of_sacrifice"] = EXTERNAL_DEFENSIVE,
+    ["paladin.hand_of_salvation"] = EXTERNAL,
+    ["paladin.aura_mastery"] = DEFENSIVE,
+    ["paladin.divine_sacrifice"] = DEFENSIVE,
+    ["paladin.sacred_shield"] = EXTERNAL_DEFENSIVE,
+    ["paladin.holy_shield"] = DEFENSIVE,
+    ["paladin.ardent_defender"] = DEFENSIVE,
+    ["paladin.buff.divine_protection"] = DEFENSIVE,
+    ["paladin.buff.divine_shield"] = DEFENSIVE,
+    ["paladin.buff.hand_of_freedom"] = EXTERNAL,
+    ["paladin.buff.hand_of_protection"] = EXTERNAL_DEFENSIVE,
+    ["paladin.buff.hand_of_sacrifice"] = EXTERNAL_DEFENSIVE,
+    ["paladin.buff.hand_of_salvation"] = EXTERNAL,
+    ["paladin.buff.divine_sacrifice"] = DEFENSIVE,
+    ["paladin.buff.aura_mastery"] = DEFENSIVE,
+    ["paladin.buff.sacred_shield"] = EXTERNAL_DEFENSIVE,
+    ["paladin.bar.sacred_shield"] = EXTERNAL_DEFENSIVE,
+}
 local function Register(def)
     def.class = "PALADIN"
+    def.auraTags = def.auraTags or AURA_TAGS[def.key]
     C_CooldownViewer.RegisterDefinition(def)
 end
 
@@ -480,6 +507,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 120,
     spellID = 64205,
+    auraSpellIDs = { 53530, 64205 },
     iconSpellID = 64205,
     trackingType = "cooldown",
     resolvers = {
@@ -741,6 +769,7 @@ Register({
     order = 55,
     spellID = 64205,
     auraSpellID = 64205,
+    auraSpellIDs = { 53530, 64205 },
     iconSpellID = 64205,
     trackingType = "aura",
     hasAura = true,
@@ -1266,4 +1295,37 @@ Register({
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+})
+
+Register({
+    key = "paladin.divine_plea_cooldown",
+    cooldownID = 102027,
+    category = CDM_CATEGORY_ESSENTIAL,
+    order = 145,
+    spellID = 54428,
+    iconSpellID = 54428,
+    trackingType = "cooldown",
+})
+
+Register({
+    key = "paladin.holy_shield_cooldown",
+    cooldownID = 102028,
+    category = CDM_CATEGORY_ESSENTIAL,
+    order = 146,
+    spellID = 48952,
+    spellIDs = { 20925, 20927, 20928, 27179, 48951, 48952 },
+    iconSpellID = 48952,
+    trackingType = "cooldown",
+    auraTags = { defensive = true },
+})
+
+Register({
+    key = "paladin.divine_intervention",
+    cooldownID = 102029,
+    category = CDM_CATEGORY_UTILITY,
+    order = 160,
+    spellID = 19752,
+    iconSpellID = 19752,
+    trackingType = "cooldown",
+    auraTags = { external = true, defensive = true },
 })

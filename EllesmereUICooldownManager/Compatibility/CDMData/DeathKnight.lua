@@ -52,6 +52,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 48792,
     iconSpellID = 48792,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "DEATHKNIGHT",
 })
@@ -65,6 +66,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 48707,
     iconSpellID = 48707,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "DEATHKNIGHT",
 })
@@ -78,6 +80,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 51271,
     iconSpellID = 51271,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "DEATHKNIGHT",
     resolvers = {
@@ -99,6 +102,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 55233,
     iconSpellID = 55233,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "DEATHKNIGHT",
     resolvers = {
@@ -120,6 +124,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 49222,
     iconSpellID = 49222,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "DEATHKNIGHT",
     resolvers = {
@@ -183,6 +188,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 49016,
     iconSpellID = 49016,
     trackingType = "cooldown",
+    auraTags = { external = true },
 
     class = "DEATHKNIGHT",
     resolvers = {
@@ -315,8 +321,10 @@ C_CooldownViewer.RegisterDefinition({
     order = 80,
 
     spellID = 51052,
+    auraSpellIDs = { 50461, 51052 },
     iconSpellID = 51052,
     trackingType = "cooldown",
+    auraTags = { external = true, defensive = true },
 
     class = "DEATHKNIGHT",
     resolvers = {
@@ -338,6 +346,7 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 49039,
     iconSpellID = 49039,
     trackingType = "cooldown",
+    auraTags = { defensive = true },
 
     class = "DEATHKNIGHT",
     resolvers = {
@@ -457,6 +466,7 @@ C_CooldownViewer.RegisterDefinition({
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+    auraTags = { defensive = true },
 
     class = "DEATHKNIGHT",
     resolvers = {
@@ -468,3 +478,32 @@ C_CooldownViewer.RegisterDefinition({
         end,
     },
 })
+
+-- Short rotational, survival, and control cooldowns omitted by the initial
+-- major-cooldown pass. Keep rank lists where Wrath still exposes ranks.
+local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTags)
+    C_CooldownViewer.RegisterDefinition({
+        key = "deathknight." .. key,
+        cooldownID = cooldownID,
+        category = category or CDM_CATEGORY_ESSENTIAL,
+        order = order,
+        spellID = spellIDs[#spellIDs],
+        spellIDs = spellIDs,
+        iconSpellID = spellIDs[#spellIDs],
+        trackingType = "cooldown",
+        auraTags = auraTags,
+        class = "DEATHKNIGHT",
+    })
+end
+
+RegisterBasic("blood_tap",        106019, 110, { 45529 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("rune_tap",         106020, 120, { 48982 }, CDM_CATEGORY_ESSENTIAL, { defensive = true })
+RegisterBasic("mark_of_blood",    106021, 130, { 49005 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("death_pact",       106022, 140, { 48743 }, CDM_CATEGORY_ESSENTIAL, { defensive = true })
+RegisterBasic("dark_command",     106023, 150, { 56222 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("death_and_decay",  106024, 160, { 43265, 49936, 49937, 49938 })
+RegisterBasic("pestilence",       106025, 170, { 50842 })
+RegisterBasic("howling_blast",    106026, 180, { 49184, 51409, 51410, 51411 })
+RegisterBasic("hungering_cold",   106027, 190, { 49203 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("deathchill",       106028, 200, { 49796 })
+RegisterBasic("blood_boil",       106029, 210, { 48721, 49939, 49940, 49941 })
