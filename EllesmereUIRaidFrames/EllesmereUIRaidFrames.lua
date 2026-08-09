@@ -2536,6 +2536,24 @@ local function UpdateAbsorb(button, unit)
     local healBarPos = ns.GetHealAbsorbBarPosition(s)
     local healBarOn = healTopBar and healBarPos ~= "none"
     local styleOn = s.absorbStyle and s.absorbStyle ~= "none"
+    -- Heal prediction is independent from absorb rendering.  On Wrath this
+    -- value comes from LibHealComm and is refreshed by the shared GUID bridge;
+    -- keep it ahead of every absorb-style early return.
+    local hpd = ab._healPred
+    if hpd then
+        if not s.healPrediction then
+            hpd:Hide()
+        else
+            local pc = s.healPredColor or { r = 102/255, g = 243/255, b = 102/255 }
+            local pAlpha = (s.healPredOpacity or 75) / 100
+            local predMax = UnitHealthMax(unit) or 0
+            hpd:SetStatusBarColor(pc.r, pc.g, pc.b, pAlpha)
+            hpd:SetWidth(hp:GetWidth()); hpd:SetHeight(hp:GetHeight())
+            hpd:SetMinMaxValues(0, predMax)
+            hpd:SetValue(UnitGetIncomingHeals and UnitGetIncomingHeals(unit) or 0)
+            hpd:Show()
+        end
+    end
     -- Heal absorb is INDEPENDENT of the shield absorb (matches Unit Frames):
     -- it renders whenever its own style is on, so keep going if it is enabled
     -- even when both the shield style and the Absorb Bar are off.
@@ -2761,23 +2779,6 @@ local function UpdateAbsorb(button, unit)
     elseif fw and fw._edgeSpark then
         fw._edgeSpark:Hide()
         if fw._bfSpark then fw._bfSpark:Hide() end
-    end
-
-    -- Heal prediction: extends from current HP into missing health
-    local hpd = ab._healPred
-    if hpd then
-        if not s.healPrediction then
-            hpd:Hide()
-        else
-            local pc = s.healPredColor or { r = 102/255, g = 243/255, b = 102/255 }
-            local pAlpha = (s.healPredOpacity or 75) / 100
-            hpd:SetStatusBarColor(pc.r, pc.g, pc.b, pAlpha)
-            local incomingHeals = UnitGetIncomingHeals and UnitGetIncomingHeals(unit) or 0
-            hpd:SetWidth(hpW); hpd:SetHeight(hpH)
-            hpd:SetMinMaxValues(0, maxHealth)
-            hpd:SetValue(incomingHeals)
-            hpd:Show()
-        end
     end
 
     -- Reduced max health: styled overlay anchored to the right side. Texture /
@@ -16099,6 +16100,23 @@ function ERF:OnEnable()
 
     -- Create headers and style all buttons
     CreateHeaders()
+
+    -- Wrath has no UNIT_HEAL_PREDICTION / UNIT_ABSORB_* events.  The shared
+    -- LibHealComm + SpecializedAbsorbs bridge reports GUID changes and this
+    -- callback feeds them into the normal per-button renderer.
+    local tracker = _G.EllesmereUIHealAbsorb
+    if tracker and tracker.isLegacy and not ns._healAbsorbTrackerRegistered then
+        ns._healAbsorbTrackerRegistered = true
+        tracker.Register(ns, function(_, guid, change)
+            for _, button in ipairs(allButtons) do
+                local unit = button:GetAttribute("unit")
+                if unit and button:IsVisible() and UnitGUID(unit) == guid then
+                    UpdateAbsorb(button, unit)
+                    if change == "HEAL_ABSORB" then ns.UpdateHealAbsorbTextFor(button, unit) end
+                end
+            end
+        end)
+    end
 
     -- Initial full reload (sets _activeSizeW/H from group size + tier overrides)
     ReloadFrames()

@@ -13,6 +13,9 @@ Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibDeflate\LibDeflate.lua
+Libs\oUF_HealComm4\LibHealComm-4.0\LibHealComm-4.0.lua
+Libs\SpecializedAbsorbs-1.0\Standalone.lua
+Libs\SpecializedAbsorbs-1.0\SpecializedAbsorbs-1.0.lua
 
 
 # Core Polyfills for WotLK 3.3.5
@@ -25,6 +28,7 @@ Compatibility\Atlas.lua
 Compatibility\Secure.lua
 Compatibility\Layout.lua
 Compatibility\Timer.lua
+Compatibility\HealAbsorb.lua
 
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua

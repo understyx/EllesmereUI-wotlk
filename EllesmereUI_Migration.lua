@@ -1701,7 +1701,7 @@ EllesmereUI.RegisterMigration({
 EllesmereUI.RegisterMigration({
     id          = "cdm_strip_buff_bar_item_ids_v1",
     scope       = "specProfile",
-    description = "Remove item-ID (negative -itemID) entries from CDM buff bars. Buff bars track auras only (positive spell IDs); items can no longer be placed on them. CD/utility bars (which legitimately hold trinkets/potions) are left untouched.",
+    description = "Remove legacy item-ID entries from CDM buff bars while preserving the Trinket Procs catch-all marker.",
     body = function(ctx)
         -- Idempotent: only NEGATIVE ids are removed, so a re-run finds none. The
         -- per-spec-profile flag also stops further runs.
@@ -1730,9 +1730,9 @@ EllesmereUI.RegisterMigration({
                 local as = bs.assignedSpells
                 for i = #as, 1, -1 do
                     local id = as[i]
-                    -- Negative ids are item markers (-itemID / trinket slots);
-                    -- positive ids are real buff spell IDs and are kept verbatim.
-                    if type(id) == "number" and id < 0 then
+                    -- -20 is the intentional Trinket Procs aura-category marker,
+                    -- not an item/equipment-slot entry.
+                    if type(id) == "number" and id < 0 and id ~= -20 then
                         table.remove(as, i)
                         -- Drop any per-id side data so nothing dangles.
                         if type(bs.spellSettings) == "table" then bs.spellSettings[id] = nil end

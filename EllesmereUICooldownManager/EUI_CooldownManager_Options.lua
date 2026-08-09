@@ -7451,7 +7451,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- CD/utility bars: one click, one move.
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
-            if sp.cdmCatGroup == "buff" then
+            -- Individual proc aura definitions remain the runtime frames, but
+            -- users manage them through the single catch-all row below.
+            if sp.cdmCatGroup == "buff" and not sp.isTrinketProc then
                 knownSpells[#knownSpells + 1] = sp
             end
         end
@@ -7580,6 +7582,63 @@ initFrame:SetScript("OnEvent", function(self)
             mH = mH + 9
         end
 
+        -- One assignment follows every proc aura from either equipped trinket.
+        -- The individual proc definitions stay internal so simultaneous procs
+        -- can still render as separate live icons.
+        do
+            local marker = ns.TRINKET_PROC_MARKER
+            local sdTP = ns.GetBarSpellData(targetBarKey)
+            local isAdded = false
+            if marker and sdTP and sdTP.assignedSpells then
+                for _, id in ipairs(sdTP.assignedSpells) do
+                    if id == marker then isAdded = true; break end
+                end
+            end
+
+            local ti = EllesmereUI.SafeCreateFrame("Button", nil, inner)
+            ti:SetHeight(ITEM_H)
+            ti:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            ti:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            ti:SetFrameLevel(menu:GetFrameLevel() + 2)
+            local ico = ti:CreateTexture(nil, "ARTWORK")
+            ico:SetSize(ITEM_H - 4, ITEM_H - 4)
+            ico:SetPoint("LEFT", 4, 0)
+            local equipped = GetInventoryItemID("player", 13)
+                or GetInventoryItemID("player", 14)
+            ico:SetTexture((equipped and C_Item.GetItemIconByID(equipped))
+                or "Interface\\Icons\\INV_Jewelry_TrinketPVP_01")
+            ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            local lbl = ti:CreateFontString(nil, "OVERLAY")
+            lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            lbl:SetPoint("LEFT", ico, "RIGHT", 6, 0)
+            lbl:SetText(EllesmereUI.L("Trinket Procs"))
+            local hl = ti:CreateTexture(nil, "ARTWORK")
+            hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0)
+            if isAdded then
+                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
+                ico:SetDesaturated(true); ico:SetAlpha(0.4)
+            else
+                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                ti:SetScript("OnEnter", function()
+                    lbl:SetTextColor(1, 1, 1, 1); hl:SetTexture(1, 1, 1, hlA)
+                end)
+                ti:SetScript("OnLeave", function()
+                    lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); hl:SetTexture(1, 1, 1, 0)
+                end)
+                ti:SetScript("OnClick", function()
+                    if marker then ns.AddTrackedSpell(targetBarKey, marker) end
+                    if onChanged then onChanged() end
+                    lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
+                    ico:SetDesaturated(true); ico:SetAlpha(0.4)
+                    hl:SetTexture(1, 1, 1, 0)
+                    ti:SetScript("OnEnter", nil)
+                    ti:SetScript("OnLeave", nil)
+                    ti:SetScript("OnClick", nil)
+                end)
+            end
+            mH = mH + ITEM_H
+        end
+
         -- Preset buffs (potions, consumables, Bloodlust, etc.) added as cast-timer
         -- custom buffs via AddPresetToBar; the buff phase injects an own-frame so
         -- they render alongside Blizzard-tracked buffs.
@@ -7657,7 +7716,7 @@ initFrame:SetScript("OnEvent", function(self)
             local cdTracked = sdRows and ns.CollectCdClaimSet(sdRows)
             for _, sp in ipairs(knownSpells) do
                 local item = MakeSpellRow(sp)
-                if cdTracked and sp.cdID and cdTracked[sp.cdID] then
+                if sp.onEUIBar or (cdTracked and sp.cdID and cdTracked[sp.cdID]) then
                     if item._grayOut then item._grayOut() end
                 else
                     item:SetScript("OnClick", function()
@@ -7792,12 +7851,12 @@ initFrame:SetScript("OnEvent", function(self)
         local ITEM_H = 26
         local MAX_H = 350
 
-        -- Buff catalog comes from the default buffs bar (passing a CD/util barKey
-        -- would return Essential/Utility spells). Dedup against buffs already
-        -- HOSTED on this bar so re-opening the menu never re-lists an added
-        -- buff. The hosted flag table is the membership truth (assignedSpells
-        -- stores hosted buffs as negative markers, and a PLAIN id entry is the
-        -- spell's COOLDOWN form -- which must not hide its buff form here).
+        -- Aura catalogs come from their default bar (passing a CD/util barKey
+        -- would return Essential/Utility spells). Keep entries already assigned
+        -- to the target in the menu and render them desaturated, matching the
+        -- other add-spell menus. The hosted flag table is the membership truth
+        -- (assignedSpells stores hosted auras as negative markers, and a PLAIN id
+        -- entry is the spell's COOLDOWN form -- which must not hide its aura form).
         local sourceBarKey = isDebuffPicker and "debuffs" or "buffs"
         local wantedGroup = isDebuffPicker and "debuff" or "buff"
         local allSpells = ns.GetCDMSpellsForBar
@@ -7821,8 +7880,7 @@ initFrame:SetScript("OnEvent", function(self)
         local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
-            if sp.cdmCatGroup == wantedGroup and sp.spellID and not already[sp.spellID]
-               and not (sp.cdID and alreadyCd and alreadyCd[sp.cdID]) then
+            if sp.cdmCatGroup == wantedGroup and sp.spellID then
                 knownSpells[#knownSpells + 1] = sp
             end
         end
@@ -7896,6 +7954,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Class buff rows.
         local function MakeSpellRow(sp)
+            local assigned = already[sp.spellID]
+                or (sp.cdID and alreadyCd and alreadyCd[sp.cdID])
             local item = EllesmereUI.SafeCreateFrame("Button", nil, inner)
             item:SetHeight(ITEM_H)
             item:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -7916,43 +7976,84 @@ initFrame:SetScript("OnEvent", function(self)
             -- Tracked-but-untalented buffs: desaturate + hint, still clickable
             -- (AddBuffToCDUtilBar has no learned gate; routes when talented).
             local notLearned = (sp.isKnown == false)
-            if notLearned then iconTex:SetDesaturated(true); iconTex:SetAlpha(0.5) end
-            item:SetScript("OnEnter", function()
-                lbl:SetTextColor(1, 1, 1, 1); hl:SetTexture(1, 1, 1, hlA)
-                if notLearned then EllesmereUI.ShowWidgetTooltip(item, EllesmereUI.L("Not currently talented")) end
-            end)
-            item:SetScript("OnLeave", function()
-                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); hl:SetTexture(1, 1, 1, 0)
-                if notLearned then EllesmereUI.HideWidgetTooltip() end
-            end)
-            item:SetScript("OnClick", function()
-                if notLearned then EllesmereUI.HideWidgetTooltip() end
-                -- Collided pair (two viewer slots, one shared spellID): claim
-                -- by cooldownID so each slot is hostable on its own. Non-
-                -- collided buffs keep the sid path (identity survives talent
-                -- swaps, cooldownIDs drift).
-                if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
-                   and ns.AddHostedBuffByCdID then
-                    ns.AddHostedBuffByCdID(targetBarKey, sp.cdID)
-                else
-                    if isDebuffPicker then
-                        if targetIsDebuffBar then ns.AddTrackedSpell(targetBarKey, sp.spellID)
-                        else ns.AddDebuffToCDUtilBar(targetBarKey, sp.spellID) end
-                    else
-                        ns.AddBuffToCDUtilBar(targetBarKey, sp.spellID)
-                    end
-                end
-                AfterAdd()
-                -- Gray this row in place; keep the picker open.
-                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
+            if assigned then
                 iconTex:SetDesaturated(true); iconTex:SetAlpha(0.4)
-                hl:SetTexture(1, 1, 1, 0)
-                item:SetScript("OnEnter", nil); item:SetScript("OnLeave", nil); item:SetScript("OnClick", nil)
-            end)
+                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
+            else
+                if notLearned then iconTex:SetDesaturated(true); iconTex:SetAlpha(0.5) end
+                item:SetScript("OnEnter", function()
+                    lbl:SetTextColor(1, 1, 1, 1); hl:SetTexture(1, 1, 1, hlA)
+                    if notLearned then EllesmereUI.ShowWidgetTooltip(item, EllesmereUI.L("Not currently talented")) end
+                end)
+                item:SetScript("OnLeave", function()
+                    lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); hl:SetTexture(1, 1, 1, 0)
+                    if notLearned then EllesmereUI.HideWidgetTooltip() end
+                end)
+                item:SetScript("OnClick", function()
+                    if notLearned then EllesmereUI.HideWidgetTooltip() end
+                    -- Collided pair (two viewer slots, one shared spellID): claim
+                    -- by cooldownID so each slot is hostable on its own. Non-
+                    -- collided buffs keep the sid path (identity survives talent
+                    -- swaps, cooldownIDs drift).
+                    if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
+                       and ns.AddHostedBuffByCdID then
+                        ns.AddHostedBuffByCdID(targetBarKey, sp.cdID)
+                    else
+                        if isDebuffPicker then
+                            if targetIsDebuffBar then ns.AddTrackedSpell(targetBarKey, sp.spellID)
+                            else ns.AddDebuffToCDUtilBar(targetBarKey, sp.spellID) end
+                        else
+                            ns.AddBuffToCDUtilBar(targetBarKey, sp.spellID)
+                        end
+                    end
+                    AfterAdd()
+                    -- Gray this row in place; keep the picker open.
+                    lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
+                    iconTex:SetDesaturated(true); iconTex:SetAlpha(0.4)
+                    hl:SetTexture(1, 1, 1, 0)
+                    item:SetScript("OnEnter", nil); item:SetScript("OnLeave", nil); item:SetScript("OnClick", nil)
+                end)
+            end
             mH = mH + ITEM_H
             return item
         end
-        for _, sp in ipairs(knownSpells) do MakeSpellRow(sp) end
+        if isDebuffPicker then
+            local personal, raid = {}, {}
+            for _, sp in ipairs(knownSpells) do
+                if sp.debuffScope == "raid" then
+                    raid[#raid + 1] = sp
+                else
+                    personal[#personal + 1] = sp
+                end
+            end
+            local function AddSection(label, rows)
+                if #rows == 0 then return end
+                local header = EllesmereUI.SafeCreateFrame("Frame", nil, inner)
+                header:SetHeight(24)
+                header:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                header:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                -- The menu background lives on a high fullscreen-dialog level.
+                -- Match the spell rows so the caption is not composited behind it.
+                header:SetFrameLevel(menu:GetFrameLevel() + 2)
+                local fs = header:CreateFontString(nil, "OVERLAY")
+                fs:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+                fs:SetPoint("CENTER", header, "CENTER", 0, 2)
+                fs:SetJustifyH("CENTER")
+                fs:SetText(EllesmereUI.L(label))
+                fs:SetTextColor(tDimR, tDimG, tDimB, 0.9)
+                local line = header:CreateTexture(nil, "ARTWORK")
+                line:SetHeight(1)
+                line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 8, 1)
+                line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, 1)
+                line:SetTexture(1, 1, 1, 0.12)
+                mH = mH + 24
+                for _, sp in ipairs(rows) do MakeSpellRow(sp) end
+            end
+            AddSection("Personal Debuffs", personal)
+            AddSection("Raid Debuffs", raid)
+        else
+            for _, sp in ipairs(knownSpells) do MakeSpellRow(sp) end
+        end
 
         -- "Missing Buffs?" footer -- opens Blizzard's CDM to Display more buffs.
         if not isDebuffPicker then
@@ -8586,10 +8687,9 @@ initFrame:SetScript("OnEvent", function(self)
         local allItems = {}
 
         -- "Remove Spell" option at top (only for right-click on existing icon).
-        -- The default buff bar (key == "buffs") can't remove Blizzard-tracked
-        -- buffs (visibility is Blizzard's CDM), BUT injected custom/preset buffs
-        -- the user added ARE removable there. Extra buff + CD/util bars always
-        -- allow removal.
+        -- Existing entries on every bar are removable here. The default Buffs
+        -- bar is an EllesmereUI allow-list, so viewer-tracked buffs are handled
+        -- the same way as custom/preset buffs.
         local rmSpellID = nil
         local rmIsInjected = false
         do
@@ -8597,8 +8697,16 @@ initFrame:SetScript("OnEvent", function(self)
             -- Buff bars: prefer the slot's own _previewSpellID (the default buffs
             -- bar's slots don't map to assignedSpells -- see the settings block).
             if isBuffBar then
-                rmSpellID = ResolveBuffSettingsKey(anchorFrame)
-                    or (rmSd and rmSd.assignedSpells and rmSd.assignedSpells[slotIndex])
+                if anchorFrame and anchorFrame._previewTrinketProcs then
+                    rmSpellID = ns.TRINKET_PROC_MARKER
+                elseif barKey == "buffs" and anchorFrame and anchorFrame._previewCdID
+                   and ns.IsCollidedBuffSid
+                   and ns.IsCollidedBuffSid(anchorFrame._previewSpellID) then
+                    rmSpellID = ns.CdClaimMarker(anchorFrame._previewCdID)
+                else
+                    rmSpellID = (anchorFrame and anchorFrame._previewSpellID)
+                        or (rmSd and rmSd.assignedSpells and rmSd.assignedSpells[slotIndex])
+                end
             else
                 rmSpellID = rmSd and rmSd.assignedSpells and rmSd.assignedSpells[slotIndex]
                 if (not rmSpellID or rmSpellID == 0) and anchorFrame and anchorFrame._previewSpellID then
@@ -8609,7 +8717,7 @@ initFrame:SetScript("OnEvent", function(self)
                 (rmSd.spellDurations and (rmSd.spellDurations[rmSpellID] or 0) > 0)
                 or (rmSd.customSpellIDs and rmSd.customSpellIDs[rmSpellID]))) and true or false
         end
-        if slotIndex and (barKey ~= "buffs" or rmIsInjected) then
+        if slotIndex and rmSpellID then
             local rmItem = EllesmereUI.SafeCreateFrame("Button", nil, inner)
             rmItem:SetHeight(ITEM_H)
             rmItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -8672,45 +8780,6 @@ initFrame:SetScript("OnEvent", function(self)
             mH = mH + ITEM_H
         end
 
-        -- Main buffs bar, Blizzard-tracked buff (not an injected custom): it can't
-        -- be removed in EUI (Blizzard owns its tracking), so offer a "Delete Spell"
-        -- row that opens Blizzard's Cooldown Manager (closes EUI options + opens the
-        -- Blizzard CDM), matching the page's link behavior.
-        if slotIndex and barKey == "buffs" and not rmIsInjected and rmSpellID then
-            local dsItem = EllesmereUI.SafeCreateFrame("Button", nil, inner)
-            dsItem:SetHeight(ITEM_H)
-            dsItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
-            dsItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
-            dsItem:SetFrameLevel(menu:GetFrameLevel() + 2)
-
-            local dsHl = dsItem:CreateTexture(nil, "ARTWORK")
-            dsHl:SetAllPoints(); dsHl:SetTexture(1, 1, 1, 0); dsHl:SetAlpha(0)
-
-            local dsLbl = dsItem:CreateFontString(nil, "OVERLAY")
-            dsLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-            dsLbl:SetPoint("LEFT", 10, 0)
-            dsLbl:SetJustifyH("LEFT")
-            dsLbl:SetText(EllesmereUI.L("Delete Spell"))
-            dsLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-
-            dsItem:SetScript("OnEnter", function()
-                dsLbl:SetTextColor(1, 1, 1, 1)
-                dsHl:SetTexture(1, 1, 1, hlA); dsHl:SetAlpha(1)
-                if menu._openSub and menu._openSub:IsShown() then menu._openSub:Hide() end
-            end)
-            dsItem:SetScript("OnLeave", function()
-                dsLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                dsHl:SetAlpha(0)
-            end)
-            dsItem:SetScript("OnClick", function()
-                menu:Hide()
-                if ns.OpenBlizzardCDMTab then ns.OpenBlizzardCDMTab(true) end
-            end)
-
-            allItems[#allItems + 1] = dsItem
-            mH = mH + ITEM_H
-        end
-
         if removeOnly then
             -- Per-icon settings. CD/utility bars get the full menu; buff-family
             -- bars get a buff-specific subset. custom_buff (Auras) bars are
@@ -8754,33 +8823,41 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
                 if spellID and spellID ~= 0 then
-                    -- Hosted-buff SLOT? The slot decides, not the flag alone: the
+                    -- Hosted-aura SLOT? The slot decides, not the flag alone: the
                     -- same spellID can also be this bar's cooldown entry, and that
                     -- slot must keep the CD store + cd/util menu. Legacy fallback:
                     -- flag set with no marker entry yet means the plain entry is
                     -- the buff (pre-marker data).
                     local isHostedBuff = (anchorFrame and anchorFrame._previewHostedBuff) or false
+                    local isHostedDebuff = (anchorFrame and anchorFrame._previewHostedDebuff) or false
                     if not isHostedBuff and sd.hostedBuffSpellIDs and sd.hostedBuffSpellIDs[spellID]
                        and not (ns.ListHasHostedMarker and sd.assignedSpells
                                 and ns.ListHasHostedMarker(sd.assignedSpells, spellID)) then
                         isHostedBuff = true
                     end
+                    if not isHostedDebuff and sd.hostedDebuffSpellIDs
+                       and sd.hostedDebuffSpellIDs[spellID] then
+                        isHostedDebuff = true
+                    end
+                    local isHostedAura = isHostedBuff or isHostedDebuff
                     -- Per-spell entries live in the spec FAMILY store (they travel
                     -- with the spell across bars). The bar tiers sit below them:
                     -- sd.barSettings ("Apply to Bar") -> bd.barSpellSettings
-                    -- ("Apply to Bar (All Specs)"). A hosted buff uses the BUFF
-                    -- store -- the same entry it had on the buffs bar -- and never
-                    -- chains to this bar's (cd/util) tiers.
-                    local store = ns.GetSpellSettingsStore(isHostedBuff and "buffs" or barKey, true)
+                    -- ("Apply to Bar (All Specs)"). A hosted aura uses its own
+                    -- Buffs/Debuffs family store and never chains to this bar's
+                    -- cooldown/utility tiers.
+                    local settingsBarKey = isHostedBuff and "buffs"
+                        or (isHostedDebuff and "debuffs") or barKey
+                    local store = ns.GetSpellSettingsStore(settingsBarKey, true)
                     local bdSel = ns.barDataByKey and ns.barDataByKey[barKey]
-                    local famKey = ns.SettingsFamilyKey(isHostedBuff and "buffs" or barKey)
+                    local famKey = ns.SettingsFamilyKey(settingsBarKey)
                     -- Effective-read view: the entry (or a not-yet-persisted fresh
                     -- table) chained to the bar tiers, so the menu shows the values
                     -- the icon actually renders with. EnsureSS() persists the entry
                     -- on first WRITE.
                     local ss = store and store[spellID]
                     if not ss then ss = {} end
-                    ns.ChainSettings(ss, isHostedBuff and nil or ns.GetBarTierSettings(sd, barKey))
+                    ns.ChainSettings(ss, isHostedAura and nil or ns.GetBarTierSettings(sd, barKey))
                     local function EnsureSS()
                         if store and not store[spellID] then
                             store[spellID] = ss
@@ -8826,48 +8903,24 @@ initFrame:SetScript("OnEvent", function(self)
                             if prof then fn(prof) end
                         end
                     end
-                    -- Run fn(sid, entry) for every per-spell entry belonging to a
-                    -- bar in the given spec profile. The DEFAULT buffs bar owns
-                    -- every buff-store entry not claimed by another buff bar
-                    -- (Blizzard-tracked buffs are not in assignedSpells).
+                    -- Run fn(sid, entry) for every explicitly assigned per-spell
+                    -- entry belonging to this bar in the given spec profile.
                     AB.ForEachMemberEntry = function(prof, bsX, fn)
                         local st = prof and prof[famKey]
                         if not st then return end
-                        if barKey == "buffs" then
-                            local claimed = {}
-                            local bsAll = prof.barSpells
-                            if bsAll then
-                                for k2, b2 in pairs(bsAll) do
-                                    if k2 ~= "buffs" and type(b2) == "table"
-                                       and ns.IsBarBuffFamily and ns.IsBarBuffFamily(k2)
-                                       and type(b2.assignedSpells) == "table" then
-                                        for _, sid2 in ipairs(b2.assignedSpells) do
-                                            claimed[sid2] = true
-                                        end
-                                    end
-                                    -- Also exclude HOSTED buffs (on cd/util bars): they are
-                                    -- removed from Apply-to-Bar, so a default-buffs-bar apply
-                                    -- must not treat their buff-store entry as an unclaimed
-                                    -- member and wipe it.
-                                    if type(b2) == "table" and type(b2.hostedBuffSpellIDs) == "table" then
-                                        for hsid in pairs(b2.hostedBuffSpellIDs) do
-                                            claimed[hsid] = true
-                                        end
-                                    end
-                                end
-                            end
-                            for sid2, e in pairs(st) do
-                                if type(e) == "table" and not claimed[sid2] then fn(sid2, e) end
-                            end
-                        elseif bsX and type(bsX.assignedSpells) == "table" then
+                        if bsX and type(bsX.assignedSpells) == "table" then
                             -- Hosted buffs are excluded from Apply-to-Bar: never treat one
                             -- as a bar member (so a bar apply can't clear/overwrite its
                             -- per-spell settings).
                             local hosted = bsX.hostedBuffSpellIDs
                             for _, sid2 in ipairs(bsX.assignedSpells) do
                                 if not (hosted and hosted[sid2]) then
-                                    local e = st[sid2]
-                                    if type(e) == "table" then fn(sid2, e) end
+                                    local settingsKey = sid2
+                                    local cdClaim = ns.CdClaimMarkerToCdID
+                                        and ns.CdClaimMarkerToCdID(sid2)
+                                    if cdClaim then settingsKey = "c" .. cdClaim end
+                                    local e = st[settingsKey]
+                                    if type(e) == "table" then fn(settingsKey, e) end
                                 end
                             end
                         end
@@ -8956,6 +9009,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- frames, not preset icons -- never mint cas entries
                                 -- for them.
                                 and not (ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid2))
+                                and not (ns.IsTrinketProcMarker and ns.IsTrinketProcMarker(sid2))
                             if isInj then
                                 if ns.SlotIDFromKey(sid2) then
                                     -- Equipment slots stamp the SLOT entry: one bar
@@ -9048,6 +9102,7 @@ initFrame:SetScript("OnEvent", function(self)
                                         or (ns._myRacialsSet and ns._myRacialsSet[sid2])
                                         or (bsX.customSpellIDs and bsX.customSpellIDs[sid2]))
                                         and not (ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid2))
+                                        and not (ns.IsTrinketProcMarker and ns.IsTrinketProcMarker(sid2))
                                     if isInj then
                                         -- Trinket slots resolve to the EQUIPPED item's
                                         -- own entry -- the values the stamp will clear;
@@ -10655,15 +10710,12 @@ initFrame:SetScript("OnEvent", function(self)
                             end)
                     end
 
-                    -- A HOSTED buff (a buff placed on a CD/util bar) is a real
-                    -- Blizzard buff frame reparented onto the bar, so it takes the
-                    -- BUFF per-icon menu, not the CD/util one -- same settings as it
-                    -- would have on a buffs bar. isHostedBuff is resolved above
-                    -- (slot-based) where the settings store is selected.
-                    -- Hosted buffs are removed from the Apply-to-Bar system (no strip on
-                    -- their rows, no bar-tier chaining in ResolveSpellSettings).
-                    hostedBuffNoApply = isHostedBuff
-                    if isBuffBar or isHostedBuff then
+                    -- A HOSTED aura is a real buff/debuff viewer frame reparented
+                    -- onto a CD/util bar, so it takes the aura per-icon menu rather
+                    -- than the cooldown one. Hosted auras are removed from the
+                    -- Apply-to-Bar system (no strip and no CD/util tier chaining).
+                    hostedBuffNoApply = isHostedAura
+                    if isBuffBar or isHostedAura then
                         -- Injected custom/preset buffs (cast-timer driven, identified
                         -- by a stored spellDuration) are show-on-cast only, so the
                         -- Always Show Buffs / Desaturate Inactive overrides (which act
@@ -10671,8 +10723,8 @@ initFrame:SetScript("OnEvent", function(self)
                         local isInjectedCustom = (sd.spellDurations and (sd.spellDurations[spellID] or 0) > 0)
                             or (sd.customSpellIDs and sd.customSpellIDs[spellID]) or false
 
-                        -- Visibility When Missing (HOSTED buffs only): what this
-                        -- slot shows while the buff is missing. Default (nil) =
+                        -- Visibility When Missing (HOSTED auras only): what this
+                        -- slot shows while the aura is missing. Default (nil) =
                         -- today's desaturated placeholder; "hidden" keeps the
                         -- reserved slot but renders nothing; "hiddenShift" skips
                         -- the placeholder entirely so later icons close the gap
@@ -10680,7 +10732,7 @@ initFrame:SetScript("OnEvent", function(self)
                         -- per-spell: no apply opts, and hosted rows never get the
                         -- Apply-to-Bar strip anyway (their entries chain to no
                         -- tier by architecture).
-                        if isHostedBuff then
+                        if isHostedAura then
                             local MISSING_VIS_ITEMS = {
                                 { val = nil,           label = "Desaturated" },
                                 { val = "hidden",      label = "Hidden" },
@@ -11135,7 +11187,7 @@ initFrame:SetScript("OnEvent", function(self)
                             -- overrides: always-show and desaturate-inactive are baked in
                             -- (a cd/util bar has no such bar toggle to override). Audio
                             -- rows below still apply, so they stay outside this guard.
-                            if not isHostedBuff then
+                            if not isHostedAura then
                             -- Always Show Buffs: per-icon tri-state override of the bar
                             -- toggle. Default = inherit bar; Show = force the inactive
                             -- placeholder on; Hide = force it off. A reanchor (queued by
@@ -11185,7 +11237,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 nil,
                                 { apply = { keys = { "desatInactive" },
                                             write = function(t, v) t.desatInactive = v end } })
-                            end  -- if not isHostedBuff (bar-toggle overrides omitted)
+                            end  -- if not isHostedAura (bar-toggle overrides omitted)
 
                             AddBuffGainRow()
                             AddBuffLossRow()
@@ -14583,7 +14635,8 @@ initFrame:SetScript("OnEvent", function(self)
             slot._slotIdx = idx
 
             -- Right-click: spell picker to replace; Middle-click: remove
-            -- Default buff bar: no interaction (Blizzard controls the list)
+            -- Default buff bar uses stable preview identities because its
+            -- display order is decoupled from assignedSpells.
             slot:SetScript("OnClick", function(self, button)
                 if GetTime() - dragEndTime < 0.2 then
                     return
@@ -14612,6 +14665,13 @@ initFrame:SetScript("OnEvent", function(self)
                         _spellPickerMenu:Hide()
                     end
                     if isDefaultBuffs then
+                        if self._previewTrinketProcs then
+                            ns.RemoveSpellFromBar(bd.key, ns.TRINKET_PROC_MARKER)
+                            if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+                            if ns.QueueReanchor then ns.QueueReanchor() end
+                            RefreshCDPreview()
+                            return
+                        end
                         -- Custom item slot (negative -itemID marker): remove it
                         -- directly. slotIndex maps to the mixed preview list, so
                         -- key off the marker, not assignedSpells[si].
@@ -14622,19 +14682,23 @@ initFrame:SetScript("OnEvent", function(self)
                             RefreshCDPreview()
                             return
                         end
-                        -- Main buffs bar: only injected custom/preset buffs can be
-                        -- deleted (Blizzard-tracked buffs are managed in Blizzard's
-                        -- CDM). Remove by spellID since slotIndex maps to the mixed
-                        -- preview list (Blizzard buffs + customs), not assignedSpells.
+                        -- Main buffs bar is an explicit allow-list. Remove the
+                        -- selected viewer spell (or its cooldownID claim for a
+                        -- collided slot) by identity because preview order is
+                        -- independent from assignedSpells order.
                         local sid = self._previewSpellID
                         if not sid then return end
                         local sdMid = ns.GetBarSpellData(bd.key)
                         local isInj = sdMid and (
                             (sdMid.spellDurations and (sdMid.spellDurations[sid] or 0) > 0)
                             or (sdMid.customSpellIDs and sdMid.customSpellIDs[sid]))
-                        if not isInj then return end
-                        ns.RemoveSpellFromBar(bd.key, sid)
-                        if sdMid.spellDurations then sdMid.spellDurations[sid] = nil end
+                        local removeID = sid
+                        if self._previewCdID and ns.IsCollidedBuffSid
+                           and ns.IsCollidedBuffSid(sid) then
+                            removeID = ns.CdClaimMarker(self._previewCdID)
+                        end
+                        ns.RemoveSpellFromBar(bd.key, removeID)
+                        if isInj and sdMid.spellDurations then sdMid.spellDurations[sid] = nil end
                         if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
                         if ns.QueueReanchor then ns.QueueReanchor() end
                         RefreshCDPreview()
@@ -14666,6 +14730,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- settings and don't map to assignedSpells[si]; middle-click
                     -- removes them. Ignore left/right-click to avoid a mis-indexed
                     -- settings menu.
+                    if self._previewTrinketProcs then return end
                     if isDefaultBuffs and self._previewItemID then return end
                     -- Translate the preview slot to its underlying assignedSpells
                     -- index (identity unless this buff slot collapsed a duplicate).
@@ -15284,10 +15349,9 @@ initFrame:SetScript("OnEvent", function(self)
             local isCustomBuffBar = (bd.barType == "custom_buff")
             local isFocusKick = (bd.key == "focuskick")
 
-            -- All bars read from assignedSpells (user intent). The DEFAULT
-            -- buff bar enumerates the viewer pool directly so the preview
-            -- shows every tracked buff regardless of active state, minus
-            -- spells diverted to other buff-family bars.
+            -- All bars read from assignedSpells (user intent). The default
+            -- Buffs bar resolves those selections through the viewer pool so
+            -- inactive/variant forms keep stable cooldownID-backed ordering.
             local tracked
             -- Parallel to `tracked` for the default buffs bar: the stable viewer
             -- cooldownID for each Blizzard-tracked buff (nil for custom/injected
@@ -15551,7 +15615,9 @@ initFrame:SetScript("OnEvent", function(self)
                     slot._previewSpellID = nil  -- reset each update
                     slot._previewCdID = trackedCd and trackedCd[i] or nil
                     slot._previewItemID = nil
+                    slot._previewTrinketProcs = nil
                     slot._previewHostedBuff = nil
+                    slot._previewHostedDebuff = nil
                     if id then
                         local tex
                         local cdClaim = ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(id)
@@ -15606,7 +15672,14 @@ initFrame:SetScript("OnEvent", function(self)
                                 tex = C_Spell.GetSpellTexture(auraSid)
                             end
                             slot._previewSpellID = auraSid
-                            slot._previewHostedBuff = true
+                            slot._previewHostedBuff = hostedSid and true or nil
+                            slot._previewHostedDebuff = hostedDebuffSid and true or nil
+                        elseif ns.IsTrinketProcMarker and ns.IsTrinketProcMarker(id) then
+                            local equipped = GetInventoryItemID("player", 13)
+                                or GetInventoryItemID("player", 14)
+                            tex = (equipped and C_Item.GetItemIconByID(equipped))
+                                or "Interface\\Icons\\INV_Jewelry_TrinketPVP_01"
+                            slot._previewTrinketProcs = true
                         elseif id <= -100 then
                             -- On-use bag item: negated itemID
                             tex = C_Item.GetItemIconByID(-id)
@@ -15638,7 +15711,9 @@ initFrame:SetScript("OnEvent", function(self)
                     slot._previewSpellID = nil
                     slot._previewCdID = nil
                     slot._previewItemID = nil
+                    slot._previewTrinketProcs = nil
                     slot._previewHostedBuff = nil
+                    slot._previewHostedDebuff = nil
                 end
 
                 local bSz = bd.borderSize or 1

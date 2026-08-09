@@ -1725,11 +1725,23 @@ local healingStackMods, selfModifiers = HealComm.healingStackMods, HealComm.self
 local healingModifiers, currentModifiers = HealComm.healingModifiers, HealComm.currentModifiers
 
 local distribution
-local CTL = ChatThrottleLib
 local function sendMessage(msg)
 	if( distribution and len(msg) <= 240 ) then
-		CTL:SendAddonMessage("BULK", COMM_PREFIX, msg, distribution)
+		-- LibHealComm traditionally routes through ChatThrottleLib.  EUI does
+		-- not otherwise ship Ace/CTL; heal messages are already bounded to a
+		-- single short addon packet, so use the native transport directly.
+		if C_ChatInfo and C_ChatInfo.SendAddonMessage then
+			C_ChatInfo.SendAddonMessage(COMM_PREFIX, msg, distribution)
+		else
+			SendAddonMessage(COMM_PREFIX, msg, distribution)
+		end
 	end
+end
+
+if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+	C_ChatInfo.RegisterAddonMessagePrefix(COMM_PREFIX)
+elseif RegisterAddonMessagePrefix then
+	RegisterAddonMessagePrefix(COMM_PREFIX)
 end
 
 -- Keep track of where all the data should be going

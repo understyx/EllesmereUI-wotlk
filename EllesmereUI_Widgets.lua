@@ -2565,15 +2565,19 @@ end
 local function BuildColorPickerPopup()
     local PAD = 31
     local PAD_TOP = 21
-    local SV_SIZE = 200
-    local BAR_W = 20
-    local BAR_GAP = 10
+    -- Match Blizzard's XML ColorPickerFrame dimensions exactly.  The client
+    -- owns these special ColorSelect textures and is most reliable at its
+    -- native 128px wheel / 32px value-bar size.
+    local WHEEL_SIZE = 128
+    local PICKER_H = 160
+    local BAR_W = 32
+    local BAR_GAP = 24
     local RIGHT_W = 70
     local RIGHT_GAP = 19
     local PAD_RIGHT = 26
-    local POPUP_H = PAD_TOP + 28 + SV_SIZE + 80 + PAD
-    local BASE_W = PAD + SV_SIZE + BAR_GAP + BAR_W + BAR_GAP + BAR_W + RIGHT_GAP + RIGHT_W + PAD_RIGHT
-    local BASE_W_NO_ALPHA = PAD + SV_SIZE + BAR_GAP + BAR_W + RIGHT_GAP + RIGHT_W + PAD_RIGHT
+    local POPUP_H = PAD_TOP + 28 + PICKER_H + 80 + PAD
+    local BASE_W = PAD + WHEEL_SIZE + BAR_GAP + BAR_W + BAR_GAP + BAR_W + RIGHT_GAP + RIGHT_W + PAD_RIGHT
+    local BASE_W_NO_ALPHA = PAD + WHEEL_SIZE + BAR_GAP + BAR_W + RIGHT_GAP + RIGHT_W + PAD_RIGHT
     -- How much taller the RIGHT COLUMN gets when the picker has an alpha slider,
     -- so OK/Cancel drop down to clear the Opacity input inserted below Hex#. The
     -- popup height and the (left-side) favorites/recent rows are NOT affected.
@@ -2669,7 +2673,7 @@ local function BuildColorPickerPopup()
     function popup:GetColorAlpha() return outA end
 
     -- Forward declarations
-    local UpdateSVPadHue, UpdateSVCrosshair, UpdateHueIndicator
+    local UpdateNativePicker
     local UpdateAlphaBar, UpdateHexInput, UpdateOpacityInput
     local newPreviewTex, prevPreviewTex
 
@@ -2683,9 +2687,7 @@ local function BuildColorPickerPopup()
         updating = true
         local r, g, b = HSVtoRGB(currentH, currentS, currentV)
         outR, outG, outB, outA = r, g, b, currentA
-        if UpdateSVPadHue then UpdateSVPadHue(currentH) end
-        if UpdateSVCrosshair then UpdateSVCrosshair(currentS, currentV) end
-        if UpdateHueIndicator then UpdateHueIndicator(currentH) end
+        if UpdateNativePicker then UpdateNativePicker(r, g, b) end
         if UpdateAlphaBar then UpdateAlphaBar(r, g, b, currentA) end
         if UpdateHexInput then UpdateHexInput(r, g, b) end
         if UpdateOpacityInput then UpdateOpacityInput(currentA) end
@@ -2693,155 +2695,186 @@ local function BuildColorPickerPopup()
         updating = false
     end
 
-    -- SV Pad
-    local svPad = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
-    svPad:SetSize(SV_SIZE, SV_SIZE)
-    svPad:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -(PAD_TOP + 28))
-    svPad:EnableMouse(true)
+    -- AceGUI delegates color selection to Blizzard's already-instantiated
+    -- ColorPickerFrame.  This client does not render ColorSelect special
+    -- textures registered by addon Lua/XML, so temporarily embed that proven
+    -- native object and restore it completely when this popup closes.
+    local pickerArea = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
+    pickerArea:SetSize(WHEEL_SIZE + BAR_GAP + BAR_W, PICKER_H)
+    pickerArea:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -(PAD_TOP + 28))
+    pickerArea:SetFrameLevel(popup:GetFrameLevel() + 1)
 
-    local svHue = svPad:CreateTexture(nil, "BACKGROUND")
-    svHue:SetAllPoints(); svHue:SetColorTexture(1, 0, 0, 1)
-
-    local svWhite = svPad:CreateTexture(nil, "BORDER")
-    svWhite:SetAllPoints(); svWhite:SetColorTexture(1, 1, 1, 1)
-    svWhite:SetGradient("HORIZONTAL", CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 0))
-
-    local svBlack = svPad:CreateTexture(nil, "ARTWORK")
-    svBlack:SetAllPoints(); svBlack:SetColorTexture(0, 0, 0, 1)
-    svBlack:SetGradient("VERTICAL", CreateColor(0, 0, 0, 1), CreateColor(0, 0, 0, 0))
-
-    MakeBorder(svPad, 1, 1, 1, 0.06, PP)
-
-    local ARM = 6
-    local chT = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chT:SetSize(1, ARM); chT:SetColorTexture(1,1,1,0.9)
-    local chB = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chB:SetSize(1, ARM); chB:SetColorTexture(1,1,1,0.9)
-    local chL = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chL:SetSize(ARM, 1); chL:SetColorTexture(1,1,1,0.9)
-    local chR = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chR:SetSize(ARM, 1); chR:SetColorTexture(1,1,1,0.9)
-
-    UpdateSVPadHue = function(h)
-        local r, g, b = HSVtoRGB(h, 1, 1)
-        svHue:SetColorTexture(r, g, b, 1)
-    end
-    UpdateSVCrosshair = function(s, v)
-        local x = s * SV_SIZE
-        local y = -(1 - v) * SV_SIZE
-        chT:ClearAllPoints(); chT:SetPoint("BOTTOM", svPad, "TOPLEFT", x, y + 2)
-        chB:ClearAllPoints(); chB:SetPoint("TOP", svPad, "TOPLEFT", x, y - 2)
-        chL:ClearAllPoints(); chL:SetPoint("RIGHT", svPad, "TOPLEFT", x - 2, y)
-        chR:ClearAllPoints(); chR:SetPoint("LEFT", svPad, "TOPLEFT", x + 2, y)
-    end
-
-    local svDragging = false
-    local function SVFromCursor()
-        local cx, cy = GetCursorPosition()
-        local scale = svPad:GetEffectiveScale()
-        cx, cy = cx / scale, cy / scale
-        local left, bottom = svPad:GetLeft(), svPad:GetBottom()
-        local s = math.max(0, math.min(1, (cx - left) / SV_SIZE))
-        local v = math.max(0, math.min(1, (cy - bottom) / SV_SIZE))
-        return s, v
-    end
-    svPad:SetScript("OnMouseDown", function(self, btn)
-        if btn == "LeftButton" then
-            svDragging = true
-            currentS, currentV = SVFromCursor()
-            UpdateAllControls(); FireCallbacks()
-            self:SetScript("OnUpdate", function()
-                if not IsMouseButtonDown("LeftButton") then svDragging = false; self:SetScript("OnUpdate", nil); return end
-                currentS, currentV = SVFromCursor()
-                UpdateAllControls(); FireCallbacks()
-            end)
+    local colorSelect = ColorPickerFrame
+    local colorWheel = ColorPickerWheel
+    local function CapturePoints(frame)
+        local points = {}
+        for i = 1, frame:GetNumPoints() do
+            points[i] = { frame:GetPoint(i) }
         end
-    end)
-    svPad:SetScript("OnMouseUp", function(self) svDragging = false; self:SetScript("OnUpdate", nil) end)
+        return points
+    end
+    local function RestorePoints(frame, points)
+        frame:ClearAllPoints()
+        for i = 1, #points do frame:SetPoint(unpack(points[i])) end
+    end
 
-    -- Hue Bar
-    local hueBar = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
-    hueBar:SetSize(BAR_W, SV_SIZE)
-    hueBar:SetPoint("TOPLEFT", svPad, "TOPRIGHT", BAR_GAP, 0)
-    hueBar:EnableMouse(true)
-
-    local HUE_COLORS = {
-        {1,0,0}, {1,1,0}, {0,1,0}, {0,1,1}, {0,0,1}, {1,0,1}, {1,0,0},
+    local nativeOriginal = {
+        parent = colorSelect:GetParent(),
+        points = CapturePoints(colorSelect),
+        width = colorSelect:GetWidth(),
+        height = colorSelect:GetHeight(),
+        strata = colorSelect:GetFrameStrata(),
+        level = colorSelect:GetFrameLevel(),
+        onShow = colorSelect:GetScript("OnShow"),
+        onColorSelect = colorSelect:GetScript("OnColorSelect"),
+        onKeyDown = colorSelect:GetScript("OnKeyDown"),
+        wheelPoints = CapturePoints(colorWheel),
+        wheelWidth = colorWheel:GetWidth(),
+        wheelHeight = colorWheel:GetHeight(),
     }
-    local segH = SV_SIZE / 6
-    for i = 1, 6 do
-        local seg = hueBar:CreateTexture(nil, "BACKGROUND")
-        seg:SetSize(BAR_W, segH); seg:SetPoint("TOPLEFT", hueBar, "TOPLEFT", 0, -(i-1)*segH)
-        seg:SetColorTexture(1,1,1,1)
-        local top, bot = HUE_COLORS[i], HUE_COLORS[i+1]
-        seg:SetGradient("VERTICAL", CreateColor(bot[1],bot[2],bot[3],1), CreateColor(top[1],top[2],top[3],1))
-    end
-    MakeBorder(hueBar, 1, 1, 1, 0.06, PP)
-
-    local hueInd = hueBar:CreateTexture(nil, "OVERLAY", nil, 7)
-    hueInd:SetSize(BAR_W + 4, 2); hueInd:SetColorTexture(1,1,1,1)
-
-    UpdateHueIndicator = function(h)
-        hueInd:ClearAllPoints()
-        hueInd:SetPoint("CENTER", hueBar, "TOPLEFT", BAR_W/2, -(h/360)*SV_SIZE)
+    if colorSelect.GetBackdrop then
+        nativeOriginal.backdrop = colorSelect:GetBackdrop()
+        nativeOriginal.backdropColor = { colorSelect:GetBackdropColor() }
+        nativeOriginal.backdropBorderColor = { colorSelect:GetBackdropBorderColor() }
     end
 
-    local hueDragging = false
-    local function HueFromCursor()
-        local _, cy = GetCursorPosition()
-        cy = cy / hueBar:GetEffectiveScale()
-        return math.max(0, math.min(1, (hueBar:GetTop() - cy) / SV_SIZE)) * 360
+    local nativeDecor = {}
+    local function RememberDecor(region)
+        if not region then return end
+        nativeDecor[#nativeDecor + 1] = { region = region, shown = region:IsShown() }
     end
-    hueBar:SetScript("OnMouseDown", function(self, btn)
-        if btn == "LeftButton" then
-            hueDragging = true; currentH = HueFromCursor(); UpdateAllControls(); FireCallbacks()
-            self:SetScript("OnUpdate", function()
-                if not IsMouseButtonDown("LeftButton") then hueDragging = false; self:SetScript("OnUpdate", nil); return end
-                currentH = HueFromCursor(); UpdateAllControls(); FireCallbacks()
-            end)
+    RememberDecor(ColorSwatch)
+    RememberDecor(ColorPickerFrameHeader)
+    RememberDecor(ColorPickerOkayButton)
+    RememberDecor(ColorPickerCancelButton)
+    RememberDecor(OpacitySliderFrame)
+    for i = 1, select("#", colorSelect:GetRegions()) do
+        local region = select(i, colorSelect:GetRegions())
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+            RememberDecor(region)
         end
-    end)
-    hueBar:SetScript("OnMouseUp", function(self) hueDragging = false; self:SetScript("OnUpdate", nil) end)
+    end
+
+    local function NativeOnColorSelect(self)
+        if updating then return end
+        local r, g, b = self:GetColorRGB()
+        currentH, currentS, currentV = RGBtoHSV(r, g, b)
+        UpdateAllControls(); FireCallbacks()
+    end
+
+    local nativeAcquired = false
+    local function AcquireNativePicker()
+        if nativeAcquired then return end
+        nativeAcquired = true
+        colorSelect.func = nil
+        colorSelect.opacityFunc = nil
+        colorSelect.cancelFunc = nil
+        colorSelect:Hide()
+        colorSelect:SetParent(pickerArea)
+        colorSelect:SetFrameStrata(popup:GetFrameStrata())
+        colorSelect:SetFrameLevel(pickerArea:GetFrameLevel() + 1)
+        colorSelect:SetSize(WHEEL_SIZE + BAR_GAP + BAR_W, WHEEL_SIZE)
+        colorSelect:ClearAllPoints()
+        colorSelect:SetPoint("TOPLEFT", pickerArea, "TOPLEFT", 0, 0)
+        if colorSelect.SetBackdrop then colorSelect:SetBackdrop(nil) end
+        colorSelect:SetScript("OnShow", nil)
+        colorSelect:SetScript("OnColorSelect", NativeOnColorSelect)
+        colorSelect:SetScript("OnKeyDown", nil)
+        colorWheel:ClearAllPoints()
+        colorWheel:SetSize(WHEEL_SIZE, WHEEL_SIZE)
+        colorWheel:SetPoint("TOPLEFT", colorSelect, "TOPLEFT", 0, 0)
+        for i = 1, #nativeDecor do nativeDecor[i].region:Hide() end
+        colorSelect:Show()
+    end
+
+    local function ReleaseNativePicker()
+        if not nativeAcquired then return end
+        nativeAcquired = false
+        colorSelect:Hide()
+        colorSelect.func = nil
+        colorSelect.opacityFunc = nil
+        colorSelect.cancelFunc = nil
+        colorSelect:SetScript("OnShow", nativeOriginal.onShow)
+        colorSelect:SetScript("OnColorSelect", nativeOriginal.onColorSelect)
+        colorSelect:SetScript("OnKeyDown", nativeOriginal.onKeyDown)
+        colorSelect:SetParent(nativeOriginal.parent)
+        colorSelect:SetFrameStrata(nativeOriginal.strata)
+        colorSelect:SetFrameLevel(nativeOriginal.level)
+        colorSelect:SetSize(nativeOriginal.width, nativeOriginal.height)
+        RestorePoints(colorSelect, nativeOriginal.points)
+        colorWheel:SetSize(nativeOriginal.wheelWidth, nativeOriginal.wheelHeight)
+        RestorePoints(colorWheel, nativeOriginal.wheelPoints)
+        if colorSelect.SetBackdrop and nativeOriginal.backdrop then
+            colorSelect:SetBackdrop(nativeOriginal.backdrop)
+            colorSelect:SetBackdropColor(unpack(nativeOriginal.backdropColor))
+            colorSelect:SetBackdropBorderColor(unpack(nativeOriginal.backdropBorderColor))
+        end
+        for i = 1, #nativeDecor do
+            if nativeDecor[i].shown then nativeDecor[i].region:Show()
+            else nativeDecor[i].region:Hide() end
+        end
+    end
+
+    local valueBar = EllesmereUI.SafeCreateFrame("Frame", nil, pickerArea)
+    valueBar:SetSize(BAR_W, WHEEL_SIZE)
+    valueBar:SetPoint("TOPLEFT", pickerArea, "TOPLEFT", WHEEL_SIZE + BAR_GAP, 0)
+    valueBar:SetFrameLevel(pickerArea:GetFrameLevel() + 2)
+    MakeBorder(valueBar, 1, 1, 1, 0.06, PP)
+
+    UpdateNativePicker = function(r, g, b)
+        colorSelect:SetColorRGB(r, g, b)
+    end
 
     -- Alpha Bar
     local alphaBar = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
-    alphaBar:SetSize(BAR_W, SV_SIZE)
-    alphaBar:SetPoint("TOPLEFT", hueBar, "TOPRIGHT", BAR_GAP, 0)
+    alphaBar:SetSize(BAR_W, PICKER_H)
+    alphaBar:SetPoint("TOPLEFT", valueBar, "TOPRIGHT", BAR_GAP, 0)
     alphaBar:EnableMouse(true)
 
     local CK = 10
     -- Coarse checkerboard: 2 columns 20 rows = 40 textures (vs 160 before)
     local ckCols = math.ceil(BAR_W / CK)
-    local ckRows = math.ceil(SV_SIZE / CK)
+    local ckRows = math.ceil(PICKER_H / CK)
     for row = 0, ckRows - 1 do
         for col = 0, ckCols - 1 do
             local c = ((row + col) % 2 == 0) and 0.3 or 0.15
             local ck = alphaBar:CreateTexture(nil, "BACKGROUND")
-            ck:SetSize(CK, CK); ck:SetPoint("TOPLEFT", alphaBar, "TOPLEFT", col * CK, -row * CK)
+            ck:SetSize(math.min(CK, BAR_W - col * CK), math.min(CK, PICKER_H - row * CK))
+            ck:SetPoint("TOPLEFT", alphaBar, "TOPLEFT", col * CK, -row * CK)
             ck:SetColorTexture(c, c, c, 1)
         end
     end
 
-    local alphaGrad = alphaBar:CreateTexture(nil, "ARTWORK")
-    alphaGrad:SetAllPoints(); alphaGrad:SetColorTexture(1,0,0,1)
+    -- Solid alpha steps avoid SetGradient entirely while remaining visually
+    -- smooth at the picker's size.  The checkerboard remains visible through
+    -- the increasingly transparent color strips.
+    local ALPHA_STEPS = 40
+    local alphaStepTextures = {}
+    for i = 1, ALPHA_STEPS do
+        local step = alphaBar:CreateTexture(nil, "ARTWORK")
+        step:SetPoint("TOPLEFT", alphaBar, "TOPLEFT", 0, -(i - 1) * PICKER_H / ALPHA_STEPS)
+        step:SetSize(BAR_W, PICKER_H / ALPHA_STEPS + 0.01)
+        alphaStepTextures[i] = step
+    end
 
     local alphaInd = alphaBar:CreateTexture(nil, "OVERLAY", nil, 7)
     alphaInd:SetSize(BAR_W+4, 2); alphaInd:SetColorTexture(1,1,1,1)
     MakeBorder(alphaBar, 1, 1, 1, 0.06, PP)
 
-    -- Reusable CreateColor objects to avoid per-frame allocation during drag
-    local alphaColorBot = CreateColor(0, 0, 0, 0)
-    local alphaColorTop = CreateColor(0, 0, 0, 1)
-
     UpdateAlphaBar = function(r, g, b, a)
-        alphaColorBot.r, alphaColorBot.g, alphaColorBot.b, alphaColorBot.a = r, g, b, 0
-        alphaColorTop.r, alphaColorTop.g, alphaColorTop.b, alphaColorTop.a = r, g, b, 1
-        alphaGrad:SetGradient("VERTICAL", alphaColorBot, alphaColorTop)
+        for i = 1, ALPHA_STEPS do
+            local stepAlpha = 1 - ((i - 0.5) / ALPHA_STEPS)
+            alphaStepTextures[i]:SetColorTexture(r, g, b, stepAlpha)
+        end
         alphaInd:ClearAllPoints()
-        alphaInd:SetPoint("CENTER", alphaBar, "TOPLEFT", BAR_W/2, -(1-a)*SV_SIZE)
+        alphaInd:SetPoint("CENTER", alphaBar, "TOPLEFT", BAR_W/2, -(1-a)*PICKER_H)
     end
 
     local alphaDragging = false
     local function AlphaFromCursor()
         local _, cy = GetCursorPosition()
         cy = cy / alphaBar:GetEffectiveScale()
-        return 1 - math.max(0, math.min(1, (alphaBar:GetTop() - cy) / SV_SIZE))
+        return 1 - math.max(0, math.min(1, (alphaBar:GetTop() - cy) / PICKER_H))
     end
     alphaBar:SetScript("OnMouseDown", function(self, btn)
         if btn == "LeftButton" then
@@ -2858,7 +2891,7 @@ local function BuildColorPickerPopup()
     --  Right column: New, Prev, Hex#, OK
     ---------------------------------------------------------------------------
     local rightCol = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
-    rightCol:SetSize(RIGHT_W, SV_SIZE)
+    rightCol:SetSize(RIGHT_W, PICKER_H)
     rightCol:SetPoint("TOPLEFT", alphaBar, "TOPRIGHT", RIGHT_GAP, 0)
 
     -- New preview
@@ -3068,7 +3101,7 @@ local function BuildColorPickerPopup()
 
     -- Favorites label + row
     local favLbl = MakeFont(popup, 10, nil, 1,1,1); favLbl:SetAlpha(TEXT_DIM_A)
-    favLbl:SetPoint("TOPLEFT", svPad, "BOTTOMLEFT", 0, -10)
+    favLbl:SetPoint("TOPLEFT", pickerArea, "BOTTOMLEFT", 0, -10)
     favLbl:SetText(EllesmereUI.L("Favorites"))
 
     local favRow = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
@@ -3115,10 +3148,9 @@ local function BuildColorPickerPopup()
         EllesmereUI._colorPickerOpen = false
         if not _confirmed and cancelFunc then cancelFunc() end
         _confirmed = false
-        svDragging = false; hueDragging = false; alphaDragging = false
-        svPad:SetScript("OnUpdate", nil)
-        hueBar:SetScript("OnUpdate", nil)
+        alphaDragging = false
         alphaBar:SetScript("OnUpdate", nil)
+        ReleaseNativePicker()
         local checks = EllesmereUI._deferredDriftChecks
         EllesmereUI._deferredDriftChecks = nil
         if checks then for fn in pairs(checks) do fn() end end
@@ -3152,13 +3184,13 @@ local function BuildColorPickerPopup()
             alphaBar:Show()
             popup:SetWidth(BASE_W)
             rightCol:SetPoint("TOPLEFT", alphaBar, "TOPRIGHT", RIGHT_GAP, 0)
-            rightCol:SetHeight(SV_SIZE + OPACITY_BLOCK_H)
+            rightCol:SetHeight(PICKER_H + OPACITY_BLOCK_H)
             opacityLbl:Show(); opacityBox:Show()
         else
             alphaBar:Hide()
             popup:SetWidth(BASE_W_NO_ALPHA)
-            rightCol:SetPoint("TOPLEFT", hueBar, "TOPRIGHT", RIGHT_GAP, 0)
-            rightCol:SetHeight(SV_SIZE)
+            rightCol:SetPoint("TOPLEFT", valueBar, "TOPRIGHT", RIGHT_GAP, 0)
+            rightCol:SetHeight(PICKER_H)
             opacityLbl:Hide(); opacityBox:Hide()
         end
         popup:ClearAllPoints()
@@ -3183,6 +3215,7 @@ local function BuildColorPickerPopup()
         popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
         EllesmereUI._colorPickerOpen = true
         RefreshSwatchRows()
+        AcquireNativePicker()
         popup:Show(); UpdateAllControls()
     end
 

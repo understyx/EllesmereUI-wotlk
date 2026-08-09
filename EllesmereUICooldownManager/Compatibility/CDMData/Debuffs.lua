@@ -14,7 +14,7 @@ local classIDs = {
 }
 
 local nextID = {}
-local function Register(class, key, spellIDs, auraSpellID, iconSpellID)
+local function Register(class, key, spellIDs, auraSpellID, iconSpellID, auraSpellIDs, anySourceDebuff)
     local classID = classIDs[class]
     if not classID then return end
     nextID[class] = (nextID[class] or 0) + 1
@@ -27,6 +27,9 @@ local function Register(class, key, spellIDs, auraSpellID, iconSpellID)
         spellID = spellID,
         spellIDs = spellIDs,
         auraSpellID = auraSpellID,
+        auraSpellIDs = auraSpellIDs,
+        anySourceDebuff = anySourceDebuff,
+        debuffScope = anySourceDebuff and "raid" or "personal",
         iconSpellID = iconSpellID or spellID,
         trackingType = "debuff",
         hasAura = true,
@@ -35,11 +38,23 @@ local function Register(class, key, spellIDs, auraSpellID, iconSpellID)
     })
 end
 
+-- Equivalent raid-debuff effects share one detection family.  The player only
+-- adds their own class's familiar spell to the bar, but the timer activates for
+-- any equivalent aura on the target, regardless of who applied it.
+local MAJOR_ARMOR_AURAS = {
+    -- Sunder Armor (all standard ranks plus the server's level-52 debuff
+    -- variant 58567), Expose Armor, Acid Spit (hunter pet).
+    7386, 7405, 8380, 11596, 11597, 25225, 47467,
+    58567,
+    8647, 8649, 8650, 11197, 11198, 26866, 48669,
+    55749, 55750,
+}
+
 -- Warrior
 Register("WARRIOR", "rend",              { 772, 6546, 6547, 6548, 11572, 11573, 11574, 25208, 46845, 47465 })
 Register("WARRIOR", "hamstring",         { 1715, 7372, 7373, 25212 })
 Register("WARRIOR", "mortal_strike",     { 12294, 21551, 21552, 21553, 25248, 30330, 47485, 47486 })
-Register("WARRIOR", "sunder_armor",      { 7386, 7405, 8380, 11596, 11597, 25225, 47467 })
+Register("WARRIOR", "sunder_armor",      { 7386, 7405, 8380, 11596, 11597, 25225, 47467 }, nil, nil, MAJOR_ARMOR_AURAS, true)
 Register("WARRIOR", "demoralizing_shout",{ 1160, 6190, 11554, 11555, 11556, 25202, 25203, 47437 })
 Register("WARRIOR", "thunder_clap",      { 6343, 8198, 8204, 8205, 11580, 11581, 25264, 47501, 47502 })
 Register("WARRIOR", "piercing_howl",     { 12323 })
@@ -74,7 +89,7 @@ Register("ROGUE", "cheap_shot",   { 1833 })
 Register("ROGUE", "gouge",       { 1776 })
 Register("ROGUE", "blind",       { 2094 })
 Register("ROGUE", "sap",         { 6770, 2070, 11297, 51724 })
-Register("ROGUE", "expose_armor", { 8647 })
+Register("ROGUE", "expose_armor", { 8647, 8649, 8650, 11197, 11198, 26866, 48669 }, nil, nil, MAJOR_ARMOR_AURAS, true)
 
 -- Priest
 Register("PRIEST", "shadow_word_pain", { 589, 594, 970, 992, 2767, 10892, 10893, 10894, 25367, 25368, 48124, 48125 })

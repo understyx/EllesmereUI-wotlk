@@ -515,6 +515,9 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         local name = C_Spell.GetSpellName(sid)
         local tex  = C_Spell.GetSpellTexture(sid)
         if name then
+            local info = e.cdID and C_CooldownViewer
+                and C_CooldownViewer.GetCooldownViewerCooldownInfo
+                and C_CooldownViewer.GetCooldownViewerCooldownInfo(e.cdID)
             local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
             spells[#spells + 1] = {
                 cdID        = e.cdID,
@@ -527,6 +530,8 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                 -- Live viewer pool members are always learned. Catalog
                 -- entries appended below may not be.
                 isKnown     = true,
+                isTrinketProc = info and info.isTrinketProc or false,
+                debuffScope = info and info.debuffScope or nil,
             }
         end
     end
@@ -553,6 +558,45 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                         cdmCat = 0, cdmCatGroup = "debuff",
                         onEUIBar = (ResolveVariantValue(ourPool, sid) == true),
                         isKnown = IsPlayerSpell and IsPlayerSpell(sid) or false,
+                        debuffScope = info.debuffScope or "personal",
+                    }
+                end
+            end
+        end
+    end
+
+    -- WotLK compatibility aura adapters only join the live viewer pool while
+    -- their aura is active (or after a bar already claims them). On a fresh
+    -- empty allow-list that would make inactive buffs impossible to add. Append
+    -- the compatibility category catalog for the current class so the picker
+    -- can bootstrap itself. Retail keeps using its arrangement-aware settings
+    -- catalog below; this branch is gated by the compatibility refresh export.
+    if isBuffType and includeUntalented and ns.RefreshCooldownViewerCompatibility
+       and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+       and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local seenCd = {}
+        for _, e in ipairs(entries) do if e.cdID then seenCd[e.cdID] = true end end
+        local knownCd = {}
+        for _, cdID in ipairs(C_CooldownViewer.GetCooldownViewerCategorySet(3, false) or {}) do
+            knownCd[cdID] = true
+        end
+        local _, playerClass = UnitClass("player")
+        for _, cdID in ipairs(C_CooldownViewer.GetCooldownViewerCategorySet(3, true) or {}) do
+            if not seenCd[cdID] then
+                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                local sid = info and (info.spellID or info.auraSpellID)
+                local name = sid and C_Spell.GetSpellName(sid)
+                -- Proc definitions are intentionally represented by the single
+                -- Trinket Procs row, never hundreds of item-specific rows.
+                if name and not info.isTrinketProc
+                   and (not info.class or info.class == playerClass) then
+                    spells[#spells + 1] = {
+                        cdID = cdID, spellID = sid, name = name,
+                        icon = C_Spell.GetSpellTexture(sid),
+                        cdmCat = 0, cdmCatGroup = "buff",
+                        onEUIBar = (ResolveVariantValue(ourPool, sid) == true),
+                        isKnown = knownCd[cdID] == true,
+                        isTrinketProc = false,
                     }
                 end
             end
@@ -1005,6 +1049,9 @@ end
 --- Stable display-order key for a Blizzard-tracked buff (cooldownID) or custom.
 local function BuffDisplayStableKey(sid, cdID)
     if type(cdID) == "number" then return "c" .. cdID end
+    if ns.IsTrinketProcMarker and ns.IsTrinketProcMarker(sid) then
+        return "trinket_procs"
+    end
     if type(sid) == "number" and sid > 0 then return "s" .. sid end
     return nil
 end
@@ -1045,8 +1092,11 @@ local function BuffOrderKeyMatchesEntry(key, sid, cdID, frame)
     return false
 end
 
---- Enumerate default-buffs-bar entries (viewer pool + this bar's customs/items),
---- minus spells diverted to other buff-family or hosted CD/utility bars.
+--- Enumerate the default buffs bar's explicit assignments.  Viewer entries are
+--- included only when the user selected that spell (or the Trinket Procs
+--- catch-all); custom/injected entries are appended from the same assignment
+--- list.  This makes the default bar obey the EllesmereUI picker just like
+--- every custom buff bar and the Debuffs bar.
 function ns.CollectDefaultBuffTrackEntries()
     local diverted = {}
     local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
@@ -1074,6 +1124,17 @@ function ns.CollectDefaultBuffTrackEntries()
         end
     end
 
+    local sdSelf = ns.GetBarSpellData("buffs")
+    local assigned = sdSelf and sdSelf.assignedSpells or {}
+    local claimedCd = sdSelf and ns.CollectCdClaimSet(sdSelf)
+    local wantsTrinketProcs = false
+    for _, sid in ipairs(assigned) do
+        if ns.IsTrinketProcMarker and ns.IsTrinketProcMarker(sid) then
+            wantsTrinketProcs = true
+            break
+        end
+    end
+
     local out = {}
     local seen = {}
     local entries = ns.EnumerateCDMViewerSpells and ns.EnumerateCDMViewerSpells(true) or {}
@@ -1083,7 +1144,15 @@ function ns.CollectDefaultBuffTrackEntries()
         -- (Diabolist Demonic Art vs Diabolic Ritual). Keying on sid here would
         -- re-merge what EnumerateCDMViewerSpells now keeps separate.
         local key = BuffDisplayStableKey(e.sid, e.cdID)
-        if e.sid and not diverted[e.sid]
+        local picked = e.sid and ns.FindVariantIndexInList
+            and ns.FindVariantIndexInList(assigned, e.sid)
+        if not picked and e.cdID and claimedCd and claimedCd[e.cdID] then picked = true end
+        if not picked and wantsTrinketProcs and e.cdID
+           and ns.IsCDMTrinketProcCooldownID
+           and ns.IsCDMTrinketProcCooldownID(e.cdID) then
+            picked = true
+        end
+        if picked and e.sid and not diverted[e.sid]
            and not (e.cdID and divertedCd[e.cdID])
            and key and not seen[key] then
             seen[key] = true
@@ -1096,8 +1165,15 @@ function ns.CollectDefaultBuffTrackEntries()
         end
     end
 
-    local sdSelf = ns.GetBarSpellData("buffs")
     if sdSelf and sdSelf.assignedSpells then
+        if wantsTrinketProcs then
+            local key = BuffDisplayStableKey(ns.TRINKET_PROC_MARKER, nil)
+            seen[key] = true
+            out[#out + 1] = {
+                key = key, sid = ns.TRINKET_PROC_MARKER,
+                cdID = nil, layoutIndex = 4500,
+            }
+        end
         local extra = 5000
         if sdSelf.spellDurations then
             for _, sid in ipairs(sdSelf.assignedSpells) do
@@ -1312,8 +1388,15 @@ end
 --- Resolve a buff bar entry's sort index from buffDisplayOrder (variant-aware).
 function ns.ResolveBuffDisplaySortIndex(entry, buffOrder, isDefaultBuffs)
     if not buffOrder or not entry then return nil end
+    local entryCd = entry.frame and entry.frame.cooldownID
+    if entryCd and ns.IsCDMTrinketProcCooldownID
+       and ns.IsCDMTrinketProcCooldownID(entryCd) then
+        local generic = buffOrder["trinket_procs"]
+            or (ns.TRINKET_PROC_MARKER and buffOrder[ns.TRINKET_PROC_MARKER])
+        if generic then return generic end
+    end
     if isDefaultBuffs then
-        local cd = entry.frame and entry.frame.cooldownID
+        local cd = entryCd
         local sid = entry.spellID
         -- Steady state: the stable key matches directly -- O(1), zero
         -- allocations. The variant scan below walks every stored key and can
@@ -1732,11 +1815,10 @@ end
 --- reorders and removes exactly like any other entry). Collision-gated by
 --- the caller: non-collided buffs keep the sid path, whose identity
 --- survives talent swaps (cooldownIDs drift -- the same accepted limitation
---- as the per-cooldownID settings keys). Never valid on the default "buffs"
---- bar: its preview enumerates the live viewer pool directly and never
---- reads assignedSpells for buff content.
+--- as the per-cooldownID settings keys). The default buffs bar now uses the
+--- same explicit assignment model, so cooldownID claims are valid there too.
 function ns.AddTrackedBuffByCdID(barKey, cdID)
-    if type(cdID) ~= "number" or cdID <= 0 or barKey == "buffs" then return false end
+    if type(cdID) ~= "number" or cdID <= 0 then return false end
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 

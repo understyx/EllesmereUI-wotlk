@@ -11,7 +11,7 @@ _G.C_CooldownViewer = _G.C_CooldownViewer or {}
 -- Internal Data Models
 local definitions = {}      -- cooldownID -> definition schema
 local availability = {}     -- cooldownID -> { isKnown = boolean, activeSpellID = number, activeAuraSpellID = number }
-local runtimeState = {}     -- cooldownID -> { cooldownStart, cooldownDuration, cooldownEnabled, auraActive, auraStacks, auraDuration, auraExpiration }
+local runtimeState = {}     -- cooldownID -> cooldown state plus matched aura identity/duration/stacks
 local categories = {}       -- categoryID -> array of cooldownIDs
 local adapters = {}         -- cooldownID -> native adapter frame
 local internalCooldownIDsByAura = {} -- proc aura spellID -> array of cooldownIDs
@@ -31,6 +31,8 @@ local viewerNamesByCategory = {
 -- Caching
 local cachedPlayerAuras = {}
 local cachedTargetDebuffs = {}
+local cachedTargetDebuffsAnySource = {}
+local cachedTargetDebuffsAnySourceByName = {}
 local cachedAuraTime = 0
 
 -- Event Tracker Frame
@@ -59,7 +61,7 @@ local function ValidateDefinition(def)
 
     if def.trackingType == "cooldown" and not def.spellID then return false, "Tracking type cooldown requires spellID" end
     if (def.trackingType == "aura" or def.trackingType == "debuff")
-        and not (def.spellID or def.auraSpellID) then
+        and not (def.spellID or def.auraSpellID or def.auraSpellIDs) then
         return false, "Aura tracking requires spellID or auraSpellID"
     end
 
@@ -77,6 +79,10 @@ function AdapterMixin:GetSpellID()
 end
 
 function AdapterMixin:GetAuraSpellID()
+    local state = runtimeState[self.cooldownID]
+    if state and state.auraActive and state.matchedAuraSpellID then
+        return state.matchedAuraSpellID
+    end
     local avail = availability[self.cooldownID]
     local def = definitions[self.cooldownID]
     if avail and avail.activeAuraSpellID then return avail.activeAuraSpellID end
@@ -265,6 +271,24 @@ local function CreateAdapterFrame(cdID)
     frame.Cooldown = cooldown
     frame._cooldown = cooldown
 
+    -- Native buff/debuff frames expose an Applications child containing the
+    -- aura stack FontString. Provide the same shape on compatibility adapters
+    -- so the shared CDM appearance pass can style it normally.
+    local applications = CreateFrame("Frame", nil, frame)
+    if EUI and EUI.API and EUI.API.ApplyFrameCompat then
+        EUI.API.ApplyFrameCompat(applications)
+    end
+    applications:SetAllPoints(frame)
+    applications:EnableMouse(false)
+    local applicationsText = applications:CreateFontString(nil, "OVERLAY")
+    -- Wrath FontStrings cannot receive SetText before a font is assigned.
+    -- The shared CDM appearance pass restyles this immediately once claimed.
+    applicationsText:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
+    applicationsText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 2)
+    applications.Applications = applicationsText
+    applications:Hide()
+    frame.Applications = applications
+
     -- Only the data/notification methods need to override native frame
     -- behavior.  Show/Hide/SetPoint/etc. must remain the engine methods.
     CopyAdapterMethod(frame, "GetSpellID")
@@ -289,13 +313,28 @@ local function RefreshAdapterVisual(frame)
 
     local spellID = (avail and avail.activeSpellID)
         or def.iconSpellID or def.spellID or def.auraSpellID
-    local iconSpellID = def.iconSpellID or spellID
-    if iconSpellID and frame.Icon then
-        local texture = GetSpellTexture and GetSpellTexture(iconSpellID)
-        if not texture and C_Spell and C_Spell.GetSpellTexture then
+    local matchedAuraID = state and state.auraActive and state.matchedAuraSpellID
+    local iconSpellID = matchedAuraID or def.iconSpellID or spellID
+    if frame.Icon then
+        local texture = state and state.auraActive and state.matchedAuraIcon
+        if not texture and iconSpellID and GetSpellTexture then
+            texture = GetSpellTexture(iconSpellID)
+        end
+        if not texture and iconSpellID and C_Spell and C_Spell.GetSpellTexture then
             texture = C_Spell.GetSpellTexture(iconSpellID)
         end
         if texture then frame.Icon:SetTexture(texture) end
+    end
+
+    if frame.Applications and frame.Applications.Applications then
+        local count = state and state.auraActive and state.auraStacks or 0
+        if count and count > 1 then
+            frame.Applications.Applications:SetText(tostring(count))
+            frame.Applications:Show()
+        else
+            frame.Applications.Applications:SetText("")
+            frame.Applications:Hide()
+        end
     end
 
     -- IsUsableSpell includes both the normal execute threshold and proc-based
@@ -461,12 +500,20 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         overrideSpellID = def.overrideSpellID,
         linkedSpellIDs = def.linkedSpellIDs,
         iconSpellID = def.iconSpellID,
-        auraSpellID = (avail and avail.activeAuraSpellID) or def.auraSpellID,
+        auraSpellID = (state and state.auraActive and state.matchedAuraSpellID)
+            or (avail and avail.activeAuraSpellID) or def.auraSpellID,
+        matchedAuraSpellID = state and state.matchedAuraSpellID,
+        matchedAuraIcon = state and state.matchedAuraIcon,
+        matchedAuraName = state and state.matchedAuraName,
+        auraSpellIDs = def.auraSpellIDs,
+        anySourceDebuff = def.anySourceDebuff,
+        debuffScope = def.debuffScope,
         hasAura = def.hasAura,
         selfAura = def.selfAura,
         auraUnit = def.auraUnit,
         execute = def.execute,
         class = def.class,
+        isTrinketProc = def.isTrinketProc,
 
         -- Runtime state fields expected by EllesmereUI adapters
         cooldownStart = state and state.cooldownStart or 0,
@@ -484,6 +531,8 @@ end
 local function UpdateAuraCache()
     wipe(cachedPlayerAuras)
     wipe(cachedTargetDebuffs)
+    wipe(cachedTargetDebuffsAnySource)
+    wipe(cachedTargetDebuffsAnySourceByName)
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HELPFUL")
         if not name then break end
@@ -499,16 +548,45 @@ local function UpdateAuraCache()
         end
     end
     if UnitExists("target") then
+        -- Raid-category cache: every harmful aura, regardless of caster.
+        for i = 1, 40 do
+            local name, rank, icon, count, debuffType, duration, expirationTime,
+                source, isStealable, nameplateShowPersonal, spellID =
+                UnitAura("target", i, "HARMFUL")
+            if not name then break end
+            if spellID or name then
+                local aura = {
+                    duration = duration or 0,
+                    expirationTime = expirationTime or 0,
+                    count = count or 0,
+                    spellID = spellID,
+                    icon = icon,
+                    name = name,
+                }
+                if spellID then cachedTargetDebuffsAnySource[spellID] = aura end
+                -- Some 3.3.5 servers expose a server-specific spellID for an
+                -- otherwise standard aura. Raid equivalence groups also index
+                -- localized spell names so Sunder/Expose-style effects still
+                -- match without weakening Personal debuff ownership rules.
+                if name then cachedTargetDebuffsAnySourceByName[name] = aura end
+            end
+        end
+        -- Personal cache: preserve the original PLAYER-filtered behavior.
+        -- Do not infer ownership from the all-source scan; some 3.3.5 servers
+        -- return a nil caster for auras applied by other players.
         for i = 1, 40 do
             local name, rank, icon, count, debuffType, duration, expirationTime,
                 source, isStealable, nameplateShowPersonal, spellID =
                 UnitAura("target", i, "HARMFUL|PLAYER")
             if not name then break end
-            if spellID and (source == nil or source == "player") then
+            if spellID then
                 cachedTargetDebuffs[spellID] = {
                     duration = duration or 0,
                     expirationTime = expirationTime or 0,
                     count = count or 0,
+                    spellID = spellID,
+                    icon = icon,
+                    name = name,
                 }
             end
         end
@@ -516,13 +594,25 @@ local function UpdateAuraCache()
     cachedAuraTime = GetTime()
 end
 
-local function GetCachedAura(spellID, unit)
+local function GetCachedAura(spellID, unit, anySource)
     if not spellID then return nil end
     -- Fallback safety if accessed outside of normal flow
     if GetTime() > cachedAuraTime + 0.5 then
         UpdateAuraCache()
     end
-    if unit == "target" then return cachedTargetDebuffs[spellID] end
+    if unit == "target" then
+        local cache = anySource and cachedTargetDebuffsAnySource or cachedTargetDebuffs
+        local aura = cache[spellID]
+        if not aura and anySource then
+            local name
+            if GetSpellInfo then name = GetSpellInfo(spellID) end
+            if not name and C_Spell and C_Spell.GetSpellName then
+                name = C_Spell.GetSpellName(spellID)
+            end
+            if name then aura = cachedTargetDebuffsAnySourceByName[name] end
+        end
+        return aura
+    end
     return cachedPlayerAuras[spellID]
 end
 
@@ -602,18 +692,28 @@ local function ReevaluateState()
             if def.trackingType == "aura" or def.trackingType == "debuff"
                 or def.trackingType == "cooldown_and_aura"
                 or def.trackingType == "cooldown_and_debuff" then
+                local auraIDs = def.auraSpellIDs
                 local auraID = avail.activeAuraSpellID
-                if auraID then
+                if auraID or auraIDs then
                     local wasAuraActive = state.auraActive == true
                     local auraUnit = (def.trackingType == "debuff"
                         or def.trackingType == "cooldown_and_debuff")
                         and "target" or (def.auraUnit or "player")
-                    local aura = GetCachedAura(auraID, auraUnit)
+                    local aura = auraID and GetCachedAura(auraID, auraUnit, def.anySourceDebuff)
+                    if not aura and auraIDs then
+                        for _, equivalentID in ipairs(auraIDs) do
+                            aura = GetCachedAura(equivalentID, auraUnit, def.anySourceDebuff)
+                            if aura then break end
+                        end
+                    end
                     if aura then
                         state.auraActive = true
                         state.auraDuration = aura.duration
                         state.auraExpiration = aura.expirationTime
                         state.auraStacks = aura.count
+                        state.matchedAuraSpellID = aura.spellID
+                        state.matchedAuraIcon = aura.icon
+                        state.matchedAuraName = aura.name
                         -- CLEU normally starts ICDs at the exact proc event.
                         -- This fallback recovers a proc already active at login
                         -- or after an event gap, using the aura's start time.
@@ -631,6 +731,9 @@ local function ReevaluateState()
                         state.auraDuration = 0
                         state.auraExpiration = 0
                         state.auraStacks = 0
+                        state.matchedAuraSpellID = nil
+                        state.matchedAuraIcon = nil
+                        state.matchedAuraName = nil
                     end
                 end
             end
@@ -640,6 +743,10 @@ local function ReevaluateState()
             state.cooldownDuration = 0
             state.cooldownEnabled = false
             state.auraActive = false
+            state.auraStacks = 0
+            state.matchedAuraSpellID = nil
+            state.matchedAuraIcon = nil
+            state.matchedAuraName = nil
             state.internalCooldownExpiration = nil
         end
 
@@ -743,16 +850,21 @@ local function CreateMockPool(categoryID)
                     -- Exception: If the aura is explicitly tracked by a bar that might
                     -- want to show an inactive placeholder (Always Show Buffs / hosted
                     -- on a CD bar), we must yield it so the hooks layer can inject one.
-                    local forceYield = false
+                    -- Debuff definitions are a small, class-scoped catalog and
+                    -- must remain enumerable while their aura is missing.  The
+                    -- hooks layer decides whether an entry was explicitly picked
+                    -- and whether to draw its desaturated/hidden placeholder.
+                    -- Do not gate this on _divertedSpellsDebuff[sid]: grouped Raid
+                    -- debuffs can be picked under one rank/effect while the
+                    -- definition's canonical spellID is another, which made the
+                    -- inactive adapter disappear before Visibility When Missing
+                    -- could be applied.
+                    local forceYield = (categoryID == 5)
                     if adapter._adapterActive == false then
                         local def = definitions[cdID]
                         if def then
                             local sid = def.spellID or def.auraSpellID or def.iconSpellID
-                            if categoryID == 5 then
-                                if ns._divertedSpellsDebuff and ns._divertedSpellsDebuff[sid] then
-                                    forceYield = true
-                                end
-                            elseif categoryID == 3 or categoryID == 4 then
+                            if categoryID == 3 or categoryID == 4 then
                                 if ns._divertedSpellsBuff and ns._divertedSpellsBuff[sid] then
                                     forceYield = true
                                 end

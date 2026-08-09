@@ -305,29 +305,40 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     -- spec-owned bd.barSpellSettings (optionally copied to other specs). nil when
     -- neither exists -- the common case costs two table lookups.
     local tier = ns.GetBarTierSettings and ns.GetBarTierSettings(sd2, bk)
-    -- HOSTED-BUFF frame detection: a real buff frame (or its inactive
+    -- HOSTED-AURA frame detection: a real buff/debuff frame (or its inactive
     -- placeholder) rendered on a CD/util bar. FRAME-based, not flag-based --
     -- the same spellID can ALSO be this bar's cooldown entry, and that icon
     -- must keep the normal CD-family resolution. A buff frame only reaches a
     -- non-buff bar through an explicit host, so the frame identity is exact.
     -- Cheap: sd2.hostedBuffSpellIDs is nil on bars with no host.
-    local hostedFrame = false
-    if frame and bk and sd2 and sd2.hostedBuffSpellIDs then
+    local hostedFamily
+    if frame and bk and sd2 then
         local fdH = ns._hookFrameData and ns._hookFrameData[frame]
         if (fdH and fdH._isBuffViewerFrame) or frame._isPlaceholderFrame then
             local bdH = ns.barDataByKey and ns.barDataByKey[bk]
             if bdH and bdH.barType ~= "buffs" and bdH.barType ~= "custom_buff" then
-                hostedFrame = true
+                if frame._hostedAuraFamily == "debuffs"
+                   or frame.viewerFrame == _G.DebuffIconCooldownViewer then
+                    hostedFamily = "debuffs"
+                elseif frame._hostedAuraFamily == "buffs"
+                   or frame.viewerFrame == _G.BuffIconCooldownViewer
+                   or frame.viewerFrame == _G.BuffBarCooldownViewer then
+                    hostedFamily = "buffs"
+                end
             end
         end
     end
-    -- HOSTED BUFFS are fully removed from the Apply-to-Bar tier system: a buff on a
-    -- CD/util bar must never inherit that bar's applied (cd/util) values -- notably
-    -- for keys shared between families (Duration Text, Border). Resolve ONLY its own
-    -- per-spell entry. Nil-frame callers fall back to the flag test (they have no
-    -- frame identity, and a nil-frame lookup for a hosted id is always the buff).
-    if tier and (hostedFrame
-       or (not frame and sd2 and sd2.hostedBuffSpellIDs and sd2.hostedBuffSpellIDs[sid2])) then
+    -- HOSTED AURAS are fully removed from the Apply-to-Bar tier system: an aura on
+    -- a CD/util bar must never inherit that bar's applied cooldown values. Resolve
+    -- only its own family entry. Nil-frame callers fall back to the membership maps.
+    if not frame and sd2 then
+        if sd2.hostedDebuffSpellIDs and sd2.hostedDebuffSpellIDs[sid2] then
+            hostedFamily = "debuffs"
+        elseif sd2.hostedBuffSpellIDs and sd2.hostedBuffSpellIDs[sid2] then
+            hostedFamily = "buffs"
+        end
+    end
+    if tier and hostedFamily then
         tier = nil
     end
     -- Per-spell entries live in the spec's FAMILY store (they travel with the
@@ -335,7 +346,7 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     -- the same entry it had on the buffs bar -- keyed off the FRAME, so a
     -- cooldown icon of the same spellID on this bar keeps the CD store.
     local settings = bk and ns.GetSpellSettingsStore
-        and ns.GetSpellSettingsStore(hostedFrame and "buffs" or bk)
+        and ns.GetSpellSettingsStore(hostedFamily or bk)
     if not settings or next(settings) == nil then return tier end
 
     local ChainSettings = ns.ChainSettings
@@ -610,6 +621,7 @@ local _cdidRouteMap = {}
 local _divertedSpellsBuff = {}
 local _divertedSpellsDebuff = {}
 local _divertedSpellsCD   = {}
+local _trinketProcBarKey  = nil
 -- cooldownID-level buff diversions: a collided buff (two viewer slots sharing
 -- one canonical spellID, e.g. Diabolist Demonic Art vs Diabolic Ritual) is
 -- tracked on a custom bar by its cooldownID (a cd-claim marker in
@@ -662,6 +674,7 @@ function ns.RebuildSpellRouteMap()
     wipe(_divertedSpellsDebuff)
     wipe(_divertedSpellsCD)
     wipe(_divertedBuffCdIDs)
+    _trinketProcBarKey = nil
     _routeMapBuilt = false
 
     local p = ECME.db and ECME.db.profile
@@ -682,6 +695,9 @@ function ns.RebuildSpellRouteMap()
         for _, sid in ipairs(sd.assignedSpells) do
             if type(sid) == "number" and sid > 0 then
                 SVV(targetMap, sid, bd.key, false)
+            elseif barType == "buffs" and ns.IsTrinketProcMarker
+               and ns.IsTrinketProcMarker(sid) then
+                _trinketProcBarKey = bd.key
             end
         end
     end
@@ -702,6 +718,9 @@ function ns.RebuildSpellRouteMap()
                         local auraMap = bd.barType == "debuffs"
                             and _divertedSpellsDebuff or _divertedSpellsBuff
                         SVV(auraMap, sid, bd.key, false)
+                    elseif bd.barType == "buffs" and ns.IsTrinketProcMarker
+                       and ns.IsTrinketProcMarker(sid) then
+                        _trinketProcBarKey = bd.key
                     end
                 end
             end
@@ -840,6 +859,11 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
         if cdRoute then
             _cdidRouteMap[cdID] = cdRoute
             return cdRoute
+        end
+        if _trinketProcBarKey and ns.IsCDMTrinketProcCooldownID
+           and ns.IsCDMTrinketProcCooldownID(cdID) then
+            _cdidRouteMap[cdID] = _trinketProcBarKey
+            return _trinketProcBarKey
         end
     end
 
@@ -4834,11 +4858,24 @@ local function CollectAndReanchor()
                         -- auto-populated Blizzard layout. Only explicitly picked
                         -- entries belong on the default Debuffs bar; custom-bar
                         -- and hosted routes already resolve away from this key.
-                        if defaultBarKey == "debuffs" and targetBar == "debuffs" then
-                            local dsd = ns.GetBarSpellData("debuffs")
+                        if (defaultBarKey == "buffs" or defaultBarKey == "debuffs")
+                           and targetBar == defaultBarKey then
+                            local dsd = ns.GetBarSpellData(defaultBarKey)
                             local picked = dsd and dsd.assignedSpells
                                 and ns.FindVariantIndexInList
                                 and ns.FindVariantIndexInList(dsd.assignedSpells, displaySID)
+                            if not picked and defaultBarKey == "buffs"
+                               and ns.IsCDMTrinketProcCooldownID
+                               and ns.IsCDMTrinketProcCooldownID(frame.cooldownID)
+                               and dsd and dsd.assignedSpells
+                               and ns.IsTrinketProcMarker then
+                                for _, assignedID in ipairs(dsd.assignedSpells) do
+                                    if ns.IsTrinketProcMarker(assignedID) then
+                                        picked = true
+                                        break
+                                    end
+                                end
+                            end
                             if not picked then targetBar = nil end
                         end
                         if targetBar and displaySID and displaySID > 0 then
@@ -4947,6 +4984,7 @@ local function CollectAndReanchor()
                                     local hostedMissingVis
                                     if hostCD then
                                         local phMV = GetOrCreatePlaceholderFrame(targetBar, realSID, nil)
+                                        phMV._hostedAuraFamily = defaultBarKey
                                         local ssMV = ns.ResolveSpellSettings(phMV, realSID, ns.GetBarSpellData(targetBar), targetBar)
                                         local mv = ssMV and ssMV.hostedMissingVis
                                         if mv == "hidden" or mv == "hiddenShift" then hostedMissingVis = mv end
@@ -4985,6 +5023,7 @@ local function CollectAndReanchor()
                                             barSeen[phKey] = true
                                             local icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(realSID)
                                             local ph = GetOrCreatePlaceholderFrame(targetBar, realSID, icon)
+                                            ph._hostedAuraFamily = defaultBarKey
                                             -- Per-spell missing-visibility mark (our own
                                             -- frame): "hidden" renders alpha-0 via the
                                             -- opacity passes while the slot stays
@@ -5314,6 +5353,11 @@ local function CollectAndReanchor()
                                         oidx = oidx + 1
                                         local key = "c" .. cdClaim
                                         if not buffOrder[key] then buffOrder[key] = oidx end
+                                    elseif ns.IsTrinketProcMarker
+                                       and ns.IsTrinketProcMarker(sid) then
+                                        oidx = oidx + 1
+                                        buffOrder[sid] = oidx
+                                        buffOrder["trinket_procs"] = oidx
                                     -- Negative IDs are custom-item markers: order them
                                     -- by their slot too (no override/base variants).
                                     elseif type(sid) == "number" and sid <= -100 then

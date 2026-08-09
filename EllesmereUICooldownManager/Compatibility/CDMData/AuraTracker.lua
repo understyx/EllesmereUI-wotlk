@@ -436,8 +436,13 @@ EUI_CDM_AuraTrackerTrinketData = {
     itemToProc = trinketItemToProc,
     procCooldowns = procCooldowns,
     procToItems = procToItems,
+    cooldownIDs = {},
     defaultInternalCooldown = DEFAULT_INTERNAL_COOLDOWN,
 }
+
+function ns.IsCDMTrinketProcCooldownID(cooldownID)
+    return EUI_CDM_AuraTrackerTrinketData.cooldownIDs[cooldownID] == true
+end
 
 local function IsTrinketEquipped(itemIDs)
     if not GetInventoryItemID then return false end
@@ -467,6 +472,7 @@ local function RegisterTrinketProc(procSpellID, itemIDs, cooldownID, order)
         trackingType = "aura",
         hasAura = true,
         selfAura = true,
+        isTrinketProc = true,
         internalCooldown = internalCooldown,
 
         resolvers = {
@@ -478,6 +484,7 @@ local function RegisterTrinketProc(procSpellID, itemIDs, cooldownID, order)
             end,
         },
     })
+    EUI_CDM_AuraTrackerTrinketData.cooldownIDs[cooldownID] = true
 end
 
 for index, procSpellID in ipairs(procIDs) do

@@ -913,6 +913,17 @@ end
 ns.HOSTED_BUFF_MARKER_BASE = 2000000000
 ns.HOSTED_DEBUFF_MARKER_BASE = 2500000000
 
+-- One buff-family assignment that follows every proc aura produced by the
+-- player's equipped trinkets.  -20 is deliberately outside the equipment-slot
+-- namespace (-1..-19), item presets (<= -100), and the encoded marker ranges
+-- below.  The live icons still come from the individual compatibility viewer
+-- definitions; this token is only the user's single routing/placement choice.
+ns.TRINKET_PROC_MARKER = -20
+
+function ns.IsTrinketProcMarker(id)
+    return id == ns.TRINKET_PROC_MARKER
+end
+
 -------------------------------------------------------------------------------
 --  Equipment-slot entries. A bar entry can store a negated INVENTORY SLOT id
 --  (-1..-19) to track whatever item is equipped in that slot -- the trinket
@@ -7855,11 +7866,9 @@ function ns.FullCDMRebuild(reason)
         wipe(ns._presetFrames)
     end
 
-    -- (Site #8 init snapshot deleted: default bars no longer need
-    -- assignedSpells pre-populated. The route map's diversion-set model
-    -- routes everything in the viewer category to the default bar by
-    -- spillover, so empty assignedSpells just means "show whatever
-    -- Blizzard's viewer has" -- exactly the desired behavior.)
+    -- Cooldown/utility defaults still use viewer spillover. Aura-family
+    -- defaults are picker-authoritative allow-lists and intentionally remain
+    -- empty until the user adds entries.
 
     -- 2b. Normalize racial slots to this character's race BEFORE the route
     -- map and bar build read assignedSpells.
@@ -8222,10 +8231,9 @@ function ns.RepopulateFromBlizzard()
         end
     end
 
-    -- Filter Blizzard entries off all CD/utility bars (main + custom).
-    -- Skip ghost, custom_buff, and default buff bar. The default buff bar
-    -- (key == "buffs") has no assignedSpells to filter -- Blizzard's viewer
-    -- is the authority. Extra buff bars ARE filtered for user assignments.
+    -- Filter Blizzard entries off custom CD/utility/aura bars. Default Buffs
+    -- and Debuffs are explicit user allow-lists, so repopulation preserves
+    -- their selections instead of silently replacing them.
     for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if not barData.isGhostBar
            and barData.key ~= "buffs" and barData.key ~= "debuffs"
@@ -8251,7 +8259,8 @@ function ns.RepopulateFromBlizzard()
         FilterListPreservingUserAdded(ghostSD, ghostSD.assignedSpells)
         FilterSetPreservingUserAdded(ghostSD, ghostSD.removedSpells)
     end
-    -- Ghost buff bar removed: buff visibility managed by Blizzard CDM.
+    -- Ghost buff bar is unnecessary: aura defaults hide every unassigned
+    -- viewer entry directly.
 
     local buffSD = ns.GetBarSpellData("buffs")
     if buffSD then

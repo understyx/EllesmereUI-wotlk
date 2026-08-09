@@ -2025,7 +2025,8 @@ oUF.Tags.Methods["eui-absorb"] = [[function(u)
     if not u or not UnitExists(u) then return "" end
     return string.format("%s", C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0))
 end]]
-oUF.Tags.Events["eui-absorb"] = "UNIT_ABSORB_AMOUNT_CHANGED"
+oUF.Tags.Events["eui-absorb"] = (_G.EllesmereUIHealAbsorb and _G.EllesmereUIHealAbsorb.isLegacy)
+    and "UNIT_HEALTH" or "UNIT_ABSORB_AMOUNT_CHANGED"
 
 -- eui-absorbshort: absorb amount abbreviated (e.g. 236k). AbbreviateNumbers is
 -- secret-safe -- the same call the [curhpshort] health tag uses on the secret
@@ -2036,7 +2037,8 @@ oUF.Tags.Methods["eui-absorbshort"] = [[function(u)
     local cfg = _EUI_AbbrevDecimalCfg
     return cfg and AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0, cfg) or AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0)
 end]]
-oUF.Tags.Events["eui-absorbshort"] = "UNIT_ABSORB_AMOUNT_CHANGED"
+oUF.Tags.Events["eui-absorbshort"] = (_G.EllesmereUIHealAbsorb and _G.EllesmereUIHealAbsorb.isLegacy)
+    and "UNIT_HEALTH" or "UNIT_ABSORB_AMOUNT_CHANGED"
 
 -- eui-healabsorb: full heal-absorb amount, blank when zero (mirrors eui-absorb
 -- with UnitGetTotalHealAbsorbs). TruncateWhenZero blanks naturally at zero.
@@ -2044,7 +2046,8 @@ oUF.Tags.Methods["eui-healabsorb"] = [[function(u)
     if not u or not UnitExists(u) then return "" end
     return string.format("%s", C_StringUtil.TruncateWhenZero(UnitGetTotalHealAbsorbs(u) or 0))
 end]]
-oUF.Tags.Events["eui-healabsorb"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
+oUF.Tags.Events["eui-healabsorb"] = (_G.EllesmereUIHealAbsorb and _G.EllesmereUIHealAbsorb.isLegacy)
+    and "UNIT_HEALTH" or "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
 
 -- eui-healabsorbshort: heal-absorb abbreviated (e.g. 80k). Like eui-absorbshort
 -- it shows "0" at zero, so the "Heal Absorb Short" text gate hides it then.
@@ -2053,7 +2056,8 @@ oUF.Tags.Methods["eui-healabsorbshort"] = [[function(u)
     local cfg = _EUI_AbbrevDecimalCfg
     return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg) or AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0)
 end]]
-oUF.Tags.Events["eui-healabsorbshort"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
+oUF.Tags.Events["eui-healabsorbshort"] = (_G.EllesmereUIHealAbsorb and _G.EllesmereUIHealAbsorb.isLegacy)
+    and "UNIT_HEALTH" or "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
 
 -- eui-level: the unit's effective level (scaling-aware), "??" when unknowable
 -- (skull bosses). A SECRET level is returned RAW -- display-safe as a %s arg
@@ -3867,6 +3871,7 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
     local ab = frame.HealthPrediction.damageAbsorb
     if not ab then return end
     local fw = ab._forward
+    local hpd = ab._healPrediction
     local curClip = ab._curClip
     local missClip = ab._missClip
     local hpBar = ab._hpBar
@@ -3888,6 +3893,7 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
     missClip:ClearAllPoints()
     ab:ClearAllPoints()
     fw:ClearAllPoints()
+    if hpd then hpd:ClearAllPoints() end
 
     -- missClip + forward bar always use the overlay layout; in the edge modes
     -- the full-bar backfill shows the whole absorb and the Override hides fw.
@@ -3897,12 +3903,22 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
         fw:SetReverseFill(true)
         fw:SetPoint("TOPRIGHT",    hpTex, "TOPLEFT",    0, 0)
         fw:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMLEFT", 0, 0)
+        if hpd then
+            hpd:SetReverseFill(true)
+            hpd:SetPoint("TOPRIGHT",    hpTex, "TOPLEFT",    0, 0)
+            hpd:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMLEFT", 0, 0)
+        end
     else
         missClip:SetPoint("TOPLEFT",     hpTex, "TOPRIGHT", -1, 0)
         missClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
         fw:SetReverseFill(false)
         fw:SetPoint("TOPLEFT",    hpTex, "TOPRIGHT",    0, 0)
         fw:SetPoint("BOTTOMLEFT", hpTex, "BOTTOMRIGHT", 0, 0)
+        if hpd then
+            hpd:SetReverseFill(false)
+            hpd:SetPoint("TOPLEFT",    hpTex, "TOPRIGHT",    0, 0)
+            hpd:SetPoint("BOTTOMLEFT", hpTex, "BOTTOMRIGHT", 0, 0)
+        end
     end
 
     -- Shield absorb placement
@@ -4100,6 +4116,26 @@ local function CreateAbsorbBar(frame, unit, settings)
     forwardBar:SetFrameLevel(hpBar:GetFrameLevel() + 1)
     forwardBar:Hide()
 
+    -- Incoming healing from LibHealComm on Wrath (and the native API on
+    -- newer clients).  It shares the missing-health clip with the forward
+    -- absorb segment and therefore grows naturally from the live health edge.
+    local healPredictionBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, missClip)
+    healPredictionBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    healPredictionBar:SetStatusBarColor(102/255, 243/255, 102/255, 0.6)
+    healPredictionBar:SetReverseFill(isReversed)
+    if isReversed then
+        healPredictionBar:SetPoint("TOPRIGHT",    hpBar:GetStatusBarTexture(), "TOPLEFT",    0, 0)
+        healPredictionBar:SetPoint("BOTTOMRIGHT", hpBar:GetStatusBarTexture(), "BOTTOMLEFT", 0, 0)
+    else
+        healPredictionBar:SetPoint("TOPLEFT",    hpBar:GetStatusBarTexture(), "TOPRIGHT",    0, 0)
+        healPredictionBar:SetPoint("BOTTOMLEFT", hpBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    end
+    healPredictionBar:SetWidth(hpBar:GetWidth())
+    healPredictionBar:SetHeight(hpBar:GetHeight())
+    -- Shield and heal-absorb frames sit above this at health+1.
+    healPredictionBar:SetFrameLevel(hpBar:GetFrameLevel())
+    healPredictionBar:Hide()
+
     -- Per-frame calculator for reading the absorb value (secret-safe).
     -- Matches nameplate UpdateHealthValues init exactly.
     local hpCalc
@@ -4185,6 +4221,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     -- Attach extras to the main bar (backfill) so anything that references
     -- HealthPrediction.damageAbsorb can hide/show both segments together.
     backfillBar._forward      = forwardBar
+    backfillBar._healPrediction = healPredictionBar
     backfillBar._healAbsorb   = healAbsorbBar
     backfillBar._topBar       = absorbTopBar
     backfillBar._healTopBar   = healAbsorbTopBar
@@ -4253,6 +4290,18 @@ local function CreateAbsorbBar(frame, unit, settings)
             local hp   = ab._hpBar
             local calc = ab._hpCalculator
             if not hp then return end
+
+            -- Heal prediction is independent from both absorb styles.  Update
+            -- it before their early-return gate so disabling shield visuals
+            -- never disables LibHealComm.
+            local hpd = ab._healPrediction
+            if hpd then
+                local predMax = UnitHealthMax(updUnit) or 0
+                hpd:SetWidth(hp:GetWidth()); hpd:SetHeight(hp:GetHeight())
+                hpd:SetMinMaxValues(0, predMax)
+                hpd:SetValue((UnitGetIncomingHeals and UnitGetIncomingHeals(updUnit)) or 0)
+                hpd:Show()
+            end
 
             -- Heal absorb renders independently of the shield absorb. The
             -- shield "none" setting hides only the shield segments below; we
@@ -4430,6 +4479,17 @@ local function CreateAbsorbBar(frame, unit, settings)
             end
         end,
     }
+
+    -- Health changes move the prediction/absorb seam and can change the max.
+    -- oUF has no HealthPrediction element in this Wrath build, so piggy-back
+    -- on the existing Health element's update without adding another event.
+    local oldHealthPostUpdate = hpBar.PostUpdate
+    hpBar.PostUpdate = function(bar, updatedUnit, ...)
+        if oldHealthPostUpdate then oldHealthPostUpdate(bar, updatedUnit, ...) end
+        if frame.HealthPrediction and frame.HealthPrediction.Override then
+            frame.HealthPrediction.Override(frame, "UNIT_HEALTH", updatedUnit)
+        end
+    end
 
     return backfillBar
 end
@@ -14341,6 +14401,29 @@ end
 -- therefore still inside the combat-reload pre-lockdown window.
 local function EnableBody()
     InitializeFrames()
+    -- Retail drives HealthPrediction through UNIT_* events.  Wrath's library
+    -- bridge reports the affected GUID instead; route it to the same existing
+    -- override so bars and absorb text use one rendering path on both clients.
+    local tracker = _G.EllesmereUIHealAbsorb
+    if tracker and tracker.isLegacy and not ns._healAbsorbTrackerRegistered then
+        ns._healAbsorbTrackerRegistered = true
+        tracker.Register(ns, function(_, guid, change)
+            for unit, frame in pairs(frames) do
+                -- `frames` also owns internal helpers such as
+                -- _toggleClassPower; only UI-object values are unit frames.
+                local frameType = type(frame)
+                local isFrame = frameType == "table" or frameType == "userdata"
+                local activeUnit = isFrame and (frame.unit or unit)
+                if isFrame and frame.HealthPrediction and activeUnit and UnitGUID(activeUnit) == guid then
+                    local event = change == "HEAL" and "UNIT_HEAL_PREDICTION"
+                        or change == "HEAL_ABSORB" and "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
+                        or "UNIT_ABSORB_AMOUNT_CHANGED"
+                    frame.HealthPrediction.Override(frame, event, activeUnit)
+                    if change ~= "HEAL" and frame.UpdateTags then frame:UpdateTags() end
+                end
+            end
+        end)
+    end
     -- Register with unlock mode synchronously: on a combat reload this runs
     -- inside the pre-lockdown window, so the login position pass can resolve
     -- and place anchored unit frames before SetPoint gets blocked.
