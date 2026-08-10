@@ -459,6 +459,35 @@ local function LineCompat(line)
     return line
 end
 
+-- Synthetic event registry for retail/custom events not recognized by the 3.3.5 client engine
+local syntheticEventRegistry = {}
+local function RegisterSyntheticEvent(frame, event)
+    if not syntheticEventRegistry[event] then
+        syntheticEventRegistry[event] = setmetatable({}, { __mode = "k" })
+    end
+    syntheticEventRegistry[event][frame] = true
+end
+
+local function UnregisterSyntheticEvent(frame, event)
+    if syntheticEventRegistry[event] then
+        syntheticEventRegistry[event][frame] = nil
+    end
+end
+
+function EUI.API.FireEvent(event, ...)
+    local listeners = syntheticEventRegistry[event]
+    if not listeners then return end
+    for frame in pairs(listeners) do
+        local onEvent = frame.GetScript and frame:GetScript("OnEvent")
+        if onEvent then
+            local ok, err = pcall(onEvent, frame, event, ...)
+            if not ok and geterrorhandler then
+                geterrorhandler()(err)
+            end
+        end
+    end
+end
+
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
 
@@ -500,6 +529,35 @@ function EUI.API.ApplyFrameCompat(frame)
     if not frame.SetEnabled and frame.Enable and frame.Disable then
         frame.SetEnabled = function(self, enabled)
             if enabled then self:Enable() else self:Disable() end
+        end
+    end
+
+    -- Wrap RegisterEvent/UnregisterEvent to safely intercept synthetic custom events
+    local origRegisterEvent = frame.RegisterEvent
+    local origUnregisterEvent = frame.UnregisterEvent
+    local origUnregisterAllEvents = frame.UnregisterAllEvents
+    if origRegisterEvent and not frame._euiEventCompatWrapped then
+        frame._euiEventCompatWrapped = true
+        frame.RegisterEvent = function(self, event)
+            local ok = pcall(origRegisterEvent, self, event)
+            if not ok then
+                RegisterSyntheticEvent(self, event)
+            end
+            return ok
+        end
+        if origUnregisterEvent then
+            frame.UnregisterEvent = function(self, event)
+                pcall(origUnregisterEvent, self, event)
+                UnregisterSyntheticEvent(self, event)
+            end
+        end
+        if origUnregisterAllEvents then
+            frame.UnregisterAllEvents = function(self)
+                pcall(origUnregisterAllEvents, self)
+                for _, listeners in pairs(syntheticEventRegistry) do
+                    listeners[self] = nil
+                end
+            end
         end
     end
 

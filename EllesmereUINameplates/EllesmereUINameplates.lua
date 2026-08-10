@@ -8133,11 +8133,13 @@ function NameplateFrame:UpdateCast()
         self:ApplyNameVisibility()
         return
     end
-    local name, _, texture, _, _, _, _, kickProtected, castSpellID = UnitCastingInfo(self.unit)
+    local SafeCastInfo = (EllesmereUI and EllesmereUI.SafeUnitCastingInfo) or UnitCastingInfo
+    local SafeChannelInfo = (EllesmereUI and EllesmereUI.SafeUnitChannelInfo) or UnitChannelInfo
+    local name, _, texture, _, _, _, _, kickProtected, castSpellID = SafeCastInfo(self.unit)
     local isChannel = false
     local isEmpowered = false
     if type(name) == "nil" then
-        name, _, texture, _, _, _, kickProtected, castSpellID = UnitChannelInfo(self.unit)
+        name, _, texture, _, _, _, kickProtected, castSpellID = SafeChannelInfo(self.unit)
         isChannel = true
     end
     if type(name) == "nil" then

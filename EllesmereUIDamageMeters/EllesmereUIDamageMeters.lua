@@ -6,17 +6,17 @@
 local _, ns = ...
 local EUI = EllesmereUI
 
--- The current implementation is a frontend for Retail's C_DamageMeter API.
--- Wrath has neither the API nor its enums, so do not partially initialize the
--- module there.  Keep the selected backend on the shared namespace so a Skada
--- adapter can replace this gate without changing the UI files later.
-local hasBlizzardDamageMeter = C_DamageMeter
+-- Select backend: native Blizzard C_DamageMeter, Skada adapter, or none
+local hasDamageMeter = C_DamageMeter
     and Enum
     and Enum.DamageMeterType
     and Enum.DamageMeterSessionType
 
-ns.DamageMeterBackend = hasBlizzardDamageMeter and "blizzard" or "none"
-if not hasBlizzardDamageMeter then return end
+if not ns.DamageMeterBackend or ns.DamageMeterBackend == "none" then
+    ns.DamageMeterBackend = hasDamageMeter and "blizzard" or "none"
+end
+
+if ns.DamageMeterBackend == "none" and not hasDamageMeter then return end
 
 -------------------------------------------------------------------------------
 --  Profiler: zero cost when off, /dmprof to toggle.
@@ -133,13 +133,14 @@ local TICK_COMBAT       = 1
 local PEAK_BUDGET       = 1.5
 local BAR_TEX           = "Interface\\Buttons\\WHITE8X8"
 local MEDIA             = "Interface\\AddOns\\EllesmereUIDamageMeters\\Media\\"
+ns.MEDIA                = MEDIA
 local ICON_ALPHA        = 0.4
 local ICON_HOVER_ALPHA  = 0.9
 local RESIZE_ICON       = "Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.tga"
 local MAX_WINDOWS       = 5
 local L = _G.EllesmereUI.L
 
-local DM_TYPE_NAMES = {
+ns.DM_TYPE_NAMES = {
     [Enum.DamageMeterType.DamageDone]           = "Damage Done",
     [Enum.DamageMeterType.HealingDone]          = "Healing Done",
     [Enum.DamageMeterType.DamageTaken]          = "Damage Taken",
@@ -150,7 +151,7 @@ local DM_TYPE_NAMES = {
     [Enum.DamageMeterType.Deaths]               = "Deaths",
 }
 
-local DM_TYPES = {
+ns.DM_TYPES = {
     Enum.DamageMeterType.DamageDone,
     Enum.DamageMeterType.HealingDone,
     Enum.DamageMeterType.DamageTaken,
@@ -159,7 +160,7 @@ local DM_TYPES = {
     Enum.DamageMeterType.Deaths,
 }
 
-local DM_TYPE_ICONS = {
+ns.DM_TYPE_ICONS = {
     [Enum.DamageMeterType.DamageDone]           = MEDIA .. "dm_home_damage.tga",
     [Enum.DamageMeterType.HealingDone]          = MEDIA .. "dm_home_healing.tga",
     [Enum.DamageMeterType.DamageTaken]          = MEDIA .. "dm_home_taken.tga",
@@ -170,21 +171,164 @@ local DM_TYPE_ICONS = {
     [Enum.DamageMeterType.Deaths]               = MEDIA .. "dm_home_deaths.tga",
 }
 
-local SESSION_TYPES = {
+ns.SESSION_TYPES = {
     Enum.DamageMeterSessionType.Current,
     Enum.DamageMeterSessionType.Overall,
 }
-local SESSION_TYPE_NAMES = {
+ns.SESSION_TYPE_NAMES = {
     [Enum.DamageMeterSessionType.Current] = "Current",
     [Enum.DamageMeterSessionType.Overall] = "Overall",
 }
 
-local HOME_DEFAULTS = {
+ns.HOME_DEFAULTS = {
     Enum.DamageMeterType.DamageDone,
     Enum.DamageMeterType.HealingDone,
     Enum.DamageMeterType.Interrupts,
     Enum.DamageMeterType.Deaths,
 }
+
+function ns.GetDMTypeName(dmType)
+    if not dmType then return L("Damage Done") end
+    if ns.DM_TYPE_NAMES[dmType] then return L(ns.DM_TYPE_NAMES[dmType]) end
+    if type(dmType) == "string" then
+        local Skada = _G.Skada
+        if Skada and Skada.GetModes then
+            for _, m in ipairs(Skada:GetModes()) do
+                if m.moduleName == dmType or m.localeName == dmType then
+                    return m.localeName or m.moduleName or dmType
+                end
+            end
+        end
+        return dmType
+    end
+    return L("Damage Done")
+end
+
+function ns.GetDMTypeIcon(dmType)
+    if not dmType then return ns.DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone] end
+    if ns.DM_TYPE_ICONS[dmType] then return ns.DM_TYPE_ICONS[dmType] end
+    local Skada = _G.Skada
+    if Skada and Skada.GetModes then
+        for _, m in ipairs(Skada:GetModes()) do
+            if m.moduleName == dmType or m.localeName == dmType then
+                if m.metadata and m.metadata.icon then
+                    return m.metadata.icon
+                end
+                break
+            end
+        end
+    end
+    return ns.DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone] or (MEDIA .. "dm_home_damage.tga")
+end
+
+function ns.BuildSkadaModesMenu(onSelect, isCurrentActive)
+    local Skada = _G.Skada
+    local menu = {}
+    if not Skada or not Skada.GetModes then
+        local function entry(label, dmType)
+            return {
+                text = L(label),
+                onClick = function() onSelect(dmType) end,
+                isActive = isCurrentActive(dmType),
+            }
+        end
+        return {
+            { text = L("Damage"), children = {
+                entry("Damage Done", Enum.DamageMeterType.DamageDone),
+                entry("Damage Taken", Enum.DamageMeterType.DamageTaken),
+                entry("Avoidable Damage Taken", Enum.DamageMeterType.AvoidableDamageTaken),
+                entry("Enemy Damage Taken", Enum.DamageMeterType.EnemyDamageTaken),
+            }},
+            entry("Healing", Enum.DamageMeterType.HealingDone),
+            { text = L("Actions"), children = {
+                entry("Interrupts", Enum.DamageMeterType.Interrupts),
+                entry("Dispels", Enum.DamageMeterType.Dispels),
+                entry("Deaths", Enum.DamageMeterType.Deaths),
+            }},
+        }
+    end
+
+    local modes = Skada:GetModes()
+    local catOrder = {
+        "Damage Done",
+        "Damage Taken",
+        "Absorbs and Healing",
+        "Buffs and Debuffs",
+        "Crowd Control",
+        "Enemies",
+        "Resources",
+        "Other",
+    }
+    local catMap = {}
+    for _, catName in ipairs(catOrder) do
+        catMap[catName] = {}
+    end
+
+    for _, mode in ipairs(modes) do
+        local cat = mode.category or "Other"
+        if not catMap[cat] then
+            catMap[cat] = {}
+            catOrder[#catOrder + 1] = cat
+        end
+        local list = catMap[cat]
+        list[#list + 1] = mode
+    end
+
+    local catDisplayNames = {
+        ["Damage Done"]         = L("Damage Done"),
+        ["Damage Taken"]        = L("Damage Taken"),
+        ["Absorbs and Healing"] = L("Healing & Absorbs"),
+        ["Buffs and Debuffs"]   = L("Buffs & Debuffs"),
+        ["Crowd Control"]       = L("Crowd Control"),
+        ["Enemies"]             = L("Enemies"),
+        ["Resources"]           = L("Resources"),
+        ["Other"]               = L("Other"),
+    }
+
+    for _, catName in ipairs(catOrder) do
+        local modeList = catMap[catName]
+        if modeList and #modeList > 0 then
+            table.sort(modeList, function(a, b)
+                return (a.localeName or a.moduleName or "") < (b.localeName or b.moduleName or "")
+            end)
+
+            local children = {}
+            local catActive = false
+            for _, mode in ipairs(modeList) do
+                local mKey = mode.moduleName
+                local mLabel = mode.localeName or mode.moduleName
+                local modeIdentifier = mKey
+                if mKey == "Damage" then modeIdentifier = Enum.DamageMeterType.DamageDone
+                elseif mKey == "Healing" then modeIdentifier = Enum.DamageMeterType.HealingDone
+                elseif mKey == "Damage Taken" then modeIdentifier = Enum.DamageMeterType.DamageTaken
+                elseif mKey == "Failbot" then modeIdentifier = Enum.DamageMeterType.AvoidableDamageTaken
+                elseif mKey == "Enemy Damage Taken" then modeIdentifier = Enum.DamageMeterType.EnemyDamageTaken
+                elseif mKey == "Interrupts" then modeIdentifier = Enum.DamageMeterType.Interrupts
+                elseif mKey == "Dispels" then modeIdentifier = Enum.DamageMeterType.Dispels
+                elseif mKey == "Deaths" then modeIdentifier = Enum.DamageMeterType.Deaths
+                end
+
+                local active = isCurrentActive(modeIdentifier) or isCurrentActive(mKey)
+                if active then catActive = true end
+
+                children[#children + 1] = {
+                    text = mLabel,
+                    icon = mode.metadata and mode.metadata.icon,
+                    isActive = active,
+                    onClick = function() onSelect(modeIdentifier) end,
+                }
+            end
+
+            menu[#menu + 1] = {
+                text = catDisplayNames[catName] or catName,
+                isActive = catActive,
+                children = children,
+            }
+        end
+    end
+
+    return menu
+end
 
 -------------------------------------------------------------------------------
 --  DB defaults + helpers
@@ -247,6 +391,7 @@ local DM_DEFAULTS = {
             standaloneTimerDesatOOC = false,
             refreshRate = 1,
             hideResetButton = false, -- display the "reset data" button on the damage meter header
+            hideSkadaWindows = true, -- hide default Skada windows when EllesmereUI Damage Meters is active
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
             hdrBottomBorderSize = 0,
@@ -505,7 +650,7 @@ local function GetBookmarks()
     local cfg = DB()
     if not cfg.bookmarks then
         cfg.bookmarks = {}
-        for _, dt in ipairs(HOME_DEFAULTS) do
+        for _, dt in ipairs(ns.HOME_DEFAULTS) do
             cfg.bookmarks[#cfg.bookmarks + 1] = dt
         end
     end
@@ -521,7 +666,7 @@ local _inEncounter = false       -- true between ENCOUNTER_START and ENCOUNTER_E
 local _playerGUID
 local _windows = {}  -- array of active window tables
 ns._windows = _windows
-ns._DM_TYPE_NAMES = DM_TYPE_NAMES
+ns._DM_TYPE_NAMES = ns.DM_TYPE_NAMES
 
 -------------------------------------------------------------------------------
 --  Unlock mode registration
@@ -775,48 +920,14 @@ local ScheduleStopTicker -- forward declaration (defined in refresh section)
 local _sharedTicker      -- the live refresh ticker (assigned in refresh section)
 local _combatGen = 0     -- monotonic segment token; stale deferred teardowns compare against it
 
--- Keystone start: wipe data so Overall = this dungeon run
--- Keystone end: auto-swap windows from Current to Overall (if enabled)
 local instanceFrame = EllesmereUI.SafeCreateFrame("Frame")
-instanceFrame:RegisterEvent("CHALLENGE_MODE_START")
-instanceFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 instanceFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 instanceFrame:RegisterEvent("DAMAGE_METER_RESET")
 instanceFrame:RegisterEvent("DAMAGE_METER_COMBAT_SESSION_UPDATED")
 instanceFrame:RegisterEvent("DAMAGE_METER_CURRENT_SESSION_UPDATED")
 instanceFrame:SetScript("OnEvent", function(_, event)
     local t0 = ns.ProfBegin("Instance:" .. event)
-    if event == "CHALLENGE_MODE_START" then
-        if C_DamageMeter and C_DamageMeter.ResetAllCombatSessions then
-            C_DamageMeter.ResetAllCombatSessions()
-        end
-        _combatEndTime = 0; _curViewFrozenDur = 0
-        -- Auto-swap: Overall -> Current on key start
-        for _, w in ipairs(_windows) do
-            local wdb2 = WinDB(w.idx)
-            if wdb2.autoSwapMythic and w.curSession == Enum.DamageMeterSessionType.Overall then
-                w.curSession = Enum.DamageMeterSessionType.Current
-                wdb2.curSession = Enum.DamageMeterSessionType.Current
-                w.curSessionID = nil
-            end
-            -- Default on M+ Start: switch this window to its configured meter type
-            if wdb2.mythicStartDMType and w.SetDMType then
-                w.SetDMType(wdb2.mythicStartDMType)
-            end
-            w.Refresh()
-        end
-    elseif event == "CHALLENGE_MODE_COMPLETED" then
-        -- Auto-swap: Current -> Overall on key completion
-        for _, w in ipairs(_windows) do
-            local wdb2 = WinDB(w.idx)
-            if wdb2.autoSwapMythic and not w.curSessionID and w.curSession == Enum.DamageMeterSessionType.Current then
-                w.curSession = Enum.DamageMeterSessionType.Overall
-                wdb2.curSession = Enum.DamageMeterSessionType.Overall
-                w.curSessionID = nil
-                w.Refresh()
-            end
-        end
-    elseif event == "DAMAGE_METER_COMBAT_SESSION_UPDATED" then
+    if event == "DAMAGE_METER_COMBAT_SESSION_UPDATED" then
         -- Blizzard created or updated a combat session (boss kill, combat end, etc.)
         -- "Current" may now point to a different session. Invalidate cache so the
         -- next ticker-driven refresh picks up fresh data. Only force an immediate
@@ -1242,9 +1353,13 @@ local function FormatBarValue(amt, perSec, numFmt)
 end
 
 local function StripRealm(name)
-    if not name then return "Unknown" end
-    if Ambiguate then return Ambiguate(name, "short") or name end
-    return name
+    if not name or name == "" then return "Unknown" end
+    if issecretvalue and issecretvalue(name) then return "You" end
+    if Ambiguate then
+        local short = Ambiguate(name, "short")
+        if short and short ~= "" then return short end
+    end
+    return string.match(name, "^([^-]+)") or name
 end
 
 local function FormatTimer(seconds)
@@ -1337,7 +1452,7 @@ local function ResolveIcon(src, iconTex, barH)
 
     if style == "spec" then
         local specIcon = src.specIconID
-        if specIcon and type(specIcon) == "number" and specIcon ~= 0 then
+        if specIcon and ((type(specIcon) == "number" and specIcon ~= 0) or (type(specIcon) == "string" and specIcon ~= "")) then
             iconTex:SetTexture(specIcon)
             iconTex:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
             iconTex:SetSize(barH, barH)
@@ -1568,6 +1683,7 @@ local function EnsureTooltipFrame()
 
     -- Header bar
     _ttFrame._hdr = EllesmereUI.SafeCreateFrame("Frame", nil, _ttFrame)
+    _ttFrame._hdr:SetFrameLevel(_ttFrame:GetFrameLevel() + 5)
     _ttFrame._hdr:SetHeight(TT_HDR_H)
     _ttFrame._hdr:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, 0)
     _ttFrame._hdr:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, 0)
@@ -1603,6 +1719,7 @@ local function EnsureTTBar(i)
     local ttSp = PhysicalPixels(1)
     local b = {}
     b.row = EllesmereUI.SafeCreateFrame("Frame", nil, _ttFrame)
+    b.row:SetFrameLevel(_ttFrame:GetFrameLevel() + 5)
     b.row:SetHeight(TT_BAR_H)
     b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
     b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
@@ -1692,9 +1809,8 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             local b = EnsureTTBar(i)
             if i <= count then
                 local ev = reversed[startIdx + i]
-                local spID = ev.spellId
-                local spIcon
-                if spID and spID > 0 then spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spID) end
+                local spIcon = ev.icon
+                if not spIcon and spID and spID > 0 then spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spID) end
                 if not spIcon then spIcon = 135274 end
                 b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
                 b.fill:ClearAllPoints(); b.fill:SetPoint("TOPLEFT", b.spellIcon, "TOPRIGHT", 0, 0); b.fill:SetPoint("BOTTOMRIGHT", b.row, "BOTTOMRIGHT", 0, 0)
@@ -1801,7 +1917,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     end
     if not srcData or not srcData.combatSpells or #srcData.combatSpells == 0 then return false end
 
-    ApplyTTHeader(StripRealm(bar._src.name) or "Unknown", L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
+    ApplyTTHeader(StripRealm(bar._src.name) or "Unknown", ns.GetDMTypeName(curDMType))
 
     wipe(_ttSorted)
     for _, spell in ipairs(srcData.combatSpells) do
@@ -1823,7 +1939,10 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             local entry = _ttSorted[i]
             local spell = entry.spell
             local hasIcon = false
-            if spell.spellID then
+            if spell.icon then
+                hasIcon = true
+                b.spellIcon:SetTexture(spell.icon); b.spellIcon:Show()
+            elseif spell.spellID and spell.spellID > 0 then
                 local spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spell.spellID)
                 if spIcon then
                     hasIcon = true
@@ -1844,13 +1963,15 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             end
             ApplyBarTexture(b.fill, texPath, texKey); b.fill:SetMinMaxValues(0, maxAmt); b.fill:SetValue(entry.amount)
             b.fill:SetStatusBarColor(0x33/255, 0x33/255, 0x33/255)
-            local spellName
-            if spell.spellID then
+            local spellName = spell.name
+            if (not spellName or spellName == "") and spell.spellID and spell.spellID > 0 then
                 spellName = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID)
                 if issecretvalue and issecretvalue(spellName) then spellName = nil end
             end
             b.label:SetText(spellName or spell.creatureName or "Unknown")
-            if canPercent and totalDmg > 0 then
+            if spell.formattedValue and spell.formattedValue ~= "" then
+                b.amount:SetText(spell.formattedValue)
+            elseif canPercent and totalDmg > 0 then
                 b.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
             else
                 b.amount:SetText(AbbrevNumber(entry.amount))
@@ -2001,22 +2122,27 @@ end
 
 local function EnsureMenuRow(menu, idx)
     local row = menu._pool[idx]
-    if row then return row end
     local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
     local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
-    row = EllesmereUI.SafeCreateFrame("Button", nil, menu)
-    row._hl = row:CreateTexture(nil, "BACKGROUND", nil, 1); row._hl:SetAllPoints()
-    row._lbl = row:CreateFontString(nil, "OVERLAY"); row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
-    row._lbl:SetPoint("LEFT", row, "LEFT", 8, 0); row._lbl:SetJustifyH("LEFT")
-    row._arrow = row:CreateTexture(nil, "ARTWORK"); row._arrow:SetTexture(CTX_ARROW_ICON)
-    row._arrow:SetSize(19, 19); row._arrow:SetPoint("RIGHT", row, "RIGHT", -2, 0)
-    row._arrow:SetRotation(math.pi / 2); row._arrow:SetVertexColor(1, 1, 1, 0.75); row._arrow:Hide()
-    row._timer = row:CreateFontString(nil, "OVERLAY"); row._timer:SetFont(fontPath, CTX_FONT_SZ, outline)
-    row._timer:SetPoint("RIGHT", row, "RIGHT", -8, 0); row._timer:SetJustifyH("RIGHT"); row._timer:SetText("")
-    row._sep = row:CreateTexture(nil, "ARTWORK"); row._sep:SetHeight(1)
-    row._sep:SetPoint("LEFT", row, "LEFT", 6, 0); row._sep:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row._sep:SetTexture(1, 1, 1, 0.12); row._sep:SetPoint("CENTER"); row._sep:Hide()
-    menu._pool[idx] = row
+    if not row then
+        row = EllesmereUI.SafeCreateFrame("Button", nil, menu)
+        row._hl = row:CreateTexture(nil, "BACKGROUND", nil, 1); row._hl:SetAllPoints()
+        row._lbl = row:CreateFontString(nil, "OVERLAY", nil, 7); row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
+        row._lbl:SetPoint("LEFT", row, "LEFT", 8, 0); row._lbl:SetJustifyH("LEFT")
+        row._arrow = row:CreateTexture(nil, "OVERLAY", nil, 7); row._arrow:SetTexture(CTX_ARROW_ICON)
+        row._arrow:SetSize(19, 19); row._arrow:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+        row._arrow:SetRotation(math.pi / 2); row._arrow:SetVertexColor(1, 1, 1, 0.75); row._arrow:Hide()
+        row._timer = row:CreateFontString(nil, "OVERLAY", nil, 7); row._timer:SetFont(fontPath, CTX_FONT_SZ, outline)
+        row._timer:SetPoint("RIGHT", row, "RIGHT", -8, 0); row._timer:SetJustifyH("RIGHT"); row._timer:SetText("")
+        row._sep = row:CreateTexture(nil, "OVERLAY", nil, 7); row._sep:SetHeight(1)
+        row._sep:SetPoint("LEFT", row, "LEFT", 6, 0); row._sep:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        row._sep:SetTexture(1, 1, 1, 0.12); row._sep:SetPoint("CENTER"); row._sep:Hide()
+        menu._pool[idx] = row
+    end
+    row:SetFrameLevel(menu:GetFrameLevel() + 10)
+    if row._editBox then
+        row._editBox:SetFrameLevel(row:GetFrameLevel() + 2)
+    end
     return row
 end
 
@@ -2379,7 +2505,6 @@ local function CreateDMWindow(winIdx)
         bar.ApplyTextOffsets()
         bar.row:SetScript("OnClick", function(_, button)
             if button == "LeftButton" then
-                if InCombatLockdown() then return end
                 if bar._src and (bar._srcGUID or bar._src.sourceCreatureID) then
                     -- Deaths without recap data: block click
                     if W.curDMType == Enum.DamageMeterType.Deaths then
@@ -2432,33 +2557,6 @@ local function CreateDMWindow(winIdx)
                     _ttFrame:Show()
                     return
                 end
-            end
-            if InCombatLockdown() then
-                EnsureTooltipFrame()
-                -- Show header with player name + type
-                local playerName = StripRealm(bar._src and bar._src.name) or "Unknown"
-                local typeName = L(DM_TYPE_NAMES[W.curDMType] or "Damage Done")
-                _ttFrame._hdrText:SetText(playerName .. "'s " .. typeName .. " Breakdown")
-                local cfg2 = DB()
-                local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-                _ttFrame._hdrBg:SetTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
-                local tR, tG, tB
-                if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
-                else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
-                _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
-                -- Hide bars, show combat message
-                for bi = 1, #_ttBars do if _ttBars[bi] then _ttBars[bi].row:Hide() end end
-                _ttFrame._combatMsg:SetText("Detailed information is\nsecret while in combat")
-                _ttFrame._combatMsg:Show()
-                _ttFrame:SetSize(TT_WIDTH, TT_HDR_H + 40)
-                _ttFrame:ClearAllPoints()
-                if cfg2 and cfg2.breakdownAnchorPoint == "center" then
-                    _ttFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-                else
-                    _ttFrame:SetPoint("BOTTOMRIGHT", bar.row, "TOPRIGHT", 0, 0)
-                end
-                _ttFrame:Show()
-                return
             end
             _activeRow = bar; bar._win = W; _hoverPollFrame:Show()
         end)
@@ -2633,25 +2731,6 @@ local function CreateDMWindow(winIdx)
     end
 
     W.settingsBtn = MakeHeaderBtn("dm_settings.tga", -(btnPad + 2), "Settings", function()
-        -- "Default on M+ Start" submenu: the meter type this window switches to
-        -- when a Mythic+ key starts. "Off" (default) leaves the current type alone.
-        local function mStartEntry(label, dmType)
-            return { text = label, isActive = (wdb.mythicStartDMType == dmType),
-                     onClick = function() wdb.mythicStartDMType = dmType end }
-        end
-        local mStartChildren = {
-            { text = L("Off"), isActive = (not wdb.mythicStartDMType),
-              onClick = function() wdb.mythicStartDMType = false end },
-            "---",
-            mStartEntry(L("Damage Done"), Enum.DamageMeterType.DamageDone),
-            mStartEntry(L("Healing"), Enum.DamageMeterType.HealingDone),
-            mStartEntry(L("Damage Taken"), Enum.DamageMeterType.DamageTaken),
-            mStartEntry(L("Avoidable Damage Taken"), Enum.DamageMeterType.AvoidableDamageTaken),
-            mStartEntry(L("Enemy Damage Taken"), Enum.DamageMeterType.EnemyDamageTaken),
-            mStartEntry(L("Interrupts"), Enum.DamageMeterType.Interrupts),
-            mStartEntry(L("Dispels"), Enum.DamageMeterType.Dispels),
-            mStartEntry(L("Deaths"), Enum.DamageMeterType.Deaths),
-        }
         ShowEDMMenu({
             { text = L("Hide in Dungeons"), isActive = wdb.hideInDungeon, onClick = function()
                 wdb.hideInDungeon = not wdb.hideInDungeon
@@ -2691,11 +2770,6 @@ local function CreateDMWindow(winIdx)
                 wdb.hideTimer = not wdb.hideTimer
                 if not wdb.hideTimer then W.timerText:Show() else W.timerText:Hide() end
             end },
-            { text = L("Auto Swap Current/Overall"),
-              tooltip = L("Auto switch your window to overall at the end of an M+ run, and current at the start"),
-              isActive = wdb.autoSwapMythic, onClick = function()
-                wdb.autoSwapMythic = not wdb.autoSwapMythic
-            end },
             { text = L("Auto Current on Combat"),
               tooltip = L("Entering combat switches this window back to Current if viewing a past segment"),
               isActive = wdb.autoCurrentOnCombat, onClick = function()
@@ -2706,9 +2780,6 @@ local function CreateDMWindow(winIdx)
               isActive = wdb.syncSegments, onClick = function()
                 wdb.syncSegments = not wdb.syncSegments
             end },
-            { text = L("Default on M+ Start"),
-              tooltip = L("Set your window to this Meter Type on dungeon start"),
-              children = mStartChildren },
             { text = L("Settings"), onClick = function()
                 if EUI.ShowModule then EUI:ShowModule("EllesmereUIDamageMeters") end
             end },
@@ -2737,9 +2808,9 @@ local function CreateDMWindow(winIdx)
         end
         -- Divider + Current/Overall at bottom
         items[#items + 1] = "---"
-        for _, sType in ipairs(SESSION_TYPES) do
+        for _, sType in ipairs(ns.SESSION_TYPES) do
             items[#items + 1] = {
-                text = L(SESSION_TYPE_NAMES[sType] or "Unknown"),
+                text = L(ns.SESSION_TYPE_NAMES[sType] or "Unknown"),
                 isActive = (not W.curSessionID and sType == W.curSession),
                 onClick = function() ns.ApplySegmentSelection(W, sType, nil) end,
             }
@@ -2747,37 +2818,27 @@ local function CreateDMWindow(winIdx)
         ShowEDMMenu(items, W.segmentBtn)
     end)
 
-    -- Switch this window to a meter type (data + icon + refresh). Shared by the
-    -- mode button and the "Default on M+ Start" key-start hook so both stay in sync.
+    -- Switch this window to a meter type (data + icon + refresh).
     function W.SetDMType(dmType)
         W.curDMType = dmType; wdb.curDMType = dmType
         if W.CloseSource then W.CloseSource() end
         W.Refresh()
         if W._modeIcon then
-            W._modeIcon:SetTexture(DM_TYPE_ICONS[dmType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
+            W._modeIcon:SetTexture(ns.GetDMTypeIcon(dmType))
         end
     end
 
     W.modeBtn = MakeHeaderBtn("dm_arrow.tga", -(btnSize * 2 + btnPad * 3 + 2), "Switch Meter Type", function()
-        local function sel(dmType) return function() W.SetDMType(dmType) end end
-        local function entry(label, dmType) return { text = label, onClick = sel(dmType), isActive = (dmType == W.curDMType) } end
-        local cur = W.curDMType
-        local dmActive = (cur == Enum.DamageMeterType.DamageDone or cur == Enum.DamageMeterType.DamageTaken or cur == Enum.DamageMeterType.AvoidableDamageTaken or cur == Enum.DamageMeterType.EnemyDamageTaken)
-        local actActive = (cur == Enum.DamageMeterType.Interrupts or cur == Enum.DamageMeterType.Dispels or cur == Enum.DamageMeterType.Deaths)
-        ShowEDMMenu({
-            { text = L("Damage"), isActive = dmActive, children = {
-                entry(L("Damage Done"), Enum.DamageMeterType.DamageDone), entry(L("Damage Taken"), Enum.DamageMeterType.DamageTaken),
-                entry(L("Avoidable Damage Taken"), Enum.DamageMeterType.AvoidableDamageTaken), entry(L("Enemy Damage Taken"), Enum.DamageMeterType.EnemyDamageTaken),
-            }},
-            entry(L("Healing"), Enum.DamageMeterType.HealingDone),
-            { text = L("Actions"), isActive = actActive, children = {
-                entry(L("Interrupts"), Enum.DamageMeterType.Interrupts), entry(L("Dispels"), Enum.DamageMeterType.Dispels), entry(L("Deaths"), Enum.DamageMeterType.Deaths),
-            }},
-        }, W.modeBtn)
+        local items = ns.BuildSkadaModesMenu(function(dmType)
+            W.SetDMType(dmType)
+        end, function(dmType)
+            return (dmType == W.curDMType) or (type(W.curDMType) == "string" and dmType == W.curDMType)
+        end)
+        ShowEDMMenu(items, W.modeBtn)
     end)
     -- Set mode icon to current DM type icon
     W._modeIcon = W.hdrIcons[#W.hdrIcons]
-    W._modeIcon:SetTexture(DM_TYPE_ICONS[W.curDMType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
+    W._modeIcon:SetTexture(ns.GetDMTypeIcon(W.curDMType))
 
     -- + (new window) or x (close window) button, left of mode icon
     local winActionIcon = (winIdx == 1) and (MEDIA .. "dm_open.tga") or (MEDIA .. "dm_close.tga")
@@ -3544,6 +3605,8 @@ local function CreateDMWindow(winIdx)
             bar.amount:SetText(isOverall and "" or FormatTimer(src.deathTimeSeconds))
         elseif isCount then
             bar.amount:SetText(AbbrevNumber(src.totalAmount))
+        elseif src.formattedValue and src.formattedValue ~= "" then
+            bar.amount:SetText(src.formattedValue)
         else
             bar.amount:SetText(FormatBarValue(src.totalAmount, src.amountPerSecond, c.numberFormat or 2))
         end
@@ -3727,6 +3790,8 @@ local function CreateDMWindow(winIdx)
                             fmtVal = isOverall and "" or FormatTimer(src.deathTimeSeconds)
                         elseif isCount then
                             fmtVal = AbbrevNumber(src.totalAmount)
+                        elseif src.formattedValue and src.formattedValue ~= "" then
+                            fmtVal = src.formattedValue
                         else
                             fmtVal = FormatBarValue(src.totalAmount, src.amountPerSecond, numFmt)
                         end
@@ -3781,8 +3846,8 @@ local function CreateDMWindow(winIdx)
         else
             W.timerText:SetText("")
         end
-        local titlePrefix = isOverall and "Overall " or ""
-        W._fullTitle = L(titlePrefix .. (DM_TYPE_NAMES[W.curDMType] or "Damage Done"))
+        local titlePrefix = isOverall and (L("Overall ") or "Overall ") or ""
+        W._fullTitle = titlePrefix .. ns.GetDMTypeName(W.curDMType)
         W.FitTitle()
         if winIdx == 1 then UpdateSATimerText() end
 
@@ -4020,12 +4085,16 @@ local function CreateDMWindow(winIdx)
                 bar.row:SetPoint("TOPRIGHT", W.srcContent, "TOPRIGHT", 0, yOff2)
                 bar.row:SetHeight(barH)
                 local iconOffset = 0
-                if spell.spellID then
-                    local spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spell.spellID)
-                    local _cz = DB().classIconZoom or 0.06
-                    if spIcon then bar.classIcon:SetTexture(spIcon); bar.classIcon:SetTexCoord(_cz, 1 - _cz, _cz, 1 - _cz); bar.classIcon:SetSize(barH, barH); bar.classIcon:Show(); iconOffset = barH
-                    else bar.classIcon:Hide() end
-                else bar.classIcon:Hide() end
+                local spIcon = spell.icon
+                if not spIcon and spell.spellID and spell.spellID > 0 then
+                    spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spell.spellID)
+                end
+                local _cz = DB().classIconZoom or 0.06
+                if spIcon then
+                    bar.classIcon:SetTexture(spIcon); bar.classIcon:SetTexCoord(_cz, 1 - _cz, _cz, 1 - _cz); bar.classIcon:SetSize(barH, barH); bar.classIcon:Show(); iconOffset = barH
+                else
+                    bar.classIcon:Hide()
+                end
                 bar.fill:ClearAllPoints(); bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
                 bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0); bar.fill:SetHeight(barH)
                 ApplyBarTexture(bar.fill, texPath, texKey); bar.fill:SetMinMaxValues(0, maxAmt); bar.fill:SetValue(entry.amount)
@@ -4033,10 +4102,15 @@ local function CreateDMWindow(winIdx)
                     local cc = EUI.GetClassColor(W.sourceClass); bar.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
                 else local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2) end
                 SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
-                local spellName
-                if spell.spellID then local okS, sn = pcall(function() return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID) end); spellName = (okS and sn) or nil end
+                local spellName = spell.name
+                if (not spellName or spellName == "") and spell.spellID and spell.spellID > 0 then
+                    local okS, sn = pcall(function() return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID) end)
+                    spellName = (okS and sn) or nil
+                end
                 bar.label:SetText(spellName or spell.creatureName or "Unknown")
-                if canPercent and totalDmg > 0 then
+                if spell.formattedValue and spell.formattedValue ~= "" then
+                    bar.amount:SetText(spell.formattedValue)
+                elseif canPercent and totalDmg > 0 then
                     bar.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
                 else
                     bar.amount:SetText(AbbrevNumber(entry.amount))
@@ -4225,7 +4299,7 @@ local function CreateDMWindow(winIdx)
                 homeCards[idx] = card
             end
 
-            local label = L(DM_TYPE_NAMES[dmType] or "Unknown")
+            local label = ns.GetDMTypeName(dmType)
             local isActive = (dmType == W.curDMType)
 
             -- Position in grid
@@ -4239,7 +4313,7 @@ local function CreateDMWindow(winIdx)
             card._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
             card._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
             card._lbl:SetText(label)
-            card._icon:SetTexture(DM_TYPE_ICONS[dmType] or MEDIA .. "dm_home_damage.tga")
+            card._icon:SetTexture(ns.GetDMTypeIcon(dmType))
             card._arrow:Show()
 
             if isActive then
@@ -4276,7 +4350,7 @@ local function CreateDMWindow(winIdx)
                     RefreshHome()
                 elseif button == "LeftButton" then
                     W.curDMType = dmType; wdb.curDMType = dmType
-                    W._modeIcon:SetTexture(DM_TYPE_ICONS[dmType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
+                    W._modeIcon:SetTexture(ns.GetDMTypeIcon(dmType))
                     W.HideHome(); W.CloseSource(); W.Refresh()
                 end
             end)
@@ -4323,20 +4397,26 @@ local function CreateDMWindow(winIdx)
                 self._lbl:SetTextColor(1, 1, 1, 0.5); self._plus:SetTextColor(1, 1, 1, 0.5)
             end)
             homeAddBtn:SetScript("OnLeave", function(self)
-                self._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
+                self._bg:SetTexture(CARD_BG_R, CARD_BG_B, CARD_BG_B, CARD_BG_A * 0.5)
                 self._lbl:SetTextColor(1, 1, 1, 0.3); self._plus:SetTextColor(1, 1, 1, 0.3)
             end)
             homeAddBtn:SetScript("OnClick", function()
-                local items = {}
-                for dt, n in pairs(DM_TYPE_NAMES) do
+                local items = ns.BuildSkadaModesMenu(function(selectedType)
                     local pinned = false
-                    for _, b in ipairs(bookmarks) do if b == dt then pinned = true; break end end
-                    if not pinned then items[#items + 1] = { text = n, onClick = function()
-                        bookmarks[#bookmarks + 1] = dt; RefreshHome()
-                    end } end
-                end
-                table.sort(items, function(a2, b2) return a2.text < b2.text end)
-                ShowEDMMenu(items)
+                    for _, b in ipairs(bookmarks) do
+                        if b == selectedType then pinned = true; break end
+                    end
+                    if not pinned then
+                        bookmarks[#bookmarks + 1] = selectedType
+                        RefreshHome()
+                    end
+                end, function(testType)
+                    for _, b in ipairs(bookmarks) do
+                        if b == testType then return true end
+                    end
+                    return false
+                end)
+                ShowEDMMenu(items, homeAddBtn)
             end)
             homeAddBtn:Show()
             addRow = addRow + 1

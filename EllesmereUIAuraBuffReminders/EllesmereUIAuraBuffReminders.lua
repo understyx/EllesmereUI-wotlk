@@ -223,7 +223,6 @@ local LABEL_OVERRIDES = {
     ["Battle Stance"]           = "Stance",
     ["Defensive Stance"]        = "Stance",
     ["Berserker Stance"]        = "Stance",
-    ["Devotion Aura"]           = "Aura",
     ["Power Word: Fortitude"]   = "Fortitude",
     ["Arcane Intellect"]        = "Intellect",
     ["Battle Shout"]            = "Shout",
@@ -294,14 +293,12 @@ end
 -------------------------------------------------------------------------------
 local NON_SECRET_SPELL_IDS = {
     -- WotLK Raid Buffs
-    [48469]=true, [48161]=true, [48162]=true, [42995]=true, [43002]=true,
+    [48469]=true, [48470]=true, [48161]=true, [48162]=true, [42995]=true, [43002]=true,
     [47436]=true, [25898]=true, [20217]=true, [48934]=true, [19740]=true,
     -- Warrior Stances
     [2457]=true, [2458]=true, [71]=true,
     -- Shadowform
     [15473]=true,
-    -- Paladin Auras
-    [48942]=true, [54043]=true, [19746]=true, [32223]=true, [19891]=true,
     -- Righteous Fury
     [25780]=true,
     -- Shaman Shields
@@ -332,7 +329,7 @@ local function SnapshotPlayerAuras()
         local result = C_UnitAuras.GetPlayerAuraBySpellID(id)
         _preCombatAuraCache[id] = (result ~= nil)
     end
-    -- Also snapshot non-whitelisted auras (e.g. Devotion Aura) that become
+    -- Also snapshot non-whitelisted auras that become
     -- secret when a party member enters combat before the local player does.
     -- 12.1: the index scan hard-errors under aura restrictions (M+/raid,
     -- even out of combat); the whitelisted lookups above still work and the
@@ -834,11 +831,15 @@ EABR.WeaponEnchants = function()
             (oh and true or false), oh and oh.remainingTimeMs,
             oh and oh.chargesRemaining, oh and oh.enchantID
     end
-    return GetWeaponEnchantInfo()
+    -- The 3.3.5 API has no enchant-ID fields. Its off-hand flag is the fourth
+    -- return value, so passing the tuple through directly shifts every
+    -- off-hand field into the wrong modern position. Normalize it here.
+    local hasMH, mhExpire, mhCharges, hasOH, ohExpire, ohCharges = GetWeaponEnchantInfo()
+    return hasMH, mhExpire, mhCharges, nil, hasOH, ohExpire, ohCharges, nil
 end
 
 local RAID_BUFFS = {
-    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=48469,  buffIDs={48469},   check="raid" },
+    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=48469,  buffIDs={48469,48470},   check="raid" },
     { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=48161,  buffIDs={48161,48162},   check="raid" },
     { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=42995,  buffIDs={42995,43002},   check="raid", benefit="intellect" },
     { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=47436,  buffIDs={47436},   check="raid", benefit="attackPower" },
@@ -860,10 +861,6 @@ local AURAS = {
     -- Shadowform: OOC only.
     { key="shadowform", class="PRIEST",  name="Shadowform",        castSpell=15473, buffIDs={15473},
       check="player", specs={258}, combatOk=false, shapeshiftIndex=1 },
-    -- Paladin Auras: Devotion Aura or any active aura
-    { key="devo_aura",  class="PALADIN", name="Devotion Aura",     castSpell=48942,
-      buffIDs={48942, 54043, 19746, 32223, 19891}, instanceBuffIDs={48942},
-      check="player", combatOk=false },
     -- Righteous Fury (Prot Paladin threat)
     { key="righteous_fury", class="PALADIN", name="Righteous Fury", castSpell=25780, buffIDs={25780},
       check="player", specs={66}, combatOk=false },
@@ -878,39 +875,34 @@ local HEALTHSTONE_ITEM_IDS = { 36892 }  -- Fel Healthstone (WotLK)
 -- Pet tracking: classes that summon permanent pets
 local PET_CLASSES = { HUNTER = true, WARLOCK = true, DEATHKNIGHT = true, MAGE = true }
 
--- Spells whose presence means the player uses their own imbue system
--- instead of generic weapon oils/stones. If the player knows ANY of these,
--- the weapon enchant reminder is suppressed for them.
-local _IMBUE_EXCLUDE_SPELLS = {
-    51730,   -- Earthliving Weapon (Shaman)
-    58790,   -- Flametongue Weapon (Shaman)
-    58804,   -- Windfury Weapon (Shaman)
-}
-
 -------------------------------------------------------------------------------
 --  SPELL DATA Consumables (OOC only, not during keystones)
 -------------------------------------------------------------------------------
--- Rogue Poisons: data table drives options UI; detection uses unified scan below.
--- Lethal and non-lethal categories match WoW's internal classification.
+-- Rogue poison items. WotLK applies these to weapons rather than as auras.
 local ROGUE_POISONS = {
     -- Lethal poisons (mutually exclusive per slot).
-    { key="deadly",     name="Deadly Poison",     castSpell=57973,  cat="lethal" },
-    { key="instant",    name="Instant Poison",    castSpell=57968,  cat="lethal" },
-    { key="wound",      name="Wound Poison",      castSpell=57975,  cat="lethal" },
+    { key="deadly",     name="Deadly Poison IX",     castSpell=57973, itemID=43232, cat="lethal" },
+    { key="instant",    name="Instant Poison IX",    castSpell=57968, itemID=43231, cat="lethal" },
+    { key="wound",      name="Wound Poison VII",     castSpell=57975, itemID=43233, cat="lethal" },
     -- Non-lethal poisons (mutually exclusive per slot).
-    { key="crippling",  name="Crippling Poison",  castSpell=3408,   cat="nonlethal" },
-    { key="mindnumbing", name="Mind-numbing Poison", castSpell=5761, cat="nonlethal" },
-    { key="anesthetic", name="Anesthetic Poison", castSpell=26785,  cat="nonlethal" },
+    { key="crippling",  name="Crippling Poison II",  castSpell=3408, itemID=43234, cat="nonlethal" },
+    { key="mindnumbing", name="Mind-numbing Poison III", castSpell=5761, itemID=43235, cat="nonlethal" },
+    { key="anesthetic", name="Anesthetic Poison II", castSpell=26785, itemID=43230, cat="nonlethal" },
 }
--- No Dragon-Tempered Blades in WotLK
-local DTB_SPELL_ID = nil
 
 -- Shaman Imbues (WotLK)
 local SHAMAN_IMBUES = {
-    { key="flametongue", name="Flametongue Weapon", castSpell=58790, buffIDs={58790}, wepEnchID={3781} },
-    { key="windfury",    name="Windfury Weapon",    castSpell=58804, buffIDs={58804}, wepEnchID={3787} },
-    { key="earthliving", name="Earthliving Weapon", castSpell=51730, buffIDs={51730}, wepEnchID={3345} },
-    { key="frostbrand",  name="Frostbrand Weapon",  castSpell=58796, buffIDs={58796}, wepEnchID={3784} },
+    { key="flametongue", name="Flametongue Weapon", castSpell=58790 },
+    { key="windfury",    name="Windfury Weapon",    castSpell=58804 },
+    { key="earthliving", name="Earthliving Weapon", castSpell=51730 },
+    { key="frostbrand",  name="Frostbrand Weapon",  castSpell=58796 },
+}
+
+-- Warlock weapon stones (WotLK). The reminder macro creates the selected
+-- stone when absent and applies it to the main hand when it already exists.
+local WARLOCK_STONES = {
+    { key="firestone",  name="Grand Firestone",  createSpell=60220, itemID=41196, specs={266,267} },
+    { key="spellstone", name="Grand Spellstone", createSpell=47888, itemID=41191, specs={265} },
 }
 
 -- Shaman Shields: WotLK has Lightning Shield, Water Shield, Earth Shield.
@@ -1011,11 +1003,12 @@ local function PlayerHasWellFed()
     if InPvPInstance() then return true end  -- food not trackable in PvP, suppress
     -- 12.1: any other restricted content (raid instances OOC) -- suppress.
     if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
+    local wellFedName = GetSpellInfo(57399) or "Well Fed"
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
-        local ic = aura.icon
-        if ic and not isSecret(ic) and ic == 136000 then 
+        local auraName = aura.name
+        if auraName and not isSecret(auraName) and auraName == wellFedName then
             if IsUnderDuration(aura.duration, aura.expirationTime) then
                 return false
             end
@@ -1391,7 +1384,7 @@ local defaults = {
             scale = 1.0,
             enabled = {
                 battle_stance=true, def_stance=true, berserk_stance=true, shadowform=true,
-                devo_aura=true, righteous_fury=true,
+                righteous_fury=true,
             },
         },
         consumables = {
@@ -1401,6 +1394,7 @@ local defaults = {
                 deadly=true, instant=true, wound=true,
                 crippling=true, mindnumbing=true, anesthetic=true,
                 flametongue=true, windfury=true, earthliving=true, frostbrand=true,
+                firestone=true, spellstone=true,
                 ls=true, ws=true, es=true,
                 weapon_enchant=true,
                 flask=true,
@@ -1409,6 +1403,8 @@ local defaults = {
             preferredFlask = "last_used",
             preferredFood = "last_used",
             preferredWeaponEnchant = "last_used",
+            preferredMainHandPoison = "instant",
+            preferredOffHandPoison = "deadly",
         },
         unlockPos = nil,
         talentReminders = {},  -- array of {zoneIDs={}, zoneNames={}, spellID=number, spellName=string, showNotNeeded=bool}
@@ -1786,7 +1782,7 @@ do
         elseif mode == "item" then
             SetIconItem(btn, m.itemID, m.texture, m.label)
         elseif mode == "macro" then
-            SetIconMacro(btn, m.macro, m.texture, nil)
+            SetIconMacro(btn, m.macro, m.texture, m.spellID)
             btn._tooltipItem = m.tooltipItem
         else -- "texture"
             SetIconTexture(btn, m.texture, m.label)
@@ -2041,83 +2037,87 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
 
         -- === SPECIALS (respect showSpecialsNonInstanced) ===
         if specialsActive then
-            -- Rogue Poisons: unified scan counts active per category,
-            -- compares against required (1 each, or 2 each with Dragon-Tempered Blades).
-            -- Shows one reminder per deficient category using the first enabled+known+missing poison.
+            -- Rogue poisons are temporary weapon enchants in WotLK, not player
+            -- auras or known spells. The legacy API exposes presence and duration
+            -- per hand (but not the enchant ID), so remind for each bare weapon
+            -- and apply the configured poison item directly to that slot.
             if playerClass == "ROGUE" then
-                local activeL, activeNL = 0, 0
-                local knownL, knownNL = 0, 0
-                local missingL, missingNL = nil, nil
-                for _, poison in ipairs(ROGUE_POISONS) do
-                    if Known(poison.castSpell) then
-                        local isLethal = (poison.cat == "lethal")
-                        if isLethal then knownL = knownL + 1 else knownNL = knownNL + 1 end
-                        local aura = C_UnitAuras.GetPlayerAuraBySpellID(poison.castSpell)
-                        local active = aura and not IsUnderDuration(aura.duration, aura.expirationTime)
-                        if active then
-                            if isLethal then activeL = activeL + 1 else activeNL = activeNL + 1 end
-                        elseif co.enabled[poison.key] then
-                            if isLethal and not missingL then missingL = poison
-                            elseif not isLethal and not missingNL then missingNL = poison end
+                local function PickPoison(preferredKey)
+                    local preferred
+                    for _, poison in ipairs(ROGUE_POISONS) do
+                        if co.enabled[poison.key] then
+                            if poison.key == preferredKey then preferred = poison end
+                            if CachedGetItemCount(poison.itemID) > 0 then
+                                if poison.key == preferredKey then return poison end
+                                preferred = preferred or poison
+                            end
                         end
                     end
+                    return preferred
                 end
-                local hasDTB = DTB_SPELL_ID and IsPlayerSpell(DTB_SPELL_ID)
-                local reqL = min(knownL, hasDTB and 2 or 1)
-                local reqNL = min(knownNL, hasDTB and 2 or 1)
-                if missingL and activeL < reqL then
-                    local e = AcquireEntry()
-                    e.mode = "spell"; e.spellID = missingL.castSpell
-                    e.label = ShortLabel(_G._EABR_SpellName(missingL.castSpell, missingL.name), "ROGUE")
-                    e.cat = "consumable"; e.data = missingL; e.scale = co.scale or 1.0
-                    e.dismissKey = "consumable:rogue_lethal"
-                    missing[#missing+1] = e
-                end
-                if missingNL and activeNL < reqNL then
-                    local e = AcquireEntry()
-                    e.mode = "spell"; e.spellID = missingNL.castSpell
-                    e.label = ShortLabel(_G._EABR_SpellName(missingNL.castSpell, missingNL.name), "ROGUE")
-                    e.cat = "consumable"; e.data = missingNL; e.scale = co.scale or 1.0
-                    e.dismissKey = "consumable:rogue_nonlethal"
-                    missing[#missing+1] = e
+
+                local hasMH, mhExpire, _, _, hasOH, ohExpire = EABR.WeaponEnchants()
+                for _, hand in ipairs({
+                    {slot=16, has=hasMH, expire=mhExpire, poison=PickPoison(co.preferredMainHandPoison or "instant")},
+                    {slot=17, has=hasOH, expire=ohExpire, poison=PickPoison(co.preferredOffHandPoison or "deadly")},
+                }) do
+                    local needsPoison = GetWeaponCategory(hand.slot) and not hand.has
+                    if not needsPoison and hand.has and hand.expire and hand.expire > 0 then
+                        needsPoison = IsUnderDuration(3600, hand.expire / 1000 + GetTime())
+                    end
+                    if needsPoison and hand.poison then
+                        local e = AcquireEntry()
+                        e.mode = "macro"
+                        e.macro = "/use item:" .. hand.poison.itemID .. "\n/use " .. hand.slot
+                            .. "\n/click StaticPopup1Button1"
+                        e.texture = GetItemIcon(hand.poison.itemID) or Tex(hand.poison.castSpell)
+                        e.label = ShortLabel(EllesmereUI.L(hand.slot == 16 and "Main Hand" or "Off Hand"))
+                        e.tooltipItem = hand.poison.itemID
+                        e.desaturated = CachedGetItemCount(hand.poison.itemID) == 0
+                        e.cat = "consumable"; e.data = hand.poison; e.scale = co.scale or 1.0
+                        e.dismissKey = "consumable:rogue_poison_" .. hand.slot
+                        missing[#missing+1] = e
+                    end
                 end
             end
 
-            -- Shaman Imbues: match each imbue by its wepEnchID against
-            -- both weapon slots. The enchant summary carries the specific
-            -- enchant ID on each hand (4th and 8th return values).
+            -- Shaman imbues use the same WotLK temporary-enchant tuple. Pick a
+            -- sensible imbue per spec/hand and target that weapon explicitly.
             if playerClass == "SHAMAN" then
-                local hasMH, mhExpire, _, mhEnchID, hasOH, ohExpire, _, ohEnchID = EABR.WeaponEnchants()
-                for _, imbue in ipairs(SHAMAN_IMBUES) do
-                    if co.enabled[imbue.key] and Known(imbue.castSpell) then
-                        local found = false
-                        if imbue.wepEnchID then
-                            for _, eid in ipairs(imbue.wepEnchID) do
-                                if eid > 0 and ((hasMH and mhEnchID == eid) or (hasOH and ohEnchID == eid)) then
-                                    -- Use the matched hand's expire time, not min of both.
-                                    -- Unenchanted hand returns 0, which would always trigger.
-                                    local matchExpire
-                                    if hasMH and mhEnchID == eid then
-                                        matchExpire = mhExpire
-                                    else
-                                        matchExpire = ohExpire
-                                    end
-                                    if matchExpire and matchExpire > 0 and IsUnderDuration(3600, matchExpire / 1000 + GetTime()) then
-                                        found = false
-                                    else
-                                        found = true
-                                    end
-                                end
-                            end
+                local function PickImbue(slot)
+                    local wanted = specID == 263 and (slot == 16 and "windfury" or "flametongue")
+                        or (specID == 264 and "earthliving" or "flametongue")
+                    local fallback
+                    for _, imbue in ipairs(SHAMAN_IMBUES) do
+                        if co.enabled[imbue.key] and Known(imbue.castSpell) then
+                            if imbue.key == wanted then return imbue end
+                            fallback = fallback or imbue
                         end
-                        if not found then
-                            local e = AcquireEntry()
-                            e.mode = "spell"; e.spellID = imbue.castSpell
-                            e.label = ShortLabel(_G._EABR_SpellName(imbue.castSpell, imbue.name), "SHAMAN_IMBUE")
-                            e.cat = "consumable"; e.data = imbue; e.scale = co.scale or 1.0
-                            e.dismissKey = "consumable:" .. imbue.key
-                            missing[#missing+1] = e
-                        end
+                    end
+                    return fallback
+                end
+
+                local hasMH, mhExpire, _, _, hasOH, ohExpire = EABR.WeaponEnchants()
+                for _, hand in ipairs({
+                    {slot=16, has=hasMH, expire=mhExpire},
+                    {slot=17, has=hasOH, expire=ohExpire},
+                }) do
+                    local imbue = PickImbue(hand.slot)
+                    local needsImbue = imbue and GetWeaponCategory(hand.slot) and not hand.has
+                    if not needsImbue and imbue and hand.has and hand.expire and hand.expire > 0 then
+                        needsImbue = IsUnderDuration(3600, hand.expire / 1000 + GetTime())
+                    end
+                    if needsImbue then
+                        local spellName = GetSpellInfo(imbue.castSpell) or imbue.name
+                        local e = AcquireEntry()
+                        e.mode = "macro"; e.spellID = imbue.castSpell
+                        e.macro = "/cast " .. spellName .. "\n/use " .. hand.slot
+                            .. "\n/click StaticPopup1Button1"
+                        e.texture = Tex(imbue.castSpell)
+                        e.label = ShortLabel(EllesmereUI.L(hand.slot == 16 and "Main Hand" or "Off Hand"))
+                        e.cat = "consumable"; e.data = imbue; e.scale = co.scale or 1.0
+                        e.dismissKey = "consumable:shaman_imbue_" .. hand.slot
+                        missing[#missing+1] = e
                     end
                 end
 
@@ -2144,6 +2144,43 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                 end
 
             end
+
+            -- Firestones and Spellstones are temporary main-hand enchants in
+            -- WotLK. Affliction defaults to Spellstone; Demonology/Destruction
+            -- default to Firestone. The macro creates or applies it as needed.
+            if playerClass == "WARLOCK" then
+                local stone
+                for _, candidate in ipairs(WARLOCK_STONES) do
+                    local specMatch = not candidate.specs
+                    if candidate.specs then
+                        for _, sid in ipairs(candidate.specs) do
+                            if sid == specID then specMatch = true; break end
+                        end
+                    end
+                    if co.enabled[candidate.key] and Known(candidate.createSpell) then
+                        if specMatch then stone = candidate; break end
+                        stone = stone or candidate
+                    end
+                end
+                local hasMH, mhExpire = EABR.WeaponEnchants()
+                local needsStone = stone and GetWeaponCategory(16) and not hasMH
+                if not needsStone and stone and hasMH and mhExpire and mhExpire > 0 then
+                    needsStone = IsUnderDuration(3600, mhExpire / 1000 + GetTime())
+                end
+                if needsStone then
+                    local createName = GetSpellInfo(stone.createSpell) or stone.name
+                    local e = AcquireEntry()
+                    e.mode = "macro"; e.spellID = stone.createSpell
+                    e.macro = "/cast " .. createName .. "\n/use item:" .. stone.itemID
+                        .. "\n/use 16\n/click StaticPopup1Button1"
+                    e.texture = GetItemIcon(stone.itemID) or Tex(stone.createSpell)
+                    e.label = EllesmereUI.L("Stone")
+                    e.tooltipItem = stone.itemID
+                    e.cat = "consumable"; e.data = stone; e.scale = co.scale or 1.0
+                    e.dismissKey = "consumable:warlock_stone"
+                    missing[#missing+1] = e
+                end
+            end
         end -- end specialsActive
 
         -- === INSTANCE-ONLY CONSUMABLES (weapon enchants, flask, food) ===
@@ -2153,14 +2190,10 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
         if inInstance and (_cachedIType == "party" or _cachedIType == "raid") then
 
         -- Weapon Enchants (temp weapon enchant items)
-        -- Skip if the player knows any imbue spell (Shaman imbues, Paladin rites).
-        -- Rogues and DKs are NOT excluded: rogue poisons are temp enchants
-        -- (visible in the enchant summary), and DKs can use oils alongside runeforges.
-        local _hasImbueSpell = false
-        for _, sid in ipairs(_IMBUE_EXCLUDE_SPELLS) do
-            if IsSpellKnown(sid) then _hasImbueSpell = true; break end
-        end
-        if co.enabled.weapon_enchant and not _hasImbueSpell then
+        -- Class-specific temporary enchants are handled above. Other classes
+        -- use the generic oil/stone reminder here.
+        if co.enabled.weapon_enchant and playerClass ~= "ROGUE"
+           and playerClass ~= "SHAMAN" and playerClass ~= "WARLOCK" then
             local hasMH, mhExpire, _, _, hasOH, ohExpire = EABR.WeaponEnchants()
 
             -- Check each weapon slot independently (both can show at once).
@@ -3162,6 +3195,7 @@ function EABR:OnEnable()
     _G._EABR_ROGUE_POISONS = ROGUE_POISONS
     _G._EABR_SHAMAN_IMBUES = SHAMAN_IMBUES
     _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
+    _G._EABR_WARLOCK_STONES = WARLOCK_STONES
     _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
     _G._EABR_Tex = Tex
     _G._EABR_ICON_SIZE = ICON_SIZE
@@ -3816,4 +3850,3 @@ local SetupReadyCheckManaWarning = function()
     _G._EABR_RCWarnUpdateReg = UpdateReadyCheckRegistration
 end
 SetupReadyCheckManaWarning()
-

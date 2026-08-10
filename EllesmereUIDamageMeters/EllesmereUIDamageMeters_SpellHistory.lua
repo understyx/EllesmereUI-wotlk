@@ -151,13 +151,14 @@ end
 
 -- Resolve spell override (base -> active override) for correct name/icon
 local function ResolveOverride(sid)
-    if C_Spell and C_Spell.GetOverrideSpell then
-        local ov = C_Spell.GetOverrideSpell(sid)
-        if ov and ov ~= 0 and ov ~= sid then return ov end
+    if not sid or sid == 0 then return sid end
+    if C_Spell and C_Spell.GetOverrideSpell and type(sid) == "number" and sid > 0 then
+        local ok, ov = pcall(C_Spell.GetOverrideSpell, sid)
+        if ok and ov and ov ~= 0 and ov ~= sid then return ov end
     end
-    if FindSpellOverrideByID then
-        local ov = FindSpellOverrideByID(sid)
-        if ov and ov ~= 0 and ov ~= sid then return ov end
+    if FindSpellOverrideByID and type(sid) == "number" and sid > 0 then
+        local ok, ov = pcall(FindSpellOverrideByID, sid)
+        if ok and ov and ov ~= 0 and ov ~= sid then return ov end
     end
     return sid
 end
@@ -225,33 +226,150 @@ local function PushEntry(entry)
     RefreshViews()
 end
 
-local _pendingTargets = {}  -- castGUID -> target name (from UNIT_SPELLCAST_SENT)
+-------------------------------------------------------------------------------
+--  Ignored Spells (Auto-attacks, Wand Shoot, Basic Weapon swings)
+-------------------------------------------------------------------------------
+local IGNORED_SPELL_IDS = {
+    75,    -- Auto Shot
+    6603,  -- Auto Attack
+    5019,  -- Shoot (Wand)
+    2480,  -- Shoot Bow
+    7918,  -- Shoot Gun
+    7919,  -- Shoot Crossbow
+    2764,  -- Throw
+    3018,  -- Shoot
+}
+
+local IGNORED_SPELLS = {}
+for _, id in ipairs(IGNORED_SPELL_IDS) do
+    IGNORED_SPELLS[id] = true
+    local name = GetSpellInfo(id)
+    if name then IGNORED_SPELLS[name] = true end
+end
+IGNORED_SPELLS["Auto Shot"] = true
+IGNORED_SPELLS["Attack"] = true
+IGNORED_SPELLS["Shoot"] = true
+IGNORED_SPELLS["Shoot Bow"] = true
+IGNORED_SPELLS["Shoot Gun"] = true
+IGNORED_SPELLS["Shoot Crossbow"] = true
+IGNORED_SPELLS["Throw"] = true
+
+-------------------------------------------------------------------------------
+--  On-Next-Melee / Empowered Strike Spells (Hunter, Warrior, Druid, DK)
+-------------------------------------------------------------------------------
+local NEXT_MELEE_SPELLS = {
+    -- Hunter: Raptor Strike
+    [2973] = true, [14260] = true, [14261] = true, [14262] = true,
+    [14263] = true, [14264] = true, [14265] = true, [14266] = true,
+    [27014] = true, [48995] = true, [48996] = true,
+    ["Raptor Strike"] = true,
+    -- Warrior: Heroic Strike, Cleave
+    [78] = true, [284] = true, [285] = true, [1608] = true,
+    [11564] = true, [11565] = true, [11566] = true, [11567] = true,
+    [25286] = true, [29707] = true, [30324] = true, [47449] = true, [47450] = true,
+    ["Heroic Strike"] = true,
+    [845] = true, [7369] = true, [11608] = true, [11609] = true,
+    [20569] = true, [25231] = true, [47519] = true, [47520] = true,
+    ["Cleave"] = true,
+    -- Druid: Maul
+    [680] = true, [6807] = true, [6808] = true, [6809] = true,
+    [8972] = true, [9745] = true, [9880] = true, [9881] = true,
+    [26996] = true, [48479] = true, [48480] = true,
+    ["Maul"] = true,
+    -- Death Knight: Rune Strike
+    [56815] = true,
+    ["Rune Strike"] = true,
+}
+for id in pairs(NEXT_MELEE_SPELLS) do
+    if type(id) == "number" then
+        local name = GetSpellInfo(id)
+        if name then NEXT_MELEE_SPELLS[name] = true end
+    end
+end
+
+local _playerGUID = nil
 local _activeChannelSpell = nil  -- spellID of currently channeling spell (suppress tick SUCCEEDEDs)
 local _knownOverrides = {}  -- spellID -> true for override spells that pass IsSpellKnownOrOverridesKnown
 
-local function FinishPending(castGUID, status)
-    _pendingTargets[castGUID] = nil
-    local entry = _pendingCasts[castGUID]
+local function FinishPending(castKey, status)
+    if not castKey then return end
+    local entry = _pendingCasts[castKey]
     if not entry then return end
     -- Don't downgrade a success (server accepted) to failed/interrupted (client race)
-    if entry.status == "success" then _pendingCasts[castGUID] = nil; return end
+    if entry.status == "success" then _pendingCasts[castKey] = nil; return end
     -- Snapshot fill progress for interrupted/failed casts so the bar freezes
     if status == "interrupted" or status == "failed" then
         local now = GetTime()
-        local dur = entry.endTime - entry.startTime
+        local dur = (entry.endTime or 0) - (entry.startTime or 0)
         if dur > 0 then
             if entry.isChannel then
-                entry.fillProgress = max(0, min(1, (entry.endTime - now) / dur))
+                entry.fillProgress = max(0, min(1, ((entry.endTime or 0) - now) / dur))
             else
-                entry.fillProgress = max(0, min(1, (now - entry.startTime) / dur))
+                entry.fillProgress = max(0, min(1, (now - (entry.startTime or 0)) / dur))
             end
         end
     end
     entry.status = status
     entry.endTime = GetTime()
     if entry.startTime then entry.castDuration = entry.endTime - entry.startTime end
-    _pendingCasts[castGUID] = nil
+    _pendingCasts[castKey] = nil
+    if entry.spellName and _pendingCasts[entry.spellName] == entry then
+        _pendingCasts[entry.spellName] = nil
+    end
+    if type(entry.spellID) == "number" and _pendingCasts[entry.spellID] == entry then
+        _pendingCasts[entry.spellID] = nil
+    end
     RefreshViews()
+end
+
+local function RecordCastSuccess(spellID, spellName, destName)
+    if not spellID and not spellName then return end
+    if (spellID and IGNORED_SPELLS[spellID]) or (spellName and IGNORED_SPELLS[spellName]) then
+        return
+    end
+
+    -- Skip channeled spell ticks
+    if _activeChannelSpell and (spellID == _activeChannelSpell or spellName == _activeChannelSpell or (spellName and _spellInfoCache[_activeChannelSpell] and spellName == _spellInfoCache[_activeChannelSpell].name)) then
+        return
+    end
+
+    -- Check if completing an in-progress cast from UNIT_SPELLCAST_START
+    local pending = (spellName and _pendingCasts[spellName]) or (spellID and _pendingCasts[spellID])
+    if pending then
+        FinishPending(spellName or spellID, "success")
+        return
+    end
+
+    -- Deduplication guard: prevent identical spell being pushed multiple times within 0.35s
+    local now = GetTime()
+    if #_history > 0 then
+        local last = _history[1]
+        if last and (now - (last.timestamp or 0)) < 0.35 then
+            if (spellID and last.spellID == spellID) or (spellName and last.spellName == spellName) then
+                return
+            end
+        end
+    end
+
+    local sid = ResolveOverride(spellID or spellName)
+    local sName, _, sIcon = GetSpellInfo(sid or spellID or spellName)
+    local finalName = sName or spellName or "?"
+    local finalIcon = sIcon or (spellName and select(3, GetSpellInfo(spellName))) or "Interface\\Icons\\INV_Misc_QuestionMark"
+    local target = (destName and destName ~= "") and destName or (UnitName("target"))
+
+    PushEntry({
+        spellID      = sid or spellID or finalName,
+        spellName    = finalName,
+        icon         = finalIcon,
+        target       = target,
+        startTime    = now,
+        endTime      = now,
+        castDuration = 0,
+        status       = "success",
+        isInstant    = true,
+        isChannel    = false,
+        timestamp    = now,
+    })
 end
 
 -------------------------------------------------------------------------------
@@ -261,169 +379,136 @@ end
 local _eventsActive = false
 local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
 
-local function OnSpellEvent(_, event, unit, ...)
-    if unit ~= "player" then return end
+local function OnSpellEvent(self, event, ...)
+    if event == "PLAYER_ENTERING_WORLD" then
+        _playerGUID = UnitGUID("player")
+        return
+    end
 
-    -- UNIT_SPELLCAST_SENT has unique args: unit, target, castGUID, spellID
-    if event == "UNIT_SPELLCAST_SENT" then
-        local target, castGUID2 = ...
-        if castGUID2 and target then
-            _pendingTargets[castGUID2] = target
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        local timestamp, subEvent, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, spellID, spellName = ...
+        if not _playerGUID then _playerGUID = UnitGUID("player") end
+        if sourceGUID ~= _playerGUID then return end
+
+        if subEvent == "SPELL_CAST_SUCCESS" then
+            RecordCastSuccess(spellID, spellName, destName)
+        elseif (subEvent == "SPELL_DAMAGE" or subEvent == "SPELL_MISSED" or subEvent == "SPELL_EXTRA_ATTACKS") and (NEXT_MELEE_SPELLS[spellID] or NEXT_MELEE_SPELLS[spellName]) then
+            RecordCastSuccess(spellID, spellName, destName)
         end
         return
     end
 
-    local castGUID, spellID = ...
+    local unit = ...
+    if unit ~= "player" then return end
 
     if event == "UNIT_SPELLCAST_START" then
-        local name, _, _, startMS, endMS = UnitCastingInfo("player")
-        if not name or not spellID then return end
-        spellID = ResolveOverride(spellID)
-        local info = _spellInfoCache[spellID]
-        if not info then info = C_Spell and C_Spell.GetSpellInfo(spellID); if info then _spellInfoCache[spellID] = info end end
+        local SafeCastInfo = (EUI and EUI.SafeUnitCastingInfo) or UnitCastingInfo
+        local name, text, texture, startMS, endMS, _, _, _, castSpellID = SafeCastInfo("player")
+        if not name or IGNORED_SPELLS[name] then return end
+        local sid = (castSpellID and castSpellID > 0 and castSpellID) or (select(7, GetSpellInfo(name))) or name
+        if IGNORED_SPELLS[sid] then return end
+        sid = ResolveOverride(sid)
+        local icon = texture or select(3, GetSpellInfo(sid)) or select(3, GetSpellInfo(name))
+        local target = UnitName("target")
+        local st = (type(startMS) == "number" and startMS / 1000) or GetTime()
+        local et = (type(endMS) == "number" and endMS / 1000) or st
+        local dur = (et >= st and (et - st)) or 0
         local entry = {
-            spellID      = spellID,
+            spellID      = sid,
             spellName    = name,
-            icon         = info and info.iconID,
-            target       = castGUID and _pendingTargets[castGUID],
-            startTime    = (startMS or 0) / 1000,
-            endTime      = (endMS or 0) / 1000,
-            castDuration = ((endMS or 0) - (startMS or 0)) / 1000,
+            icon         = icon,
+            target       = target,
+            startTime    = st,
+            endTime      = et,
+            castDuration = dur,
             status       = "casting",
             isInstant    = false,
             isChannel    = false,
             timestamp    = GetTime(),
         }
-        if castGUID then _pendingCasts[castGUID] = entry end
+        _pendingCasts[name] = entry
+        if type(sid) == "number" then _pendingCasts[sid] = entry end
         PushEntry(entry)
         StartCastAnim()
 
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
-        local name, _, _, startMS, endMS, _, _, chanSpellID = UnitChannelInfo("player")
-        local sid = ResolveOverride(chanSpellID or spellID)
-        if not name then return end
-        local info = sid and _spellInfoCache[sid]
-        if not info and sid then info = C_Spell and C_Spell.GetSpellInfo(sid); if info then _spellInfoCache[sid] = info end end
+        local SafeChannelInfo = (EUI and EUI.SafeUnitChannelInfo) or UnitChannelInfo
+        local name, text, texture, startMS, endMS, _, _, chanSpellID = SafeChannelInfo("player")
+        if not name or IGNORED_SPELLS[name] then return end
+        local sid = ResolveOverride((chanSpellID and chanSpellID > 0 and chanSpellID) or (select(7, GetSpellInfo(name))) or name)
+        if IGNORED_SPELLS[sid] then return end
+        local icon = texture or select(3, GetSpellInfo(sid)) or select(3, GetSpellInfo(name))
+        local target = UnitName("target")
+        local st = (type(startMS) == "number" and startMS / 1000) or GetTime()
+        local et = (type(endMS) == "number" and endMS / 1000) or st
+        local dur = (et >= st and (et - st)) or 0
         local entry = {
             spellID      = sid,
             spellName    = name,
-            icon         = info and info.iconID,
-            target       = castGUID and _pendingTargets[castGUID],
-            startTime    = (startMS or 0) / 1000,
-            endTime      = (endMS or 0) / 1000,
-            castDuration = ((endMS or 0) - (startMS or 0)) / 1000,
+            icon         = icon,
+            target       = target,
+            startTime    = st,
+            endTime      = et,
+            castDuration = dur,
             status       = "channeling",
             isInstant    = false,
             isChannel    = true,
             timestamp    = GetTime(),
         }
         _activeChannelSpell = sid
-        if castGUID then _pendingCasts[castGUID] = entry end
+        _pendingCasts[name] = entry
+        if type(sid) == "number" then _pendingCasts[sid] = entry end
         PushEntry(entry)
         StartCastAnim()
 
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        if castGUID and _pendingCasts[castGUID] then
-            FinishPending(castGUID, "success")
-        else
-            -- Skip channeled spell ticks (SUCCEEDED fires per tick during a channel)
-            if _activeChannelSpell and spellID == _activeChannelSpell then return end
-            -- Skip internal/system spells (LOGINEFFECT, DNT, etc.)
-            -- IsPlayerSpell catches most, but override/transform spells (e.g.
-            -- Lightsmith armaments) fail it. Fall back to IsSpellKnownOrOverridesKnown
-            -- and cache the result (that API is flaky on repeated calls).
-            if not IsPlayerSpell(spellID) then
-                if not _knownOverrides[spellID] then
-                    if IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(spellID) then
-                        _knownOverrides[spellID] = true
-                    else
-                        return
-                    end
-                end
-            end
-            spellID = ResolveOverride(spellID)
-            -- Latency race: INTERRUPTED/FAILED can fire before SUCCEEDED at
-            -- the end of a cast.  The pending entry is already consumed and
-            -- sitting in _history with a wrong status.  Scan recent history
-            -- and fix it instead of creating a duplicate.
-            local dominated = false
-            -- Check pending casts first (different/nil castGUID race)
-            for gid, pe in pairs(_pendingCasts) do
-                if pe.spellID == spellID then
-                    FinishPending(gid, "success")
-                    dominated = true
-                    break
-                end
-            end
-            -- Check recent history (INTERRUPTED already consumed the entry)
-            if not dominated then
-                for hi = 1, min(#_history, 5) do
-                    local he = _history[hi]
-                    if he.spellID == spellID and (he.status == "interrupted" or he.status == "failed") then
-                        he.status = "success"
-                        he.fillProgress = nil
-                        dominated = true
-                        RefreshViews()
-                        break
-                    end
-                end
-            end
-            if not dominated then
-                local info = spellID and _spellInfoCache[spellID]
-                if not info and spellID then info = C_Spell and C_Spell.GetSpellInfo(spellID); if info then _spellInfoCache[spellID] = info end end
-                if not info then return end
-                PushEntry({
-                    spellID      = spellID,
-                    spellName    = info.name or "?",
-                    icon         = info.iconID,
-                    target       = castGUID and _pendingTargets[castGUID],
-                    startTime    = GetTime(),
-                    endTime      = GetTime(),
-                    castDuration = 0,
-                    status       = "success",
-                    isInstant    = true,
-                    isChannel    = false,
-                    timestamp    = GetTime(),
-                })
-            end
+        local _, spellName = ...
+        if spellName and _pendingCasts[spellName] then
+            FinishPending(spellName, "success")
         end
 
     elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET" then
-        if castGUID then FinishPending(castGUID, "failed") end
+        local _, spellName = ...
+        if spellName and _pendingCasts[spellName] then
+            FinishPending(spellName, "failed")
+        end
 
     elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
-        if castGUID then FinishPending(castGUID, "interrupted") end
+        local _, spellName = ...
+        if spellName and _pendingCasts[spellName] then
+            FinishPending(spellName, "interrupted")
+        end
 
     elseif event == "UNIT_SPELLCAST_STOP" then
-        if not castGUID then return end
-        local entry = _pendingCasts[castGUID]
-        if entry and entry.status == "casting" then
-            local gid = castGUID
+        local _, spellName = ...
+        if spellName and _pendingCasts[spellName] and _pendingCasts[spellName].status == "casting" then
             C_Timer.After(0, function()
-                if _pendingCasts[gid] and _pendingCasts[gid].status == "casting" then
-                    FinishPending(gid, "failed")
+                if _pendingCasts[spellName] and _pendingCasts[spellName].status == "casting" then
+                    FinishPending(spellName, "failed")
                 end
             end)
         end
 
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         _activeChannelSpell = nil
-        if castGUID then
-            _pendingTargets[castGUID] = nil
-            local entry = _pendingCasts[castGUID]
-            if entry then
-                if entry.status == "channeling" then entry.status = "success" end
-                entry.endTime = GetTime()
-                if entry.startTime then entry.castDuration = entry.endTime - entry.startTime end
-                _pendingCasts[castGUID] = nil
-            end
+        local _, spellName = ...
+        local entry = spellName and _pendingCasts[spellName]
+        if entry then
+            if entry.status == "channeling" then entry.status = "success" end
+            entry.endTime = GetTime()
+            if entry.startTime then entry.castDuration = entry.endTime - entry.startTime end
+            _pendingCasts[spellName] = nil
+            if type(entry.spellID) == "number" then _pendingCasts[entry.spellID] = nil end
+            RefreshViews()
         end
     end
 end
 
 local function RegisterEvents()
     if _eventsActive then return end
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")  -- player only (was global, fired for all units)
+    _playerGUID = UnitGUID("player")
+    eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")

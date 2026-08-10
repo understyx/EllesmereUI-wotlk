@@ -446,20 +446,35 @@ if not C_SpellBook then
     end
 end
 
--- Retail spell-ownership globals do not exist on the 3.3.5 client.  A number
--- of modules use these before falling back to the other one, so provide both
--- names rather than requiring every call site to special-case legacy clients.
--- C_SpellBook's compatibility implementation above uses the legacy spellbook
--- link lookup and is the authoritative check here.
-if not IsSpellKnown then
-    function IsSpellKnown(spell)
-        return C_SpellBook.IsSpellKnown(spell)
+-- Retail / legacy spell-ownership globals. Wrap native IsSpellKnown to prevent
+-- C API errors when passed 0, nil, strings, or invalid spell IDs.
+local _native_IsSpellKnown = IsSpellKnown
+function IsSpellKnown(spell, isPet)
+    if not spell or spell == 0 then return false end
+    if _native_IsSpellKnown and type(spell) == "number" and spell > 0 then
+        local ok, val = pcall(_native_IsSpellKnown, spell, isPet)
+        if ok and val then return true end
     end
+    if C_SpellBook and C_SpellBook.IsSpellKnown then
+        local ok, val = pcall(C_SpellBook.IsSpellKnown, spell)
+        if ok and val then return true end
+    end
+    return false
 end
 
 if not IsPlayerSpell then
     function IsPlayerSpell(spell)
-        return C_SpellBook.IsSpellKnown(spell)
+        return IsSpellKnown(spell)
+    end
+else
+    local _native_IsPlayerSpell = IsPlayerSpell
+    function IsPlayerSpell(spell)
+        if not spell or spell == 0 then return false end
+        if _native_IsPlayerSpell then
+            local ok, val = pcall(_native_IsPlayerSpell, spell)
+            if ok and val then return true end
+        end
+        return IsSpellKnown(spell)
     end
 end
 
@@ -727,6 +742,29 @@ Enum.ItemClass = {
     Profession = 19,
 }
 
+-- Numeric weapon subclass IDs are part of the 3.3.5 item API, but the
+-- Enum.ItemWeaponSubclass namespace was added much later.  Keep the retail
+-- names used by the addon so callers can classify legacy weapons without
+-- every subclass lookup collapsing to an empty set.
+Enum.ItemWeaponSubclass = {
+    Axe1H = 0,
+    Axe2H = 1,
+    Bow = 2,
+    Gun = 3,
+    Mace1H = 4,
+    Mace2H = 5,
+    Polearm = 6,
+    Sword1H = 7,
+    Sword2H = 8,
+    Staff = 10,
+    Fist = 13,
+    Dagger = 15,
+    Thrown = 16,
+    Crossbow = 18,
+    Wand = 19,
+    FishingPole = 20,
+}
+
 Enum.ItemBind = {
     None = 0,
     OnAcquire = 1,
@@ -782,6 +820,29 @@ Enum.PowerType = {
     Energy = 3,
     RunicPower = 6,
 }
+
+Enum.DamageMeterType = {
+    DamageDone = 1,
+    HealingDone = 2,
+    DamageTaken = 3,
+    AvoidableDamageTaken = 4,
+    EnemyDamageTaken = 5,
+    Interrupts = 6,
+    Dispels = 7,
+    Deaths = 8,
+}
+
+Enum.DamageMeterSessionType = {
+    Current = 0,
+    Overall = 1,
+}
+
+Enum.AddOnProfilerMetric = {
+    LastTime = 1,
+    AverageTime = 2,
+    PeakTime = 3,
+    Count = 4,
+}
 C_UnitAuras = C_UnitAuras or {}
 C_UA = C_UA or {}
 local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
@@ -829,6 +890,30 @@ C_UnitAuras.GetPlayerAuraBySpellID = function(spellID)
         if not name then break end
         if name == nameToFind or spellId == spellID then
             return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HARMFUL")
+        end
+    end
+    return nil
+end
+
+-- Retail exposes the same targeted lookup for arbitrary units.  Several
+-- reminder systems use it for party/raid members and hostile targets.  Match
+-- by localized spell name as well as ID so a query for one rank also finds a
+-- different rank of the same WotLK spell.
+local unitAuraLookupFilters = {"HELPFUL", "HARMFUL"}
+C_UnitAuras.GetUnitAuraBySpellID = function(unit, spellID)
+    if not unit then return nil end
+    local nameToFind = GetSpellInfo(spellID)
+    if not nameToFind then return nil end
+    for _, filter in ipairs(unitAuraLookupFilters) do
+        for i = 1, 40 do
+            local name, rank, icon, count, dispelType, duration, expirationTime, source,
+                isStealable, nameplateShowPersonal, foundSpellID = UnitAura(unit, i, filter)
+            if not name then break end
+            if name == nameToFind or foundSpellID == spellID then
+                return PackAuraData(name, rank, icon, count, dispelType, duration,
+                    expirationTime, source, isStealable, nameplateShowPersonal,
+                    foundSpellID, filter)
+            end
         end
     end
     return nil
@@ -937,6 +1022,7 @@ end
 
 C_UA.GetAuraDataByIndex = C_UnitAuras.GetAuraDataByIndex
 C_UA.GetPlayerAuraBySpellID = C_UnitAuras.GetPlayerAuraBySpellID
+C_UA.GetUnitAuraBySpellID = C_UnitAuras.GetUnitAuraBySpellID
 C_UA.GetAuraDataByAuraInstanceID = C_UnitAuras.GetAuraDataByAuraInstanceID
 C_UA.GetAuraDataBySpellName = C_UnitAuras.GetAuraDataBySpellName
 C_UA.IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
@@ -1988,3 +2074,39 @@ _G.GetCritChance = function(unit)
     if _G.GetCombatRatingBonus then return _G.GetCombatRatingBonus(CR_CRIT_MELEE or 9) or 0 end
     return 0
 end
+
+-- Modern-normalized cast info helpers for legacy & modern clients:
+-- SafeUnitCastingInfo: name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellID
+function EUI.SafeUnitCastingInfo(unit)
+    if not UnitCastingInfo then return nil end
+    local r1, r2, r3, r4, r5, r6, r7, r8, r9 = UnitCastingInfo(unit)
+    if not r1 then return nil end
+    if type(r4) == "string" then
+        -- 3.3.5a: name, subText, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible
+        local name, subText, text, texture, startMS, endMS, isTrade, cID, notInterrupt = r1, r2, r3, r4, r5, r6, r7, r8, r9
+        local spellID = select(7, GetSpellInfo(name))
+        return name, text or name, texture, startMS, endMS, isTrade, cID, notInterrupt, spellID
+    else
+        -- Modern: name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId
+        return r1, r2, r3, r4, r5, r6, r7, r8, r9
+    end
+end
+EllesmereUI.SafeUnitCastingInfo = EUI.SafeUnitCastingInfo
+
+-- SafeUnitChannelInfo: name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellID
+function EUI.SafeUnitChannelInfo(unit)
+    if not UnitChannelInfo then return nil end
+    local r1, r2, r3, r4, r5, r6, r7, r8 = UnitChannelInfo(unit)
+    if not r1 then return nil end
+    if type(r4) == "string" then
+        -- 3.3.5a: name, subText, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible
+        local name, subText, text, texture, startMS, endMS, isTrade, notInterrupt = r1, r2, r3, r4, r5, r6, r7, r8
+        local spellID = select(7, GetSpellInfo(name))
+        return name, text or name, texture, startMS, endMS, isTrade, notInterrupt, spellID
+    else
+        -- Modern: name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellId
+        return r1, r2, r3, r4, r5, r6, r7, r8
+    end
+end
+EllesmereUI.SafeUnitChannelInfo = EUI.SafeUnitChannelInfo
+

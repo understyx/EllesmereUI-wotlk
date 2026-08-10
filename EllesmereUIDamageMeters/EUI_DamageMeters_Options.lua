@@ -1553,7 +1553,13 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="Show the game's spell tooltip when you hover a spell in a breakdown window.",
               getValue = function() return Cfg("showSpellTooltips") ~= false end,
               setValue = function(v) Set("showSpellTooltips", v) end },
-            { type="label", text="" })
+            { type="toggle", text="Hide Skada Default Windows",
+              tooltip="Automatically hide default Skada windows while keeping Skada running as the combat data backend.",
+              getValue = function() return Cfg("hideSkadaWindows") ~= false end,
+              setValue = function(v)
+                  Set("hideSkadaWindows", v)
+                  if ns.ApplySkadaWindowVisibility then ns.ApplySkadaWindowVisibility() end
+              end })
         y = y - h
 
         return math.abs(y)

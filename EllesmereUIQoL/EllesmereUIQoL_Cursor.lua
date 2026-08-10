@@ -796,8 +796,9 @@ local function CreateCastCircle()
         if c2.instanceOnly and not InRealInstancedContent() then return end
 
         if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_DELAYED" then
-            local name, _, _, startMS, endMS, _, cID = UnitCastingInfo("player")
-            if name then
+            local SafeCastInfo = (EUI and EUI.SafeUnitCastingInfo) or (EllesmereUI and EllesmereUI.SafeUnitCastingInfo) or UnitCastingInfo
+            local name, _, _, startMS, endMS, _, cID = SafeCastInfo("player")
+            if name and type(startMS) == "number" and type(endMS) == "number" then
                 self._castID = cID
                 local elapsed = GetTime() - startMS * 0.001
                 local total = (endMS - startMS) * 0.001
@@ -812,8 +813,9 @@ local function CreateCastCircle()
             or event == "UNIT_SPELLCAST_CHANNEL_UPDATE"
             or event == "UNIT_SPELLCAST_EMPOWER_START"
             or event == "UNIT_SPELLCAST_EMPOWER_UPDATE" then
-            local name, _, _, startMS, endMS, _, _, _, _, numStages = UnitChannelInfo("player")
-            if name then
+            local SafeChannelInfo = (EUI and EUI.SafeUnitChannelInfo) or (EllesmereUI and EllesmereUI.SafeUnitChannelInfo) or UnitChannelInfo
+            local name, _, _, startMS, endMS, _, _, _, _, numStages = SafeChannelInfo("player")
+            if name and type(startMS) == "number" and type(endMS) == "number" then
                 self._castID = nil
                 if numStages and numStages > 0 and GetUnitEmpowerHoldAtMaxTime then
                     endMS = endMS + GetUnitEmpowerHoldAtMaxTime("player")

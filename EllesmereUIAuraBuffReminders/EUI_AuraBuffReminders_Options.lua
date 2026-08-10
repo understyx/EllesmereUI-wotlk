@@ -16,6 +16,7 @@ local SECTION_AURAS        = "AURAS"
 local SECTION_CONSUMABLES  = "CONSUMABLES"
 local SECTION_ROGUE        = "ROGUE POISONS"
 local SECTION_SHAMAN       = "SHAMAN IMBUES & SHIELDS"
+local SECTION_WARLOCK      = "WARLOCK STONES"
 
 local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -92,7 +93,6 @@ initFrame:SetScript("OnEvent", function(self)
         ["Battle Stance"]           = "Stance",
         ["Defensive Stance"]        = "Stance",
         ["Berserker Stance"]        = "Stance",
-        ["Devotion Aura"]           = "Aura",
         ["Power Word: Fortitude"]   = "Fortitude",
         ["Arcane Intellect"]        = "Intellect",
         ["Battle Shout"]            = "Shout",
@@ -160,8 +160,8 @@ initFrame:SetScript("OnEvent", function(self)
         if playerClass == "ROGUE" then
             local POISONS = _G._EABR_ROGUE_POISONS or {}
             for _, poison in ipairs(POISONS) do
-                if Known(poison.castSpell) and co and co.enabled and co.enabled[poison.key] then
-                    icons[#icons+1] = { texture = Tex(poison.castSpell), label = ShortLabel(_G._EABR_SpellName(poison.castSpell, poison.name), "ROGUE"), cat = "consumable", itemKey = poison.key }
+                if co and co.enabled and co.enabled[poison.key] then
+                    icons[#icons+1] = { texture = C_Item.GetItemIconByID(poison.itemID) or Tex(poison.castSpell), label = ShortLabel(poison.name, "ROGUE"), cat = "consumable", itemKey = poison.key }
                     break
                 end
             end
@@ -178,8 +178,29 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Warlock Firestone / Spellstone: show the spec-appropriate enabled one.
+        if playerClass == "WARLOCK" then
+            local STONES = _G._EABR_WARLOCK_STONES or {}
+            local fallback
+            for _, stone in ipairs(STONES) do
+                if co and co.enabled and co.enabled[stone.key] and Known(stone.createSpell) then
+                    local specMatch = not stone.specs
+                    if stone.specs then
+                        for _, sid in ipairs(stone.specs) do
+                            if sid == specID then specMatch = true; break end
+                        end
+                    end
+                    local icon = { texture = C_Item.GetItemIconByID(stone.itemID) or Tex(stone.createSpell), label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = stone.key }
+                    if specMatch then icons[#icons+1] = icon; fallback = nil; break end
+                    fallback = fallback or icon
+                end
+            end
+            if fallback then icons[#icons+1] = fallback end
+        end
+
         -- Weapon oil (if player doesn't have a class weapon imbue)
-        if playerClass ~= "ROGUE" and playerClass ~= "PALADIN" and playerClass ~= "SHAMAN" then
+        if playerClass ~= "ROGUE" and playerClass ~= "PALADIN"
+           and playerClass ~= "SHAMAN" and playerClass ~= "WARLOCK" then
             if co and co.enabled and co.enabled.weapon_enchant then
                 local WEI = _G._EABR_WEAPON_ENCHANT_ITEMS or {}
                 if #WEI > 0 then
@@ -1151,8 +1172,9 @@ initFrame:SetScript("OnEvent", function(self)
             local POISONS = _G._EABR_ROGUE_POISONS or {}
             local gridItems = {}
             for _, poison in ipairs(POISONS) do
+                local poison = poison
                 gridItems[#gridItems+1] = {
-                    label = _G._EABR_SpellName(poison.castSpell, poison.name),
+                    label = poison.name,
                     classToken = "ROGUE",
                     key = poison.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[poison.key] end,
@@ -1161,6 +1183,20 @@ initFrame:SetScript("OnEvent", function(self)
             end
             h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
             y = y - h
+
+            local poisonValues, poisonOrder = {}, {}
+            for _, poison in ipairs(POISONS) do
+                poisonValues[poison.key] = poison.name
+                poisonOrder[#poisonOrder+1] = poison.key
+            end
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Main Hand Poison", values=poisonValues, order=poisonOrder,
+                  getValue=function() local c = CDB(); return c and c.preferredMainHandPoison or "instant" end,
+                  setValue=function(v) local c = CDB(); if c then c.preferredMainHandPoison = v; RefreshAll(); RebuildPreviewHeader() end end },
+                { type="dropdown", text="Off Hand Poison", values=poisonValues, order=poisonOrder,
+                  getValue=function() local c = CDB(); return c and c.preferredOffHandPoison or "deadly" end,
+                  setValue=function(v) local c = CDB(); if c then c.preferredOffHandPoison = v; RefreshAll(); RebuildPreviewHeader() end end }
+            ); y = y - h
         end
 
         _, h = W:Spacer(parent, y, 10);  y = y - h
@@ -1174,6 +1210,7 @@ initFrame:SetScript("OnEvent", function(self)
             local gridItems = {}
             local IMBUES = _G._EABR_SHAMAN_IMBUES or {}
             for _, imbue in ipairs(IMBUES) do
+                local imbue = imbue
                 gridItems[#gridItems+1] = {
                     label = _G._EABR_SpellName(imbue.castSpell, imbue.name),
                     classToken = "SHAMAN",
@@ -1184,12 +1221,37 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local SHIELDS = _G._EABR_SHAMAN_SHIELDS or {}
             for _, shield in ipairs(SHIELDS) do
+                local shield = shield
                 gridItems[#gridItems+1] = {
                     label = EllesmereUI.L(shield.name),
                     classToken = "SHAMAN",
                     key = shield.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[shield.key] end,
                     setVal = function(v) local c = CDB(); if c and c.enabled then c.enabled[shield.key] = v end end,
+                }
+            end
+            h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
+            y = y - h
+        end
+
+        _, h = W:Spacer(parent, y, 10);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  WARLOCK STONES sub-section
+        -----------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, SECTION_WARLOCK, y);  y = y - h
+
+        do
+            local STONES = _G._EABR_WARLOCK_STONES or {}
+            local gridItems = {}
+            for _, stone in ipairs(STONES) do
+                local stone = stone
+                gridItems[#gridItems+1] = {
+                    label = stone.name,
+                    classToken = "WARLOCK",
+                    key = stone.key,
+                    getVal = function() local c = CDB(); return c and c.enabled and c.enabled[stone.key] end,
+                    setVal = function(v) local c = CDB(); if c and c.enabled then c.enabled[stone.key] = v end end,
                 }
             end
             h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
