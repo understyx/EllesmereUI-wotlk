@@ -651,6 +651,48 @@ end
 -------------------------------------------------------------------------------
 function ns.CC_GetClassSpells()
     local spells = {}
+
+    -- Query the native 3.3.5 spellbook directly.  The retail-shaped
+    -- C_SpellBook compatibility API cannot always recover an ID from legacy
+    -- spellbook slots, which left the picker empty even though the tabs were
+    -- populated.  Deduplicate by localized name so only one learned rank is
+    -- offered when a client exposes multiple ranks.
+    if IS_WRATH and GetNumSpellTabs and GetSpellTabInfo and GetSpellName then
+        local seenByName = {}
+        local bookType = BOOKTYPE_SPELL or "spell"
+        for tab = 1, (GetNumSpellTabs() or 0) do
+            local _, _, offset, count = GetSpellTabInfo(tab)
+            offset, count = offset or 0, count or 0
+            for slot = offset + 1, offset + count do
+                local name = GetSpellName(slot, bookType)
+                local passive = IsPassiveSpell and IsPassiveSpell(slot, bookType)
+                if name and name ~= "" and not passive then
+                    local spellID
+                    if GetSpellLink then
+                        local link = GetSpellLink(slot, bookType)
+                        spellID = type(link) == "string" and tonumber(link:match("|Hspell:(%d+)"))
+                    end
+                    if not spellID and GetSpellInfo then
+                        spellID = select(7, GetSpellInfo(name))
+                    end
+                    local icon = GetSpellTexture and GetSpellTexture(slot, bookType)
+                    local existing = seenByName[name]
+                    if existing then
+                        -- Later slots are normally higher ranks.
+                        existing.id = spellID or existing.id
+                        existing.icon = icon or existing.icon
+                    else
+                        existing = { kind = "spell", id = spellID, name = name, icon = icon }
+                        seenByName[name] = existing
+                        spells[#spells + 1] = existing
+                    end
+                end
+            end
+        end
+        table.sort(spells, function(a, b) return a.name < b.name end)
+        return spells
+    end
+
     if not C_SpellBook then return spells end
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     if not bank then return spells end
@@ -686,7 +728,7 @@ function ns.CC_GetClassSpells()
                                 local name = C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
                                 local icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
                                 if name then
-                                    spells[#spells + 1] = { id = sid, name = name, icon = icon }
+                                    spells[#spells + 1] = { kind = "spell", id = sid, name = name, icon = icon }
                                 end
                             end
                         end
@@ -996,8 +1038,9 @@ end
 --  OnEnter/OnLeave secure script generation (frame-based keyboard bindings)
 -------------------------------------------------------------------------------
 -- Returns: enterScript, leaveScript, kbClearLines
--- kbClearLines uses self:ClearBinding (for state driver where self=header)
--- leaveScript uses control:ClearBinding (for WrapScript where control=header)
+-- All three snippets run with self = header, which owns the override bindings.
+-- In Wrath's restricted environment `control` is a dispatcher proxy, not a
+-- frame handle, so it does not expose SetBindingClick/ClearBinding itself.
 local function GenerateKeyBindSnippets(bindings)
     local enter, leave, selfClear = {}, {}, {}
     local kbBindings = {}
@@ -1011,23 +1054,16 @@ local function GenerateKeyBindSnippets(bindings)
     end
     if #kbBindings == 0 then return "", "", selfClear end
 
-    enter[#enter + 1] = [[local name = self:GetName()]]
-    enter[#enter + 1] = [[local target = name]]
-    enter[#enter + 1] = [[if not name then]]
-    enter[#enter + 1] = [[    local sc = control:GetFrameRef("bindProxy")]]
-    enter[#enter + 1] = [[    sc:SetAttribute("unit", self:GetAttribute("unit"))]]
-    enter[#enter + 1] = [[    target = "EUIClickCastBindProxy"]]
-    enter[#enter + 1] = [[end]]
+    enter[#enter + 1] = [[local target = ...]]
 
-    -- Set/clear bindings on CONTROL (header) so both OnLeave and the
-    -- state driver failsafe can clear them (same owner).
+    -- Set/clear bindings on the header so both OnLeave and the state-driver
+    -- failsafe operate on the same override-binding owner.
     for _, kb in ipairs(kbBindings) do
         local suffix = "eui_" .. kb.index
-        enter[#enter + 1] = format([[control:SetBindingClick(true, %q, target, %q)]], kb.binding.key, suffix)
+        enter[#enter + 1] = format([[self:SetBindingClick(true, %q, target, %q)]], kb.binding.key, suffix)
     end
     for _, kb in ipairs(kbBindings) do
-        leave[#leave + 1] = format([[control:ClearBinding(%q)]], kb.binding.key)
-        -- self:ClearBinding version for state driver context (self = header)
+        leave[#leave + 1] = format([[self:ClearBinding(%q)]], kb.binding.key)
         selfClear[#selfClear + 1] = format([[self:ClearBinding(%q)]], kb.binding.key)
     end
     return table.concat(enter, "\n"), table.concat(leave, "\n"), selfClear
@@ -1137,7 +1173,15 @@ local function DoRegisterFrame(frame)
             -- never lose the race against the binding being set.
             eui_hoverframe = self
             local setup = control:Run("return self:GetAttribute(...)", "eui_setup_onenter")
-            if setup then control:RunFor(self, setup) end
+            if setup then
+                local target = self:GetName()
+                if not target then
+                    local sc = control:Run('return self:GetFrameRef("bindProxy")')
+                    sc:SetAttribute("unit", self:GetAttribute("unit"))
+                    target = "EUIClickCastBindProxy"
+                end
+                control:Run(setup, target)
+            end
             if not eui_hoveractive then
                 local setHover = control:Run("return self:GetAttribute(...)", "eui_hover_set")
                 if setHover then control:Run(setHover) end
@@ -1150,7 +1194,7 @@ local function DoRegisterFrame(frame)
             -- the guarded state driver so moving onto a non-EUI frame keeps it.
             if eui_hoverframe == self then eui_hoverframe = nil end
             local setup = control:Run("return self:GetAttribute(...)", "eui_setup_onleave")
-            if setup then control:RunFor(self, setup) end
+            if setup then control:Run(setup) end
         ]])
     end
 
@@ -1890,6 +1934,25 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local SIDEBAR_PCT  = 0.24
     local sidebarW     = floor(parentW * SIDEBAR_PCT)
     local centerW      = parentW - sidebarW * 2
+    -- Keep click-cast pickers above the DIALOG-strata options window.  Use one
+    -- strata for modal dimmers and their panels and separate them by level;
+    -- Wrath can render a child frame below its parent's texture when the child
+    -- switches to a different strata.
+    local POPUP_STRATA = "FULLSCREEN_DIALOG"
+    local POPUP_DIMMER_LEVEL = 500
+    local POPUP_LEVEL = POPUP_DIMMER_LEVEL + 10
+
+    -- Wrath does not reliably inherit a parent's raised frame level for child
+    -- frames (notably ScrollFrame children).  Explicitly raise the full tree
+    -- so the popup background cannot cover its own buttons and icon cells.
+    local function RaisePopupTree(frame, level)
+        if not frame then return end
+        frame:SetFrameStrata(POPUP_STRATA)
+        frame:SetFrameLevel(level)
+        for _, child in ipairs({frame:GetChildren()}) do
+            RaisePopupTree(child, level + 1)
+        end
+    end
 
     local function MakeFont(p, size, r, g, b, a)
         local fs = p:CreateFontString(nil, "OVERLAY")
@@ -1917,11 +1980,13 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         if b.spell then boundSpells[b.spell] = true end
         if b.macroName then boundMacros[b.macroName] = true end
         if b.itemSlot then boundItems[b.itemSlot] = true end
+        if b.itemName then boundItems[b.itemName] = true end
     end
     for _, b in ipairs(GetSpecBindings()) do
         if b.spell then boundSpells[b.spell] = true end
         if b.macroName then boundMacros[b.macroName] = true end
         if b.itemSlot then boundItems[b.itemSlot] = true end
+        if b.itemName then boundItems[b.itemName] = true end
     end
     -- Dim spells covered by bound presets for the player's class
     local _, pClass = UnitClass("player")
@@ -2198,8 +2263,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local popup = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         popup:Hide()  -- start hidden so Show() triggers OnShow
         popup:SetSize(popupW, popupH)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(200)
+        popup:SetFrameStrata(POPUP_STRATA)
+        popup:SetFrameLevel(POPUP_LEVEL)
 
         if side == "left" then
             popup:SetPoint("TOPLEFT", sidebarFrame, "TOPRIGHT", 0, -(anchorBtn:GetTop() - sidebarFrame:GetTop()))
@@ -2307,6 +2372,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             if ns._ccGridPopup == p then ns._ccGridPopup = nil end
         end)
 
+        RaisePopupTree(popup, POPUP_LEVEL)
         popup:Show()
         return popup
     end
@@ -2396,8 +2462,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local popup = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         popup:Hide()
         popup:SetSize(popupWG, popupHG)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(200)
+        popup:SetFrameStrata(POPUP_STRATA)
+        popup:SetFrameLevel(POPUP_LEVEL)
         -- Left edge flush with right edge of left sidebar, centered vertically on the add button
         local btnMidYG = select(2, addGlobalBtn:GetCenter()) or 0
         local sidebarMidYG = select(2, leftOuter:GetCenter()) or 0
@@ -2482,6 +2548,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 end
                 local cell = EllesmereUI.SafeCreateFrame("Button", nil, gridChildG)
                 cell:SetSize(CWG, rHG[r]); cell:SetPoint("TOPLEFT", gridChildG, "TOPLEFT", cx, cy)
+                cell:SetFrameLevel(gridChildG:GetFrameLevel() + 2)
+                cell:EnableMouse(true)
+                cell:RegisterForClicks("AnyUp")
                 local iconFr = EllesmereUI.SafeCreateFrame("Frame", nil, cell); iconFr:SetSize(ISZG, ISZG)
                 local iconTx = iconFr:CreateTexture(nil, "ARTWORK"); iconTx:SetAllPoints()
                 iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(itm.icon or QUESTION_MARK_ICON)
@@ -2503,6 +2572,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 cell:SetScript("OnClick", function() onItemClick(itm); popup:Hide() end)
             end
             gridChildG:SetHeight(max(10, cYG))
+            RaisePopupTree(popup, POPUP_LEVEL)
         end
 
         local function UpdateToggleG()
@@ -2542,6 +2612,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             p:SetScript("OnUpdate", nil)
             if ns._ccGridPopup == p then ns._ccGridPopup = nil end
         end)
+        RaisePopupTree(popup, POPUP_LEVEL)
         popup:Show()
     end)
     leftY = leftY - ADD_BTN_PAD - ADD_BTN_H - 10
@@ -2666,7 +2737,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
         -- Full screen dimmer
         local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
-        dimmer:SetFrameStrata("FULLSCREEN")
+        dimmer:SetFrameStrata(POPUP_STRATA)
+        dimmer:SetFrameLevel(POPUP_DIMMER_LEVEL)
         dimmer:SetAllPoints()
         dimmer:EnableMouse(true)
         local dimBg = dimmer:CreateTexture(nil, "BACKGROUND")
@@ -2685,11 +2757,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local popupWQB = innerGridWQB + QB_INSET * 2
         local popupHQB = 400
 
-        local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
+        -- Keep the panel as a UIParent sibling of the dimmer.  On Wrath, a
+        -- child which changes strata may still be composited below the
+        -- parent's full-screen texture, making the picker visible but dark
+        -- and non-interactive.
+        local popup = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         popup:SetSize(popupWQB, popupHQB)
         popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(200)
+        popup:SetFrameStrata(POPUP_STRATA)
+        popup:SetFrameLevel(POPUP_LEVEL)
         popup:EnableMouse(true)
 
         local pBg = popup:CreateTexture(nil, "BACKGROUND")
@@ -2751,13 +2827,13 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local function BindQuickbindItem(item, captured)
             if not item or not captured then return end
             local binding
-            if item.id then
+            if item.kind == "spell" or item.id then
                 binding = { type = "spell", spell = item.name, spellID = item.id,
                     icon = item.icon, key = captured, enabled = true }
             elseif item.macroName then
                 binding = { type = "macro", macroName = item.macroName,
                     icon = item.icon, key = captured, enabled = true }
-            elseif item.itemSlot then
+            elseif item.itemSlot or item.itemName then
                 binding = { type = "item", itemSlot = item.itemSlot, itemName = item.name,
                     icon = item.icon, key = captured, enabled = true }
             end
@@ -2766,6 +2842,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             ns.CC_AddSpecBinding(binding)
             if item.macroName then boundMacros[item.macroName] = true
             elseif item.itemSlot then boundItems[item.itemSlot] = true
+            elseif item.itemName then boundItems[item.itemName] = true
             else boundSpells[item.name or ""] = true end
             UpdateToggleQB()
             RebuildPage()
@@ -2821,13 +2898,16 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local cell = EllesmereUI.SafeCreateFrame("Button", nil, gridChildQB)
                 cell:SetSize(QB_CELL, rH3[r])
                 cell:SetPoint("TOPLEFT", gridChildQB, "TOPLEFT", cx, cy)
+                cell:SetFrameLevel(gridChildQB:GetFrameLevel() + 2)
+                cell:EnableMouse(true)
                 cell:RegisterForClicks("AnyUp")
                 local iconFr = EllesmereUI.SafeCreateFrame("Frame", nil, cell); iconFr:SetSize(QB_ICON, QB_ICON)
                 local iconTx = iconFr:CreateTexture(nil, "ARTWORK"); iconTx:SetAllPoints()
                 iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(item.icon or QUESTION_MARK_ICON)
-                local dimmed3 = (item.id and boundSpells[item.name])
+                local dimmed3 = ((item.kind == "spell" or item.id) and boundSpells[item.name])
                     or (item.macroName and boundMacros[item.macroName])
                     or (item.itemSlot and boundItems[item.itemSlot])
+                    or (item.itemName and boundItems[item.itemName])
                 if dimmed3 then iconTx:SetAlpha(0.3) end
                 local iconBd = EllesmereUI.SafeCreateFrame("Frame", nil, iconFr); iconBd:SetAllPoints()
                 iconBd:SetFrameLevel(iconFr:GetFrameLevel() + 1); iconBd:Hide()
@@ -2859,6 +2939,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 end)
             end
             gridChildQB:SetHeight(max(10, cY3))
+            RaisePopupTree(popup, POPUP_LEVEL)
         end
 
         function UpdateToggleQB()
@@ -2905,10 +2986,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             if not popup:IsMouseOver() then dimmer:Hide() end
         end)
         dimmer:SetScript("OnHide", function()
+            popup:Hide()
             if ns._ccQBPopup == dimmer then ns._ccQBPopup = nil end
             RebuildPage()
         end)
 
+        RaisePopupTree(popup, POPUP_LEVEL)
         dimmer:Show()
     end)
 
@@ -2925,8 +3008,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local popup = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         popup:Hide()  -- start hidden so Show() triggers OnShow
         popup:SetSize(popupW, popupH2)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(200)
+        popup:SetFrameStrata(POPUP_STRATA)
+        popup:SetFrameLevel(POPUP_LEVEL)
         -- Right edge flush with left edge of right sidebar, centered vertically on the add button
         local btnMidY = select(2, addSpecBtn:GetCenter()) or 0
         local sidebarMidY = select(2, rightOuter:GetCenter()) or 0
@@ -3045,6 +3128,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local cell = EllesmereUI.SafeCreateFrame("Button", nil, gridChild)
                 cell:SetSize(CW2, rH2[r])
                 cell:SetPoint("TOPLEFT", gridChild, "TOPLEFT", cx, cy)
+                cell:SetFrameLevel(gridChild:GetFrameLevel() + 2)
+                cell:EnableMouse(true)
+                cell:RegisterForClicks("AnyUp")
 
                 -- Icon with hover border
                 local iconFrame2 = EllesmereUI.SafeCreateFrame("Frame", nil, cell)
@@ -3086,6 +3172,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 cell:SetScript("OnClick", function() onItemClick(item); popup:Hide() end)
             end
             gridChild:SetHeight(max(10, cY2))
+            RaisePopupTree(popup, POPUP_LEVEL)
         end
 
         local function UpdateToggle()
@@ -3152,6 +3239,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             if ns._ccSpecPopup == p then ns._ccSpecPopup = nil end
         end)
 
+        RaisePopupTree(popup, POPUP_LEVEL)
         popup:Show()
     end)
 

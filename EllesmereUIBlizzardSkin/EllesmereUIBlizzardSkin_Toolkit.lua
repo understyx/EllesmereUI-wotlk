@@ -8,7 +8,7 @@ local CreateFrame = CreateFrame
 
 -- Texture references
 local blankTex = "Interface\\Buttons\\WHITE8X8"
-local closeTex = "Interface\\Buttons\\UI-Panel-MinimizeButton-Up"
+local closeTex = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga"
 
 local backdropr, backdropg, backdropb, backdropa, borderr, borderg, borderb = 0, 0, 0, 1, 0, 0, 0
 local mult = 1
@@ -187,8 +187,8 @@ end
 local CreateCloseButton
 do
 	local CloseButtonOnClick = function(btn) btn:GetParent():Hide() end
-	local CloseButtonOnEnter = function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 0, 0) end end
-	local CloseButtonOnLeave = function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1) end end
+	local CloseButtonOnEnter = function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1, 1) end end
+	local CloseButtonOnLeave = function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1, 0.75) end end
 	CreateCloseButton = function(frame, size, offset, texture, backdrop)
 		if frame.CloseButton then return end
 		local CloseButton = CreateFrame("Button", nil, frame)
@@ -196,8 +196,10 @@ do
 		Point(CloseButton, "TOPRIGHT", offset or -6, offset or -6)
 		if backdrop then CreateBackdrop(CloseButton, nil, true) end
 		CloseButton.Texture = CloseButton:CreateTexture(nil, "OVERLAY")
-		CloseButton.Texture:SetAllPoints()
+		CloseButton.Texture:SetPoint("CENTER", 0, 0)
+		CloseButton.Texture:SetSize(14, 14)
 		CloseButton.Texture:SetTexture(texture or closeTex)
+		CloseButton.Texture:SetVertexColor(1, 1, 1, 0.75)
 		CloseButton:SetScript("OnClick", CloseButtonOnClick)
 		CloseButton:SetScript("OnEnter", CloseButtonOnEnter)
 		CloseButton:SetScript("OnLeave", CloseButtonOnLeave)
@@ -287,19 +289,34 @@ function WSkin:HandleButton(button, strip, isDeclineButton, useCreateBackdrop, n
 end
 
 function WSkin:HandleCloseButton(f, point)
+	if not f then return end
 	StripTextures(f)
 
 	if f:GetNormalTexture() then f:SetNormalTexture("") f.SetNormalTexture = function() end end
 	if f:GetPushedTexture() then f:SetPushedTexture("") f.SetPushedTexture = function() end end
+	if f:GetHighlightTexture() then f:SetHighlightTexture("") f.SetHighlightTexture = function() end end
+	if f:GetDisabledTexture() then f:SetDisabledTexture("") f.SetDisabledTexture = function() end end
+
+	for i = 1, select("#", f:GetRegions()) do
+		local region = select(i, f:GetRegions())
+		if region and region:IsObjectType("Texture") and region ~= f.Texture then
+			region:SetAlpha(0)
+		end
+	end
 
 	if not f.Texture then
 		f.Texture = f:CreateTexture(nil, "OVERLAY")
-		Point(f.Texture, "CENTER")
-		f.Texture:SetTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
-		Size(f.Texture, 16, 16)
-		f:HookScript("OnEnter", function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 0, 0) end end)
-		f:HookScript("OnLeave", function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1) end end)
-		f:SetHitRectInsets(7, 6, 7, 6)
+		Point(f.Texture, "CENTER", 0, 0)
+		f.Texture:SetTexture(closeTex)
+		Size(f.Texture, 14, 14)
+		f.Texture:SetVertexColor(1, 1, 1, 0.75)
+		f:HookScript("OnEnter", function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1, 1) end end)
+		f:HookScript("OnLeave", function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1, 0.75) end end)
+		f:SetHitRectInsets(4, 4, 4, 4)
+	else
+		f.Texture:SetTexture(closeTex)
+		Size(f.Texture, 14, 14)
+		f.Texture:SetVertexColor(1, 1, 1, 0.75)
 	end
 
 	if point then

@@ -219,7 +219,22 @@ initFrame:SetScript("OnEvent", function(self)
     local _previewHpPct
     local _previewCastFill
     local _previewCastIconIdx
-    local displayCastIcons = { 136197, 236802, 135808, 136116, 135735, 136048, 135812, 136075 }
+    -- Preview textures must be resolved from spell IDs.  Raw FileDataIDs are
+    -- valid on retail, but the 3.3.5 client interprets them as missing assets
+    -- and paints the familiar red "unknown texture" square instead.
+    local function PreviewSpellIcon(spellID, fallback)
+        local icon = C_Spell and C_Spell.GetSpellTexture
+            and C_Spell.GetSpellTexture(spellID)
+        return icon or fallback
+    end
+    local displayCastIcons = {
+        PreviewSpellIcon(116, "Interface\\Icons\\Spell_Frost_FrostBolt02"),
+        PreviewSpellIcon(133, "Interface\\Icons\\Spell_Fire_FlameBolt"),
+        PreviewSpellIcon(585, "Interface\\Icons\\Spell_Holy_HolySmite"),
+        PreviewSpellIcon(403, "Interface\\Icons\\Spell_Nature_Lightning"),
+        PreviewSpellIcon(686, "Interface\\Icons\\Spell_Shadow_ShadowBolt"),
+        PreviewSpellIcon(172, "Interface\\Icons\\Spell_Shadow_AbominationExplosion"),
+    }
     local function RandomizePreviewValues()
         _previewHpPct = math.floor(60 + math.random() * 15)
         _previewCastFill = 0.40 + math.random() * 0.20
@@ -767,8 +782,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Debuffs: 2 icons centered above name
         local debuffs = {}
         local debuffData = {
-            { icon = 136207, text = "8",  dur = 12, elapsed = 4, stacks = 3 },  -- SW:P  (12s total, 4s elapsed 8s left, 3 stacks)
-            { icon = 135978, text = "14", dur = 18, elapsed = 4, stacks = 0 },  -- VT    (18s total, 4s elapsed 14s left)
+            { icon = PreviewSpellIcon(589, "Interface\\Icons\\Spell_Shadow_ShadowWordPain"), text = "8",  dur = 12, elapsed = 4, stacks = 3 },
+            { icon = PreviewSpellIcon(34914, "Interface\\Icons\\Spell_Holy_Stoicism"), text = "14", dur = 18, elapsed = 4, stacks = 0 },
         }
         for i = 1, PV_CONST.DEBUFF_COUNT do
             local d = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
@@ -815,8 +830,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Buffs: 2 icons (left of health bar by default)
         local buffs = {}
         local buffData = {
-            { icon = 136224, text = "12", frac = 0.20 },  -- Enrage
-            { icon = 132333, text = "7",  frac = 0.45 },  -- Battle Shout
+            { icon = PreviewSpellIcon(2825, "Interface\\Icons\\Spell_Nature_BloodLust"), text = "12", frac = 0.20 },
+            { icon = PreviewSpellIcon(6673, "Interface\\Icons\\Ability_Warrior_BattleShout"), text = "7", frac = 0.45 },
         }
         for i = 1, PV_CONST.BUFF_COUNT do
             local bf = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
@@ -843,8 +858,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- CC: 2 icons (right of health bar by default)
         local ccs = {}
         local ccData = {
-            { icon = 136071, text = "5",  frac = 0.55 },  -- Polymorph
-            { icon = 118699, text = "3",  frac = 0.70 },  -- Fear
+            { icon = PreviewSpellIcon(118, "Interface\\Icons\\Spell_Nature_Polymorph"), text = "5", frac = 0.55 },
+            { icon = PreviewSpellIcon(5782, "Interface\\Icons\\Spell_Shadow_Possession"), text = "3", frac = 0.70 },
         }
         for i = 1, PV_CONST.CC_COUNT do
             local cf = EllesmereUI.SafeCreateFrame("Frame", nil, pf)

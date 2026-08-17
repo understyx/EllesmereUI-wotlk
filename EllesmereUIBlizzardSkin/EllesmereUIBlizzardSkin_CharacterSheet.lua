@@ -791,6 +791,7 @@ local function SkinCharacterSheet()
     if closeBtn then
         closeBtn:ClearAllPoints()
         closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
+        closeBtn:SetSize(16, 16)
         if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
         if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
         if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
@@ -803,19 +804,26 @@ local function SkinCharacterSheet()
             end
         end
 
-        local closeX = closeBtn:CreateTexture(nil, "OVERLAY")
-        closeX:SetAtlas("uitools-icon-close")
-        closeX:SetSize(14, 14)
-        closeX:SetPoint("CENTER", -2, 0)
-        closeX:SetVertexColor(1, 1, 1, 0.75)
-        GetFFD(closeBtn).x = closeX
+        if not GetFFD(closeBtn).x then
+            local closeX = closeBtn:CreateTexture(nil, "OVERLAY")
+            closeX:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+            closeX:SetSize(14, 14)
+            closeX:SetPoint("CENTER", 0, 0)
+            closeX:SetVertexColor(1, 1, 1, 0.75)
+            GetFFD(closeBtn).x = closeX
 
-        closeBtn:HookScript("OnEnter", function()
-            if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1) end
-        end)
-        closeBtn:HookScript("OnLeave", function()
-            if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75) end
-        end)
+            closeBtn:HookScript("OnEnter", function()
+                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1) end
+            end)
+            closeBtn:HookScript("OnLeave", function()
+                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75) end
+            end)
+        else
+            GetFFD(closeBtn).x:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+            GetFFD(closeBtn).x:SetSize(14, 14)
+            GetFFD(closeBtn).x:SetPoint("CENTER", 0, 0)
+            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75)
+        end
     end
 
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
@@ -907,21 +915,73 @@ local function SkinCharacterSheet()
                     WSkin:CreateBackdrop(_G.PetPaperDollFrameExpBar, "Default")
                 end
             end
-            SkinButton(_G.PetPaperDollCloseButton)
+            if _G.PetPaperDollCloseButton then _G.PetPaperDollCloseButton:Hide() end
             SkinButton(_G.CompanionSummonButton)
 
+            -- The stock hunter-pet page is only 384px wide.  Give its model and
+            -- supporting widgets the same wide canvas as the themed sheet rather
+            -- than leaving the pet stranded in a narrow strip on the left.
+            local petModel = _G.PetModelFrame
+            if petModel then
+                petModel:ClearAllPoints()
+                petModel:SetPoint("TOPLEFT", pet, "TOPLEFT", 45, -72)
+                petModel:SetSize(460, 226)
+                petModel:SetFrameLevel(pet:GetFrameLevel() + 2)
+                if _G.PetModelFrameRotateLeftButton then
+                    _G.PetModelFrameRotateLeftButton:ClearAllPoints()
+                    _G.PetModelFrameRotateLeftButton:SetPoint("TOPLEFT", petModel, "TOPLEFT", 10, -10)
+                    if not _G.PetModelFrameRotateLeftButton.isSkinned then
+                        WSkin:HandleRotateButton(_G.PetModelFrameRotateLeftButton)
+                    end
+                end
+                if _G.PetModelFrameRotateRightButton then
+                    _G.PetModelFrameRotateRightButton:ClearAllPoints()
+                    _G.PetModelFrameRotateRightButton:SetPoint("LEFT", _G.PetModelFrameRotateLeftButton, "RIGHT", 4, 0)
+                    if not _G.PetModelFrameRotateRightButton.isSkinned then
+                        WSkin:HandleRotateButton(_G.PetModelFrameRotateRightButton)
+                    end
+                end
+            end
+            if _G.PetResistanceFrame and petModel then
+                _G.PetResistanceFrame:ClearAllPoints()
+                _G.PetResistanceFrame:SetPoint("TOPRIGHT", petModel, "TOPRIGHT", -8, -8)
+                _G.PetResistanceFrame:SetFrameLevel(petModel:GetFrameLevel() + 2)
+            end
+            if _G.PetPaperDollPetInfo and _G.PetModelFrameRotateLeftButton then
+                _G.PetPaperDollPetInfo:ClearAllPoints()
+                _G.PetPaperDollPetInfo:SetPoint("TOPLEFT", _G.PetModelFrameRotateLeftButton, "BOTTOMLEFT", 7, -3)
+                _G.PetPaperDollPetInfo:SetFrameLevel(petModel and petModel:GetFrameLevel() + 2 or pet:GetFrameLevel() + 3)
+            end
+            if _G.PetLevelText and petModel then
+                _G.PetLevelText:ClearAllPoints()
+                _G.PetLevelText:SetPoint("TOP", petModel, "BOTTOM", 0, -5)
+            end
+            if _G.PetAttributesFrame and petModel then
+                _G.PetAttributesFrame:ClearAllPoints()
+                _G.PetAttributesFrame:SetPoint("TOP", petModel, "BOTTOM", 0, -24)
+            end
+            if _G.PetPaperDollFrameExpBar then
+                _G.PetPaperDollFrameExpBar:ClearAllPoints()
+                _G.PetPaperDollFrameExpBar:SetPoint("BOTTOM", pet, "BOTTOM", 0, 63)
+                _G.PetPaperDollFrameExpBar:SetWidth(460)
+            end
+
             ----------------------------------------------------------------
-            -- WotLK's mount page is a small paged icon grid.  Replace only
-            -- that mode with a wide, scrollable journal-style list.  Critters
-            -- and the hunter-pet paper doll retain Blizzard's native logic.
+            -- WotLK's companion pages are small paged icon grids. Replace them
+            -- with one wide, scrollable journal-style list while the hunter-pet
+            -- paper doll continues to use Blizzard's native data/update logic.
             ----------------------------------------------------------------
             local companionFrame = _G.PetPaperDollFrameCompanionFrame
             if companionFrame and _G.GetNumCompanions and _G.GetCompanionInfo then
                 local mountPanel = EllesmereUI.SafeCreateFrame("Frame", "EUI_CharacterMountList", pet)
-                mountPanel:SetPoint("TOPLEFT", pet, "TOPLEFT", 17, -57)
-                mountPanel:SetPoint("BOTTOMRIGHT", pet, "BOTTOMRIGHT", -17, 48)
+                -- Start below the native Pet / Companions / Mounts navigation
+                -- row. The panel still needs to sit above CompanionFrame: its
+                -- old model/grid artwork is refreshed by Blizzard and otherwise
+                -- bleeds through the journal even while its buttons are hidden.
+                mountPanel:SetPoint("TOPLEFT", pet, "TOPLEFT", 17, -73)
+                mountPanel:SetPoint("BOTTOMRIGHT", pet, "BOTTOMRIGHT", -17, 58)
                 mountPanel:SetFrameLevel(companionFrame:GetFrameLevel() + 4)
-                SetSurface(mountPanel, 0.012, 0.018, 0.022, 0.94)
+                SetSurface(mountPanel, 0.015, 0.02, 0.025, 1.0)
                 mountPanel:Hide()
 
                 local title = mountPanel:CreateFontString(nil, "OVERLAY")
@@ -975,7 +1035,7 @@ local function SkinCharacterSheet()
                 action:SetSize(118, 27)
                 action:SetPoint("BOTTOMRIGHT", -12, 10)
                 action:SetNormalFontObject("GameFontNormal")
-                action:SetText(_G.MOUNT or "Summon")
+                action:SetText(_G.SUMMON or "Summon")
                 SetSurface(action, 0.07, 0.105, 0.115, 1)
                 local actionHL = action:CreateTexture(nil, "HIGHLIGHT")
                 actionHL:SetTexture(1, 1, 1, 0.07)
@@ -998,21 +1058,87 @@ local function SkinCharacterSheet()
                 local rows, filtered = {}, {}
                 local selectedIndex, scrollOffset = nil, 0
 
-                local function IsMountTab()
-                    if pet.selectedTab then return pet.selectedTab == 3 end
-                    local tab = _G.PetPaperDollFrameTab3
-                    return tab and tab.GetChecked and tab:GetChecked()
+                local function GetCompanionType()
+                    if pet.selectedTab == 2 then return "CRITTER" end
+                    if pet.selectedTab == 3 then return "MOUNT" end
+                    return nil
                 end
 
                 local model = _G.CompanionModelFrame
-                local modelLayout
-                if model then
-                    local point, relativeTo, relativePoint, x, y = model:GetPoint(1)
-                    modelLayout = {
-                        point = point, relativeTo = relativeTo, relativePoint = relativePoint,
-                        x = x, y = y, width = model:GetWidth(), height = model:GetHeight(),
-                        frameLevel = model:GetFrameLevel(),
-                    }
+
+                local function PositionNativeCritterGrid()
+                    if model then
+                        model:ClearAllPoints()
+                        model:SetPoint("TOP", pet, "TOP", 0, -65)
+                        model:SetSize(460, 210)
+                        if _G.CompanionModelFrameRotateLeftButton then
+                            _G.CompanionModelFrameRotateLeftButton:ClearAllPoints()
+                            _G.CompanionModelFrameRotateLeftButton:SetPoint("TOPLEFT", model, "TOPLEFT", 10, -10)
+                            if not _G.CompanionModelFrameRotateLeftButton.isSkinned then
+                                WSkin:HandleRotateButton(_G.CompanionModelFrameRotateLeftButton)
+                            end
+                        end
+                        if _G.CompanionModelFrameRotateRightButton then
+                            _G.CompanionModelFrameRotateRightButton:ClearAllPoints()
+                            _G.CompanionModelFrameRotateRightButton:SetPoint("LEFT", _G.CompanionModelFrameRotateLeftButton, "RIGHT", 4, 0)
+                            if not _G.CompanionModelFrameRotateRightButton.isSkinned then
+                                WSkin:HandleRotateButton(_G.CompanionModelFrameRotateRightButton)
+                            end
+                        end
+                    end
+                    local BTN_SIZE, BTN_GAP = 38, 12
+                    local rowWidth = 6 * BTN_SIZE + 5 * BTN_GAP
+                    local startX = -(rowWidth / 2) + (BTN_SIZE / 2)
+                    for i = 1, 12 do
+                        local btn = _G["CompanionButton" .. i]
+                        if btn then
+                            btn:SetSize(BTN_SIZE, BTN_SIZE)
+                            if not btn.isSkinned then
+                                WSkin:StyleButton(btn, nil, true)
+                                WSkin:SetTemplate(btn, "Default", true)
+                                local norm = btn:GetNormalTexture()
+                                if norm then
+                                    norm:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                                    WSkin:SetInside(norm)
+                                end
+                                btn.isSkinned = true
+                            end
+                            btn:ClearAllPoints()
+                            if i == 1 then
+                                btn:SetPoint("TOP", model or pet, "BOTTOM", startX, -15)
+                            elseif i <= 6 then
+                                btn:SetPoint("LEFT", _G["CompanionButton" .. (i - 1)], "RIGHT", BTN_GAP, 0)
+                            elseif i == 7 then
+                                btn:SetPoint("TOPLEFT", _G["CompanionButton1"], "BOTTOMLEFT", 0, -10)
+                            else
+                                btn:SetPoint("LEFT", _G["CompanionButton" .. (i - 1)], "RIGHT", BTN_GAP, 0)
+                            end
+                        end
+                    end
+                    if _G.CompanionPrevPageButton then
+                        _G.CompanionPrevPageButton:ClearAllPoints()
+                        _G.CompanionPrevPageButton:SetPoint("TOPRIGHT", pet, "BOTTOM", -20, 105)
+                        if not _G.CompanionPrevPageButton.isSkinned then
+                            WSkin:HandleNextPrevButton(_G.CompanionPrevPageButton)
+                        end
+                    end
+                    if _G.CompanionPageNumber then
+                        _G.CompanionPageNumber:ClearAllPoints()
+                        _G.CompanionPageNumber:SetPoint("CENTER", pet, "BOTTOM", 0, 95)
+                        _G.CompanionPageNumber:SetFont(fontPath, 11, "")
+                    end
+                    if _G.CompanionNextPageButton then
+                        _G.CompanionNextPageButton:ClearAllPoints()
+                        _G.CompanionNextPageButton:SetPoint("TOPLEFT", pet, "BOTTOM", 20, 105)
+                        if not _G.CompanionNextPageButton.isSkinned then
+                            WSkin:HandleNextPrevButton(_G.CompanionNextPageButton)
+                        end
+                    end
+                    if _G.CompanionSummonButton then
+                        _G.CompanionSummonButton:ClearAllPoints()
+                        _G.CompanionSummonButton:SetPoint("BOTTOM", pet, "BOTTOM", 0, 48)
+                        _G.CompanionSummonButton:SetSize(140, 24)
+                    end
                 end
 
                 local function HideNativeMountGrid()
@@ -1023,8 +1149,18 @@ local function SkinCharacterSheet()
                     for _, object in ipairs({
                         _G.CompanionPrevPageButton, _G.CompanionNextPageButton,
                         _G.CompanionPageNumber, _G.CompanionSummonButton,
+                        _G.CompanionModelFrameRotateLeftButton, _G.CompanionModelFrameRotateRightButton,
+                        _G.CompanionModelFrameCompanionName, _G.CompanionSelectedName,
                     }) do
                         if object then object:Hide() end
+                    end
+                    -- Blizzard refreshes CompanionSelectedName after changing
+                    -- tabs/selection. Alpha is persistent across those refreshes,
+                    -- unlike Hide(), so the native gold name cannot bleed through
+                    -- the custom journal preview.
+                    if _G.CompanionSelectedName then
+                        _G.CompanionSelectedName:SetAlpha(0)
+                        _G.CompanionSelectedName:Hide()
                     end
                 end
 
@@ -1037,9 +1173,10 @@ local function SkinCharacterSheet()
                     action:SetEnabled(chosen and true or false)
                     action:SetAlpha(chosen and 1 or 0.35)
                     if chosen then
-                        action:SetText(chosen.active and (_G.DISMISS or "Dismiss") or (_G.MOUNT or "Summon"))
+                        action:SetText(chosen.active and (_G.DISMISS or "Dismiss") or (_G.SUMMON or "Summon"))
                         if model and model.SetCreature and chosen.creatureID then
                             model:SetCreature(chosen.creatureID)
+                            if model.SetFacing then model:SetFacing(0) end
                         end
                     end
                 end
@@ -1105,26 +1242,39 @@ local function SkinCharacterSheet()
                         PaintRows()
                     end)
                     row:SetScript("OnDoubleClick", function(self)
-                        if self.data and _G.CallCompanion then
-                            _G.CallCompanion("MOUNT", self.data.index)
+                        if self.data and self.data.active and _G.DismissCompanion then
+                            _G.DismissCompanion(self.data.companionType)
+                        elseif self.data and _G.CallCompanion then
+                            _G.CallCompanion(self.data.companionType, self.data.index)
+                        end
+                    end)
+                    row:RegisterForDrag("LeftButton")
+                    row:SetScript("OnDragStart", function(self)
+                        if self.data and _G.PickupCompanion then
+                            _G.PickupCompanion(self.data.companionType, self.data.index)
                         end
                     end)
                     rows[i] = row
                 end
 
-                local function RefreshMountList()
-                    if not IsMountTab() then return end
+                local function RefreshCompanionList()
+                    local companionType = GetCompanionType()
+                    if not companionType then return end
+                    local isMount = companionType == "MOUNT"
+                    title:SetText(isMount and (_G.MOUNTS or "Mounts") or (_G.COMPANIONS or "Companions"))
+                    emptyText:SetText(isMount and (_G.NO_MOUNTS or "No mounts found") or "No companions found")
                     local query = string.lower(search:GetText() or "")
                     wipe(filtered)
-                    local total = _G.GetNumCompanions("MOUNT") or 0
+                    local total = _G.GetNumCompanions(companionType) or 0
                     local activeIndex
                     for index = 1, total do
-                        local creatureID, name, spellID, icon, active = _G.GetCompanionInfo("MOUNT", index)
+                        local creatureID, name, spellID, icon, active = _G.GetCompanionInfo(companionType, index)
                         if active then activeIndex = index end
                         if name and (query == "" or string.find(string.lower(name), query, 1, true)) then
                             filtered[#filtered + 1] = {
                                 index = index, creatureID = creatureID, name = name,
                                 spellID = spellID, icon = icon, active = active,
+                                companionType = companionType,
                             }
                         end
                     end
@@ -1142,25 +1292,31 @@ local function SkinCharacterSheet()
                 end
 
                 local function ApplyMountMode()
-                    local isMount = IsMountTab()
-                    mountPanel:SetShown(isMount)
-                    -- On the way back to critters Blizzard's tab update has
-                    -- already restored precisely the buttons that exist on
-                    -- the current page; never force all twelve visible.
-                    if isMount then HideNativeMountGrid() end
-                    if model and modelLayout then
+                    local companionType = GetCompanionType()
+                    local isCompanion = companionType ~= nil
+                    mountPanel:SetShown(isCompanion)
+                    if isCompanion then
+                        HideNativeMountGrid()
+                    else
+                        PositionNativeCritterGrid()
+                        if _G.CompanionModelFrameRotateLeftButton then _G.CompanionModelFrameRotateLeftButton:Show() end
+                        if _G.CompanionModelFrameRotateRightButton then _G.CompanionModelFrameRotateRightButton:Show() end
+                        if _G.CompanionModelFrameCompanionName then _G.CompanionModelFrameCompanionName:Show() end
+                        if _G.CompanionSummonButton then _G.CompanionSummonButton:Show() end
+                    end
+                    if model then
                         model:ClearAllPoints()
-                        if isMount then
+                        if isCompanion then
                             model:SetPoint("TOPLEFT", mountPanel, "TOPLEFT", 259, -18)
                             model:SetSize(238, 224)
                             model:SetFrameLevel(mountPanel:GetFrameLevel() + 2)
                         else
-                            model:SetPoint(modelLayout.point, modelLayout.relativeTo, modelLayout.relativePoint, modelLayout.x, modelLayout.y)
-                            model:SetSize(modelLayout.width, modelLayout.height)
-                            model:SetFrameLevel(modelLayout.frameLevel)
+                            model:SetPoint("TOP", pet, "TOP", 0, -65)
+                            model:SetSize(460, 210)
+                            model:SetFrameLevel(pet:GetFrameLevel() + 2)
                         end
                     end
-                    if isMount then RefreshMountList() end
+                    if isCompanion then RefreshCompanionList() end
                 end
 
                 scroll:SetScript("OnValueChanged", function(_, value) SetOffset(value) end)
@@ -1171,15 +1327,25 @@ local function SkinCharacterSheet()
                 search:SetScript("OnTextChanged", function(self)
                     searchHint:SetShown(self:GetText() == "" and not self:HasFocus())
                     scrollOffset = 0
-                    RefreshMountList()
+                    RefreshCompanionList()
                 end)
                 search:SetScript("OnEditFocusGained", function() searchHint:Hide() end)
                 search:SetScript("OnEditFocusLost", function(self) searchHint:SetShown(self:GetText() == "") end)
                 action:SetScript("OnClick", function()
-                    if selectedIndex and _G.CallCompanion then _G.CallCompanion("MOUNT", selectedIndex) end
+                    if not selectedIndex then return end
+                    local chosen
+                    for _, data in ipairs(filtered) do
+                        if data.index == selectedIndex then chosen = data; break end
+                    end
+                    if not chosen then return end
+                    if chosen.active and _G.DismissCompanion then
+                        _G.DismissCompanion(chosen.companionType)
+                    elseif _G.CallCompanion then
+                        _G.CallCompanion(chosen.companionType, chosen.index)
+                    end
                 end)
                 mountPanel:RegisterEvent("COMPANION_UPDATE")
-                mountPanel:SetScript("OnEvent", function() RefreshMountList() end)
+                mountPanel:SetScript("OnEvent", function() RefreshCompanionList() end)
                 companionFrame:HookScript("OnShow", ApplyMountMode)
                 if _G.PetPaperDollFrame_SetTab then hooksecurefunc("PetPaperDollFrame_SetTab", ApplyMountMode) end
                 if _G.PetPaperDollFrame_UpdateCompanions then
@@ -1308,11 +1474,17 @@ local function SkinCharacterSheet()
                             if rankBorder then WSkin:StripTextures(rankBorder) end
                             if rankBg then rankBg:SetTexture(nil) end
                             SetSurface(rank, 0.035, 0.050, 0.055, 0.96)
+                            if EllesmereUI and EllesmereUI.RegAccent then
+                                local accentRank = rank
+                                EllesmereUI.RegAccent({
+                                    type = "callback", obj = accentRank,
+                                    fn = function(r, g, b) accentRank:SetStatusBarColor(r, g, b, 0.72) end,
+                                })
+                            end
                         end
                         rank:SetWidth(435)
                         rank:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                        local statusTexture = rank:GetStatusBarTexture()
-                        if statusTexture then statusTexture:SetVertexColor(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 0.72) end
+                        rank:SetStatusBarColor(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 0.72)
                         StyleRegionFonts(rank, 10, 0.90)
                     end
                     if typeLabel then
@@ -1332,6 +1504,13 @@ local function SkinCharacterSheet()
             if _G.SkillDetailStatusBar then
                 WSkin:StripTextures(_G.SkillDetailStatusBar)
                 _G.SkillDetailStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+                _G.SkillDetailStatusBar:SetStatusBarColor(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 0.72)
+                if EllesmereUI and EllesmereUI.RegAccent then
+                    EllesmereUI.RegAccent({
+                        type = "callback", obj = _G.SkillDetailStatusBar,
+                        fn = function(r, g, b) _G.SkillDetailStatusBar:SetStatusBarColor(r, g, b, 0.72) end,
+                    })
+                end
                 if not _G.SkillDetailStatusBar.backdrop then
                     WSkin:CreateBackdrop(_G.SkillDetailStatusBar, "Default")
                 end
@@ -1355,7 +1534,7 @@ local function SkinCharacterSheet()
             if _G.SkillListScrollFrame then
                 _G.SkillListScrollFrame:ClearAllPoints()
                 _G.SkillListScrollFrame:SetPoint("TOPLEFT", skills, "TOPLEFT", 22, -75)
-                _G.SkillListScrollFrame:SetSize(485, 205)
+                _G.SkillListScrollFrame:SetSize(485, 225)
             end
             if _G.SkillListScrollFrameScrollBar and _G.SkillListScrollFrame then
                 _G.SkillListScrollFrameScrollBar:ClearAllPoints()
@@ -1365,7 +1544,7 @@ local function SkinCharacterSheet()
             if _G.SkillDetailScrollFrame and _G.SkillListScrollFrame then
                 _G.SkillDetailScrollFrame:ClearAllPoints()
                 _G.SkillDetailScrollFrame:SetPoint("TOPLEFT", _G.SkillListScrollFrame, "BOTTOMLEFT", 0, -8)
-                _G.SkillDetailScrollFrame:SetSize(485, 92)
+                _G.SkillDetailScrollFrame:SetSize(485, 72)
             end
             if _G.SkillDetailScrollFrameScrollBar and _G.SkillDetailScrollFrame then
                 _G.SkillDetailScrollFrameScrollBar:ClearAllPoints()
@@ -1386,52 +1565,87 @@ local function SkinCharacterSheet()
             WSkin:StripTextures(tokens, true)
             AddPageSurface(tokens)
             SkinScrollBar(_G.TokenFrameContainerScrollBar)
-            SkinButton(_G.TokenFrameCancelButton)
+            if _G.TokenFrameCancelButton then
+                _G.TokenFrameCancelButton:Hide()
+            end
             if _G.TokenFrameContainer then
                 _G.TokenFrameContainer:ClearAllPoints()
                 _G.TokenFrameContainer:SetPoint("TOPLEFT", tokens, "TOPLEFT", 22, -57)
-                _G.TokenFrameContainer:SetSize(485, 323)
+                _G.TokenFrameContainer:SetSize(485, 330)
             end
             if _G.TokenFrameContainerScrollBar and _G.TokenFrameContainer then
                 _G.TokenFrameContainerScrollBar:ClearAllPoints()
                 _G.TokenFrameContainerScrollBar:SetPoint("TOPLEFT", _G.TokenFrameContainer, "TOPRIGHT", 6, -17)
                 _G.TokenFrameContainerScrollBar:SetPoint("BOTTOMLEFT", _G.TokenFrameContainer, "BOTTOMRIGHT", 6, 17)
+
+                _G.TokenFrameContainerScrollBar.Show = function(self)
+                    if _G.TokenFrameContainer then _G.TokenFrameContainer:SetWidth(485) end
+                    if _G.TokenFrameContainer and _G.TokenFrameContainer.buttons then
+                        for _, button in ipairs(_G.TokenFrameContainer.buttons) do
+                            button:SetWidth(465)
+                        end
+                    end
+                    local mt = getmetatable(self)
+                    if mt and mt.__index and mt.__index.Show then mt.__index.Show(self) end
+                end
+
+                _G.TokenFrameContainerScrollBar.Hide = function(self)
+                    if _G.TokenFrameContainer then _G.TokenFrameContainer:SetWidth(485) end
+                    if _G.TokenFrameContainer and _G.TokenFrameContainer.buttons then
+                        for _, button in ipairs(_G.TokenFrameContainer.buttons) do
+                            button:SetWidth(485)
+                        end
+                    end
+                    local mt = getmetatable(self)
+                    if mt and mt.__index and mt.__index.Hide then mt.__index.Hide(self) end
+                end
             end
             if _G.TokenFrameMoneyFrame then
                 _G.TokenFrameMoneyFrame:ClearAllPoints()
-                _G.TokenFrameMoneyFrame:SetPoint("BOTTOMRIGHT", tokens, "BOTTOMRIGHT", -38, 58)
-            end
-            if _G.TokenFrameCancelButton then
-                _G.TokenFrameCancelButton:ClearAllPoints()
-                _G.TokenFrameCancelButton:SetPoint("BOTTOMRIGHT", tokens, "BOTTOMRIGHT", -22, 50)
+                _G.TokenFrameMoneyFrame:SetPoint("BOTTOMLEFT", tokens, "BOTTOMLEFT", 24, 20)
             end
 
             local function SkinTokenRows()
                 local container = _G.TokenFrameContainer
                 if not (container and container.buttons) then return end
                 local offset = _G.HybridScrollFrame_GetOffset and HybridScrollFrame_GetOffset(container) or 0
+                local isScrollShown = _G.TokenFrameContainerScrollBar and _G.TokenFrameContainerScrollBar:IsShown()
+                local targetWidth = isScrollShown and 465 or 485
                 for rowIndex, button in ipairs(container.buttons) do
                     local currencyIndex = offset + rowIndex
                     local name, isHeader, isExpanded, _, _, _, extraCurrencyType, icon
                     if _G.GetCurrencyListInfo then
                         name, isHeader, isExpanded, _, _, _, extraCurrencyType, icon = GetCurrencyListInfo(currencyIndex)
                     end
+                    if button.categoryLeft then button.categoryLeft:Hide() end
+                    if button.categoryRight then button.categoryRight:Hide() end
+                    if button.categoryMiddle then button.categoryMiddle:Hide() end
+                    if button.stripe then button.stripe:Hide() end
                     if not GetFFD(button)._euiThemedRow then
                         GetFFD(button)._euiThemedRow = true
-                        if button.categoryLeft then button.categoryLeft:Hide() end
-                        if button.categoryRight then button.categoryRight:Hide() end
                         if button.highlight then
                             button.highlight:SetTexture(1, 1, 1, 0.07)
                             button.highlight:SetAllPoints(button)
                         end
                         if button.expandIcon then
-                            button.expandIcon:SetSize(14, 14)
-                            button.expandIcon:SetTexCoord(0, 1, 0, 1)
+                            button.expandIcon:SetTexture(nil)
+                            button.expandIcon:SetAlpha(0)
+                        end
+                        local expandGlyph = button:CreateFontString(nil, "OVERLAY")
+                        expandGlyph:SetFont(fontPath, 15, "")
+                        expandGlyph:SetPoint("LEFT", button, "LEFT", 8, 0)
+                        expandGlyph:SetTextColor(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
+                        GetFFD(button).expandGlyph = expandGlyph
+                        if EllesmereUI and EllesmereUI.RegAccent then
+                            EllesmereUI.RegAccent({
+                                type = "callback", obj = expandGlyph,
+                                fn = function(r, g, b) expandGlyph:SetTextColor(r, g, b, 1) end,
+                            })
                         end
                         SetSurface(button, 0.030, 0.043, 0.048, 0.78)
                         StyleRegionFonts(button, 10, 0.84)
                         if button.icon then
-                            button.icon:SetSize(26, 26)
+                            button.icon:SetSize(24, 24)
                             button.icon:ClearAllPoints()
                             button.icon:SetPoint("LEFT", button, "LEFT", 24, 0)
                             button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -1442,7 +1656,7 @@ local function SkinCharacterSheet()
                             GetFFD(button).iconBorder = iconBorder
                         end
                     end
-                    button:SetWidth(470)
+                    button:SetWidth(targetWidth)
                     button:SetBackdropColor(
                         isHeader and 0.055 or 0.030,
                         isHeader and 0.075 or 0.043,
@@ -1450,10 +1664,13 @@ local function SkinCharacterSheet()
                         isHeader and 0.98 or (rowIndex % 2 == 0 and 0.80 or 0.62))
                     button:SetBackdropBorderColor(1, 1, 1, isHeader and 0.14 or 0.06)
 
-                    if button.expandIcon and isHeader then
-                        button.expandIcon:SetTexture(isExpanded
-                            and "Interface\\Buttons\\UI-MinusButton-UP"
-                            or "Interface\\Buttons\\UI-PlusButton-UP")
+                    if button.expandIcon then
+                        button.expandIcon:SetTexture(nil)
+                        button.expandIcon:SetAlpha(0)
+                    end
+                    if GetFFD(button).expandGlyph then
+                        GetFFD(button).expandGlyph:SetShown(isHeader and true or false)
+                        GetFFD(button).expandGlyph:SetText(isExpanded and "-" or "+")
                     end
                     if button.icon and not isHeader then
                         if extraCurrencyType == 2 then
@@ -1473,7 +1690,7 @@ local function SkinCharacterSheet()
                         nameRegion:SetFont(fontPath, 10, "")
                         nameRegion:SetTextColor(1, 1, 1, isHeader and 0.96 or 0.82)
                         nameRegion:ClearAllPoints()
-                        nameRegion:SetPoint("LEFT", button, "LEFT", isHeader and 25 or 59, 0)
+                        nameRegion:SetPoint("LEFT", button, "LEFT", isHeader and 25 or 55, 0)
                         nameRegion:SetPoint("RIGHT", button, "RIGHT", -72, 0)
                         nameRegion:SetJustifyH("LEFT")
                     end
@@ -6182,5 +6399,3 @@ function EllesmereUI._refreshItemLevelColors()
         end
     end
 end
-
-

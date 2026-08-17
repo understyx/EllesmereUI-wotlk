@@ -37,5 +37,13 @@ for /d %%F in (*) do (
     )
 )
 
+if exist "EllesmereUIQuickdraw\EllesmereUIQuickdraw.toc" (
+    if exist "..\EllesmereUIQuickdraw\EllesmereUIQuickdraw.toc" (
+        echo Quickdraw installation verified.
+    ) else (
+        echo WARNING: Quickdraw was found in the repository but was not linked into the AddOns directory.
+    )
+)
+
 echo Installation complete.
 pause

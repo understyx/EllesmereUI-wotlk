@@ -2115,10 +2115,13 @@ function ns.RemoveCDMBar(key)
                 EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
             end
 
-            -- The definition and spell data belong only to this spec.
-            local activeContainer = ns.GetActiveSpecContainer(false)
-            if activeContainer and activeContainer.barSpells then
-                activeContainer.barSpells[key] = nil
+            -- The definition is profile-wide, so the destination disappears
+            -- for every spec. Drop that now-unreachable content bucket from
+            -- every spec container as part of the same explicit deletion.
+            for _, container in pairs(ns.GetActiveSpecProfiles() or {}) do
+                if type(container) == "table" and container.barSpells then
+                    container.barSpells[key] = nil
+                end
             end
 
             -- Unregister from unlock mode

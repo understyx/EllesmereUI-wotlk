@@ -1538,7 +1538,7 @@ local _targetsCache = {}  -- { key = sessionKey, map = { [playerName] = sorted t
 local function BuildAllPlayerTargets(session, sessionID)
 
     local cacheKey = tostring(session) .. "|" .. tostring(sessionID)
-    if _targetsCache.key == cacheKey then return _targetsCache.map end
+    if not _inCombat and _targetsCache.key == cacheKey then return _targetsCache.map end
 
     if not C_DamageMeter then return nil end
 
@@ -1557,13 +1557,11 @@ local function BuildAllPlayerTargets(session, sessionID)
     end
 
     -- Build per-player target totals keyed by unitName (readable from EnemyDamageTaken).
-    -- Uses creatureID as enemy key (numeric, never secret) to avoid secret table keys.
-    local enemyNames = {}  -- creatureID -> display name
-    local byPlayer = {}    -- unitName -> { [creatureID] = totalDamage }
+    local enemyNames = {}  -- eKey -> display name
+    local byPlayer = {}    -- unitName -> { [eKey] = totalDamage }
     for ei = 1, #enemySession.combatSources do
         local enemy = enemySession.combatSources[ei]
-        local rawCID = enemy.sourceCreatureID
-        local eKey = (rawCID and not (issecretvalue and issecretvalue(rawCID))) and rawCID or ei
+        local eKey = enemy.sourceGUID or enemy.name or ei
         enemyNames[eKey] = enemy.name
         local srcData
         if sessionID and C_DamageMeter.GetCombatSessionSourceFromID then
@@ -1596,7 +1594,7 @@ local function BuildAllPlayerTargets(session, sessionID)
     for pName, enemies in pairs(byPlayer) do
         local list = {}
         for eKey, total in pairs(enemies) do
-            list[#list + 1] = { name = enemyNames[eKey], total = total, amountPerSecond = AmountPerSecond(total, duration) }
+            list[#list + 1] = { name = enemyNames[eKey] or "Unknown", total = total, amountPerSecond = AmountPerSecond(total, duration) }
         end
         table.sort(list, function(a, b) return a.total > b.total end)
         map[pName] = list
@@ -1607,19 +1605,47 @@ local function BuildAllPlayerTargets(session, sessionID)
     return map
 end
 
-local function BuildPlayerTargets(playerName, session, sessionID, maxTargets)
+local function BuildPlayerTargets(playerName, session, sessionID, maxTargets, playerGUID)
 
-    if not playerName then return nil end
-    if issecretvalue and issecretvalue(playerName) then return nil end
-    if playerName == "" then return nil end
+    if not playerName and not playerGUID then return nil end
+    if playerName and issecretvalue and issecretvalue(playerName) then return nil end
+    local queryKey = playerName or playerGUID
 
+    -- 1. Direct adapter query if supported (e.g. Skada adapter direct target tracking)
+    if C_DamageMeter and C_DamageMeter.GetCombatSessionSourceTargets then
+        local ok, directTargets = pcall(C_DamageMeter.GetCombatSessionSourceTargets, sessionID or session, queryKey, maxTargets)
+        if ok and directTargets and #directTargets > 0 then
+            return directTargets
+        end
+    end
+
+    -- 2. Check if the player's DamageDone source breakdown has combatTargets attached
+    local srcData
+    if sessionID and C_DamageMeter.GetCombatSessionSourceFromID then
+        local ok, sd = pcall(C_DamageMeter.GetCombatSessionSourceFromID, sessionID, Enum.DamageMeterType.DamageDone, playerGUID or queryKey)
+        if ok then srcData = sd end
+    elseif C_DamageMeter.GetCombatSessionSourceFromType then
+        local ok, sd = pcall(C_DamageMeter.GetCombatSessionSourceFromType, session, Enum.DamageMeterType.DamageDone, playerGUID or queryKey)
+        if ok then srcData = sd end
+    end
+    if srcData and srcData.combatTargets and #srcData.combatTargets > 0 then
+        local list = srcData.combatTargets
+        if maxTargets and #list > maxTargets then
+            local trimmed = {}
+            for i = 1, maxTargets do trimmed[i] = list[i] end
+            return trimmed
+        end
+        return list
+    end
+
+    -- 3. Fallback to EnemyDamageTaken cross-referencing (retail API compatibility)
     local map = BuildAllPlayerTargets(session, sessionID)
     if not map then return nil end
 
-    local list = map[playerName]
+    local list = map[queryKey]
     if not list or #list == 0 then return nil end
 
-    if #list > maxTargets then
+    if maxTargets and #list > maxTargets then
         local trimmed = {}
         for i = 1, maxTargets do trimmed[i] = list[i] end
 
@@ -1983,7 +2009,15 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     local ttTargetCount = 0
     if curDMType == Enum.DamageMeterType.DamageDone then
         local rawName = bar._src and bar._src.name
-        local targets = BuildPlayerTargets(rawName, curSession, curSessionID, 3)
+        local targets = (srcData and srcData.combatTargets and #srcData.combatTargets > 0 and (function()
+            local list = srcData.combatTargets
+            if #list > 3 then
+                local tr = {}
+                for ti = 1, 3 do tr[ti] = list[ti] end
+                return tr
+            end
+            return list
+        end)()) or BuildPlayerTargets(rawName, curSession, curSessionID, 3, guid)
         if targets then
             -- Lazy-create tooltip target elements
             if not _ttFrame._tgtDivider then
@@ -4122,11 +4156,16 @@ local function CreateDMWindow(winIdx)
         -- Targets section (DamageDone only): show top 3 enemies this player hit
         local targetsRendered = 0
         if W.curDMType == Enum.DamageMeterType.DamageDone then
-            if not W._cachedTargets then
-                W._cachedTargets = BuildPlayerTargets(W.sourceRawName, W.curSession, W.curSessionID, 3) or false
-            end
-            local tList = W._cachedTargets
-            if tList and tList ~= false then
+            local tList = (srcData and srcData.combatTargets and #srcData.combatTargets > 0 and (function()
+                local list = srcData.combatTargets
+                if #list > 3 then
+                    local tr = {}
+                    for ti = 1, 3 do tr[ti] = list[ti] end
+                    return tr
+                end
+                return list
+            end)()) or BuildPlayerTargets(W.sourceRawName, W.curSession, W.curSessionID, 3, guid)
+            if tList and tList ~= false and #tList > 0 then
                 -- Divider + "Targets" label
                 local divY = -(spCount * stride + barSp * 2)
                 if not W._targetDivider then

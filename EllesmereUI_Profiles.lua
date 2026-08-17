@@ -72,6 +72,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIDamageMeters",     display = "Damage Meters",       svName = "EllesmereUIDamageMetersDB",      suffix = "DamageMeters"      },
     { folder = "EllesmereUIChat",             display = "Chat",                svName = "EllesmereUIChatDB",              suffix = "Chat"              },
     { folder = "EllesmereUIDataBars",         display = "DataBars",            svName = "EllesmereUIDataBarsDB",          suffix = "DataBars"          },
+    { folder = "EllesmereUIQuickdraw",        display = "Quickdraw",           svName = "EllesmereUIQuickdrawDB",         suffix = "Quickdraw"         },
 }
 EllesmereUI._ADDON_DB_MAP = ADDON_DB_MAP
 
@@ -1404,6 +1405,8 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EDM_Apply then _G._EDM_Apply() end
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     if _G._EDB_Apply then _G._EDB_Apply() end
+    -- Quickdraw (enable state + palette count drive the override bindings)
+    if _G._EQD_Apply then _G._EQD_Apply() end
     -- Dragon Riding HUD
     if _G._EDR_Rebuild then _G._EDR_Rebuild() end
     -- Minimap (flyout button state)
@@ -1671,9 +1674,10 @@ end
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
 
--- Snapshot complete per-spec CDM containers: bar definitions and positions,
--- spell assignments/settings, tracking bars, glows, active-state rules and
--- spec-owned unlock links, including hidden/ghost spell routing.
+-- Snapshot specialization-owned CDM contents: spell assignments/settings,
+-- tracking bars, glows and active-state rules, including hidden/ghost routing.
+-- Bar definitions, positions and CDM unlock links are ordinary profile layout
+-- and already travel in the addon profile + unlockLayout snapshots.
 local function SnapshotProfileCDMSpecs(profileName, includedFolders, cdmSpecs)
     if includedFolders and not includedFolders["EllesmereUICooldownManager"] then return nil end
     local activeProfile = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
@@ -1700,6 +1704,11 @@ local function SnapshotProfileCDMSpecs(profileName, includedFolders, cdmSpecs)
     for specKey, specProf in pairs(bucket.specProfiles) do
         if type(specProf) == "table" and (not cdmSpecs or cdmSpecs[specKey]) then
             local copy = DeepCopy(specProf)
+            -- Old saves kept complete layouts in every spec container.  Never
+            -- emit those legacy fields into a new-format payload.
+            copy.cdmBars = nil
+            copy.cdmBarPositions = nil
+            copy.cdmUnlockLinks = nil
             snap[specKey] = copy
         end
     end
@@ -1851,13 +1860,13 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- carrying the complete override system exactly as classic full exports
     -- always did; the export UI passes the user's explicit Include choice.
     if includeOverrides == nil then includeOverrides = true end
-    -- CDM spec containers default ON with every spec included (cdmSpecs nil =
+    -- CDM spec contents default ON with every spec included (cdmSpecs nil =
     -- all specs with data). Headless callers -- the Wago UI Packs creator
     -- export and partner installers -- call this bare and must receive a
     -- COMPLETE profile; the opt-in + spec-picker experience belongs to the
     -- options UI, which always passes includeCDM and cdmSpecs explicitly.
     -- (The old nil=OFF default silently shipped every Wago pack without its
-    -- CDM spell layouts: the exporter never saw it because the in-game export
+    -- CDM spec contents: the exporter never saw it because the in-game export
     -- flow passes explicit values.)
     if includeCDM == nil then includeCDM = true end
     if includeGlobals == nil then includeGlobals = true end  -- default ON ("Include Global Settings")
@@ -2707,10 +2716,10 @@ local function GetSpellStoreProfiles()
     return sa.profiles
 end
 
--- Overlay complete, independent per-spec CDM containers. Specs absent from the
--- payload are untouched; a new profile therefore receives only the specs the
--- exporter included. There is deliberately no inheritance from the currently
--- active profile, which would couple unrelated specs/classes at import time.
+-- Overlay independent, specialization-owned CDM content containers. Specs
+-- absent from the payload are untouched.  Legacy payloads may still carry a
+-- layout inside every spec; promote one deterministic layout to the profile
+-- before stripping those obsolete fields.
 local function BuildImportedCDMSpellBucket(profileName, incomingSpecs)
     if not EllesmereUIDB then return end
     EllesmereUIDB.spellAssignments = EllesmereUIDB.spellAssignments or { profiles = {} }
@@ -2720,8 +2729,83 @@ local function BuildImportedCDMSpellBucket(profileName, incomingSpecs)
     sa.profiles[profileName] = bucket
     bucket.specProfiles = bucket.specProfiles or {}
     if type(incomingSpecs) ~= "table" then return end
+
+    local ordered = {}
+    for specKey, specProf in pairs(incomingSpecs) do
+        if type(specProf) == "table" then
+            ordered[#ordered + 1] = { key = specKey, sort = tostring(specKey) }
+        end
+    end
+    table.sort(ordered, function(a, b) return a.sort < b.sort end)
+    local curSpec = Spec and Spec:GetCurrentID()
+    local preferred = curSpec and (incomingSpecs[tostring(curSpec)] or incomingSpecs[curSpec])
+    if type(preferred) ~= "table" then
+        preferred = ordered[1] and incomingSpecs[ordered[1].key]
+    end
+
+    if type(preferred) == "table"
+       and (type(preferred.cdmBars) == "table"
+            or type(preferred.cdmBarPositions) == "table"
+            or type(preferred.cdmUnlockLinks) == "table") then
+        local pdb = GetProfilesDB()
+        local root = pdb and pdb.profiles and pdb.profiles[profileName]
+        local addon = root and root.addons and root.addons["EllesmereUICooldownManager"]
+        if addon then
+            if type(preferred.cdmBars) == "table" then addon.cdmBars = DeepCopy(preferred.cdmBars) end
+            if type(preferred.cdmBarPositions) == "table" then
+                addon.cdmBarPositions = DeepCopy(preferred.cdmBarPositions)
+            end
+            addon._cdmLayoutProfileWideV1 = true
+
+            -- Keep custom destinations used only by another imported spec.
+            addon.cdmBars = addon.cdmBars or { bars = {} }
+            addon.cdmBars.bars = addon.cdmBars.bars or {}
+            addon.cdmBarPositions = addon.cdmBarPositions or {}
+            local known = {}
+            for _, bd in ipairs(addon.cdmBars.bars) do
+                if type(bd) == "table" and bd.key then known[bd.key] = true end
+            end
+            for _, entry in ipairs(ordered) do
+                local candidate = incomingSpecs[entry.key]
+                for _, bd in ipairs((candidate.cdmBars and candidate.cdmBars.bars) or {}) do
+                    if type(bd) == "table" and bd.key and not known[bd.key] then
+                        addon.cdmBars.bars[#addon.cdmBars.bars + 1] = DeepCopy(bd)
+                        known[bd.key] = true
+                        local pos = candidate.cdmBarPositions and candidate.cdmBarPositions[bd.key]
+                        if pos and addon.cdmBarPositions[bd.key] == nil then
+                            addon.cdmBarPositions[bd.key] = DeepCopy(pos)
+                        end
+                    end
+                end
+            end
+        end
+        local oldLinks = preferred.cdmUnlockLinks
+        if root and type(oldLinks) == "table" then
+            root.unlockLayout = root.unlockLayout or {}
+            local ul = root.unlockLayout
+            ul.anchors = ul.anchors or {}
+            ul.widthMatch = ul.widthMatch or {}
+            ul.heightMatch = ul.heightMatch or {}
+            for barKey, v in pairs(oldLinks.anchors or {}) do
+                ul.anchors["CDM_" .. barKey] = DeepCopy(v)
+            end
+            for barKey, v in pairs(oldLinks.wm or {}) do
+                ul.widthMatch["CDM_" .. barKey] = DeepCopy(v)
+            end
+            for barKey, v in pairs(oldLinks.hm or {}) do
+                ul.heightMatch["CDM_" .. barKey] = DeepCopy(v)
+            end
+            ul._cdmProfileWideV1 = true
+        end
+    end
+
     for specKey, specProf in pairs(DeepCopy(incomingSpecs)) do
-        bucket.specProfiles[specKey] = specProf
+        if type(specProf) == "table" then
+            specProf.cdmBars = nil
+            specProf.cdmBarPositions = nil
+            specProf.cdmUnlockLinks = nil
+            bucket.specProfiles[specKey] = specProf
+        end
     end
 end
 
@@ -2970,8 +3054,9 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if not found then
             table.insert(db.profileOrder, 1, profileName)
         end
-        -- Each selected spec is a complete CDM container (bars, positions,
-        -- spells, settings, tracking bars and unlock links).
+        -- Each selected spec contributes only its specialization-owned CDM
+        -- contents. Profile-wide bars/positions/links came through the normal
+        -- profile and unlock-layout payloads above.
         BuildImportedCDMSpellBucket(profileName, payload.data.cdmSpecs)
         -- Remove the new profile from all sync targets so the pre-logout
         -- sync doesn't overwrite it. Other profiles' sync relationships
@@ -3272,8 +3357,8 @@ function EllesmereUI.SaveCurrentAsProfile(name)
 
     -- CDM spell content lives in the per-profile spell store at
     -- EllesmereUIDB.spellAssignments.profiles[<name>], OUTSIDE the profile blob.
-    -- DeepCopy(src) above carried only the bar DEFINITIONS (in the addon blob),
-    -- NOT the spell allocations / per-icon settings / RPT-sync specs / TBB
+    -- DeepCopy(src) above carried the profile-wide bar layout and positions,
+    -- but NOT the spell allocations / per-icon settings / RPT-sync specs / TBB
     -- broadcast set that ride on this bucket. Fork the whole bucket so the new
     -- profile is a true 1:1 of the source's CDM (which spells sit on which bars,
     -- etc). Without this the copy renders bars with no spells on them.
@@ -4046,7 +4131,7 @@ EllesmereUI.POPULAR_PRESETS = {
         editMode = {
             regular = {
                 s64 = "2 50 0 0 0 3 3 UIParent 440.0 190.5 -1 ##$%%/&('%)$+$,$ 0 1 0 4 4 UIParent 0.0 -680.0 -1 ##$$%/&('%(&,# 0 2 0 1 1 UIParent 640.0 -1382.0 -1 ##$$%/&('%(&,# 0 3 0 1 1 UIParent -775.6 -1122.0 -1 ##$$%/&('%(#,# 0 4 0 0 0 UIParent 1425.7 -1106.0 -1 ##$$%/&('%(&,# 0 5 0 0 0 UIParent 1425.7 -1057.0 -1 ##$$%/&('%(&,# 0 6 0 0 6 PlayerFrame 21.8 15.6 -1 ##$$%/&&'%(#,# 0 7 0 3 3 UIParent 451.5 81.4 -1 ##$$%/&''%(#,# 0 10 0 7 7 UIParent -380.4 149.0 -1 ##$$&&'% 0 11 0 7 7 UIParent -99.6 102.0 -1 ##$$&%'%,# 0 12 0 7 7 UIParent 435.5 118.9 -1 ##$$&('% 1 -1 0 3 3 UIParent 457.4 -115.0 -1 ##$#%# 2 -1 0 2 2 UIParent 0.0 0.0 -1 ##$#%( 3 0 0 7 7 UIParent -252.2 482.4 -1 $#3% 3 1 0 7 7 UIParent 252.2 482.4 -1 %$3% 3 2 0 6 8 ChatFrame1 13.5 -46.0 -1 %#&#3# 3 3 0 0 0 UIParent 730.1 -1062.0 -1 '$(#)#-k.G/$1#3#5%627-7$8( 3 4 0 0 0 UIParent 920.0 -1038.1 -1 ,$-k.G/#0#1#2(5%627U8- 3 5 0 2 2 UIParent -70.7 -313.0 -1 &#*$3# 3 6 0 2 2 UIParent -323.0 -290.3 -1 -#.#/#4&5#6(7-7$8( 3 7 1 4 4 UIParent 0.0 0.0 -1 3# 4 -1 0 4 4 UIParent 372.9 -290.7 -1 # 5 -1 0 2 8 EncounterTimeline 0.2 -4.2 -1 # 6 0 0 0 0 UIParent 10.0 -10.0 -1 ##$#%$&3())( 6 1 0 2 2 UIParent -304.0 -12.3 -1 ##$#%#'3())(-$ 6 2 0 4 4 UIParent -400.5 -60.8 -1 ##$$%#&.(,)(+#,-,$ 7 -1 0 1 1 UIParent 0.0 -2.0 -1 # 8 -1 0 6 6 UIParent 55.5 34.5 -1 #'$i%%&# 9 -1 0 7 7 UIParent 148.0 302.0 -1 # 10 -1 1 0 0 UIParent 16.0 -116.0 -1 # 11 -1 0 5 5 UIParent -8.0 -168.5 -1 # 12 -1 0 5 5 UIParent -9.8 133.0 -1 ##$#%# 13 -1 0 2 2 UIParent -7.0 -265.9 -1 ##$#%$&( 14 -1 0 1 1 UIParent 1161.6 -801.5 -1 ##$#%# 15 0 0 1 1 UIParent 0.0 -2.0 -1 &- 15 1 0 0 6 MainStatusTrackingBarContainer 0.0 -4.0 -1 &- 16 -1 0 2 2 UIParent -281.9 -166.7 -1 #( 17 -1 0 4 4 UIParent 0.0 380.0 -1 ## 18 -1 1 5 5 UIParent 0.0 0.0 -1 #- 19 -1 1 7 7 UIParent 0.0 0.0 -1 ## 20 0 0 3 4 UIParent -202.0 -240.0 -1 ##$*%$&('/(U)#+$,$-$ 20 1 0 1 7 EssentialCooldownViewer 0.0 -8.0 -1 ##$7%$&-'/(U)#+$,$-$ 20 2 0 1 1 UIParent 0.0 -872.0 -1 ##$$%#&('-(U)#+$,$-$ 20 3 0 1 4 UIParent -370.5 -22.0 -1 #$$$%#&('1(U)#*#+$,$-$.-.$ 21 -1 0 7 7 UIParent -440.0 542.0 -1 ##%#&#'((()#*-*$+#,&-#.#/(0#1# 22 0 0 1 1 UIParent 333.4 -187.3 -1 #$$$%$&(')(#)U*$+%,$-#.#/U0% 22 1 0 4 4 UIParent 0.0 90.0 -1 &('()U*#+$ 22 2 0 7 7 UIParent 0.0 842.0 -1 &('()U*#+$ 22 3 0 4 4 UIParent 0.0 180.0 -1 &('()U*#+$ 23 -1 0 8 8 UIParent 0.0 237.0 -1 ##$%%$&#'#(#)U+$,$-0.(/#",
-                s53 = "2 50 0 0 0 3 3 UIParent 440.0 190.5 -1 ##$%%/&('%)$+$,$ 0 1 0 4 4 UIParent 0.0 -680.0 -1 ##$$%/&('%(&,# 0 2 0 1 1 UIParent 640.0 -1382.0 -1 ##$$%/&('%(&,# 0 3 0 1 1 UIParent -775.6 -1122.0 -1 ##$$%/&('%(#,# 0 4 0 0 0 UIParent 1425.7 -1106.0 -1 ##$$%/&('%(&,# 0 5 0 0 0 UIParent 1425.7 -1057.0 -1 ##$$%/&('%(&,# 0 6 0 0 6 PlayerFrame 21.8 15.6 -1 ##$$%/&&'%(#,# 0 7 0 3 3 UIParent 451.5 81.4 -1 ##$$%/&''%(#,# 0 10 0 7 7 UIParent -380.4 149.0 -1 ##$$&&'% 0 11 0 7 7 UIParent -99.6 102.0 -1 ##$$&%'%,# 0 12 0 7 7 UIParent 435.5 118.9 -1 ##$$&('% 1 -1 0 3 3 UIParent 457.4 -115.0 -1 ##$#%# 2 -1 0 2 2 UIParent -3.0 17.4 -1 ##$#%( 3 0 0 7 7 UIParent -252.2 482.4 -1 $#3% 3 1 0 7 7 UIParent 252.2 482.4 -1 %$3% 3 2 0 6 8 ChatFrame1 13.5 -46.0 -1 %#&#3# 3 3 0 0 0 UIParent 730.1 -1062.0 -1 '$(#)#-k.G/$1#3#5%627-7$8( 3 4 0 0 0 UIParent 920.0 -1038.1 -1 ,$-k.G/#0#1#2(5%627U8- 3 5 0 2 2 UIParent -70.7 -313.0 -1 &#*$3# 3 6 0 2 2 UIParent -323.0 -290.3 -1 -#.#/#4&5#6(7-7$8( 3 7 1 4 4 UIParent 0.0 0.0 -1 3# 4 -1 0 4 4 UIParent 367.1 -311.5 -1 # 5 -1 0 2 8 EncounterTimeline 0.2 -4.2 -1 # 6 0 0 2 2 UIParent -290.1 -12.7 -1 ##$#%#&3())( 6 1 0 4 4 UIParent -327.0 39.2 -1 ##$$%#'+(,)(-$ 6 2 0 4 4 UIParent -400.5 -60.8 -1 ##$$%#&.(,)(+#,-,$ 7 -1 0 1 1 UIParent 0.0 -2.0 -1 # 8 -1 0 6 6 UIParent 32.5 37.5 -1 #)$7%%&\ 9 -1 0 7 7 UIParent 148.0 302.0 -1 # 10 -1 1 0 0 UIParent 16.0 -116.0 -1 # 11 -1 0 5 5 UIParent -23.8 -146.0 -1 # 12 -1 0 0 0 UIParent 2281.7 -263.0 -1 #J$#%# 13 -1 0 2 2 UIParent -7.0 -265.9 -1 ##$#%$&( 14 -1 0 1 1 UIParent 1161.6 -801.5 -1 ##$#%# 15 0 0 1 1 UIParent 0.0 -2.0 -1 &- 15 1 0 0 6 MainStatusTrackingBarContainer 0.0 -4.0 -1 &- 16 -1 0 2 2 UIParent -282.9 -147.7 -1 #( 17 -1 0 4 4 UIParent 0.0 380.0 -1 ## 18 -1 1 5 5 UIParent 0.0 0.0 -1 #- 19 -1 1 7 7 UIParent 0.0 0.0 -1 ## 20 0 0 3 4 UIParent -202.0 -240.0 -1 ##$*%$&('/(U)#+$,$-$ 20 1 0 1 7 EssentialCooldownViewer 0.0 -8.0 -1 ##$7%$&-'/(U)#+$,$-$ 20 2 0 1 1 UIParent 0.0 -872.0 -1 ##$$%#&('-(U)#+$,$-$ 20 3 0 1 4 UIParent -370.5 -22.0 -1 #$$$%#&('1(U)#*#+$,$-$.-.$ 21 -1 0 7 7 UIParent -440.0 542.0 -1 ##%#&#'((()#*-*$+#,&-#.#/(0#1# 22 0 0 1 1 UIParent 333.4 -187.3 -1 #$$$%$&(')(#)U*$+%,$-#.#/U0% 22 1 0 4 4 UIParent 0.0 90.0 -1 &('()U*#+$ 22 2 0 7 7 UIParent 0.0 842.0 -1 &('()U*#+$ 22 3 0 4 4 UIParent 0.0 180.0 -1 &('()U*#+$ 23 -1 0 8 8 UIParent 0.0 237.0 -1 ##$%%$&#'#(#)U+$,$-0.(/#",
+                s53 = "2 50 0 0 0 3 3 UIParent 440.0 190.5 -1 ##$%%/&('%)$+$,$ 0 1 0 4 4 UIParent 0.0 -680.0 -1 ##$$%/&('%(&,# 0 2 0 1 1 UIParent 640.0 -1382.0 -1 ##$$%/&('%(&,# 0 3 0 1 1 UIParent -775.6 -1122.0 -1 ##$$%/&('%(#,# 0 4 0 0 0 UIParent 1425.7 -1106.0 -1 ##$$%/&('%(&,# 0 5 0 0 0 UIParent 1425.7 -1057.0 -1 ##$$%/&('%(&,# 0 6 0 0 6 PlayerFrame 21.8 15.6 -1 ##$$%/&&'%(#,# 0 7 0 3 3 UIParent 451.5 81.4 -1 ##$$%/&''%(#,# 0 10 0 7 7 UIParent -380.4 149.0 -1 ##$$&&'% 0 11 0 7 7 UIParent -99.6 102.0 -1 ##$$&%'%,# 0 12 0 7 7 UIParent 435.5 118.9 -1 ##$$&('% 1 -1 0 3 3 UIParent 457.4 -115.0 -1 ##$#%# 2 -1 0 2 2 UIParent -3.0 17.4 -1 ##$#%( 3 0 0 7 7 UIParent -252.2 482.4 -1 $#3% 3 1 0 7 7 UIParent 252.2 482.4 -1 %$3% 3 2 0 6 8 ChatFrame1 13.5 -46.0 -1 %#&#3# 3 3 0 0 0 UIParent 730.1 -1062.0 -1 '$(#)#-k.G/$1#3#5%627-7$8( 3 4 0 0 0 UIParent 920.0 -1038.1 -1 ,$-k.G/#0#1#2(5%627U8- 3 5 0 2 2 UIParent -70.7 -313.0 -1 &#*$3# 3 6 0 2 2 UIParent -323.0 -290.3 -1 -#.#/#4&5#6(7-7$8( 3 7 1 4 4 UIParent 0.0 0.0 -1 3# 4 -1 0 4 4 UIParent 367.1 -311.5 -1 # 5 -1 0 2 8 EncounterTimeline 0.2 -4.2 -1 # 6 0 0 2 2 UIParent -290.1 -12.7 -1 ##$#%#&3())( 6 1 0 4 4 UIParent -327.0 39.2 -1 ##$$%#'+(,)(-$ 6 2 0 4 4 UIParent -400.5 -60.8 -1 ##$$%#&.(,)(+#,-,$ 7 -1 0 1 1 UIParent 0.0 -2.0 -1 # 8 -1 0 6 6 UIParent 32.5 37.5 -1 #)$7%%&\\ 9 -1 0 7 7 UIParent 148.0 302.0 -1 # 10 -1 1 0 0 UIParent 16.0 -116.0 -1 # 11 -1 0 5 5 UIParent -23.8 -146.0 -1 # 12 -1 0 0 0 UIParent 2281.7 -263.0 -1 #J$#%# 13 -1 0 2 2 UIParent -7.0 -265.9 -1 ##$#%$&( 14 -1 0 1 1 UIParent 1161.6 -801.5 -1 ##$#%# 15 0 0 1 1 UIParent 0.0 -2.0 -1 &- 15 1 0 0 6 MainStatusTrackingBarContainer 0.0 -4.0 -1 &- 16 -1 0 2 2 UIParent -282.9 -147.7 -1 #( 17 -1 0 4 4 UIParent 0.0 380.0 -1 ## 18 -1 1 5 5 UIParent 0.0 0.0 -1 #- 19 -1 1 7 7 UIParent 0.0 0.0 -1 ## 20 0 0 3 4 UIParent -202.0 -240.0 -1 ##$*%$&('/(U)#+$,$-$ 20 1 0 1 7 EssentialCooldownViewer 0.0 -8.0 -1 ##$7%$&-'/(U)#+$,$-$ 20 2 0 1 1 UIParent 0.0 -872.0 -1 ##$$%#&('-(U)#+$,$-$ 20 3 0 1 4 UIParent -370.5 -22.0 -1 #$$$%#&('1(U)#*#+$,$-$.-.$ 21 -1 0 7 7 UIParent -440.0 542.0 -1 ##%#&#'((()#*-*$+#,&-#.#/(0#1# 22 0 0 1 1 UIParent 333.4 -187.3 -1 #$$$%$&(')(#)U*$+%,$-#.#/U0% 22 1 0 4 4 UIParent 0.0 90.0 -1 &('()U*#+$ 22 2 0 7 7 UIParent 0.0 842.0 -1 &('()U*#+$ 22 3 0 4 4 UIParent 0.0 180.0 -1 &('()U*#+$ 23 -1 0 8 8 UIParent 0.0 237.0 -1 ##$%%$&#'#(#)U+$,$-0.(/#",
             },
             ultrawide = {
                 s64 = "",
@@ -4859,7 +4944,7 @@ end
 --  One call that ports a creator's exported profile string EXACTLY, for
 --  installer addons that manage the whole setup themselves (no EUI dialogs).
 --  The interactive dialog flow is untouched. Fonts, custom colors, accent,
---  CDM spell layouts, overrides, the window/tooltip skin bundle and UI scale
+--  CDM spec contents, overrides, the window/tooltip skin bundle and UI scale
 --  all apply precisely as the string carries them (presence is consent), so
 --  the recipient lands on the creator's complete look.
 --
@@ -4870,7 +4955,7 @@ end
 --                  replaces with external addons. When present the API:
 --                    * strips those modules' content from the payload
 --                      (addon blobs incl. hosted sub-modules, CDM spell
---                      layouts when the CDM module is listed, the window/
+--                      contents when the CDM module is listed, the window/
 --                      tooltip skin bundle when the skin module is listed)
 --                    * filters cross-module layout relationships down to
 --                      kept modules, so no anchor or size-match edge can

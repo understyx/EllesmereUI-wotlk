@@ -39,4 +39,12 @@ for folder in */; do
     fi
 done
 
+if [ -f "EllesmereUIQuickdraw/EllesmereUIQuickdraw.toc" ]; then
+    if [ -e "../EllesmereUIQuickdraw/EllesmereUIQuickdraw.toc" ]; then
+        echo "Quickdraw installation verified."
+    else
+        echo "WARNING: Quickdraw was found in the repository but was not linked into the AddOns directory."
+    fi
+fi
+
 echo "Installation complete."

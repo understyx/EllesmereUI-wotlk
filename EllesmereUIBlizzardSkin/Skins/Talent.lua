@@ -7,7 +7,8 @@ local unpack = unpack
 -- Standard icon tex coordinates to crop the default icon border
 local TEXCOORDS = { 0.08, 0.92, 0.08, 0.92 }
 
-WSkin:AddCallback("Skin_Talent", function()
+local function SkinTalents()
+	if not WSkin:IsSkinEnabled("playerspells") then return end
 	if not PlayerTalentFrame then return end
 
 	WSkin:StripTextures(PlayerTalentFrame, true)
@@ -134,4 +135,7 @@ WSkin:AddCallback("Skin_Talent", function()
 	PlayerSpecTab1.SetPoint = function() end
 
 	WSkin:Point(PlayerTalentFrameTab1, "BOTTOMLEFT", 11, 46)
-end)
+end
+
+WSkin:AddCallbackForAddon("Blizzard_TalentUI", "Skin_Talent", SkinTalents, "playerspells")
+WSkin:AddCallback("Skin_Talent", SkinTalents, "playerspells")

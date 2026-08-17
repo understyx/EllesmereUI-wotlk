@@ -5,6 +5,7 @@
 --  are exported by CharacterSheet and loaded before this file.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
+local WSkin = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
 local skinned = false
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
@@ -282,10 +283,10 @@ local function SkinInspectSheet()
     local frame = InspectFrame
     if not frame then return end
 
-    -- Match the themed CharacterFrame canvas.  The stock 3.3.5 inspect frame
-    -- is much narrower, which otherwise leaves the old paper-doll composition
-    -- intact even after its textures have been stripped.
-    frame:SetWidth(550)
+    -- Keep Inspect distinctly smaller than CharacterFrame, but give the two
+    -- equipment columns enough room to stay inside the shell.
+    local INSPECT_WIDTH = 432
+    frame:SetWidth(INSPECT_WIDTH)
 
     local isLegacyInspect = not _G.InspectPaperDollItemsFrame and _G.InspectPaperDollFrame ~= nil
 
@@ -395,7 +396,7 @@ local function SkinInspectSheet()
         local handsSlot = _G.InspectHandsSlot
         if headSlot and handsSlot then
             bgFrame:SetPoint("TOPLEFT", headSlot, "TOPLEFT", -8, 10)
-            bgFrame:SetPoint("RIGHT", handsSlot, "RIGHT", 8, 0)
+            bgFrame:SetPoint("RIGHT", handsSlot, "RIGHT", 0, 0)
             bgFrame:SetPoint("BOTTOM", myModel, "BOTTOM", 0, -18)
         elseif headSlot then
             bgFrame:SetPoint("TOPLEFT", headSlot, "TOPLEFT", -8, 10)
@@ -517,6 +518,7 @@ local function SkinInspectSheet()
         for i = 1, numChildren do
             local child = select(i, InspectPVPFrame:GetChildren())
             if child and not child:GetName()
+               and child ~= GetFFD(InspectPVPFrame).statsCard
                and not (IsForeign and IsForeign(child, InspectPVPFrame)) then
                 child:Hide()
             end
@@ -559,6 +561,9 @@ local function SkinInspectSheet()
     -- Style close button
     local closeBtn = frame.CloseButton or _G.InspectFrameCloseButton
     if closeBtn then
+        closeBtn:ClearAllPoints()
+        closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
+        closeBtn:SetSize(16, 16)
         if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
         if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
         if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
@@ -573,9 +578,9 @@ local function SkinInspectSheet()
 
         if not GetFFD(closeBtn).x then
             local closeX = closeBtn:CreateTexture(nil, "OVERLAY")
-            closeX:SetAtlas("uitools-icon-close")
+            closeX:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
             closeX:SetSize(14, 14)
-            closeX:SetPoint("CENTER", -2, 0)
+            closeX:SetPoint("CENTER", 0, 0)
             closeX:SetVertexColor(1, 1, 1, 0.75)
             GetFFD(closeBtn).x = closeX
 
@@ -585,6 +590,292 @@ local function SkinInspectSheet()
             closeBtn:HookScript("OnLeave", function()
                 if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75) end
             end)
+        else
+            GetFFD(closeBtn).x:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+            GetFFD(closeBtn).x:SetSize(14, 14)
+            GetFFD(closeBtn).x:SetPoint("CENTER", 0, 0)
+            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75)
+        end
+    end
+
+    local function SetInspectSurface(f, r, g, b, a)
+        if not f or GetFFD(f)._euiSurface then return end
+        f:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8X8",
+            edgeFile = "Interface\\Buttons\\WHITE8X8",
+            edgeSize = 1,
+        })
+        f:SetBackdropColor(r or 0.025, g or 0.035, b or 0.04, a or 0.92)
+        f:SetBackdropBorderColor(1, 1, 1, 0.10)
+        GetFFD(f)._euiSurface = true
+    end
+
+    local function SkinInspectPVP()
+        local pvp = _G.InspectPVPFrame
+        if not pvp then return end
+        if GetFFD(pvp).statsCard then GetFFD(pvp).statsCard:Show() end
+        if not GetFFD(pvp)._euiSkinned then
+            GetFFD(pvp)._euiSkinned = true
+            local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
+            if S and S.StripTextures then S:StripTextures(pvp, true) end
+            pvp:ClearAllPoints()
+            pvp:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+            pvp:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+
+            local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+
+            -- Hide the unanchored "HONOR:" and "ARENA:" button overlays from Blizzard
+            if _G.InspectPVPFrameHonor then _G.InspectPVPFrameHonor:Hide() end
+            if _G.InspectPVPFrameArena then _G.InspectPVPFrameArena:Hide() end
+
+            -- Top stats card (Today, Yesterday, Lifetime table). The stock
+            -- 100px Honor frame is cramped vertically once its ornate artwork
+            -- is removed, so give the content a taller themed surface.
+            if not GetFFD(pvp).statsCard then
+                local statsCard = CreateFrame("Frame", "EUI_InspectPVPStatsCard", pvp)
+                statsCard:SetPoint("TOP", pvp, "TOP", 0, -45)
+                statsCard:SetSize(384, 112)
+                statsCard:SetFrameLevel(pvp:GetFrameLevel() + 1)
+                SetInspectSurface(statsCard, 0.030, 0.043, 0.048, 0.78)
+                GetFFD(pvp).statsCard = statsCard
+            end
+
+            local honor = _G.InspectPVPHonor
+            if honor then
+                honor:ClearAllPoints()
+                honor:SetPoint("TOPLEFT", GetFFD(pvp).statsCard, "TOPLEFT", 12, -4)
+                honor:SetSize(360, 104)
+                honor:SetFrameLevel(GetFFD(pvp).statsCard:GetFrameLevel() + 1)
+
+                -- Spread the stock labels across the taller card. Merely
+                -- increasing InspectPVPHonor's height leaves every label packed
+                -- into its original top half and produces a large empty area.
+                local honorColumns = {
+                    { "Today", -100 }, { "Yesterday", 0 }, { "Lifetime", 100 },
+                }
+                for _, column in ipairs(honorColumns) do
+                    local prefix, x = column[1], column[2]
+                    local heading = _G["InspectPVPHonor" .. prefix .. "Label"]
+                    local kills = _G["InspectPVPHonor" .. prefix .. "Kills"]
+                    local points = _G["InspectPVPHonor" .. prefix .. "Honor"]
+                    if heading then
+                        heading:ClearAllPoints()
+                        heading:SetPoint("TOP", honor, "TOP", x, -12)
+                    end
+                    if kills then
+                        kills:ClearAllPoints()
+                        kills:SetPoint("TOP", honor, "TOP", x, -46)
+                    end
+                    if points then
+                        points:ClearAllPoints()
+                        points:SetPoint("TOP", honor, "TOP", x, -76)
+                    end
+                end
+                if _G.InspectPVPHonorKillsLabel then
+                    _G.InspectPVPHonorKillsLabel:ClearAllPoints()
+                    _G.InspectPVPHonorKillsLabel:SetPoint("TOPLEFT", honor, "TOPLEFT", 8, -46)
+                end
+                if _G.InspectPVPHonorHonorLabel then
+                    _G.InspectPVPHonorHonorLabel:ClearAllPoints()
+                    _G.InspectPVPHonorHonorLabel:SetPoint("TOPLEFT", honor, "TOPLEFT", 8, -76)
+                end
+                if _G.InspectPVPFrameLine1 then
+                    _G.InspectPVPFrameLine1:ClearAllPoints()
+                    _G.InspectPVPFrameLine1:SetPoint("TOP", honor, "TOP", 0, -31)
+                    _G.InspectPVPFrameLine1:SetWidth(250)
+                end
+            end
+
+            -- Format stats fontstrings
+            for _, statName in ipairs({
+                "InspectPVPFrameHK_Today", "InspectPVPFrameHK_Yesterday", "InspectPVPFrameHK_Lifetime",
+                "InspectPVPFrameHonor_Today", "InspectPVPFrameHonor_Yesterday", "InspectPVPFrameHonor_Lifetime",
+                "InspectPVPHonorTodayLabel", "InspectPVPHonorTodayKills", "InspectPVPHonorTodayHonor",
+                "InspectPVPHonorYesterdayLabel", "InspectPVPHonorYesterdayKills", "InspectPVPHonorYesterdayHonor",
+                "InspectPVPHonorLifetimeLabel", "InspectPVPHonorLifetimeKills", "InspectPVPHonorLifetimeHonor",
+                "InspectPVPHonorKillsLabel", "InspectPVPHonorHonorLabel",
+            }) do
+                local fs = _G[statName]
+                if fs then
+                    fs:SetFont(fontPath, 10, "")
+                    fs:SetTextColor(1, 1, 1, 0.85)
+                end
+            end
+
+            -- Style and position the 3 arena team cards
+            for i = 1, 3 do
+                local team = _G["InspectPVPTeam" .. i]
+                if team then
+                    if S and S.StripTextures then S:StripTextures(team) end
+                    SetInspectSurface(team, 0.030, 0.043, 0.048, 0.78)
+                    team:SetWidth(384)
+                    team:SetHeight(80)
+                    team:ClearAllPoints()
+                    if i == 1 then
+                        team:SetPoint("TOP", pvp, "TOP", 0, -169)
+                    else
+                        team:SetPoint("TOP", _G["InspectPVPTeam" .. (i - 1)], "BOTTOM", 0, -8)
+                    end
+
+                    -- The standard/emblem frames are siblings of the team
+                    -- buttons, so moving the buttons alone leaves the emblems at
+                    -- their old (too-low) coordinates. Re-anchor each emblem
+                    -- inside its corresponding card and lift it slightly.
+                    local standard = _G["InspectPVPTeam" .. i .. "Standard"]
+                    if standard then
+                        standard:ClearAllPoints()
+                        standard:SetPoint("LEFT", team, "LEFT", 8, 6)
+                        standard:SetFrameLevel(team:GetFrameLevel() + 2)
+                    end
+
+                    -- The arena data block is a child of the team button and
+                    -- keeps the stock 300px layout. Moving only the outer card
+                    -- leaves the name and season labels underneath the banner.
+                    -- Reserve a fixed emblem column and constrain the rest of
+                    -- the data to the card's interior.
+                    local data = _G["InspectPVPTeam" .. i .. "Data"]
+                    if data then
+                        data:ClearAllPoints()
+                        data:SetPoint("TOPLEFT", team, "TOPLEFT", 86, -6)
+                        data:SetPoint("BOTTOMRIGHT", team, "BOTTOMRIGHT", -12, 6)
+                        data:SetFrameLevel(team:GetFrameLevel() + 1)
+                        for j = 1, select("#", data:GetRegions()) do
+                            local region = select(j, data:GetRegions())
+                            if region and region:IsObjectType("FontString") then
+                                region:SetFont(fontPath, 10, "")
+                            end
+                        end
+                    end
+                    for j = 1, select("#", team:GetRegions()) do
+                        local region = select(j, team:GetRegions())
+                        if region and region:IsObjectType("FontString") then
+                            region:SetFont(fontPath, 10, "")
+                            region:SetTextColor(1, 1, 1, 0.85)
+                        elseif region and region:IsObjectType("Texture") and region ~= team.backdrop then
+                            region:SetAlpha(0)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local function SkinInspectTalents()
+        local tal = _G.InspectTalentFrame
+        if not tal then return end
+        if not GetFFD(tal)._euiSkinned then
+            GetFFD(tal)._euiSkinned = true
+            local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
+            if S and S.StripTextures then S:StripTextures(tal, true) end
+            tal:ClearAllPoints()
+            tal:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+            tal:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+
+            if _G.InspectTalentFrameCloseButton then _G.InspectTalentFrameCloseButton:Hide() end
+
+            local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+
+            for i = 1, 3 do
+                local tab = _G["InspectTalentFrameTab" .. i]
+                if tab then
+                    if S and S.StripTextures then S:StripTextures(tab) end
+                    if S and S.HandleTab then S:HandleTab(tab) end
+                    tab:ClearAllPoints()
+                    if i == 1 then
+                        tab:SetPoint("TOPLEFT", tal, "TOPLEFT", 18, -40)
+                    else
+                        tab:SetPoint("LEFT", _G["InspectTalentFrameTab" .. (i - 1)], "RIGHT", -12, 0)
+                    end
+                end
+            end
+
+            local sf = _G.InspectTalentFrameScrollFrame
+            if sf then
+                if S and S.StripTextures then S:StripTextures(sf) end
+                sf:ClearAllPoints()
+                sf:SetPoint("TOPRIGHT", tal, "TOPRIGHT", -55, -75)
+                sf:SetPoint("BOTTOM", tal, "BOTTOM", 0, 90)
+                sf:SetWidth(300)
+
+                local sb = _G.InspectTalentFrameScrollFrameScrollBar
+                if sb and not sb.backdrop then
+                    if S and S.HandleScrollBar then S:HandleScrollBar(sb) end
+                    sb:ClearAllPoints()
+                    sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 6, -17)
+                    sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 6, 17)
+                end
+            end
+
+            if _G.InspectTalentFrameBackgroundTopLeft then
+                _G.InspectTalentFrameBackgroundTopLeft:ClearAllPoints()
+                _G.InspectTalentFrameBackgroundTopLeft:SetPoint("TOPLEFT", tal, "TOPLEFT", 18, -75)
+                _G.InspectTalentFrameBackgroundTopLeft:SetAlpha(0.25)
+            end
+
+            if _G.InspectTalentFramePointsBar then
+                if S and S.StripTextures then S:StripTextures(_G.InspectTalentFramePointsBar) end
+                _G.InspectTalentFramePointsBar:ClearAllPoints()
+                _G.InspectTalentFramePointsBar:SetPoint("BOTTOM", tal, "BOTTOM", 0, 90)
+                for i = 1, select("#", _G.InspectTalentFramePointsBar:GetRegions()) do
+                    local r = select(i, _G.InspectTalentFramePointsBar:GetRegions())
+                    if r and r:IsObjectType("FontString") then
+                        r:SetFont(fontPath, 10, "")
+                        r:SetTextColor(1, 1, 1, 0.85)
+                    end
+                end
+            end
+
+            local function UpdateInspectTalents()
+                local curTal = _G.InspectTalentFrame
+                if not curTal then return end
+                local tabIndex = (_G.PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(curTal))
+                    or curTal.selectedTab or 1
+                local isPet = curTal.pet or false
+                local group = curTal.talentGroup or 1
+
+                for i = 1, (MAX_NUM_TALENTS or 40) do
+                    local btn = _G["InspectTalentFrameTalent" .. i]
+                    local icon = _G["InspectTalentFrameTalent" .. i .. "IconTexture"]
+                    local rank = _G["InspectTalentFrameTalent" .. i .. "Rank"]
+
+                    if btn then
+                        -- TalentFrame_Update has already populated the native
+                        -- icon by the time our secure hook runs. Cache it before
+                        -- stripping, then prefer the inspect API result. This
+                        -- also covers private clients whose GetTalentInfo return
+                        -- timing differs slightly from stock 3.3.5.
+                        local nativeIconTexture = icon and icon:GetTexture()
+                        local _, iconTexturePath = GetTalentInfo(
+                            tabIndex, i, curTal.inspect ~= false, isPet, group)
+                        iconTexturePath = iconTexturePath or nativeIconTexture
+
+                        if not btn.isSkinned then
+                            if S and S.StripTextures then S:StripTextures(btn) end
+                            if S and S.CreateBackdrop then S:CreateBackdrop(btn, "Default") end
+                            if S and S.StyleButton then S:StyleButton(btn) end
+                            btn.isSkinned = true
+                        end
+                        btn:SetFrameLevel(btn:GetParent():GetFrameLevel() + 2)
+
+                        if icon then
+                            icon:SetTexture(iconTexturePath or "Interface\\Icons\\INV_Misc_QuestionMark")
+                            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                            icon:SetDrawLayer("ARTWORK")
+                            icon:Show()
+                            icon:SetAlpha(1)
+                            if S and S.SetInside then S:SetInside(icon) end
+                        end
+
+                        if rank then
+                            rank:SetFont(fontPath, 10, "OUTLINE")
+                        end
+                    end
+                end
+            end
+            UpdateInspectTalents()
+            if _G.InspectTalentFrame_Update then
+                hooksecurefunc("InspectTalentFrame_Update", UpdateInspectTalents)
+            end
         end
     end
 
@@ -725,7 +1016,8 @@ local function SkinInspectSheet()
     end
 
     -- Grid layout: 2 columns, 8 rows
-    local cellWidth = isLegacyInspect and 500 or 280
+    local slotWidth = 40
+    local cellWidth = isLegacyInspect and (INSPECT_WIDTH - 20 - slotWidth) or 280
     local cellHeight = 41
     local gridStartX = 10
     local gridStartY = -60
@@ -810,15 +1102,15 @@ local function SkinInspectSheet()
     -- large empty panel on the right.
     if isLegacyInspect and InspectModelFrame then
         InspectModelFrame:ClearAllPoints()
-        InspectModelFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 80, -76)
-        InspectModelFrame:SetSize(390, 324)
+        InspectModelFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 55, -76)
+        InspectModelFrame:SetSize(322, 324)
     end
 
     -- Position weapon slots at bottom (matches CharacterSheet pattern --
     -- hardcoded offset, no GetWidth which can return a secret value).
     if InspectMainHandSlot and InspectSecondaryHandSlot then
         InspectMainHandSlot:ClearAllPoints()
-        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", isLegacyInspect and 203 or 128, 10)
+        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", isLegacyInspect and 149 or 128, 10)
         InspectSecondaryHandSlot:ClearAllPoints()
         InspectSecondaryHandSlot:SetPoint("TOPLEFT", InspectMainHandSlot, "TOPRIGHT", 12, 0)
         if InspectRangedSlot then
@@ -994,12 +1286,12 @@ local function SkinInspectSheet()
     if ns.WSkin and ns.WSkin.NormalizeTabRow then ns.WSkin.NormalizeTabRow(inspTabs) end
 
     if isLegacyInspect and #inspTabs > 0 then
-        local TAB_W, TAB_H = 110, 30
+        local TAB_W, TAB_H = 144, 26
         for i, tab in ipairs(inspTabs) do
             tab:ClearAllPoints()
             tab:SetSize(TAB_W, TAB_H)
             if i == 1 then
-                tab:SetPoint("BOTTOM", frame, "BOTTOM", -TAB_W, 55)
+                tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
             else
                 tab:SetPoint("LEFT", inspTabs[i - 1], "RIGHT", 0, 0)
             end
@@ -1009,6 +1301,11 @@ local function SkinInspectSheet()
     -- Update tab visuals on show
     local function UpdateTabVisuals()
         local isTab1 = (frame.selectedTab or 1) == 1
+        local isTab2 = (frame.selectedTab or 1) == 2
+        local isTab3 = (frame.selectedTab or 1) == 3
+
+        if isTab2 then SkinInspectPVP() end
+        if isTab3 then SkinInspectTalents() end
 
         -- Show model background only on Tab 1
         if GetFFD(frame).modelBg then
@@ -1083,7 +1380,7 @@ local function SkinInspectSheet()
         frame.TitleContainer:SetFrameStrata("HIGH")
         frame.TitleContainer:SetFrameLevel(20)
         frame.TitleContainer:ClearAllPoints()
-        frame.TitleContainer:SetWidth(406)
+        frame.TitleContainer:SetWidth(330)
         frame.TitleContainer:SetPoint("TOP", frame, "TOP", 0, 0)
 
         for i = 1, frame.TitleContainer:GetNumChildren() do

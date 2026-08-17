@@ -847,11 +847,16 @@ C_UnitAuras = C_UnitAuras or {}
 C_UA = C_UA or {}
 local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
     if name then
+        local fromPlayer = source == "player"
+            or source == "pet"
+            or (source and UnitIsUnit
+                and (UnitIsUnit(source, "player") or UnitIsUnit(source, "pet")))
         return {
             name = name,
             icon = icon,
             applications = count,
             dispelType = dispelType,
+            dispelName = dispelType,
             duration = duration,
             expirationTime = expirationTime,
             sourceUnit = source,
@@ -859,7 +864,8 @@ local function PackAuraData(name, rank, icon, count, dispelType, duration, expir
             nameplateShowPersonal = nameplateShowPersonal == 1 or nameplateShowPersonal == true,
             spellId = spellId,
             auraInstanceID = spellId or name or 0,
-            castByPlayer = (source == "player"),
+            castByPlayer = fromPlayer,
+            isFromPlayerOrPlayerPet = fromPlayer,
             isHelpful = auraKind == "HELPFUL",
             isHarmful = auraKind == "HARMFUL",
         }
@@ -867,29 +873,92 @@ local function PackAuraData(name, rank, icon, count, dispelType, duration, expir
     return nil
 end
 
+-- WotLK's UnitAura API has no incremental UNIT_AURA payload.  The raid-frame
+-- consumers therefore all ask for the same complete aura list, and several of
+-- them immediately look each returned instance up again for filters, duration,
+-- and dispel colour.  Cache one packed snapshot per unit/filter for the current
+-- frame so those lookups remain O(1) instead of recursively rescanning up to 40
+-- auras for every icon. UNIT_AURA invalidates the snapshot below; the GetTime
+-- stamp is a safety net for every other caller.
+local auraSnapshotStamp
+local auraSnapshots = {}
+local auraSnapshotsByID = {}
+
+local function ResetAuraSnapshotsForFrame()
+    local now = GetTime()
+    if auraSnapshotStamp ~= now then
+        auraSnapshotStamp = now
+        wipe(auraSnapshots)
+        wipe(auraSnapshotsByID)
+    end
+end
+
+local function AuraSnapshotKey(unit, filter)
+    return tostring(unit) .. "\031" .. tostring(filter or "HELPFUL")
+end
+
+local function BuildAuraSnapshot(unit, filter)
+    ResetAuraSnapshotsForFrame()
+    filter = filter or "HELPFUL"
+    local key = AuraSnapshotKey(unit, filter)
+    local list = auraSnapshots[key]
+    if list then return list end
+
+    list = {}
+    auraSnapshots[key] = list
+    local auraKind = string.find(filter, "HARMFUL", 1, true) and "HARMFUL" or "HELPFUL"
+    local unitByID = auraSnapshotsByID[unit]
+    if not unitByID then
+        unitByID = { HELPFUL = {}, HARMFUL = {} }
+        auraSnapshotsByID[unit] = unitByID
+    end
+    local kindByID = unitByID[auraKind]
+
+    for i = 1, 40 do
+        local name, rank, icon, count, dispelType, duration, expirationTime, source,
+            isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, filter)
+        if not name then break end
+        local aura = PackAuraData(name, rank, icon, count, dispelType, duration,
+            expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
+        list[#list + 1] = aura
+        local iid = aura and aura.auraInstanceID
+        if iid ~= nil and kindByID[iid] == nil then kindByID[iid] = aura end
+    end
+    return list
+end
+
+function C_UnitAuras.ClearCachedAuraData()
+    -- Invalidation is deliberately whole-cache: it is cheap, guarantees that
+    -- two UNIT_AURA events in the same rendered frame cannot share stale data,
+    -- and the next unit rebuilds only the exact filters it consumes.
+    auraSnapshotStamp = nil
+    wipe(auraSnapshots)
+    wipe(auraSnapshotsByID)
+end
+
+-- This frame is created with the compatibility layer, before feature add-ons
+-- register their own UNIT_AURA handlers.  It invalidates once per event, then
+-- every consumer later in the dispatch shares the newly built snapshot.
+local auraCacheInvalidator = CreateFrame("Frame")
+auraCacheInvalidator:RegisterEvent("UNIT_AURA")
+auraCacheInvalidator:RegisterEvent("PLAYER_ENTERING_WORLD")
+auraCacheInvalidator:SetScript("OnEvent", function()
+    C_UnitAuras.ClearCachedAuraData()
+end)
+
 C_UnitAuras.GetAuraDataByIndex = function(unit, index, filter)
-    local auraKind = filter and string.find(filter, "HARMFUL") and "HARMFUL" or "HELPFUL"
-    local name, rank, icon, count, dispelType, duration, expirationTime, source,
-        isStealable, nameplateShowPersonal, spellId = UnitAura(unit, index, filter)
-    return PackAuraData(name, rank, icon, count, dispelType, duration,
-        expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
+    if not unit or not index then return nil end
+    return BuildAuraSnapshot(unit, filter)[index]
 end
 
 C_UnitAuras.GetPlayerAuraBySpellID = function(spellID)
     local nameToFind = GetSpellInfo(spellID)
     if not nameToFind then return nil end
-    for i = 1, 40 do
-        local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura("player", i)
-        if not name then break end
-        if name == nameToFind or spellId == spellID then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HELPFUL")
-        end
-    end
-    for i = 1, 40 do
-        local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura("player", i, "HARMFUL")
-        if not name then break end
-        if name == nameToFind or spellId == spellID then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HARMFUL")
+    for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+        for _, aura in ipairs(BuildAuraSnapshot("player", filter)) do
+            if aura.name == nameToFind or aura.spellId == spellID then
+                return aura
+            end
         end
     end
     return nil
@@ -905,14 +974,9 @@ C_UnitAuras.GetUnitAuraBySpellID = function(unit, spellID)
     local nameToFind = GetSpellInfo(spellID)
     if not nameToFind then return nil end
     for _, filter in ipairs(unitAuraLookupFilters) do
-        for i = 1, 40 do
-            local name, rank, icon, count, dispelType, duration, expirationTime, source,
-                isStealable, nameplateShowPersonal, foundSpellID = UnitAura(unit, i, filter)
-            if not name then break end
-            if name == nameToFind or foundSpellID == spellID then
-                return PackAuraData(name, rank, icon, count, dispelType, duration,
-                    expirationTime, source, isStealable, nameplateShowPersonal,
-                    foundSpellID, filter)
+        for _, aura in ipairs(BuildAuraSnapshot(unit, filter)) do
+            if aura.name == nameToFind or aura.spellId == spellID then
+                return aura
             end
         end
     end
@@ -921,21 +985,17 @@ end
 
 C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, iid)
     if not unit or not iid then return nil end
-    for i = 1, 40 do
-        local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, "HELPFUL")
-        if not name then break end
-        if spellId == iid then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HELPFUL")
-        end
-    end
-    for i = 1, 40 do
-        local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, "HARMFUL")
-        if not name then break end
-        if spellId == iid then
-            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HARMFUL")
-        end
-    end
-    return nil
+    ResetAuraSnapshotsForFrame()
+    local unitByID = auraSnapshotsByID[unit]
+    local cached = unitByID and (unitByID.HELPFUL[iid] or unitByID.HARMFUL[iid])
+    if cached then return cached end
+    BuildAuraSnapshot(unit, "HELPFUL")
+    unitByID = auraSnapshotsByID[unit]
+    local aura = unitByID and unitByID.HELPFUL[iid]
+    if aura then return aura end
+    BuildAuraSnapshot(unit, "HARMFUL")
+    unitByID = auraSnapshotsByID[unit]
+    return unitByID and unitByID.HARMFUL[iid] or nil
 end
 
 C_UnitAuras.GetAuraDataBySpellName = function(unit, name, filter)
@@ -949,12 +1009,8 @@ C_UnitAuras.GetAuraDataBySpellName = function(unit, name, filter)
         end
     end
     for _, f in ipairs(scanFilters) do
-        for i = 1, 40 do
-            local auraName, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, f)
-            if not auraName then break end
-            if auraName == name then
-                return PackAuraData(auraName, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, f)
-            end
+        for _, aura in ipairs(BuildAuraSnapshot(unit, f)) do
+            if aura.name == name then return aura end
         end
     end
     return nil
@@ -968,7 +1024,7 @@ C_UnitAuras.IsAuraFilteredOutByInstanceID = function(unit, iid, filter)
     local function MatchesToken(token)
         if token == "HELPFUL" then return aura.isHelpful == true end
         if token == "HARMFUL" then return aura.isHarmful == true end
-        if token == "PLAYER" then return aura.sourceUnit == "player" end
+        if token == "PLAYER" then return aura.isFromPlayerOrPlayerPet == true end
         if token == "BIG_DEFENSIVE" or token == "EXTERNAL_DEFENSIVE" then
             local tag = token == "BIG_DEFENSIVE" and "defensive" or "external"
             return C_CooldownViewer
@@ -1028,12 +1084,12 @@ C_UA.GetAuraDataBySpellName = C_UnitAuras.GetAuraDataBySpellName
 C_UA.IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
 C_UA.GetAuraDuration = C_UnitAuras.GetAuraDuration
 C_UA.GetAuraDispelTypeColor = C_UnitAuras.GetAuraDispelTypeColor
+C_UA.ClearCachedAuraData = C_UnitAuras.ClearCachedAuraData
 
 C_UA.GetAuraSlots = function(unit, filter)
     local slots = {}
-    for i = 1, 40 do
-        local name = UnitAura(unit, i, filter)
-        if not name then break end
+    local snapshot = BuildAuraSnapshot(unit, filter)
+    for i = 1, #snapshot do
         slots[#slots + 1] = i
     end
     -- Retail returns a continuation token followed by the slot IDs. Callers
@@ -1041,10 +1097,7 @@ C_UA.GetAuraSlots = function(unit, filter)
     return nil, unpack(slots)
 end
 C_UA.GetAuraDataBySlot = function(unit, slot)
-    local name, rank, icon, count, dispelType, duration, expirationTime, source,
-        isStealable, nameplateShowPersonal, spellId = UnitAura(unit, slot, "HELPFUL")
-    return PackAuraData(name, rank, icon, count, dispelType, duration,
-        expirationTime, source, isStealable, nameplateShowPersonal, spellId, "HELPFUL")
+    return BuildAuraSnapshot(unit, "HELPFUL")[slot]
 end
 
 
@@ -2109,4 +2162,3 @@ function EUI.SafeUnitChannelInfo(unit)
     end
 end
 EllesmereUI.SafeUnitChannelInfo = EUI.SafeUnitChannelInfo
-

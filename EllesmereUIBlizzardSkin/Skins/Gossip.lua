@@ -8,6 +8,7 @@ local find, gsub = string.find, string.gsub
 --WoW API / Variables
 
 WSkin:AddCallback("Skin_Gossip", function()
+	if not WSkin:IsSkinEnabled("gossip") then return end
 
 	-- Gossip
 	WSkin:Kill(GossipFramePortrait)
@@ -89,4 +90,4 @@ WSkin:AddCallback("Skin_Gossip", function()
 
 	WSkin:Point(ItemTextScrollFrameScrollBar, "TOPLEFT", ItemTextScrollFrame, "TOPRIGHT", 3, -19)
 	WSkin:Point(ItemTextScrollFrameScrollBar, "BOTTOMLEFT", ItemTextScrollFrame, "BOTTOMRIGHT", 3, 19)
-end)
+end, "gossip")

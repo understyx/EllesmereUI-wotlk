@@ -185,6 +185,7 @@ local function BuildModuleAliases()
     local EXTRA_ALIASES = {
         EllesmereUIMythicTimer     = { "m+ timer", "m+" },
         EllesmereUICooldownManager = { "cdm" },
+        EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
         if EllesmereUI._modules and EllesmereUI._modules[folder] then
@@ -603,18 +604,23 @@ local function EnsureSearchUI()
     popup:SetFrameLevel(220)
     popup:SetClampedToScreen(true)
     popup:Hide()
-    local popupBg = popup:CreateTexture(nil, "BACKGROUND")
+    -- Keep the tint at the very back of the popup. Some clients composite a
+    -- frame-level BACKGROUND texture over nested child-frame font strings,
+    -- which makes the result labels look as though they are underneath it.
+    local popupBg = popup:CreateTexture(nil, "BACKGROUND", nil, -8)
     popupBg:SetAllPoints()
     popupBg:SetTexture(0.10, 0.10, 0.12, 0.97)
     if EllesmereUI.MakeBorder then EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, PP) end
 
     local resultsFrame = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
+    resultsFrame:SetFrameLevel(popup:GetFrameLevel() + 1)
     resultsFrame:SetPoint("TOPLEFT", popup, "TOPLEFT", 4, -4)
     resultsFrame:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -4, 4)
 
     resultRows = {}
     for i = 1, MAX_VISIBLE_RESULTS do
         local row = EllesmereUI.SafeCreateFrame("Button", nil, resultsFrame)
+        row:SetFrameLevel(resultsFrame:GetFrameLevel() + 1)
         row:SetHeight(RESULT_ROW_H)
         row:SetPoint("TOPLEFT", resultsFrame, "TOPLEFT", 1, -(i - 1) * (RESULT_ROW_H + RESULT_ROW_GAP))
         row:SetPoint("TOPRIGHT", resultsFrame, "TOPRIGHT", -1, -(i - 1) * (RESULT_ROW_H + RESULT_ROW_GAP))
@@ -656,13 +662,9 @@ local function EnsureSearchUI()
         -- Coarse module/page results show immediately; when the pass
         -- finishes, re-run the query so newly indexed rows appear without
         -- retyping.
-        -- While a search is active, every "Show Less Common" section renders
-        -- force-expanded with no link line; clearing the box collapses them
-        -- back to their session state (transitions rebuild -- see
-        -- SetLessCommonSearchActive in EllesmereUI_Widgets.lua).
-        if EllesmereUI.SetLessCommonSearchActive then
-            EllesmereUI.SetLessCommonSearchActive(query ~= "")
-        end
+        -- This global popup only reads the prebuilt index; it must not alter
+        -- or rebuild the page currently open behind it. Page-local search
+        -- owns less-common-section expansion through ApplyInlineSearch.
         if query ~= "" and not _prebuildDone then
             RunPrebuildPass(function()
                 if sidebarSearchBox:GetText() ~= "" then RunSearch() end

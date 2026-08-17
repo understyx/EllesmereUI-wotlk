@@ -90,7 +90,7 @@ local defaults = {
             fpsPosition       = "bottomLeft",
             fpsOffsetX        = 0,
             fpsOffsetY        = 0,
-            fpsHoverTooltip   = "none",  -- none | lockouts | vault
+            fpsHoverTooltip   = "none",  -- none | lockouts
             fpsUpdateInterval = 3,       -- seconds between FPS/MS refreshes (1-5)
             clockHoverTooltip = "none",
             -- Show Instance Difficulty as Text: replaces the Blizzard
@@ -553,7 +553,7 @@ end
 -- is close to the 200-local main-chunk cap.
 -- edge = anchor tuples (tooltip point, anchor point, x, y) hanging the popup
 -- from a corner of its anchor (friends/calendar tooltips, flyouts); center =
--- centered on the facing edge (vault tooltip); tt = named sides for the small
+-- centered on the facing edge; tt = named sides for the small
 -- ShowWidgetTooltip labels (anything besides left/right/below anchors above).
 EBS._Grow = {
     edge = {
@@ -748,8 +748,8 @@ local function GetRowBase(mode, distance)
     return d * mode.awayX, d * mode.awayY
 end
 
--- Scale for the custom tooltips shown by the unique minimap buttons (Great
--- Vault, friends, calendar, mail, tracking, crafting, flyout toggle, portals).
+-- Scale for the custom tooltips shown by the unique minimap buttons (friends,
+-- calendar, mail, tracking, crafting, flyout toggle, portals).
 local function GetCustomTooltipScale()
     local mp = EBS.db and EBS.db.profile.minimap
     return mp and mp.customTooltipScale or 1.0
@@ -1592,7 +1592,7 @@ local function GatherOnlineFriends()
 end
 
 -- Custom two-column friends tooltip (same pattern as M+ death tooltip).
--- FTT_FONT stays file-scope (it is shared with the calendar/vault tooltips below).
+-- FTT_FONT stays file-scope (it is shared with the calendar tooltips below).
 -- Everything else lives in the do-block so its locals are released at the matching
 -- end and do not consume main-chunk local slots -- this file is at the Lua 5.1
 -- 200-local cap. Only ShowFriendsTooltip / HideFriendsTooltip are used outside the
@@ -3703,9 +3703,9 @@ local function ApplyMinimap()
         end
         clockTicker:Show()
         UpdateClock()
-        -- Hover tooltip (Show on Clock Hover): instance lockouts or Great
-        -- Vault, both reuse the calendar/vault custom tooltips (and their
-        -- Custom Tooltip Size scaling). Mode is read live on each hover.
+        -- Hover tooltip (Show on Clock Hover): instance lockouts,
+        -- reuses the calendar custom tooltip (and its Custom Tooltip Size scaling).
+        -- Mode is read live on each hover.
         if not clockBg._euiHoverHooked then
             clockBg._euiHoverHooked = true
             clockBg:SetScript("OnEnter", function(self)
@@ -3716,8 +3716,6 @@ local function ApplyMinimap()
                     if EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then return end
                     local entries = GetCalendarLockoutEntries()
                     if entries then ShowCalendarTooltip(self, entries) end
-                elseif mode == "vault" then
-                    ShowVaultTooltip(self)
                 end
             end)
             clockBg:SetScript("OnLeave", function()
@@ -3947,8 +3945,6 @@ local function ApplyMinimap()
                     if EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then return end
                     local entries = GetCalendarLockoutEntries()
                     if entries then ShowCalendarTooltip(self, entries) end
-                elseif mode == "vault" then
-                    ShowVaultTooltip(self)
                 end
             end)
             fpsBg:SetScript("OnLeave", function()

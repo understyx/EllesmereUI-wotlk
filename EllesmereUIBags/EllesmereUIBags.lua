@@ -1,6 +1,6 @@
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua
---  Enhanced Bags System for EllesmereUI (Midnight)
+--  Enhanced Bags System for EllesmereUI
 --  Sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
 EUI_Bags = EllesmereUI.SafeCreateFrame("Frame", "EUI_MainBagFrame", UIParent)
@@ -1393,8 +1393,6 @@ end
 -------------------------------------------------------------------------------
 local lastCapturedGold = 0
 local goldCapturePending = false
-local lastCapturedWarbandGold = -1
-local warbandGoldCapturePending = false
 
 local function FormatNumberWithCommas(num)
     local str = tostring(math.floor(num))
@@ -1425,8 +1423,6 @@ local function FormatGoldOnly(gold)
     local goldAmount = math.floor(gold / 10000)
     return FormatNumberWithCommas(goldAmount) .. "|TInterface\\MoneyFrame\\UI-GoldIcon:14|t"
 end
-
-local WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B = 1, 0.8, 0.5
 
 local function UpdateBagMoneyDisplay()
     if not EUI_Bags.Money then return end
@@ -1477,41 +1473,16 @@ local function CaptureCurrentCharacterGold()
     end)
 end
 
-local function CaptureWarbandGold()
-    if not C_Bank or not C_Bank.FetchDepositedMoney then return end
-    InitializeCharacterGold()
-    local gold = C_Bank.FetchDepositedMoney(Enum.BankType.Account) or 0
-    if gold == lastCapturedWarbandGold then return end
-    if warbandGoldCapturePending then return end
-    lastCapturedWarbandGold = gold
-    warbandGoldCapturePending = true
-    C_Timer.After(0.5, function()
-        local currentGold = C_Bank.FetchDepositedMoney(Enum.BankType.Account) or 0
-        EllesmereUIDB.warbandGold = {
-            gold = currentGold,
-            lastUpdated = time(),
-        }
-        lastCapturedWarbandGold = currentGold
-        warbandGoldCapturePending = false
-    end)
-end
-
-EUI_Bags.CaptureWarbandGold = CaptureWarbandGold
-
 local function CaptureTrackedGold()
     if BP().enableGoldTracking == false then return end
     CaptureCurrentCharacterGold()
-    CaptureWarbandGold()
 end
 
 local function ResetAllGoldData()
     if not EllesmereUIDB then return end
     EllesmereUIDB.characterGold = {}
-    EllesmereUIDB.warbandGold = nil
     lastCapturedGold = -1
-    lastCapturedWarbandGold = -1
     goldCapturePending = false
-    warbandGoldCapturePending = false
     CaptureTrackedGold()
 end
 
@@ -1608,14 +1579,9 @@ local function ShowGoldTooltip(anchor)
     end
     table.sort(charList, function(a, b) return a.id < b.id end)
 
-    local warbandGold = EllesmereUIDB.warbandGold and EllesmereUIDB.warbandGold.gold
-    if warbandGold then
-        totalGold = totalGold + warbandGold
-    end
-    if #charList == 0 and not warbandGold then return end
+    if #charList == 0 then return end
 
     local rowCount = #charList + 1
-    if warbandGold then rowCount = rowCount + 1 end
     EnsureGoldRows(rowCount)
     local tt = GetGoldTooltip()
 
@@ -1637,20 +1603,6 @@ local function ShowGoldTooltip(anchor)
     end
 
     local totalRow = #charList + 1
-    if warbandGold then
-        local nameFS = _goldTTRows[totalRow][0]
-        local goldFS = _goldTTRows[totalRow][1]
-        nameFS:SetText("|cffffcc80" .. EllesmereUI.L("Warbank") .. "|r")
-        goldFS:SetText(FormatGoldOnly(warbandGold))
-        goldFS:SetTextColor(WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B, 1)
-        nameFS:Show(); goldFS:Show()
-        local nw = nameFS:GetStringWidth() or 0
-        local gw = goldFS:GetStringWidth() or 0
-        if nw > colWidths[1] then colWidths[1] = nw end
-        if gw > colWidths[2] then colWidths[2] = gw end
-        totalRow = totalRow + 1
-    end
-
     local totalNameFS = _goldTTRows[totalRow][0]
     local totalGoldFS = _goldTTRows[totalRow][1]
     totalNameFS:SetText("|cffffcc80" .. EllesmereUI.L("Total") .. "|r")
@@ -2470,21 +2422,14 @@ EUI_Bags.RefreshIconZoom = RefreshIconZoom
 -------------------------------------------------------------------------------
 --  Bind type text (shared by bags and bank render paths)
 -------------------------------------------------------------------------------
--- WuE items report bindType == OnEquip from GetItemInfo (no dedicated enum),
--- so the WuE flag must be checked first.
 function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
-    local c
-    if isWuE then
-        c = ITEM_QUALITY_COLORS[7] -- Heirloom color (no quality enum for WuE)
-        fs:SetText(EllesmereUI.L("WuE"))
-    elseif bindType == Enum.ItemBind.OnEquip then
-        c = ITEM_QUALITY_COLORS[quality]
+    if bindType == Enum.ItemBind.OnEquip then
+        local c = ITEM_QUALITY_COLORS[quality]
         fs:SetText(EllesmereUI.L("BoE"))
+        if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1) end
     else
         fs:SetText("")
-        return
     end
-    if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1) end
 end
 
 -------------------------------------------------------------------------------
@@ -2546,7 +2491,6 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:Hide() end
         if btn.IconBorder then btn.IconBorder:Hide() end
         if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
-        if btn._warbankDim then btn._warbankDim:Hide() end
         btn:SetAlpha(1)
     else
         btn:EnableMouse(true)
@@ -2620,7 +2564,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         if btn.BindTypeText then
             if data._isGear and not data.info.isBound and not data._isQuestStarter
                and BP().bagDisplayBindType then
-                EUI_Bags.SetBindTypeText(btn.BindTypeText, data._isWuE, data._giBindType, quality)
+                EUI_Bags.SetBindTypeText(btn.BindTypeText, nil, data._giBindType, quality)
             else
                 btn.BindTypeText:SetText("")
             end
@@ -2644,7 +2588,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                 btn.ProfessionQualityOverlay:SetAlpha(0)
             end
         end
-        -- Cosmetic/warbound overlays: SetItemButtonQuality re-shows these,
+        -- Cosmetic overlays: SetItemButtonQuality re-shows these,
         -- so we must handle them AFTER that call. Reparent to textOverlay
         -- so they render above the inset quality borders.
         if btn.IconOverlay then
@@ -2703,28 +2647,6 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             btn._questMarker:Show()
         elseif btn._questMarker then
             btn._questMarker:Hide()
-        end
-
-        -- Warbank dim overlay: when a warband bank tab is selected,
-        -- dim non-warbound items so the user can see what's eligible.
-        if not btn._warbankDim then
-            local dimFrame = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
-            dimFrame:SetAllPoints()
-            dimFrame:SetFrameLevel((btn._textOverlay and btn._textOverlay:GetFrameLevel() or btn:GetFrameLevel()) + 3)
-            local dim = dimFrame:CreateTexture(nil, "OVERLAY")
-            dim:SetAllPoints()
-            dim:SetTexture(0, 0, 0, 0.75)
-            dimFrame:Hide()
-            btn._warbankDim = dimFrame
-        end
-        local bank = _G.EUI_BankFrame
-        local showDim = bank and bank:IsVisible()
-            and bank.IsWarbandView and bank:IsWarbandView()
-            and not data._isWarbound
-        if showDim then
-            btn._warbankDim:Show()
-        else
-            btn._warbankDim:Hide()
         end
 
         -- Cooldown
@@ -5008,18 +4930,6 @@ function EUI_Bags:RefreshInventory()
                     -- Track rank + cooldown: only for types that need them
                     local isGear = IsGearItem(itemLink)
                     d._isGear = isGear
-
-                    -- Warbound check (for warbank dim overlay) + WuE bind check
-                    -- (gear only, and only when the bind-type text is enabled)
-                    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
-                    if loc and C_Item.DoesItemExist(loc) then
-                        if C_Bank and C_Bank.IsItemAllowedInBankType then
-                            d._isWarbound = C_Bank.IsItemAllowedInBankType(Enum.BankType.Account, loc)
-                        end
-                        if isGear and not info.isBound and BP().bagDisplayBindType then
-                            d._isWuE = C_Item.IsBoundToAccountUntilEquip(loc)
-                        end
-                    end
                     -- Keystone data (rare, fast string match gates the API calls)
                     if info.itemID == 180653 or itemLink:find("keystone:", 1, true) then
                         local ksMap, ksLvl = itemLink:match("keystone:[^:]*:(%d+):(%d+)")

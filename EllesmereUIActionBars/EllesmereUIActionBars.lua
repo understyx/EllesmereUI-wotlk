@@ -11300,7 +11300,6 @@ local DATA_BAR_COLORS = {
         [7] = { r = 0.25, g = 0.50, b = 0.75 },  -- Revered
         [8] = { r = 0.35, g = 0.30, b = 0.80 },  -- Exalted
         [9] = { r = 0.80, g = 0.65, b = 0.20 },  -- Paragon
-        [10] = { r = 0.20, g = 0.70, b = 0.85 }, -- Renown
     },
 }
 
@@ -11710,7 +11709,7 @@ local function UpdateRepBar()
         end
     end
 
-    -- Paragon handling (check before renown max-renown factions become paragon)
+    -- Paragon handling (check before max factions become paragon)
     local isParagon = false
     if factionID and C_Reputation.IsFactionParagonForCurrentPlayer and C_Reputation.IsFactionParagonForCurrentPlayer(factionID) then
         local paragonVal, paragonThreshold = C_Reputation.GetFactionParagonInfo(factionID)
@@ -11721,23 +11720,6 @@ local function UpdateRepBar()
             currentReactionThreshold = 0
             nextReactionThreshold = paragonThreshold
             reaction = 9
-        end
-    end
-
-    -- Renown handling (only if not already paragon or friendship)
-    if not isParagon and not isFriendship and factionID and C_Reputation.IsMajorFaction and C_Reputation.IsMajorFaction(factionID) then
-        local majorData = C_MajorFactions and C_MajorFactions.GetMajorFactionData and C_MajorFactions.GetMajorFactionData(factionID)
-        if majorData then
-            local hasMax = C_MajorFactions.HasMaximumRenown and C_MajorFactions.HasMaximumRenown(factionID)
-            if hasMax then
-                EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true)
-                return
-            end
-            reaction = 10
-            standing = "Renown"
-            currentReactionThreshold = 0
-            nextReactionThreshold = majorData.renownLevelThreshold
-            currentStanding = majorData.renownReputationEarned or 0
         end
     end
 
@@ -11802,10 +11784,6 @@ local function CreateRepBar()
     evFrame:RegisterEvent("UPDATE_FACTION")
     evFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     evFrame:RegisterEvent("QUEST_FINISHED")
-    if C_MajorFactions then
-        evFrame:RegisterEvent("MAJOR_FACTION_RENOWN_LEVEL_CHANGED")
-        evFrame:RegisterEvent("MAJOR_FACTION_UNLOCKED")
-    end
     evFrame:SetScript("OnEvent", UpdateRepBar)
 
     ApplyDataBarLayout("RepBar")

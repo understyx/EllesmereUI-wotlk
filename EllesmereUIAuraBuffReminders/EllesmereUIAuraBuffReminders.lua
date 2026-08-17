@@ -22,7 +22,7 @@ local _groupAuraDirty = false
 local InCombat = function() return _eabrInCombat or (InCombatLockdown and InCombatLockdown()) end
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local isSecret = issecretvalue or function() return false end
-local AURA_SCAN_LIMIT = 255  -- Midnight supports more than the legacy 40 buff limit
+local AURA_SCAN_LIMIT = 40
 local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
 local DEFAULT_TEXT_COLOR = {r=1, g=1, b=1}
 
@@ -278,7 +278,7 @@ local function InPvPInstance()
 end
 
 -------------------------------------------------------------------------------
---  Midnight Season 1 Dungeon, Raid & PvP Instance Names
+--  Dungeon, Raid & PvP Instance Names
 -------------------------------------------------------------------------------
 -- Talent reminder zone data moved to EllesmereUIABR_TalentReminders.lua
 
@@ -287,7 +287,7 @@ end
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
---  Aura query helpers (secret-value safe, Midnight 12.0)
+--  Aura query helpers
 --  NON_SECRET_SPELL_IDS: whitelisted IDs readable via GetPlayerAuraBySpellID
 --  even during combat lockdown.
 -------------------------------------------------------------------------------

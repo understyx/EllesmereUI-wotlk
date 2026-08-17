@@ -67,7 +67,6 @@ local ADDON_FRAMES = {
     ["Blizzard_ItemSocketingUI"]                   = { "ItemSocketingFrame" },
 
     ["Blizzard_MacroUI"]                           = { "MacroFrame" },
-    ["Blizzard_MajorFactions"]                     = { "MajorFactionRenownFrame" },
     ["Blizzard_PlayerSpells"]                      = { "PlayerSpellsFrame" },
     ["Blizzard_Professions"]                       = { "ProfessionsFrame" },
     ["Blizzard_ProfessionsBook"]                   = { "ProfessionsBookFrame" },
@@ -78,7 +77,6 @@ local ADDON_FRAMES = {
     ["Blizzard_TrainerUI"]                         = { "ClassTrainerFrame" },
     ["Blizzard_TradeSkillUI"]                      = { "TradeSkillFrame" },
     ["Blizzard_Transmog"]                          = { "TransmogFrame" },
-    ["Blizzard_WeeklyRewards"]                     = { "WeeklyRewardsFrame" },
     ["Blizzard_WorldMap"]                          = { "WorldMapFrame" },
 
 }
@@ -763,7 +761,7 @@ end
 --  entirely, and no mouse state is ever touched.
 --
 --  AlertFrame is the anchor every toast banner stacks up from (loot and
---  currency toasts, achievements, gold, recipes, Trading Post activities).
+--  currency toasts, achievements, gold, recipes).
 --  It rides the same enforcement; its own rect is a bare anchor rather than
 --  a toast-sized box, so its mover uses a fixed size (fixedSize).
 -------------------------------------------------------------------------------

@@ -12,6 +12,7 @@ local GetItemQualityColor = GetItemQualityColor
 local GetMerchantNumItems = GetMerchantNumItems
 
 WSkin:AddCallback("Skin_Merchant", function()
+	if not WSkin:IsSkinEnabled("merchant") then return end
 
 	local MerchantFrame = _G.MerchantFrame
 	WSkin:StripTextures(MerchantFrame, true)
@@ -234,4 +235,4 @@ WSkin:AddCallback("Skin_Merchant", function()
 		MerchantItem7:SetPoint("TOPLEFT", "MerchantItem5", "BOTTOMLEFT", 0, -15)
 		MerchantItem9:SetPoint("TOPLEFT", "MerchantItem7", "BOTTOMLEFT", 0, -15)
 	end)
-end)
+end, "merchant")

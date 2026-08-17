@@ -2285,10 +2285,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end)
 
-    -- Refresh the CDM options pages on spec change. Every CDM page (Bars, Bar
-    -- Glows, Tracking Bars) is per-spec, and so is the page-local selected-bar
-    -- index. The options panel caches built pages, so after a spec swap the cache
-    -- holds wrappers built for the PREVIOUS spec. A shared-profile spec swap never
+    -- Refresh the CDM options pages on spec change. Bar structure/layout is
+    -- profile-wide, but bar contents, Glows and Tracking Bars remain per-spec,
+    -- as do their page-local selections. The panel caches built pages, so after
+    -- a spec swap the cache holds wrappers built for the PREVIOUS spec. A
+    -- shared-profile spec swap never
     -- runs RefreshAllAddons (which is what clears the cache on a profile swap), so
     -- without an explicit invalidation, reopening the panel serves the stale page
     -- (the previous spec's selected bar -- e.g. Balance's "Eclipse (Solar)" still
@@ -2298,8 +2299,8 @@ initFrame:SetScript("OnEvent", function(self)
     local function HandleTBBSpecChange()
         _tbbSelectedBar = 1
         _tbbSelectedGroup = nil
-        -- Every CDM page is per-spec; drop the cached wrappers so navigating to
-        -- any of them rebuilds against the new spec.
+        -- CDM content pages are spec-sensitive; drop the cached wrappers so
+        -- navigating to any of them rebuilds against the new spec.
         if EllesmereUI.InvalidateModulePageCache then
             EllesmereUI:InvalidateModulePageCache("EllesmereUICooldownManager")
         end
@@ -8889,7 +8890,8 @@ initFrame:SetScript("OnEvent", function(self)
                     -----------------------------------------------------------
                     local AB = {}
                     AB.BarDefForProf = function(prof)
-                        local bars = prof and prof.cdmBars and prof.cdmBars.bars
+                        local cfg = ns.GetActiveCDMConfig and ns.GetActiveCDMConfig(true)
+                        local bars = cfg and cfg.bars
                         if not bars then return nil end
                         for _, candidate in ipairs(bars) do
                             if candidate.key == barKey then return candidate end
@@ -9061,6 +9063,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if AB.CAS_KEYS[k] then touchesCas = true; break end
                         end
                         local count = 0
+                        local countedProfileTier = false
                         local CAS_FALSE_STRIPPED = {
                             cdStateEffect = true, thresholdSeconds = true,
                             thresholdDecimals = true, thresholdColorEnabled = true,
@@ -9078,10 +9081,11 @@ initFrame:SetScript("OnEvent", function(self)
                         local function sweep(prof)
                             if type(prof) ~= "table" then return end
                             local bsX = prof.barSpells and prof.barSpells[barKey]
-                            if allSpecs then
+                            if allSpecs and not countedProfileTier then
                                 local targetBd = AB.BarDefForProf(prof)
                                 local targetAbs = targetBd and targetBd.barSpellSettings
                                 if targetAbs and entryLoses(targetAbs, false) then count = count + 1 end
+                                countedProfileTier = true
                             end
                             if allSpecs and bsX and type(bsX.barSettings) == "table" then
                                 for _, k in ipairs(keys) do
@@ -9157,19 +9161,14 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         if allSpecs then
                             if not bdSel then return end
-                            AB.ForEachClassSpec(true, function(prof)
-                                local targetBd = AB.BarDefForProf(prof)
-                                if targetBd then
-                                    local abs = targetBd.barSpellSettings
-                                    if not abs then abs = {}; targetBd.barSpellSettings = abs end
-                                    applyWrite(abs, val)
-                                    AB.FlipSessionGates(abs)
-                                    sweepProf(prof)
-                                end
-                            end)
+                            local abs = bdSel.barSpellSettings
+                            if not abs then abs = {}; bdSel.barSpellSettings = abs end
+                            applyWrite(abs, val)
+                            AB.FlipSessionGates(abs)
+                            AB.ForEachClassSpec(true, sweepProf)
                         else
-                            -- The all-spec action wrote independent copies. Replacing
-                            -- the active spec's copy must not modify any other spec.
+                            -- Replacing the active spec tier leaves the shared
+                            -- profile-wide bar tier untouched.
                             local activeAbs = bdSel and bdSel.barSpellSettings
                             if activeAbs then
                                 for _, k in ipairs(keys) do activeAbs[k] = nil end
@@ -9263,14 +9262,8 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end
                         if allSpecs then
-                            AB.ForEachClassSpec(false, function(prof)
-                                local targetBd = AB.BarDefForProf(prof)
-                                local target = targetBd and targetBd.barSpellSettings
-                                if target then
-                                    for _, k in ipairs(keys) do target[k] = nil end
-                                    if next(target) == nil then targetBd.barSpellSettings = nil end
-                                end
-                            end)
+                            -- The profile tier was cleared above; there are no
+                            -- per-spec copies of barSpellSettings to sweep.
                         end
                         if touchesCas and ns.GetCustomActiveStateForProf and ns.ResolveCustomActiveKey then
                             -- Remove still-equal stamped values from one cas entry.
@@ -16829,7 +16822,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local delKey = b.key
                             EllesmereUI:ShowConfirmPopup({
                                 title = "Delete Bar",
-                                message = EllesmereUI.Lf("Are you sure you want to delete \"%1$s\"?", delName),
+                                message = EllesmereUI.Lf("Are you sure you want to delete \"%1$s\" from this profile? Its contents will be removed for all specs.", delName),
                                 confirmText = "Delete",
                                 cancelText = "Cancel",
                                 onConfirm = function()

@@ -22,6 +22,7 @@ local MAX_NUM_ITEMS = MAX_NUM_ITEMS
 local MAX_REPUTATIONS = MAX_REPUTATIONS
 
 WSkin:AddCallback("Skin_Quest", function()
+	if not WSkin:IsSkinEnabled("quest") then return end
 
 	WSkin:StripTextures(QuestLogFrame)
 	WSkin:CreateBackdrop(QuestLogFrame, "Transparent")
@@ -417,4 +418,4 @@ WSkin:AddCallback("Skin_Quest", function()
 			end
 		end
 	end)
-end)
+end, "quest")

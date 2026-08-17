@@ -79,7 +79,6 @@ All Bank Tabs
 All Classes
 All Items
 All Other Specs
-All Warbank Tabs
 All selected profiles will keep their %1$s settings in sync: changes made on any of them carry over to the others. Choose which profile's settings the group starts from.
 Already assigned to %s
 Already on %s
@@ -195,7 +194,6 @@ Delete \
 Delete this filter? It is removed from every indicator using it.
 Delete this global group for all specs
 Deposit Reagents
-Deposit Warbound Items
 Deselect All
 Disable
 Disabled
@@ -387,7 +385,6 @@ OK
 Okay
 OneBag
 OneBank
-OneWarbank
 Opacity
 
 Override Active:
@@ -590,7 +587,6 @@ Vers
 W Match
 W Matched
 WARNING: Frame positions may be off.
-Warbank
 What's new in EllesmereUI.
 Whistle
 Width %
@@ -598,7 +594,6 @@ Window Skins
 Window skins changed for this profile. A UI reload is needed to apply them.
 World
 Wrap
-WuE
 X Offset
 X Position
 Y Offset

@@ -5,6 +5,7 @@ local _G = _G
 --WoW API / Variables
 
 WSkin:AddCallback("Skin_WorldMap", function()
+	if not WSkin:IsSkinEnabled("worldmap") then return end
 
 	WorldMapFrame:DisableDrawLayer("BACKGROUND")
 	WorldMapFrame:DisableDrawLayer("ARTWORK")
@@ -176,11 +177,6 @@ WSkin:AddCallback("Skin_WorldMap", function()
 		end
 	end
 
-	if _G.E and _G.E.private and _G.E.private.worldmap and not _G.E.private.worldmap.enable then
-		WorldMapFrame:EnableMouse(false)
-		WorldMapFrame.EnableMouse = function() end
-	end
-
 	WorldMapTitleButton:Hide()
 	WorldMapFrame.backdrop:EnableMouse(true)
 
@@ -192,4 +188,4 @@ WSkin:AddCallback("Skin_WorldMap", function()
 	hooksecurefunc("WorldMapFrame_SetMiniMode", SmallSkin)
 	hooksecurefunc("ToggleMapFramerate", FixSkin)
 	hooksecurefunc("WorldMapFrame_ToggleAdvanced", FixSkin)
-end)
+end, "worldmap")

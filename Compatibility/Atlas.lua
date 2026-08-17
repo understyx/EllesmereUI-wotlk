@@ -1,5 +1,5 @@
 _G.EUI_AtlasMap = {
-    ["uitools-icon-close"] = "Interface\\Buttons\\UI-Panel-MinimizeButton-Up",
+    ["uitools-icon-close"] = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga",
     ["Azerite-PointingArrow"] = "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up",
     ["shop-card-wide-frame-default"] = "Interface\\DialogFrame\\UI-DialogBox-Background",
     ["shop-card-wide-frame-hover"] = "Interface\\DialogFrame\\UI-DialogBox-Background",

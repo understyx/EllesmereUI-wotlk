@@ -37,8 +37,9 @@ local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalo
 -------------------------------------------------------------------------------
 --  Shared CDM per-spec container export flow
 --  Used by BOTH the full-profile export and the per-addon export. Asks whether
---  to bundle complete CDM spec containers (bars, positions, spells and their
---  settings); on Yes, opens the spec picker so the user chooses which specs.
+--  to bundle specialization-owned CDM contents (spells, tracking bars and
+--  their settings); profile-wide bars and positions already ride with the
+--  normal profile data. On Yes, opens the spec picker.
 --  Calls exportFn(includeCDM, cdmSpecs) with the result. An export string is
 --  produced ONLY on an explicit "No" (without layout) or a completed picker
 --  selection -- closing/escaping either popup produces NO export.
@@ -55,7 +56,7 @@ function EllesmereUI.RunCDMSpellExportFlow(activeName, exportFn)
         for key, d in pairs(sp or {}) do
             specs[#specs + 1] = {
                 key = tostring(key),
-                checked = (type(d) == "table" and type(d.cdmBars) == "table") and true or false,
+                checked = type(d) == "table",
             }
         end
         EllesmereUI:ShowCDMSpecPickerPopup({
@@ -70,8 +71,8 @@ function EllesmereUI.RunCDMSpellExportFlow(activeName, exportFn)
         })
     end
     EllesmereUI:ShowConfirmPopup({
-        title       = EllesmereUI.L("Include CDM Spec Layouts?"),
-        message     = EllesmereUI.L("Include each chosen spec's complete Cooldown Manager setup: bars, positions, spells, tracking bars, unlock links, and per-spell settings."),
+        title       = EllesmereUI.L("Include CDM Spec Contents?"),
+        message     = EllesmereUI.L("Include each chosen spec's bar contents, tracking bars, and per-spell settings. Bar layouts and positions are already included with the profile."),
         confirmText = EllesmereUI.L("Yes"),
         cancelText  = EllesmereUI.L("No"),
         onConfirm   = function() pickThenExport() end,
@@ -825,8 +826,8 @@ EllesmereUI._WHATSNEW_PATCHES = {
         heroes = {
             {
                 module = "Raid Frames",
-                title  = "PTR 12.1 Advanced Aura Filtering",
-                desc   = "Midnight's 12.1 client reworks how raid frame auras are filtered, and EllesmereUI is ready: the Buff and Debuff Managers are rebuilt to let you choose exactly which buffs and debuffs your frames show. Already testable on the 12.1 PTR client, with more coming before launch.",
+                title  = "Advanced Aura Filtering",
+                desc   = "The Buff and Debuff Managers are rebuilt to let you choose exactly which buffs and debuffs your frames show.",
             },
             {
                 module = "Quality of Life",
@@ -939,7 +940,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unit Frames", text = "New Show Expand Button toggle can hide Blizzard's buff collapse and expand button and keep every buff visible instead." },
             { module = "Blizzard Windows", text = "Fixed guild rank reordering being blocked and a cascade of errors on guild roster refresh while the Guild window skin was enabled." },
             { module = "General", text = "\"In Party\" visibility now means party only across every module's visibility settings; check \"In Raid Group\" as well if something should also show in raids." },
-            { module = "Nameplates", text = "Fixed the name raid marker erroring and landing in the wrong spot beside names Midnight protects; it now sits cleanly at the name's edge." },
+            { module = "Nameplates", text = "Fixed the name raid marker erroring and landing in the wrong spot beside names; it now sits cleanly at the name's edge." },
             { module = "Profiles & Presets", text = "Export and import can now carry your Blizzard window and tooltip skins." },
             { module = "Quality of Life", text = "Fixed Target Distance Text triggering blocked-action errors on friendly targets in combat; the readout now pauses for friendlies in restricted situations instead." },
             { module = "Quality of Life", text = "The Keys, Logs & Brez tab merged into the bottom of the main Quality of Life page; the Battle Res and Bloodlust settings live there now." },
@@ -1072,7 +1073,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Mythic Timer", text = "Fixed the Unlock Mode drag anchor drifting from the timer's real position and size." },
             { module = "Nameplates", text = "Fixed neutral mobs staying on the enemy in-combat color instead of showing the Tank Has Aggro color while you hold aggro on them." },
             { module = "QoL", text = "Auto Open Containers no longer strands slow-opening or bags-full containers in a stuck, unopenable state." },
-            { module = "QoL", text = "Macro Factory now shows spec macros in your client's language on all clients, fixes blank combo-macro icons, and limits the Devourer macros to the Devourer spec." },
+            { module = "QoL", text = "Macro Factory now shows spec macros in your client's language on all clients and fixes blank combo-macro icons." },
             { module = "Quest Tracker", text = "Auto Accept Quests can now be skipped by holding Shift while talking to an NPC, matching Auto Turn In." },
             { module = "Quest Tracker", text = "Fixed the tracker's top padding staying wide after combat, auto-hide failing or erroring on boss pulls and arenas, and a taint bug where font or focus changes could block world map clicks in combat." },
             { module = "Resource Bars", text = "Fixed the Sweeping Strikes charge tracker draining charges during Bladestorm, and it now resyncs against the Cooldown Manager's buff widget." },
@@ -4986,13 +4987,13 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
 
-                -- CDM spell layouts (when the CDM module is selected, gated above)
-                -- import as-is. No spec picker: CDM spells are per-profile (stored
+                -- CDM spec contents (when the CDM module is selected, gated above)
+                -- import as-is. No spec picker: CDM contents are per-profile (stored
                 -- under spellAssignments.profiles[profileName]), so the import only
                 -- populates the NEW imported profile's store -- other profiles are
                 -- untouched and nothing is overwritten. Importing every spec in the
-                -- string is strictly beneficial -- any spec NOT in the string just
-                -- falls back to default bars, which is what a fresh profile gets anyway.
+                -- string is strictly beneficial -- a spec absent from the string
+                -- simply has no imported assignments on the shared profile bars.
                 commit()
             end)
             importBtn._flashError = BuildErrorFlash(importBtn, impBrd)

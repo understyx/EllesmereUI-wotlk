@@ -2146,16 +2146,6 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
                 end
             end
         end
-        local bankType = 2
-        if Enum and Enum.BankType and Enum.BankType.Account then bankType = Enum.BankType.Account end
-        if C_Bank and C_Bank.FetchDepositedMoney then
-            local wbank = C_Bank.FetchDepositedMoney(bankType)
-            if wbank and wbank > 0 then
-                ns.Tip_AddLine(" ")
-                ns.Tip_AddDouble(L["WARBANK"], ns.FormatMoney(wbank, true, sm, ci), 0.6, 0.6, 0.6, 1, 1, 1)
-                total = total + wbank
-            end
-        end
         ns.Tip_AddLine(" ")
         ns.Tip_AddDouble(L["TOTAL"], ns.FormatMoney(total, true, sm, ci), ar, ag, ab, 1, 1, 1)
         if goldLedger.tokenPrice and goldLedger.tokenPrice > 0 then
@@ -2346,13 +2336,6 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
         end
         local name, reaction, minV, maxV, curV, factionID = GetWatchedFactionInfoCompat()
         if not name then return nil end
-        -- Major Factions (renown progress)
-        if factionID and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
-            local mfd = C_MajorFactions.GetMajorFactionData(factionID)
-            if mfd and type(mfd.renownLevelThreshold) == "number" and mfd.renownLevelThreshold > 0 then
-                minV = 0; maxV = mfd.renownLevelThreshold; curV = mfd.renownReputationEarned or 0
-            end
-        end
         -- Normalise
         if type(minV) == "number" and type(maxV) == "number" and type(curV) == "number" then
             local nMax = maxV - minV
@@ -2523,8 +2506,6 @@ end
 -------------------------------------------------------------------------------
 -- Static hearthstone pool (all expansions) shared by every instance.
 local HEARTHSTONE_IDS = {
-    -- Midnight
-    263933, 265100, 263489,
     -- The War Within
     257736, 246565, 245970, 228940, 212337, 209035, 208704, 210455,
     -- Dragonflight

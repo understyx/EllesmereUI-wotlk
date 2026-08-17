@@ -356,6 +356,7 @@ local function RefreshAdapterVisual(frame)
     local avail = availability[cdID]
     local state = runtimeState[cdID]
     if not def then return end
+    local wasShown = frame:IsShown()
 
     frame:UpdateInfo()
 
@@ -422,11 +423,14 @@ local function RefreshAdapterVisual(frame)
             isActive and duration > 0 and 1 or 0)
     end
 
-    if isAura and wasActive ~= (isActive and true or false) then
+    if isAura and (wasActive ~= (isActive and true or false)
+        or (isActive and not wasShown)) then
         -- Notify the viewer's pool so the hooks layer installs
         -- OnActiveStateChanged hooks on newly created adapters and queues a
-        -- reanchor for layout.  Fires on both gain and fade so the bar
-        -- re-lays out (closing gaps / adding the new icon) even if the hook
+        -- reanchor for layout. Fires on gain/fade, and also repairs an active
+        -- adapter that another pool/layout pass unexpectedly hid, so a missed
+        -- lifecycle callback cannot leave debuff tracking visually stopped.
+        -- The bar re-lays out (closing gaps / adding the new icon) even if the hook
         -- was never installed on this particular adapter.
         local viewer = frame.viewerFrame
         if viewer and viewer.itemFramePool and viewer.itemFramePool.Acquire then
@@ -629,6 +633,14 @@ local function UpdateAuraCache()
                     name = name,
                 }
                 if spellID then cachedTargetDebuffsAnySource[spellID] = aura end
+                -- PLAYER-filtered UnitAura is unreliable on some 3.3.5 server
+                -- cores. Trust an explicit player/pet caster from the complete
+                -- scan, then merge the filtered scan below as a compatibility
+                -- fallback for cores that omit caster tokens.
+                local fromPlayer = source == "player" or source == "pet"
+                    or (source and UnitIsUnit
+                        and (UnitIsUnit(source, "player") or UnitIsUnit(source, "pet")))
+                if spellID and fromPlayer then cachedTargetDebuffs[spellID] = aura end
                 -- Some 3.3.5 servers expose a server-specific spellID for an
                 -- otherwise standard aura. Raid equivalence groups also index
                 -- localized spell names so Sunder/Expose-style effects still
@@ -636,9 +648,8 @@ local function UpdateAuraCache()
                 if name then cachedTargetDebuffsAnySourceByName[name] = aura end
             end
         end
-        -- Personal cache: preserve the original PLAYER-filtered behavior.
-        -- Do not infer ownership from the all-source scan; some 3.3.5 servers
-        -- return a nil caster for auras applied by other players.
+        -- Merge the server's PLAYER-filtered view. This remains useful when a
+        -- core supplies nil caster tokens in the unfiltered result.
         for i = 1, 40 do
             local name, rank, icon, count, debuffType, duration, expirationTime,
                 source, isStealable, nameplateShowPersonal, spellID =
@@ -836,6 +847,36 @@ function ns.RefreshCooldownViewerCompatibility()
     ReevaluateState()
 end
 
+-- Coalesce UNIT_AURA and combat-log notifications into one refresh on the next
+-- rendered frame. Some private-server cores occasionally omit a target
+-- UNIT_AURA; the combat-log path below supplies a second authoritative wakeup
+-- without adding a permanent polling ticker.
+local auraRefreshQueued = false
+local auraRefreshFrame = CreateFrame("Frame")
+auraRefreshFrame:Hide()
+auraRefreshFrame:SetScript("OnUpdate", function(self)
+    self:Hide()
+    if not auraRefreshQueued then return end
+    auraRefreshQueued = false
+    UpdateAuraCache()
+    ReevaluateState()
+end)
+
+local function QueueAuraRefresh()
+    auraRefreshQueued = true
+    auraRefreshFrame:Show()
+end
+
+local function IsAuraCombatLogEvent(subEvent)
+    return subEvent == "SPELL_AURA_APPLIED"
+        or subEvent == "SPELL_AURA_REMOVED"
+        or subEvent == "SPELL_AURA_REFRESH"
+        or subEvent == "SPELL_AURA_APPLIED_DOSE"
+        or subEvent == "SPELL_AURA_REMOVED_DOSE"
+        or subEvent == "SPELL_AURA_BROKEN"
+        or subEvent == "SPELL_AURA_BROKEN_SPELL"
+end
+
 -- Event Handling
 tracker:RegisterEvent("PLAYER_LOGIN")
 tracker:RegisterEvent("SPELLS_CHANGED")
@@ -856,20 +897,27 @@ tracker:SetScript("OnEvent", function(self, event, ...)
         ns.RefreshCooldownViewerCompatibility()
     elseif event == "UNIT_AURA" then
         local unit = ...
-        if unit == "player" or unit == "target" then
-            UpdateAuraCache()
-            ReevaluateState()
+        if not unit or unit == "player" or unit == "target"
+            or (UnitIsUnit and (UnitIsUnit(unit, "player") or UnitIsUnit(unit, "target"))) then
+            QueueAuraRefresh()
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
-        UpdateAuraCache()
-        ReevaluateState()
+        QueueAuraRefresh()
     elseif event == "UNIT_HEALTH" then
         local unit = ...
-        if unit == "target" then ReevaluateState() end
+        if unit == "target" or (unit and UnitIsUnit and UnitIsUnit(unit, "target")) then
+            ReevaluateState()
+        end
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
         ReevaluateState()
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         local _, subEvent, _, _, _, destinationGUID, _, _, spellID = ...
+        if IsAuraCombatLogEvent(subEvent) then
+            local targetGUID = UnitGUID("target")
+            if targetGUID and destinationGUID == targetGUID then
+                QueueAuraRefresh()
+            end
+        end
         if destinationGUID == UnitGUID("player")
             and (subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH") then
             local cooldownIDs = internalCooldownIDsByAura[spellID]
@@ -881,6 +929,7 @@ tracker:SetScript("OnEvent", function(self, event, ...)
                         StartInternalCooldown(cooldownID, now)
                     end
                 end
+                QueueAuraRefresh()
             end
         end
     end

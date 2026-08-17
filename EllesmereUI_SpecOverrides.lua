@@ -76,7 +76,7 @@ local FOLDER_BLACKLIST = {
     EllesmereUIBags              = true,
     EllesmereUIQoL               = true,
     EllesmereUIAuraBuffReminders = true,
-    EllesmereUICooldownManager   = true, -- owns complete per-spec containers
+    EllesmereUICooldownManager   = true, -- owns its profile-layout/spec-content split
     -- Minimap + Chat remain override-eligible; their engine-coupled settings
     -- are excluded per-path via SETTING_BLACKLIST below.
 }
@@ -103,6 +103,7 @@ local REFRESH_FNS = {
     EllesmereUIMythicTimer       = { "_EMT_Apply" },
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
+    EllesmereUIQuickdraw         = { "_EQD_Apply" },
     EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
 }
 

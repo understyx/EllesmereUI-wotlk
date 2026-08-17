@@ -203,7 +203,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
-            -- Default Bag Type | Show BoE / Warbound Text (+ inline cog: Text Size)
+            -- Default Bag Type | Show BoE Text (+ inline cog: Text Size)
             local bindRow
             bindRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Default Bag Type",
@@ -222,8 +222,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                       EllesmereUI:RefreshPage()
                   end },
-                { type="toggle", text="Show BoE / Warbound Text",
-                  tooltip="Display Binds on Equipped / Warbound until Equipped on equipment items in your bags and bank.",
+                { type="toggle", text="Show BoE Text",
+                  tooltip="Display Binds on Equip on equipment items in your bags and bank.",
                   getValue=function() return db.profile.bagDisplayBindType end,
                   setValue=function(v)
                       db.profile.bagDisplayBindType = v
@@ -234,10 +234,10 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
-            -- Inline cog (RESIZE) on Show BoE / Warbound Text: text size
+            -- Inline cog (RESIZE) on Show BoE Text: text size
             do
                 local _, btCogShow = EllesmereUI.BuildCogPopup({
-                    title = "BoE / Warbound Text Options",
+                    title = "BoE Text Options",
                     rows = {
                         { type="slider", label="Text Size", min=8, max=16, step=1,
                           get=function() return db.profile.bagBindTypeFontSize or 11 end,
@@ -261,7 +261,7 @@ initFrame:SetScript("OnEvent", function(self)
                 btCog:SetAlpha(btCogOff() and 0.15 or 0.4)
                 btCog:SetScript("OnEnter", function(self)
                     if btCogOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show BoE / Warbound Text"))
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show BoE Text"))
                     else self:SetAlpha(0.7) end
                 end)
                 btCog:SetScript("OnLeave", function(self)
@@ -274,7 +274,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local btBlock = EllesmereUI.SafeCreateFrame("Frame", nil, btCog)
                 btBlock:SetAllPoints(); btBlock:SetFrameLevel(btCog:GetFrameLevel() + 10); btBlock:EnableMouse(true)
                 btBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(btCog, EllesmereUI.DisabledTooltip("Show BoE / Warbound Text"))
+                    EllesmereUI.ShowWidgetTooltip(btCog, EllesmereUI.DisabledTooltip("Show BoE Text"))
                 end)
                 btBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 if btCogOff() then btBlock:Show() else btBlock:Hide() end
@@ -738,7 +738,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.bagPinnedItems = nil
                 EllesmereUIDB.bagItemAssignments = nil
                 EllesmereUIDB.characterGold = nil
-                EllesmereUIDB.warbandGold = nil
             end
             EllesmereUI:InvalidatePageCache()
         end,

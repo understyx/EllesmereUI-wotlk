@@ -9,7 +9,7 @@ local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
 
 -- The bank has no MultiBank view, so both the OneBag and MultiBag default
--- types open the bank to its consolidated OneBank/OneWarbank view; only the
+-- types open the bank to its consolidated OneBank view; only the
 -- "all" default opens the categorized All-Tabs view. Resolver lives in the
 -- main bags file (EUI._GetBagDefaultType) and honors the legacy boolean.
 local function BankDefaultsToOne()
@@ -36,9 +36,8 @@ local SCROLL_STEP = 40
 local THUMB_MIN_H = 20
 
 -- Runtime state
-local _selectedView = 0   -- 0 = All Bank Tabs, -1 = OneBank, -2 = All Warbank, -3 = OneWarbank, >0 = tab index
-local _allTabs = {}        -- populated on bank open: { bagID, name, isWarband, numSlots, icon, depositFlags }
-local _warbandOnly = false -- true when opened via portable warbank (AccountBanker interaction)
+local _selectedView = 0   -- 0 = All Bank Tabs, -1 = OneBank, >0 = tab index
+local _allTabs = {}        -- populated on bank open: { bagID, name, numSlots, icon, depositFlags }
 
 local function GetBankSidebarWidth()
     local collapsed = BP().bankSidebarCollapsed
@@ -92,7 +91,7 @@ local function SetInsetBorderColor(btn, cr, cg, cb, ca)
 end
 
 -------------------------------------------------------------------------------
---  Bank Tab Discovery (Midnight 12.0+ uses CharacterBankTab / AccountBankTab enums)
+--  Bank Tab Discovery
 -------------------------------------------------------------------------------
 -- Fallback icons for tabs without a user-assigned icon
 local FALLBACK_ICONS = {
@@ -111,20 +110,11 @@ local function GetFallbackIcon(bagID)
 end
 
 local CHARACTER_BANK_BAGS = {}
-local WARBAND_BANK_BAGS = {}
 if Enum and Enum.BagIndex then
-    -- Midnight character bank: CharacterBankTab_1 through CharacterBankTab_6
     for i = 1, 6 do
         local key = "CharacterBankTab_" .. i
         if Enum.BagIndex[key] then
             CHARACTER_BANK_BAGS[#CHARACTER_BANK_BAGS + 1] = Enum.BagIndex[key]
-        end
-    end
-    -- Warband bank: AccountBankTab_1 through AccountBankTab_5
-    for i = 1, 5 do
-        local key = "AccountBankTab_" .. i
-        if Enum.BagIndex[key] then
-            WARBAND_BANK_BAGS[#WARBAND_BANK_BAGS + 1] = Enum.BagIndex[key]
         end
     end
 end
@@ -153,42 +143,6 @@ local function GetCharacterBankTabs()
             local numSlots = C_Container.GetContainerNumSlots(bagID)
             if numSlots > 0 then
                 tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Bank Tab " .. #tabs + 1, icon = GetFallbackIcon(bagID), depositFlags = 0 }
-            end
-        end
-    end
-    return tabs
-end
-
-local function GetWarbandBankTabs()
-    local tabs = {}
-    -- Check if warband bank is locked
-    if C_Bank and C_Bank.FetchBankLockedReason and Enum.BankType then
-        if C_Bank.FetchBankLockedReason(Enum.BankType.Account) ~= nil then
-            return tabs
-        end
-    end
-    local tabData
-    if C_Bank and C_Bank.FetchPurchasedBankTabData and Enum.BankType then
-        tabData = C_Bank.FetchPurchasedBankTabData(Enum.BankType.Account)
-    end
-    if tabData then
-        for i, td in ipairs(tabData) do
-            local bagID = WARBAND_BANK_BAGS[i]
-            if bagID then
-                local numSlots = C_Container.GetContainerNumSlots(bagID)
-                if numSlots > 0 then
-                    local name = td.name or ("Tab " .. i)
-                    local icon = td.icon
-                    if not icon or icon == 134400 then icon = GetFallbackIcon(bagID) end
-                    tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Warbank " .. name, icon = icon, depositFlags = td.depositFlags or 0 }
-                end
-            end
-        end
-    else
-        for i, bagID in ipairs(WARBAND_BANK_BAGS) do
-            local numSlots = C_Container.GetContainerNumSlots(bagID)
-            if numSlots > 0 then
-                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Warbank Tab " .. #tabs + 1, icon = GetFallbackIcon(bagID), depositFlags = 0 }
             end
         end
     end
@@ -318,13 +272,7 @@ end)
 sortBtn:SetScript("OnClick", function()
     if bankSortLocked then return end
     LockBankSort()
-    local isWarband = (_selectedView == -2 or _selectedView == -3)
-    if not isWarband and _selectedView > 0 and _allTabs[_selectedView] then
-        isWarband = _allTabs[_selectedView].isWarband
-    end
-    if isWarband then
-        C_Container.SortBank(Enum.BankType.Account)
-    else
+    if C_Container and C_Container.SortBank and Enum and Enum.BankType then
         C_Container.SortBank(Enum.BankType.Character)
     end
     C_Timer.After(3, UnlockBankSort)
@@ -356,7 +304,7 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Footer: Player Gold (left) + Warband Gold (right)
+--  Footer: Player Gold
 -------------------------------------------------------------------------------
 do
     local footer = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
@@ -383,7 +331,6 @@ do
         return BreakUpLargeNumbers(gold) .. GOLD_ICON
     end
 
-    -- Layout: | [10px] [player gold] ... [withdraw] [deposit] [10px] [warband gold] [10px] |
     local playerGold = footer:CreateFontString(nil, "OVERLAY")
     SetBankFont(playerGold, 11)
     playerGold:SetPoint("LEFT", footer, "LEFT", 10, 0)
@@ -403,149 +350,12 @@ do
         if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
     end)
 
-    local warbandGold = footer:CreateFontString(nil, "OVERLAY")
-    SetBankFont(warbandGold, 11)
-    warbandGold:SetPoint("RIGHT", footer, "RIGHT", -10, 0)
-    warbandGold:SetTextColor(1, 1, 1)
-
-    local warbandHitbox = EllesmereUI.SafeCreateFrame("Frame", nil, footer)
-    warbandHitbox:SetPoint("TOPLEFT", warbandGold, "TOPLEFT", -4, 4)
-    warbandHitbox:SetPoint("BOTTOMRIGHT", warbandGold, "BOTTOMRIGHT", 4, -4)
-    warbandHitbox:SetFrameLevel(footer:GetFrameLevel() + 5)
-    warbandHitbox:EnableMouse(true)
-    warbandHitbox:SetScript("OnEnter", function(self)
-        if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Warband Gold")
-        end
-    end)
-    warbandHitbox:SetScript("OnLeave", function()
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-    end)
-
-    -- Withdraw / Deposit styled buttons (next to warband gold)
-    local PP = EUI and EUI.PP
-    local ar, ag, ab = GetAccentRGB()
-
-    local GOLD_R, GOLD_G, GOLD_B = 0.855, 0.722, 0.259  -- #dab842
-
-    local function MakeStyledFooterBtn(label, tooltipText)
-        local btn = EllesmereUI.SafeCreateFrame("Button", nil, footer)
-        btn:SetSize(70, 18)
-        btn:EnableMouse(true)
-        btn:SetFrameLevel(footer:GetFrameLevel() + 2)
-
-        if PP and PP.CreateBorder then
-            PP.CreateBorder(btn, GOLD_R, GOLD_G, GOLD_B, 0.8, 1, "OVERLAY", 7)
-        end
-
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        SetBankFont(lbl, 9)
-        lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        lbl:SetText(EllesmereUI.L(label))
-        lbl:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 0.8)
-        btn._label = lbl
-
-        btn:SetScript("OnEnter", function(self)
-            self._label:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 1)
-            if PP and PP.SetBorderColor then PP.SetBorderColor(self, GOLD_R, GOLD_G, GOLD_B, 1) end
-            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EllesmereUI.L(tooltipText)) end
-        end)
-        btn:SetScript("OnLeave", function(self)
-            self._label:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 0.8)
-            if PP and PP.SetBorderColor then PP.SetBorderColor(self, GOLD_R, GOLD_G, GOLD_B, 0.8) end
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-        end)
-        return btn
-    end
-
-    local depositMoneyBtn = MakeStyledFooterBtn("Deposit", "Deposit to Warbank")
-    depositMoneyBtn:SetPoint("RIGHT", warbandGold, "LEFT", -14, 0)
-    local withdrawMoneyBtn = MakeStyledFooterBtn("Withdraw", "Withdraw from Warbank")
-    withdrawMoneyBtn:SetPoint("RIGHT", depositMoneyBtn, "LEFT", -8, 0)
-
-    local function ShowMoneyPopup(title, onAccept)
-        if not EUI.ShowInputPopup then return end
-        EUI:ShowInputPopup({
-            title = EllesmereUI.L(title),
-            message = EllesmereUI.L("Enter amount in gold:"),
-            placeholder = "1137",
-            confirmText = ACCEPT,
-            cancelText = CANCEL,
-            modernBlizz = true,
-            onConfirm = function(text)
-                local gold = tonumber(text)
-                if gold and gold > 0 then
-                    onAccept(gold * 10000)
-                end
-            end,
-        })
-    end
-
-    withdrawMoneyBtn:SetScript("OnClick", function()
-        if not C_Bank or not C_Bank.CanWithdrawMoney then return end
-        if not C_Bank.CanWithdrawMoney(Enum.BankType.Account) then return end
-        ShowMoneyPopup("Withdraw from Warbank", function(copper)
-            C_Bank.WithdrawMoney(Enum.BankType.Account, copper)
-            if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
-        end)
-    end)
-    depositMoneyBtn:SetScript("OnClick", function()
-        if not C_Bank or not C_Bank.CanDepositMoney then return end
-        if not C_Bank.CanDepositMoney(Enum.BankType.Account) then return end
-        ShowMoneyPopup("Deposit to Warbank", function(copper)
-            C_Bank.DepositMoney(Enum.BankType.Account, copper)
-            if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
-        end)
-    end)
-
-    -- Deposit Warbound Items / Deposit Reagents button (center)
-    local depositItemsBtn = EllesmereUI.SafeCreateFrame("Button", nil, footer)
-    depositItemsBtn:SetHeight(18)
-    depositItemsBtn:SetPoint("CENTER", footer, "CENTER", 0, 0)
-    depositItemsBtn:EnableMouse(true)
-
-    local depositItemsLabel = depositItemsBtn:CreateFontString(nil, "OVERLAY")
-    SetBankFont(depositItemsLabel, 10)
-    depositItemsLabel:SetPoint("CENTER", depositItemsBtn, "CENTER", 0, 0)
-    depositItemsLabel:SetTextColor(ar, ag, ab, 1)
-    depositItemsBtn._label = depositItemsLabel
-
-    depositItemsBtn:SetScript("OnEnter", function(self)
-        self._label:SetTextColor(1, 1, 1, 1)
-    end)
-    depositItemsBtn:SetScript("OnLeave", function(self)
-        local r, g, b = GetAccentRGB()
-        self._label:SetTextColor(r, g, b, 1)
-    end)
-    depositItemsBtn:SetScript("OnClick", function(self)
-        if not C_Bank or not C_Bank.AutoDepositItemsIntoBank then return end
-        local bankType = self._bankType
-        if bankType then
-            C_Bank.AutoDepositItemsIntoBank(bankType)
-        end
-    end)
-
     function EUI_Bank:UpdateFooterGold()
         local pMoney = GetMoney and GetMoney() or 0
         playerGold:SetText(FormatGold(pMoney))
-        local wMoney = C_Bank and C_Bank.FetchDepositedMoney and C_Bank.FetchDepositedMoney(Enum.BankType.Account) or 0
-        warbandGold:SetText(FormatGold(wMoney))
     end
 
-    function EUI_Bank:UpdateDepositButton(isWarband)
-        if isWarband then
-            depositItemsLabel:SetText(EllesmereUI.L("Deposit Warbound Items"))
-            depositItemsBtn._bankType = Enum.BankType.Account
-        else
-            depositItemsLabel:SetText(EllesmereUI.L("Deposit Reagents"))
-            depositItemsBtn._bankType = Enum.BankType.Character
-        end
-        local r, g, b = GetAccentRGB()
-        depositItemsLabel:SetTextColor(r, g, b, 1)
-        depositItemsBtn:SetWidth(depositItemsLabel:GetStringWidth() + 16)
-        depositItemsBtn:Show()
-        withdrawMoneyBtn:Show()
-        depositMoneyBtn:Show()
+    function EUI_Bank:UpdateDepositButton()
     end
 end
 
@@ -825,21 +635,13 @@ local function EnsureBankTabConfigFrame()
         self:SetPoint("TOPLEFT", EUI_Bank, "TOPRIGHT", PADDING_X, 0)
 
         -- Save datas for use in Save button logic
-        self.bankType = tabData.isWarband and Enum.BankType.Account or Enum.BankType.Character
+        self.bankType = Enum.BankType and Enum.BankType.Character or 1
         self.tabId = tabId
         self.icon = tabData.icon
         self.depositFlags = tabData.depositFlags or 0
 
         -- Setup widgets
         local displayName = tabData.name
-        if self.bankType == Enum.BankType.Account then
-            -- Remove "Warbank " prefix as this is a prefix added by EUI and not the real tab name. This is necessary to edit the tab
-            local prefix = "Warbank "
-            local prefix_len = #prefix
-            if strsub(tabData.name, 1, prefix_len) == prefix then
-                displayName = strsub(tabData.name, prefix_len + 1)
-            end
-        end
         self.fallbackName = displayName
         bankTabNameEditBox:SetText(displayName or "")
         iconBTCTexture:SetTexture(tabData.icon)
@@ -880,7 +682,7 @@ end
 
 -- Secure purchase buttons: inherit BankPanelPurchaseButtonScriptTemplate so
 -- PurchaseBankTab() runs in Blizzard's secure context, not ours.
-local _purchaseBtnChar, _purchaseBtnWarband
+local _purchaseBtnChar
 do
     local function MakeSecurePurchaseBtn(bankType)
         local b = EllesmereUI.SafeCreateFrame("Button", nil, sidebar, "BankPanelPurchaseButtonScriptTemplate")
@@ -899,8 +701,7 @@ do
         end)
         return b
     end
-    _purchaseBtnChar = MakeSecurePurchaseBtn(Enum.BankType.Character)
-    _purchaseBtnWarband = MakeSecurePurchaseBtn(Enum.BankType.Account)
+    _purchaseBtnChar = MakeSecurePurchaseBtn(Enum.BankType and Enum.BankType.Character)
 end
 
 -- Sidebar header: "Tabs" label + collapse arrow
@@ -1157,36 +958,10 @@ EUI_Bank._bankSlots = _bankSlots
 
 --- Returns the bagID of the currently selected bank tab, or nil if viewing
 --- "All Tabs" / "OneBank" (in which case default Blizzard routing applies).
---- For aggregate warband views (-2, -3), returns the first warband tab
---- with an empty slot so right-click deposits go to warband, not character bank.
 function EUI_Bank:GetSelectedTabBagID()
-    if _selectedView == -2 or _selectedView == -3 then
-        -- Aggregate warband view: find first warband tab with space
-        for _, tab in ipairs(_allTabs) do
-            if tab.isWarband then
-                local numSlots = C_Container.GetContainerNumSlots(tab.bagID)
-                for slot = 1, numSlots do
-                    if not C_Container.GetContainerItemInfo(tab.bagID, slot) then
-                        return tab.bagID
-                    end
-                end
-            end
-        end
-        return nil
-    end
     if _selectedView <= 0 then return nil end
     local tab = _allTabs[_selectedView]
     return tab and tab.bagID or nil
-end
-
---- Returns true if the current view is any warband view (all warbank,
---- onewarbank, or an individual warband tab).
-function EUI_Bank:IsWarbandView()
-    if _selectedView == -2 or _selectedView == -3 then return true end
-    if _selectedView > 0 and _allTabs[_selectedView] then
-        return _allTabs[_selectedView].isWarband
-    end
-    return false
 end
 
 --- Find the first empty slot in a specific bank bag and deposit the cursor
@@ -1285,49 +1060,9 @@ local function ProcessTransfer(srcBag, srcSlot)
     if not info or not info.itemID then return true end
 
     local targetBag, targetSlot
-    -- Aggregate warband views: search ALL warband tabs for stacking, then empty
-    if _selectedView == -2 or _selectedView == -3 then
-        local maxStack = C_Item.GetItemMaxStackSizeByID(info.itemID) or 1
-        -- Pass 1: partial stack in any warband tab
-        if maxStack > 1 then
-            for _, tab in ipairs(_allTabs) do
-                if tab.isWarband then
-                    local numSlots = C_Container.GetContainerNumSlots(tab.bagID)
-                    for slot = 1, numSlots do
-                        if not IsSlotAllocated(tab.bagID, slot) then
-                            local si = C_Container.GetContainerItemInfo(tab.bagID, slot)
-                            if si and si.itemID == info.itemID and si.stackCount < maxStack then
-                                targetBag, targetSlot = tab.bagID, slot
-                                break
-                            end
-                        end
-                    end
-                    if targetSlot then break end
-                end
-            end
-        end
-        -- Pass 2: first empty slot in any warband tab
-        if not targetSlot then
-            for _, tab in ipairs(_allTabs) do
-                if tab.isWarband then
-                    local numSlots = C_Container.GetContainerNumSlots(tab.bagID)
-                    for slot = 1, numSlots do
-                        if not IsSlotAllocated(tab.bagID, slot) then
-                            if not C_Container.GetContainerItemInfo(tab.bagID, slot) then
-                                targetBag, targetSlot = tab.bagID, slot
-                                break
-                            end
-                        end
-                    end
-                    if targetSlot then break end
-                end
-            end
-        end
-    else
-        targetBag = bank:GetSelectedTabBagID()
-        if not targetBag then return true end
-        targetSlot = FindTargetSlot(targetBag, info.itemID)
-    end
+    local targetBag = bank:GetSelectedTabBagID()
+    if not targetBag then return true end
+    local targetSlot = FindTargetSlot(targetBag, info.itemID)
 
     if not targetBag or not targetSlot then return true end -- no space, discard
     AllocateSlot(targetBag, targetSlot)
@@ -1543,12 +1278,6 @@ local function DiscoverBankTabs()
     _allTabs = {}
     local charTabs = GetCharacterBankTabs()
     for _, t in ipairs(charTabs) do
-        t.isWarband = false
-        _allTabs[#_allTabs + 1] = t
-    end
-    local warbandTabs = GetWarbandBankTabs()
-    for _, t in ipairs(warbandTabs) do
-        t.isWarband = true
         _allTabs[#_allTabs + 1] = t
     end
     EUI_Bank._allTabs = _allTabs
@@ -1746,30 +1475,14 @@ function EUI_Bank:RefreshBank()
         end
     end
 
-    -- Split tabs into char and warband
-    local charTabs, warbTabs = {}, {}
-    for _, tab in ipairs(_allTabs) do
-        if tab.isWarband then warbTabs[#warbTabs + 1] = tab
-        else charTabs[#charTabs + 1] = tab end
-    end
-
     if _selectedView == -1 then
-        -- OneBank: character bank only, flat with "Bank" header
-        local slots, filled = BuildOneView(charTabs)
+        -- OneBank: flat with "Bank" header
+        local slots, filled = BuildOneView(_allTabs)
         LayoutFlatSlots(slots, "Bank (" .. filled .. " / " .. #slots .. ")")
 
-    elseif _selectedView == -3 then
-        -- OneWarbank: warband bank only, flat with "Warband Bank" header
-        local slots, filled = BuildOneView(warbTabs)
-        LayoutFlatSlots(slots, "Warband Bank (" .. filled .. " / " .. #slots .. ")")
-
-    elseif _selectedView == -2 then
-        -- All Warbank Tabs: per-tab headers for warband only
-        LayoutTabHeaders(warbTabs)
-
     elseif _selectedView == 0 then
-        -- All Bank Tabs: per-tab headers for character only
-        LayoutTabHeaders(charTabs)
+        -- All Bank Tabs: per-tab headers
+        LayoutTabHeaders(_allTabs)
     else
         local tab = _allTabs[_selectedView]
         if tab then
@@ -1817,12 +1530,7 @@ function EUI_Bank:RefreshBank()
         end
     end
 
-    -- Update deposit button based on current view
-    local isWarbandView = (_selectedView == -2 or _selectedView == -3)
-    if not isWarbandView and _selectedView > 0 and _allTabs[_selectedView] then
-        isWarbandView = _allTabs[_selectedView].isWarband
-    end
-    EUI_Bank:UpdateDepositButton(isWarbandView)
+    EUI_Bank:UpdateDepositButton()
 
     -- Set scroll child height from layout
     child:SetHeight(math.abs(curY) + 10)
@@ -2080,7 +1788,6 @@ function BuildBankSidebar()
                 _selectedView = self._viewIdx
                 if EUI_Bank._scrollFrame then EUI_Bank._scrollFrame:SetVerticalScroll(0) end
                 EUI_Bank:RefreshBank()
-                -- Refresh bags so warbank dim overlay updates immediately
                 if _G.EUI_Bags and _G.EUI_Bags:IsVisible() and _G.EUI_Bags.RefreshInventory then
                     _G.EUI_Bags:RefreshInventory()
                 end
@@ -2130,7 +1837,7 @@ function BuildBankSidebar()
         btn:SetAlpha(0.6)
         btn:Show()
         -- Overlay the secure purchase button on top of this visual entry
-        local secBtn = (bankType == Enum.BankType.Character) and _purchaseBtnChar or _purchaseBtnWarband
+        local secBtn = _purchaseBtnChar
         secBtn._visualBtn = btn
         secBtn:SetParent(sidebarChild)
         secBtn:ClearAllPoints()
@@ -2186,59 +1893,31 @@ function BuildBankSidebar()
 
     -- Hide all sidebar buttons + secure purchase overlays
     for _, btn in pairs(_sidebarBtns) do btn:Hide() end
-    _purchaseBtnChar:Hide()
-    _purchaseBtnWarband:Hide()
+    if _purchaseBtnChar then _purchaseBtnChar:Hide() end
 
-    -- Count used slots per tab, split by bank/warbank
+    -- Count used slots per tab
     local charUsed, charTotal = 0, 0
-    local warbUsed, warbTotal = 0, 0
     for _, tab in ipairs(_allTabs) do
         tab._usedSlots = CountUsedSlots(tab.bagID, tab.numSlots)
-        if tab.isWarband then
-            warbUsed = warbUsed + tab._usedSlots
-            warbTotal = warbTotal + tab.numSlots
-        else
-            charUsed = charUsed + tab._usedSlots
-            charTotal = charTotal + tab.numSlots
-        end
+        charUsed = charUsed + tab._usedSlots
+        charTotal = charTotal + tab.numSlots
     end
 
     -- Update header item count
     if EUI_Bank._headerItemCount then
-        if _warbandOnly then
-            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Items", warbUsed, warbTotal))
-        else
-            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Items", charUsed + warbUsed, charTotal + warbTotal))
-        end
+        EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Items", charUsed, charTotal))
     end
 
-    -- View indices: 0 = All Bank Tabs, -1 = OneBank, -2 = All Warbank Tabs, -3 = OneWarbank
+    -- View indices: 0 = All Bank Tabs, -1 = OneBank
     -- >0 = individual tab index in _allTabs
 
     local defaultOneBag = BankDefaultsToOne()
-    if not _warbandOnly then
-        if defaultOneBag then
-            RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
-            RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
-        else
-            RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
-            RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
-        end
-    end
-
-    -- Warband "All" and "One" entries
-    local hasWarband = false
-    for _, tab in ipairs(_allTabs) do
-        if tab.isWarband then hasWarband = true; break end
-    end
-    if hasWarband then
-        if defaultOneBag then
-            RenderSidebarEntry(-3, EllesmereUI.L("OneWarbank"), 1542854, warbUsed, _selectedView == -3)
-            RenderSidebarEntry(-2, EllesmereUI.L("All Warbank Tabs"), 1542854, warbUsed, _selectedView == -2)
-        else
-            RenderSidebarEntry(-2, EllesmereUI.L("All Warbank Tabs"), 1542854, warbUsed, _selectedView == -2)
-            RenderSidebarEntry(-3, EllesmereUI.L("OneWarbank"), 1542854, warbUsed, _selectedView == -3)
-        end
+    if defaultOneBag then
+        RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
+        RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
+    else
+        RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
+        RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
     end
 
     -- Divider
@@ -2261,46 +1940,17 @@ function BuildBankSidebar()
         y = y - (div:GetHeight() or 1) - 4
     end
 
-    if not _warbandOnly then
-        ShowDivider("_bankTabDivider")
+    ShowDivider("_bankTabDivider")
 
-        -- Character bank tabs
-        for ti, tab in ipairs(_allTabs) do
-            if not tab.isWarband then
-                RenderSidebarEntry(ti, tab.name, tab.icon or 133652, tab._usedSlots, _selectedView == ti)
-            end
-        end
-        -- Purchase character bank tab (show one grayed-out entry if more can be bought)
-        if C_Bank and C_Bank.CanPurchaseBankTab and C_Bank.HasMaxBankTabs
-            and C_Bank.CanPurchaseBankTab(Enum.BankType.Character)
-            and not C_Bank.HasMaxBankTabs(Enum.BankType.Character) then
-            RenderPurchaseEntry(Enum.BankType.Character, "Buy Bank Tab")
-        end
-    else
-        if sidebarChild._bankTabDivider then sidebarChild._bankTabDivider:Hide() end
+    -- Character bank tabs
+    for ti, tab in ipairs(_allTabs) do
+        RenderSidebarEntry(ti, tab.name, tab.icon or 133652, tab._usedSlots, _selectedView == ti)
     end
-
-    -- Warband individual tabs
-    if hasWarband then
-        ShowDivider("_warbandDivider")
-
-        for ti, tab in ipairs(_allTabs) do
-            if tab.isWarband then
-                RenderSidebarEntry(ti, tab.name, tab.icon or 1542854, tab._usedSlots, _selectedView == ti)
-            end
-        end
-    else
-        if sidebarChild._warbandDivider then sidebarChild._warbandDivider:Hide() end
-        if sidebarChild._warbandTabDivider then sidebarChild._warbandTabDivider:Hide() end
-    end
-    -- Purchase warband bank tab
+    -- Purchase character bank tab (show one grayed-out entry if more can be bought)
     if C_Bank and C_Bank.CanPurchaseBankTab and C_Bank.HasMaxBankTabs
-        and C_Bank.CanPurchaseBankTab(Enum.BankType.Account)
-        and not C_Bank.HasMaxBankTabs(Enum.BankType.Account) then
-        if not hasWarband then
-            ShowDivider("_warbandDivider")
-        end
-        RenderPurchaseEntry(Enum.BankType.Account, "Buy Warbank Tab")
+        and C_Bank.CanPurchaseBankTab(Enum.BankType.Character)
+        and not C_Bank.HasMaxBankTabs(Enum.BankType.Character) then
+        RenderPurchaseEntry(Enum.BankType.Character, "Buy Bank Tab")
     end
 
     -- Set scroll child height so scrolling works when content overflows
@@ -2334,14 +1984,6 @@ eventFrame:RegisterEvent("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED")
 eventFrame:RegisterEvent("PLAYER_MONEY")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "BANKFRAME_OPENED" then
-        -- Detect portable warbank (AccountBanker = warband only, no character bank)
-        _warbandOnly = C_PlayerInteractionManager
-            and C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)
-            or false
-        if _warbandOnly then
-            local defaultOneBag = BankDefaultsToOne()
-            _selectedView = defaultOneBag and -3 or -2
-        end
         -- Position
         EUI_Bank:ClearAllPoints()
         if BP().bankPosition then
@@ -2365,10 +2007,6 @@ eventFrame:SetScript("OnEvent", function(_, event)
             EUI_Bank._autoOpenedBags = true
         else
             EUI_Bank._autoOpenedBags = false
-            -- Refresh bags so warbank dim overlay applies immediately
-            if EUI_Bags and EUI_Bags:IsVisible() and EUI_Bags.RefreshInventory then
-                EUI_Bags:RefreshInventory()
-            end
         end
         -- Set initial size so frame is visible immediately
         local gridW = COLUMNS * (SLOT_SIZE + SPACING)
@@ -2385,11 +2023,9 @@ eventFrame:SetScript("OnEvent", function(_, event)
             DiscoverBankTabs()
             EUI_Bank:RefreshBank()
             EUI_Bank:UpdateFooterGold()
-            if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
         end)
 
     elseif event == "BANKFRAME_CLOSED" then
-        _warbandOnly = false
         WipeTransferState()
         -- Clear search on close
         if EUI_Bank._searchBox then
@@ -2461,10 +2097,6 @@ EUI_Bank:SetScript("OnHide", function()
         EUI_BankTabConfigFrame:Hide()
     end
     if C_Bank then C_Bank.CloseBankFrame() end
-    -- Clear warbank dim overlays on bags
-    if _G.EUI_Bags and _G.EUI_Bags:IsVisible() and _G.EUI_Bags.RefreshInventory then
-        _G.EUI_Bags:RefreshInventory()
-    end
 end)
 
 -------------------------------------------------------------------------------

@@ -256,26 +256,6 @@ qolFrame:SetScript("OnEvent", function(self)
         local function MerchantOpen()
             return (MerchantFrame and MerchantFrame:IsShown()) and true or false
         end
-        -- "Exclude Warbound Containers": true only when the option is on AND
-        -- the slot is confirmed warband-bank-eligible. Guarded like the bags
-        -- module (C_Bank / ItemLocation / DoesItemExist can all be absent or
-        -- invalid; a raw call would error mid-open). On any uncertainty it
-        -- returns false so the container opens normally rather than being
-        -- silently skipped.
-        local function IsWarboundExcluded(bag, slot)
-            -- Default ON: the options UI shows this checked when unset
-            -- (autoOpenContainersExcludeWarbound ~= false), so the runtime must
-            -- treat nil the same way. Only an explicit false disables it -- the
-            -- old `not value` test made a never-toggled setting (nil) skip the
-            -- exclusion, so warbound containers auto-opened despite the toggle
-            -- appearing enabled.
-            if not EllesmereUIDB or EllesmereUIDB.autoOpenContainersExcludeWarbound == false then return false end
-            if not (C_Bank and C_Bank.IsItemAllowedInBankType and ItemLocation
-                and C_Item and C_Item.DoesItemExist) then return false end
-            local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
-            if not (loc and C_Item.DoesItemExist(loc)) then return false end
-            return C_Bank.IsItemAllowedInBankType(Enum.BankType.Account, loc) and true or false
-        end
         local SLOTS_PER_FRAME = 3  -- check 3 slots per OnUpdate tick
 
         local function IsOpenableByID(itemID, bag, slot)
@@ -467,9 +447,6 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- (set synchronously below) or Blizzard's isLocked. Re-using a
                 -- container that's still resolving a previous open strands it.
                 if info and info.itemID and not info.isLocked and not _openInProgress[key] then
-                    if IsWarboundExcluded(item.bag, item.slot) then
-                        return step(idx + 1)
-                    end
                     if _openableCache[info.itemID] and not _failedItems[info.itemID] then
                         local prevID = info.itemID
                         local prevCount = info.stackCount or 1
@@ -510,8 +487,8 @@ qolFrame:SetScript("OnEvent", function(self)
                             end
                             -- A real open just resolved (progressed or genuine
                             -- fail): pace before advancing. The non-actionable
-                            -- skips above (warbound, not-openable) move on
-                            -- immediately without pacing.
+                            -- skips (not-openable) move on immediately without
+                            -- pacing.
                             PaceNext(idx + 1)
                         end)
                         return

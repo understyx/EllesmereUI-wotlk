@@ -15,9 +15,10 @@ local HasPetUI = HasPetUI
 local UnitFactionGroup = UnitFactionGroup
 
 WSkin:AddCallback("Skin_Character", function()
-	if not EllesmereUIDB or (EllesmereUIDB.themedCharacterSheet ~= false and not (EllesmereUI and EllesmereUI.BlizzWindowSkinsKilled and EllesmereUI.BlizzWindowSkinsKilled())) then
-		return
-	end
+	if not WSkin:IsSkinEnabled("charsheet") then return end
+	-- Themed Character Sheet (EllesmereUIBlizzardSkin_CharacterSheet.lua) handles
+	-- the character sheet skinning in EllesmereUI style when charsheet is enabled.
+	if EllesmereUI and EllesmereUI.ApplyThemedCharacterSheet then return end
 
 	-- CharacterFrame
 	WSkin:StripTextures(CharacterFrame, true)
@@ -823,4 +824,4 @@ WSkin:AddCallback("Skin_Character", function()
 			end
 		end)
 	end
-end)
+end, "charsheet")

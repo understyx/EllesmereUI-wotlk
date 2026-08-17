@@ -4,6 +4,8 @@ local unpack = unpack
 local MAX_SKILLLINE_TABS = MAX_SKILLLINE_TABS
 
 WSkin:AddCallback("Skin_Spellbook", function()
+	if not WSkin:IsSkinEnabled("playerspells") then return end
+
 	WSkin:StripTextures(SpellBookFrame, true)
 	WSkin:CreateBackdrop(SpellBookFrame, "Transparent")
 	WSkin:Point(SpellBookFrame.backdrop, "TOPLEFT", 11, -12)

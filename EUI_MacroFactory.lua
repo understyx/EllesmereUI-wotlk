@@ -277,10 +277,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         { name="EUI_SigilFlame", icon="Interface\\Icons\\ability_demonhunter_sigilofinquisition", label="Sigil of Flame\n(Cursor)", spells={204596}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Flame
         { name="EUI_SigilMisery", icon="Interface\\Icons\\ability_demonhunter_sigilofmisery", label="Sigil of Misery\n(Cursor)", spells={207684}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Misery
     }
-    local DH_DEVOURER = {
-        { name="EUI_VoidMeta", icon="Interface\\Icons\\ability_demonhunter_metamorphasisdps", label="Void Metamorphosis\n+ Trinket 1", spells={1225789}, fixedBody="/cast {1}\n/use 13", fixedTooltip="{1}" }, -- Void Metamorphosis (Midnight/Devourer)
-        { name="EUI_ShiftCursor", icon="Interface\\Icons\\inv_12_dh_void_ability_shift", label="Shift\n(Cursor)", spells={1234796}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Shift (Midnight/Devourer)
-    }
     local DH_HAVOC = {
         { name="EUI_TheHunt", icon="Interface\\Icons\\ability_ardenweald_demonhunter", label="The Hunt\n(Focus)", spells={370965}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- The Hunt
         { name="EUI_VRGlide", icon="Interface\\Icons\\ability_demonhunter_vengefulretreat2", label="Vengeful Retreat\n& Glide", spells={198793, 131347}, fixedBody="/cast {1}\n/cast !{2}", fixedTooltip="{1}" }, -- Vengeful Retreat / Glide
@@ -501,10 +497,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         [250] = mergeMacros(DK_BLOOD, DK_GEN),
         [251] = mergeMacros(DK_FROST, DK_GEN),
         [252] = mergeMacros(DK_UNHOLY, DK_GEN),
-        -- Demon Hunter (577=Havoc, 581=Vengeance, 1480=Devourer -- Midnight Void spec)
+        -- Demon Hunter (577=Havoc, 581=Vengeance)
         [577] = mergeMacros(DH_HAVOC, DH_GEN),
         [581] = mergeMacros(DH_VENG, DH_GEN),
-        [1480] = mergeMacros(DH_DEVOURER, DH_GEN),
         -- Druid
         [102] = mergeMacros(DRUID_BAL, DRUID_GEN),
         [103] = mergeMacros(DRUID_FERAL, DRUID_GEN),

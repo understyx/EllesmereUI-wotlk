@@ -47,7 +47,6 @@ local SUB_TRACKERS = {
     "QuestObjectiveTracker",
     "AdventureObjectiveTracker",
     "AchievementObjectiveTracker",
-    "MonthlyActivitiesObjectiveTracker",
     "ProfessionsRecipeTracker",
     "BonusObjectiveTracker",
     "WorldQuestObjectiveTracker",

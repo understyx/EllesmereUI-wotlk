@@ -56,6 +56,7 @@ local WINDOW_ENABLE_KEYS = {
     quest           = "reskinQuest",
     inspectrecipe   = "reskinInspectRecipe",
 }
+EllesmereUI.WINDOW_ENABLE_KEYS = WINDOW_ENABLE_KEYS
 --- Master PER-PROFILE kill switch for ALL Blizzard window skinning: the
 --- window engine + every pack, plus the pre-engine CharacterSheet/Inspect,
 --- SocketPanel and LFG/GroupFinder skins. Stored on the PROFILE ROOT

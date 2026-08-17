@@ -284,10 +284,10 @@ local function FindActorInSet(set, guid, creatureID, name)
         actor.name = actor.name or name
         return actor
     end
-    -- GUID lookup
+    -- GUID or fallback name lookup
     for actorName, actor in pairs(set.actors) do
         actor.name = actor.name or actorName
-        if guid and actor.id == guid then
+        if guid and (actor.id == guid or actor.name == guid or actorName == guid) then
             return actor
         end
         if creatureID and actor.enemy then
@@ -797,7 +797,7 @@ end
 --  Combat Session Source Breakdown Builder (Spells / Targets)
 -- ---------------------------------------------------------------------------
 local function BuildSourceBreakdown(set, dmType, guid, creatureID)
-    local actor = FindActorInSet(set, guid, creatureID, nil)
+    local actor = FindActorInSet(set, guid, creatureID, (type(guid) == "string" and guid) or nil)
     if not actor and (dmType == Enum.DamageMeterType.DamageDone or dmType == Enum.DamageMeterType.HealingDone or dmType == Enum.DamageMeterType.DamageTaken or dmType == Enum.DamageMeterType.AvoidableDamageTaken or dmType == Enum.DamageMeterType.EnemyDamageTaken or dmType == Enum.DamageMeterType.Interrupts or dmType == Enum.DamageMeterType.Dispels or dmType == Enum.DamageMeterType.Deaths) then
         return nil
     end
@@ -810,8 +810,10 @@ local function BuildSourceBreakdown(set, dmType, guid, creatureID)
     local actorTime = (actor and actor.GetTime and actor:GetTime(set)) or setTime
     local isAbsDamage = Skada and Skada.db and Skada.db.profile and Skada.db.profile.absdamage
     local combatSpells = {}
+    local combatTargets = nil
 
     if dmType == Enum.DamageMeterType.DamageDone then
+        local targetsMap = {}
         if actor.damagespells then
             for sidStr, sp in pairs(actor.damagespells) do
                 local sid, sname, sicon, sschool = ResolveSpellData(sidStr, false)
@@ -831,9 +833,28 @@ local function BuildSourceBreakdown(set, dmType, guid, creatureID)
                         },
                     }
                 end
+                if sp.targets then
+                    for tName, tInfo in pairs(sp.targets) do
+                        local tAmt = (isAbsDamage and tInfo.total) or tInfo.amount or 0
+                        if tAmt > 0 then
+                            targetsMap[tName] = (targetsMap[tName] or 0) + tAmt
+                        end
+                    end
+                end
             end
             table.sort(combatSpells, function(a, b) return a.totalAmount > b.totalAmount end)
         end
+
+        local tList = {}
+        for tName, total in pairs(targetsMap) do
+            tList[#tList + 1] = {
+                name            = tName,
+                total           = total,
+                amountPerSecond = total / math.max(1, actorTime),
+            }
+        end
+        table.sort(tList, function(a, b) return a.total > b.total end)
+        combatTargets = tList
 
     elseif dmType == Enum.DamageMeterType.HealingDone then
         if actor.healspells then
@@ -1030,9 +1051,10 @@ local function BuildSourceBreakdown(set, dmType, guid, creatureID)
     end
 
     return {
-        name         = resolvedName,
-        sourceGUID   = (actor and actor.id) or guid,
-        combatSpells = combatSpells,
+        name          = resolvedName,
+        sourceGUID    = (actor and actor.id) or guid,
+        combatSpells  = combatSpells,
+        combatTargets = combatTargets,
     }
 end
 
@@ -1095,6 +1117,56 @@ function C_DamageMeter.GetCombatSessionSourceFromID(sessionID, damageMeterType, 
     local set = GetSetFromID(sessionID)
     if not set then return nil end
     return BuildSourceBreakdown(set, damageMeterType, sourceGUID, sourceCreatureID)
+end
+
+function C_DamageMeter.GetCombatSessionSourceTargets(sessionTypeOrID, playerNameOrGUID, maxTargets)
+    local set
+    if type(sessionTypeOrID) == "number" then
+        set = GetSetFromID(sessionTypeOrID) or GetSetFromType(sessionTypeOrID)
+    else
+        set = GetSetFromType(sessionTypeOrID)
+    end
+    if not set or not set.actors then return nil end
+
+    local actor = FindActorInSet(set, playerNameOrGUID, nil, playerNameOrGUID)
+    if not actor then return nil end
+
+    local Skada = GetSkada()
+    local setTime = math.max(1, GetSetDuration(set))
+    local actorTime = (actor.GetTime and actor:GetTime(set)) or setTime
+    local isAbsDamage = Skada and Skada.db and Skada.db.profile and Skada.db.profile.absdamage
+
+    local targetsMap = {}
+    if actor.damagespells then
+        for _, sp in pairs(actor.damagespells) do
+            if sp.targets then
+                for tName, tInfo in pairs(sp.targets) do
+                    local amt = (isAbsDamage and tInfo.total) or tInfo.amount or 0
+                    if amt > 0 then
+                        targetsMap[tName] = (targetsMap[tName] or 0) + amt
+                    end
+                end
+            end
+        end
+    end
+
+    local list = {}
+    for tName, total in pairs(targetsMap) do
+        list[#list + 1] = {
+            name            = tName,
+            total           = total,
+            amountPerSecond = total / math.max(1, actorTime),
+        }
+    end
+    table.sort(list, function(a, b) return a.total > b.total end)
+
+    if maxTargets and #list > maxTargets then
+        local trimmed = {}
+        for i = 1, maxTargets do trimmed[i] = list[i] end
+        return trimmed
+    end
+
+    return list
 end
 
 function C_DamageMeter.ResetAllCombatSessions()

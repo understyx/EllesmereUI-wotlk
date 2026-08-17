@@ -6,11 +6,13 @@ if not ns or not ns.isLegacyNameplates then return end
 -- so use Blizzard's native bars/text as the authoritative data source. This is
 -- accurate for every visible plate, unlike target/mouseover Unit* fallbacks.
 local select, type, pairs, ipairs = select, type, pairs, ipairs
-local lower, find, abs = string.lower, string.find, math.abs
+local lower, find, abs, ceil = string.lower, string.find, math.abs, math.ceil
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 local plates = setmetatable({}, { __mode = "k" })
 local lastWorldChildCount = 0
 local enabled = false
+local AURA_UNITS = { "target", "mouseover", "focus", "arena1", "arena2", "arena3", "arena4", "arena5" }
+local auraUnitOwners = {}
 
 ns.legacyPlates = plates
 
@@ -110,6 +112,302 @@ local function SetBorder(border, shown, color)
         if color then edge:SetVertexColor(color.r or 0, color.g or 0, color.b or 0, 1) end
         if shown then edge:Show() else edge:Hide() end
     end
+end
+
+-- Anonymous Wrath nameplates do not have unit tokens.  We can still attach
+-- accurate aura data whenever the plate represents a targetable unit token
+-- (target/focus/mouseover, plus arena opponents), then age that verified
+-- snapshot by its real expiration times.  Matching health as well as name
+-- prevents one mob's debuffs being copied onto every same-named mob nearby.
+local function PlateMatchesUnit(state, unit)
+    if not UnitExists(unit) or not UnitCanAttack("player", unit) then return false end
+    local plateName = state.nameSource and state.nameSource:GetText()
+    local unitName = UnitName(unit)
+    if not plateName or plateName == "" or plateName ~= unitName then return false end
+
+    local _, plateMax = state.health:GetMinMaxValues()
+    local plateValue = state.health:GetValue()
+    local unitMax = UnitHealthMax(unit)
+    local unitValue = UnitHealth(unit)
+    if plateMax and plateMax > 0 and unitMax and unitMax > 0 then
+        if abs(plateMax - unitMax) < 1 and abs(plateValue - unitValue) < 1 then
+            return true
+        end
+        return abs((plateValue / plateMax) - (unitValue / unitMax)) < .015
+    end
+    return true
+end
+
+local function ResolveAuraUnit(state)
+    if state.auraUnit and PlateMatchesUnit(state, state.auraUnit) then
+        return state.auraUnit
+    end
+    if state.auraUnit and auraUnitOwners[state.auraUnit] == state then
+        auraUnitOwners[state.auraUnit] = nil
+    end
+    state.auraUnit = nil
+    for _, unit in ipairs(AURA_UNITS) do
+        local owned = auraUnitOwners[unit]
+        local sameUnitOwned = false
+        if not owned and UnitIsUnit then
+            for ownedUnit, owner in pairs(auraUnitOwners) do
+                if owner ~= state and UnitExists(ownedUnit) and UnitIsUnit(unit, ownedUnit) then
+                    sameUnitOwned = true
+                    break
+                end
+            end
+        end
+        if not owned and not sameUnitOwned and PlateMatchesUnit(state, unit) then
+            state.auraUnit = unit
+            auraUnitOwners[unit] = state
+            return unit
+        end
+    end
+end
+
+local function SetAuraTextPoint(text, owner, position, x, y)
+    text:ClearAllPoints()
+    if position == "center" then
+        text:SetPoint("CENTER", owner, "CENTER", x, y)
+        text:SetJustifyH("CENTER")
+    elseif position == "topright" then
+        text:SetPoint("TOPRIGHT", owner, "TOPRIGHT", 3 + x, 4 + y)
+        text:SetJustifyH("RIGHT")
+    elseif position == "bottomleft" then
+        text:SetPoint("BOTTOMLEFT", owner, "BOTTOMLEFT", -3 + x, -4 + y)
+        text:SetJustifyH("LEFT")
+    elseif position == "bottomright" then
+        text:SetPoint("BOTTOMRIGHT", owner, "BOTTOMRIGHT", 3 + x, -4 + y)
+        text:SetJustifyH("RIGHT")
+    else
+        text:SetPoint("TOPLEFT", owner, "TOPLEFT", -3 + x, 4 + y)
+        text:SetJustifyH("LEFT")
+    end
+end
+
+local function EnsureDebuffSlots(state)
+    if not state.debuffs then state.debuffs = {} end
+    local db = DB()
+    local wanted = db.maxDebuffs or 5
+    for i = #state.debuffs + 1, wanted do
+        local slot = CreateFrame("Frame", nil, state.frame)
+        slot:SetFrameLevel(state.frame:GetFrameLevel() + 20)
+        slot.icon = slot:CreateTexture(nil, "ARTWORK")
+        slot.icon:SetPoint("TOPLEFT", slot, "TOPLEFT", 1, -1)
+        slot.icon:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -1, 1)
+        slot.border = CreateBorder(slot)
+
+        slot.cooldown = CreateFrame("Cooldown", nil, slot, "CooldownFrameTemplate")
+        slot.cooldown:SetAllPoints(slot.icon)
+        slot.cooldown:SetFrameLevel(slot:GetFrameLevel() + 1)
+        if slot.cooldown.SetReverse then slot.cooldown:SetReverse(true) end
+
+        slot.textFrame = CreateFrame("Frame", nil, slot)
+        slot.textFrame:SetAllPoints(slot)
+        slot.textFrame:SetFrameLevel(slot:GetFrameLevel() + 2)
+        slot.durationText = slot.textFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        slot.countText = slot.textFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        slot:Hide()
+        state.debuffs[i] = slot
+    end
+    for i = wanted + 1, #state.debuffs do state.debuffs[i]:Hide() end
+end
+
+local function StyleDebuffSlots(state)
+    EnsureDebuffSlots(state)
+    local db = DB()
+    local size = ns.GetDebuffIconSize and ns.GetDebuffIconSize() or 26
+    local cropped = ns.GetAuraCrop and ns.GetAuraCrop("debuffs")
+    local height = ns.GetAuraCropHeight and ns.GetAuraCropHeight(cropped, size) or size
+    local durationPos = db.debuffTimerPosition or db.auraTextPosition or "topleft"
+    local durationColor = db.debuffDurationTextColor or db.auraDurationTextColor or { r = 1, g = 1, b = 1 }
+    local durationSize = db.debuffDurationTextSize or db.auraDurationTextSize or 11
+    local durationX = db.debuffDurationTextX or db.auraDurationTextX or 0
+    local durationY = db.debuffDurationTextY or db.auraDurationTextY or 0
+    local stackPos = db.auraStackTextPosition or "bottomright"
+    local stackColor = db.auraStackTextColor or { r = 1, g = 1, b = 1 }
+    local stackSize = db.auraStackTextSize or 11
+    local stackX = db.auraStackTextX or 0
+    local stackY = db.auraStackTextY or 0
+    local borderColor = db.auraBorderColor or { r = 0, g = 0, b = 0 }
+
+    for _, slot in ipairs(state.debuffs) do
+        slot:SetSize(size, height)
+        if ns.SetAuraIconCrop then ns.SetAuraIconCrop(slot.icon, cropped, size, height) end
+        SetBorder(slot.border, true, borderColor)
+        ns.SetFSFont(slot.durationText, durationSize, ns.GetNPOutline())
+        slot.durationText:SetTextColor(durationColor.r, durationColor.g, durationColor.b, 1)
+        SetAuraTextPoint(slot.durationText, slot, durationPos, durationX, durationY)
+        if durationPos == "none" then slot.durationText:Hide() else slot.durationText:Show() end
+        ns.SetFSFont(slot.countText, stackSize, ns.GetNPOutline())
+        slot.countText:SetTextColor(stackColor.r, stackColor.g, stackColor.b, 1)
+        SetAuraTextPoint(slot.countText, slot, stackPos, stackX, stackY)
+        if stackPos == "none" then slot.countText:Hide() else slot.countText:Show() end
+    end
+end
+
+local function LayoutDebuffSlots(state, count)
+    if not state.debuffs then return end
+    local db = DB()
+    local slotName = (ns.GetAuraSlots and select(1, ns.GetAuraSlots())) or db.debuffSlot or "top"
+    if slotName == "none" then count = 0 end
+    local size = ns.GetDebuffIconSize and ns.GetDebuffIconSize() or 26
+    local cropped = ns.GetAuraCrop and ns.GetAuraCrop("debuffs")
+    local height = ns.GetAuraCropHeight and ns.GetAuraCropHeight(cropped, size) or size
+    local gap = ns.GetAuraSpacing and ns.GetAuraSpacing("debuffs") or 4
+    local spacing, spacingV = size + gap, height + gap
+    local xOff, yOff = 0, 0
+    if ns.GetAuraSlotOffsets then xOff, yOff = ns.GetAuraSlotOffsets("debuffSlot") end
+    local debuffY = ns.GetDebuffYOffset and ns.GetDebuffYOffset() or 2
+    local sideOff = ns.GetSideAuraXOffset and ns.GetSideAuraXOffset() or 2
+    local anchorBottom = state.cast or state.health
+
+    for i, aura in ipairs(state.debuffs) do
+        aura:ClearAllPoints()
+        if i <= count then
+            if slotName == "left" then
+                aura:SetPoint("BOTTOMRIGHT", state.health, "BOTTOMLEFT", -sideOff - (i - 1) * spacing + xOff, yOff)
+            elseif slotName == "right" then
+                aura:SetPoint("BOTTOMLEFT", state.health, "BOTTOMRIGHT", sideOff + (i - 1) * spacing + xOff, yOff)
+            elseif slotName == "topleft" then
+                local growth = db.topleftSlotGrowth or "left"
+                local dx, dy = -(i - 1) * spacing, 0
+                if growth == "right" then dx = (i - 1) * spacing end
+                if growth == "up" then dx, dy = 0, (i - 1) * spacingV end
+                aura:SetPoint("BOTTOMLEFT", state.health, "TOPLEFT", xOff + dx, debuffY + yOff + dy)
+            elseif slotName == "topright" then
+                local growth = db.toprightSlotGrowth or "right"
+                local dx, dy = (i - 1) * spacing, 0
+                if growth == "left" then dx = -(i - 1) * spacing end
+                if growth == "up" then dx, dy = 0, (i - 1) * spacingV end
+                aura:SetPoint("BOTTOMRIGHT", state.health, "TOPRIGHT", xOff + dx, debuffY + yOff + dy)
+            elseif slotName == "bottom" then
+                aura:SetPoint("TOP", anchorBottom, "BOTTOM", (i - (count + 1) / 2) * spacing + xOff, -2 + yOff)
+            else
+                aura:SetPoint("BOTTOM", state.name or state.health, "TOP", (i - (count + 1) / 2) * spacing + xOff, debuffY + yOff)
+            end
+            aura:Show()
+        else
+            aura:Hide()
+        end
+    end
+end
+
+local function ClearDebuffs(state)
+    if not state.auraUnit and (state.debuffCount or 0) == 0 then return end
+    if state.auraUnit and auraUnitOwners[state.auraUnit] == state then
+        auraUnitOwners[state.auraUnit] = nil
+    end
+    state.auraUnit = nil
+    state.debuffCount = 0
+    if not state.debuffs then return end
+    for _, slot in ipairs(state.debuffs) do
+        slot.expirationTime = nil
+        slot.auraIcon = nil
+        slot.auraCount = nil
+        slot.remaining = nil
+        slot.durationText:SetText("")
+        slot.countText:SetText("")
+        slot.cooldown:Hide()
+        slot:Hide()
+    end
+end
+
+-- Keep the last authoritative snapshot on its specific plate after the player
+-- changes target.  Wrath cannot ask an arbitrary anonymous nameplate for aura
+-- data, but the known expiration times remain valid; retaining them makes
+-- multi-dotting work as each plate is targeted or moused over.  A removal we
+-- cannot observe is corrected the next time that plate resolves to a token.
+local function RefreshCachedDebuffs(state, now)
+    local count = state.debuffCount or 0
+    if count == 0 then return end
+    for i = 1, count do
+        local slot = state.debuffs[i]
+        if not slot.expirationTime then
+            ClearDebuffs(state)
+            return
+        end
+        local remaining = ceil(slot.expirationTime - now)
+        if remaining <= 0 then
+            -- Re-resolving the remaining slots without a unit token would be
+            -- guesswork.  Clear the snapshot; it will rebuild authoritatively
+            -- as soon as this unit is targeted/focused/moused over again.
+            ClearDebuffs(state)
+            return
+        end
+        if slot.remaining ~= remaining then
+            slot.durationText:SetText(remaining)
+            slot.remaining = remaining
+        end
+    end
+end
+
+local function RefreshDebuffs(state, now)
+    local unit = ResolveAuraUnit(state)
+    local db = DB()
+    local slotName = (ns.GetAuraSlots and select(1, ns.GetAuraSlots())) or db.debuffSlot or "top"
+    if slotName == "none" then
+        ClearDebuffs(state)
+        return
+    end
+    if not unit then
+        RefreshCachedDebuffs(state, now)
+        return
+    end
+
+    EnsureDebuffSlots(state)
+    local maximum = db.maxDebuffs or 5
+    local shown = 0
+    for index = 1, 40 do
+        -- UnitDebuff is already implicitly HARMFUL; PLAYER is the native
+        -- caster filter and includes the player's pet.  Do not scan the
+        -- unfiltered list in Lua: that can leak another player's debuff onto
+        -- the plate on clients whose caster return is incomplete.
+        local name, _, icon, count, _, duration, expirationTime = UnitDebuff(unit, index, "PLAYER")
+        if not name then break end
+        if icon then
+            shown = shown + 1
+            local slot = state.debuffs[shown]
+            if slot.auraIcon ~= icon then
+                slot.icon:SetTexture(icon)
+                slot.auraIcon = icon
+            end
+            slot.duration = duration
+            local countText = count and count > 1 and count or ""
+            if slot.auraCount ~= countText then
+                slot.countText:SetText(countText)
+                slot.auraCount = countText
+            end
+            if duration and duration > 0 and expirationTime and expirationTime > 0 then
+                if slot.expirationTime ~= expirationTime then
+                    local startTime = expirationTime - duration
+                    if CooldownFrame_SetTimer then
+                        CooldownFrame_SetTimer(slot.cooldown, startTime, duration, 1)
+                    elseif slot.cooldown.SetCooldown then
+                        slot.cooldown:SetCooldown(startTime, duration)
+                    end
+                    slot.cooldown:Show()
+                    slot.expirationTime = expirationTime
+                end
+                local remaining = ceil(expirationTime - now)
+                if slot.remaining ~= remaining then
+                    slot.durationText:SetText(remaining)
+                    slot.remaining = remaining
+                end
+            else
+                slot.cooldown:Hide()
+                slot.expirationTime = nil
+                if slot.remaining ~= "" then
+                    slot.durationText:SetText("")
+                    slot.remaining = ""
+                end
+            end
+            if shown >= maximum then break end
+        end
+    end
+    local oldShown = state.debuffCount or 0
+    state.debuffCount = shown
+    if oldShown ~= shown then LayoutDebuffSlots(state, shown) end
 end
 
 local function FindParts(frame)
@@ -262,6 +560,8 @@ local function RefreshAppearance(state)
     state.level:ClearAllPoints()
     state.level:SetPoint("LEFT", health, "RIGHT", 4, 0)
     PositionHealthText(state)
+    StyleDebuffSlots(state)
+    LayoutDebuffSlots(state, state.debuffCount or 0)
     if state.castBg then
         local castBg = db.castBgColor or ns.defaults.castBgColor
         state.castBg:SetVertexColor(castBg.r, castBg.g, castBg.b,
@@ -361,6 +661,7 @@ local function Skin(frame)
         -- Clear the cached native colour so it cannot leak into the next unit
         -- that reuses this plate frame.  The next OnShow will re-read it fresh.
         state.nativeR, state.nativeG, state.nativeB = nil, nil, nil
+        ClearDebuffs(state)
     end)
 
     RefreshAppearance(state)
@@ -388,7 +689,11 @@ driver:SetScript("OnUpdate", function(_, delta)
     if elapsed < .05 then return end
     elapsed = 0
     Discover()
-    for _, state in pairs(plates) do RefreshValues(state) end
+    local now = GetTime()
+    for _, state in pairs(plates) do
+        RefreshValues(state)
+        if state.frame:IsShown() then RefreshDebuffs(state, now) end
+    end
 end)
 driver:Hide()
 
