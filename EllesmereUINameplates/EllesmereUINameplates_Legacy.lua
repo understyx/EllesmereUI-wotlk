@@ -410,6 +410,59 @@ local function RefreshDebuffs(state, now)
     if oldShown ~= shown then LayoutDebuffSlots(state, shown) end
 end
 
+-- Permanently zero a texture's alpha and hook SetAlpha so the C engine cannot
+-- reassert it.  Mirrors the technique used by SuppressSourceFont for FontStrings.
+local function SuppressTexture(region)
+    region:SetAlpha(0)
+    if region._euiAlphaSuppressed or not hooksecurefunc then return end
+    region._euiAlphaSuppressed = true
+    hooksecurefunc(region, "SetAlpha", function(self, alpha)
+        if alpha ~= 0 and not self._euiForcingAlpha then
+            self._euiForcingAlpha = true
+            self:SetAlpha(0)
+            self._euiForcingAlpha = nil
+        end
+    end)
+end
+
+-- Suppress ALL texture regions on `frame` and its non-StatusBar child frames.
+-- EllesmereUI replaces every native visual element, so any Blizzard texture on
+-- the nameplate frame (border, glow, highlight, elite/rare dragon art, etc.) is
+-- unwanted chrome regardless of its texture path.  Only the raid targeting icon
+-- is preserved.  Skips StatusBar children (health/cast bars) since those have
+-- their textures managed separately.
+local function ScanFrameRegions(frame, hiddenArt, raidIconRef, depth, isStatusBar)
+    depth = depth or 0
+    -- On StatusBar children, skip region scanning -- their fill texture is
+    -- managed by SetStatusBarTexture, not by us zeroing regions.
+    if not isStatusBar then
+        for i = 1, RegionCount(frame) do
+            local region = select(i, frame:GetRegions())
+            if region and region.GetObjectType and region:GetObjectType() == "Texture" then
+                local path = TexturePath(region)
+                if path and find(path, "raidtargetingicons", 1, true) then
+                    -- Keep the raid icon.
+                    if raidIconRef and not raidIconRef[1] then raidIconRef[1] = region end
+                else
+                    -- Suppress everything else: border, glow, highlight, castbar chrome,
+                    -- elite/rare dragon art, or any other Blizzard nameplate texture.
+                    SuppressTexture(region)
+                    hiddenArt[#hiddenArt + 1] = region
+                end
+            end
+        end
+    end
+    if depth < 2 then
+        for i = 1, ChildCount(frame) do
+            local child = select(i, frame:GetChildren())
+            if child then
+                local childIsBar = child.GetObjectType and child:GetObjectType() == "StatusBar"
+                ScanFrameRegions(child, hiddenArt, raidIconRef, depth + 1, childIsBar)
+            end
+        end
+    end
+end
+
 local function FindParts(frame)
     local health, cast
     for i = 1, ChildCount(frame) do
@@ -419,27 +472,21 @@ local function FindParts(frame)
         end
     end
 
-    local nameSource, levelSource, raidIcon
+    local nameSource, levelSource
     local fonts = {}
     local hiddenArt = {}
+    local raidIconRef = {}  -- single-element table so ScanFrameRegions can write it
     for i = 1, RegionCount(frame) do
         local region = select(i, frame:GetRegions())
         if region and region.GetObjectType then
             local kind = region:GetObjectType()
             if kind == "FontString" then
                 fonts[#fonts + 1] = region
-            elseif kind == "Texture" then
-                local path = TexturePath(region)
-                if path and find(path, "raidtargetingicons", 1, true) then
-                    raidIcon = region
-                elseif path and (find(path, "nameplate%-border") or find(path, "nameplate%-glow")
-                    or find(path, "nameplate%-highlight") or find(path, "nameplate%-castbar")) then
-                    region:SetAlpha(0)
-                    hiddenArt[#hiddenArt + 1] = region
-                end
             end
         end
     end
+    ScanFrameRegions(frame, hiddenArt, raidIconRef)
+    local raidIcon = raidIconRef[1]
     for _, fs in ipairs(fonts) do
         local value = fs:GetText()
         if value and tostring(value):match("^%??%d+[%+%-]?$" ) then
