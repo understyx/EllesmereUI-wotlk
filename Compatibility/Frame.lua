@@ -497,10 +497,12 @@ local unitEventDispatcher = CreateFrame("Frame")
 
 local function ReportUnitEventError(err)
     local handler = geterrorhandler and geterrorhandler()
-    if handler then handler(err) end
+    -- A broken third-party error handler must not escape this dispatcher and
+    -- leave its reusable snapshot/depth bookkeeping in a corrupt state.
+    if handler then pcall(handler, err) end
 end
 
-local function StopUnitEvent(event, entry)
+local function StopUnitEvent(event)
     unitEventRegistry[event] = nil
     pcall(unitEventDispatcher.UnregisterEvent, unitEventDispatcher, event)
     UnregisterSyntheticEvent(unitEventDispatcher, event)
@@ -524,7 +526,7 @@ local function UnregisterCentralUnitEvent(frame, event)
             end
         end
         entry.count = entry.count - 1
-        if entry.count <= 0 then StopUnitEvent(event, entry) end
+        if entry.count <= 0 then StopUnitEvent(event) end
     end
     return true
 end
@@ -627,7 +629,10 @@ local function RegisterUnitEventCompat(frame, event, ...)
     for unit in pairs(units) do
         local subscribers = entry.byUnit[unit]
         if not subscribers then
-            subscribers = setmetatable({}, { __mode = "k" })
+            -- Native event registration keeps the receiving frame alive. Use
+            -- a strong table here to preserve that lifetime exactly; removing
+            -- the registration releases the reference below.
+            subscribers = {}
             entry.byUnit[unit] = subscribers
         end
         subscribers[frame] = true
