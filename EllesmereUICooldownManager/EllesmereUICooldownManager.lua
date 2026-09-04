@@ -8428,6 +8428,8 @@ end
 -------------------------------------------------------------------------------
 RegisterCDMUnlockElements = function()
     if not EllesmereUI or not EllesmereUI.RegisterUnlockElements then return end
+    if not ECME or not ECME.db then return end
+    if not ns.GetActiveSpecKey or not ns.GetActiveSpecKey() then return end
     local MK = EllesmereUI.MakeUnlockElement
 
     -- Build a lookup of which bars are anchored to which parent

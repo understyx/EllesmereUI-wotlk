@@ -28,6 +28,7 @@ ns.EllesmereUI = EllesmereUI
 -- reached in the suite, where it is correct. On ns (not a new file-scope local)
 -- since this file sits at the Lua 5.1 200-local cap.
 ns.NICK_ADDON = ADDON_NAME:find("Standalone") and ADDON_NAME or "EllesmereUI"
+ns.IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
 
 -------------------------------------------------------------------------------
 --  Frame-level layout (offsets above the button / preview-frame level).
@@ -367,6 +368,31 @@ local DISPEL_ICON_ATLAS = {
     [""]    = "RaidFrame-Icon-DebuffBleed",
 }
 
+-- Wrath has no RaidFrame-Icon-Debuff* atlases. Use real 3.3.5 aura spell
+-- textures so both the live type indicator and its options preview render on
+-- the legacy client instead of showing the red missing-texture square.
+local DISPEL_ICON_SPELL = {
+    Magic   = 74562, -- Fiery Combustion (Ruby Sanctum)
+    Curse   = 74792, -- Soul Consumption (Ruby Sanctum)
+    Disease = 70337, -- Necrotic Plague
+    Poison  = 2818,  -- Deadly Poison
+    [""]    = 47465, -- Rend (physical/bleed)
+}
+
+local function GetSpellIcon(spellID)
+    return spellID and select(3, GetSpellInfo(spellID)) or nil
+end
+
+local function SetDispelTypeTexture(texture, dispelType)
+    if ns.IS_WRATH then
+        texture:SetTexture(GetSpellIcon(DISPEL_ICON_SPELL[dispelType])
+            or "Interface\\Icons\\INV_Misc_QuestionMark")
+        texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    else
+        texture:SetAtlas(DISPEL_ICON_ATLAS[dispelType])
+    end
+end
+
 -- Rez spells by class (for dead target range checking)
 -- IsSpellInRange returns normal booleans, not secret values.
 local REZ_SPELL_BY_CLASS = {
@@ -703,6 +729,12 @@ local defaults = {
         -- Debuffs
         debuffFilter     = "all",  -- "none", "all", "raid", "dispellable"
         hideLustDebuff   = true,
+        -- Wrath has no Blizzard raid-debuff classification. These spell-ID
+        -- sets provide an explicit, allocation-free replacement: whitelist
+        -- entries are force-shown (and prioritized), blacklist entries are
+        -- always hidden. In "raid" mode the whitelist is the complete source.
+        raidDebuffWhitelist = {},
+        raidDebuffBlacklist = {},
         -- CC Debuff Glow: glow displayed debuff icons whose aura is crowd control
         -- (Blizzard CROWD_CONTROL aura filter). Mirrors CDM's Buff Glow control.
         -- 0 = None (default); style index 1 = Pixel Glow.
@@ -3182,7 +3214,7 @@ local function StyleButton(button)
     for idx, name in pairs({ [1] = "Magic", [2] = "Curse", [3] = "Disease", [4] = "Poison", [9] = "", [11] = "" }) do
         local tex = dispelIcon:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints()
-        tex:SetAtlas(DISPEL_ICON_ATLAS[name])
+        SetDispelTypeTexture(tex, name)
         tex:Hide()
         d.dispelIconTextures[idx] = tex
     end
@@ -4689,15 +4721,29 @@ local function IsDisplayDebuff(unit, auraData, s)
     local mode = s and s.debuffFilter or "all"
     if mode == "none" then return false end
 
+    -- User blacklist is absolute. The whitelist overrides the selected base
+    -- filter and is returned as a second value so full scans can keep important
+    -- raid mechanics ahead of ordinary debuffs when the icon cap is reached.
+    local sid = hsid and not issecretvalue(hsid) and hsid or nil
+    if sid and s then
+        local blacklist = s.raidDebuffBlacklist
+        if type(blacklist) == "table" and blacklist[sid] then return false end
+        local whitelist = s.raidDebuffWhitelist
+        if type(whitelist) == "table" and whitelist[sid] then return true, true end
+    end
+
     -- Sated blacklist (secret-safe: skip check if spellId is secret)
     if s and s.hideLustDebuff then
-        local sid = auraData.spellId
-        if sid and not issecretvalue(sid) and SATED_DEBUFFS[sid] then
+        if sid and SATED_DEBUFFS[sid] then
             return false
         end
     end
 
     if mode == "all" then return true end
+    -- There is no RAID aura-filter token in 3.3.5. On Wrath, "Raid Debuffs
+    -- Only" is therefore the explicit whitelist above instead of the previous
+    -- permissive fallback that accidentally displayed every harmful aura.
+    if mode == "raid" and ns.IS_WRATH then return false end
     if not C_UnitAuras_IsAuraFilteredOutByInstanceID then return true end
     if mode == "raid" then
         return not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HARMFUL|RAID")
@@ -5094,16 +5140,26 @@ local function FullScanDebuffs(d, unit, s)
     wipe(d.debuffCache)
     d.debuffInstanceMap = d.debuffInstanceMap or {}
     wipe(d.debuffInstanceMap)
+    -- Reuse a side list for non-priority auras. Whitelisted entries are emitted
+    -- first without sorting or allocating comparator records on the hot path.
+    d.debuffNormalCache = d.debuffNormalCache or {}
+    wipe(d.debuffNormalCache)
     local i = 1
     while true do
         local auraData = C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")
         if not auraData then break end
         i = i + 1
-        if IsDisplayDebuff(unit, auraData, s) then
-            local idx = #d.debuffCache + 1
-            d.debuffCache[idx] = auraData
-            d.debuffInstanceMap[auraData.auraInstanceID] = idx
+        local show, priority = IsDisplayDebuff(unit, auraData, s)
+        if show then
+            local target = priority and d.debuffCache or d.debuffNormalCache
+            target[#target + 1] = auraData
         end
+    end
+    for j = 1, #d.debuffNormalCache do
+        d.debuffCache[#d.debuffCache + 1] = d.debuffNormalCache[j]
+    end
+    for j = 1, #d.debuffCache do
+        d.debuffInstanceMap[d.debuffCache[j].auraInstanceID] = j
     end
 end
 
@@ -5256,6 +5312,22 @@ local function UpdateDefensives(button, unit, updateInfo)
     local defBdrSz = s.defBorderSize or 1
     local defBdrC = s.defBorderColor or { r = 0, g = 0, b = 0 }
     local PP2 = PP
+    local getWrathTags = ns.IS_WRATH and C_CooldownViewer
+        and C_CooldownViewer.GetAuraSpellTags
+
+    -- The Wrath implementation is deliberately catalog-driven. If CDM is not
+    -- loaded there is nothing this display can classify, so avoid a pointless
+    -- full helpful-aura scan on every raid aura event.
+    if ns.IS_WRATH and not getWrathTags then
+        for _, icon in ipairs(d.defIcons) do
+            icon:Hide()
+            if icon._durText then
+                icon._durText:Hide()
+                if ns.UnregisterDurText then ns.UnregisterDurText(icon._durText) end
+            end
+        end
+        return
+    end
 
     local idx = 1
     while true do
@@ -5266,7 +5338,22 @@ local function UpdateDefensives(button, unit, updateInfo)
 
         local iid = auraData.auraInstanceID
         if iid and C_UnitAuras_IsAuraFilteredOutByInstanceID then
-            local isExternal = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HELPFUL|EXTERNAL_DEFENSIVE")
+            -- Retail needs Blizzard's aura filters (and their secret-value
+            -- handling). Wrath auras expose spell IDs, and CDM already indexes
+            -- their defensive/external tags. Reading that table once avoids two
+            -- compatibility-filter walks for every helpful aura on every
+            -- UNIT_AURA event -- the source of the severe raid slowdown.
+            local wrathTags = getWrathTags and getWrathTags(auraData.spellId)
+            local isExternal, isBigDef
+            if ns.IS_WRATH then
+                isExternal = wrathTags and wrathTags.external == true or false
+                isBigDef = wrathTags and wrathTags.defensive == true or false
+            else
+                isExternal = not C_UnitAuras_IsAuraFilteredOutByInstanceID(
+                    unit, iid, "HELPFUL|EXTERNAL_DEFENSIVE")
+                isBigDef = not C_UnitAuras_IsAuraFilteredOutByInstanceID(
+                    unit, iid, "HELPFUL|BIG_DEFENSIVE")
+            end
             -- Blizzard's EXTERNAL_DEFENSIVE filter omits Blessing of Freedom (a
             -- movement utility, not a damage defensive), and Freedom is a secret
             -- aura so its spellId can't be read directly. Identify the player's
@@ -5275,12 +5362,11 @@ local function UpdateDefensives(button, unit, updateInfo)
             -- viewers never run the fingerprint. All three Paladin specs resolve
             -- here: Holy natively, Protection/Retribution via the Buff Manager
             -- borrow-spec entries that route them to the Holy spell table.
-            if not isExternal and playerClassToken == "PALADIN"
+            if not ns.IS_WRATH and not isExternal and playerClassToken == "PALADIN"
                 and ns.BM_IdentifySecretAura
                 and ns.BM_IdentifySecretAura(unit, iid) == 1044 then
                 isExternal = true
             end
-            local isBigDef   = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HELPFUL|BIG_DEFENSIVE")
             local isSelfDef  = isBigDef and not isExternal
 
             local isDefensive = (showExt and isExternal) or (showDef and isSelfDef)
@@ -10473,7 +10559,7 @@ do
             "paPosition", "paOffsetX", "paOffsetY", "paGrowDirection", "paSpacing",
         },
         debuffDisplay = {
-            "debuffFilter", "hideLustDebuff",
+            "debuffFilter", "hideLustDebuff", "raidDebuffWhitelist", "raidDebuffBlacklist",
             "debuffPosition", "debuffOffsetX", "debuffOffsetY",
             "debuffGrowDirection", "debuffPerRow", "debuffWrapDirection",
             "debuffCap", "debuffHideTooltips",
@@ -11453,16 +11539,16 @@ ns._PV_CLASS_TOKENS = {
 ns._PV_TANK_CLASSES   = { "WARRIOR", "PALADIN", "DEATHKNIGHT", "MONK", "DRUID", "DEMONHUNTER" }
 ns._PV_HEALER_CLASSES = { "PRIEST", "PALADIN", "SHAMAN", "MONK", "DRUID", "EVOKER" }
 ns._PV_DPS_CLASSES    = ns._PV_CLASS_TOKENS
-ns._PV_EXT_ICONS = {
-    572025, 135936, 237542, 627485, 135964, 135966, 4622478,
+ns._PV_EXT_SPELLS = {
+    33206, 47788, 6940, 53530, 1044,
 }
-ns._PV_DEF_ICONS = {
-    DEATHKNIGHT = { 237525, 136120 }, DEMONHUNTER = { 1305150, 463284 },
-    DRUID = { 136097, 236169 }, EVOKER = { 1394891 },
-    HUNTER = { 132199, 136094 }, MAGE = { 135841, 609811 },
-    MONK = { 615341, 620827 }, PALADIN = { 524353, 524354 },
-    PRIEST = { 237550, 237563 }, ROGUE = { 136177, 132294 },
-    SHAMAN = { 538565 }, WARLOCK = { 136146, 136150 }, WARRIOR = { 132336, 132361 },
+ns._PV_DEF_SPELLS = {
+    DEATHKNIGHT = { 48792, 48707 },
+    DRUID = { 22812, 61336 },
+    HUNTER = { 19263 }, MAGE = { 45438, 43039 },
+    PALADIN = { 498, 642 }, PRIEST = { 47585 },
+    ROGUE = { 31224, 26669 }, SHAMAN = { 30823 },
+    WARLOCK = { 47891 }, WARRIOR = { 871, 12975 },
 }
 ns._PV_NAMES = {
     "Thaldrin", "Kaelara", "Morgath", "Sylvaris", "Drakmoor",
@@ -11470,15 +11556,13 @@ ns._PV_NAMES = {
     "Ashvane", "Tormund", "Ravynne", "Zulkhar", "Brightwing",
     "Fenwick", "Dawnforge", "Nighthollow", "Stormhelm", "Embertide",
 }
-ns._PV_DISPEL_DB_ICONS = {
-    Magic = 135735, Curse = 132291, Disease = 237535, Poison = 132106, [""] = 4547635,
-}
+ns._PV_DISPEL_DB_SPELLS = DISPEL_ICON_SPELL
 ns._PV_CLASS_POWER = {
     WARRIOR = "RAGE", PALADIN = "MANA", HUNTER = "FOCUS", ROGUE = "ENERGY",
     PRIEST = "MANA", DEATHKNIGHT = "RUNIC_POWER", SHAMAN = "MANA", MAGE = "MANA",
     WARLOCK = "MANA", MONK = "ENERGY", DRUID = "MANA", DEMONHUNTER = "FURY", EVOKER = "MANA",
 }
-ns._PV_DEBUFF_ICONS = { 135813, 136139, 132090, 136197, 135849, 136188 }
+ns._PV_DEBUFF_SPELLS = { 70337, 74562, 74792 }
 ns._pvActiveAuras = {}
 
 -- Forward declarations for preview aura cycling (actual tables defined later)
@@ -11675,18 +11759,19 @@ local function PvAuraPickIcon(auraType, frameIndex)
         local pool = {}
         local ct = PvClassTokens()[frameIndex] or "WARRIOR"
         if showDef then
-            local ci = ns._PV_DEF_ICONS[ct]
-            if ci then for _, ic in ipairs(ci) do pool[#pool + 1] = ic end end
+            local ci = ns._PV_DEF_SPELLS[ct]
+            if ci then for _, sid in ipairs(ci) do pool[#pool + 1] = sid end end
         end
         if showExt then
-            for _, ic in ipairs(ns._PV_EXT_ICONS) do pool[#pool + 1] = ic end
+            for _, sid in ipairs(ns._PV_EXT_SPELLS) do pool[#pool + 1] = sid end
         end
         if #pool == 0 then return nil end
-        return pool[math.random(#pool)]
+        return GetSpellIcon(pool[math.random(#pool)])
     elseif auraType == "pa" then
         return ns._PV_PA_ICONS[math.random(#ns._PV_PA_ICONS)]
     else
-        return ns._PV_DEBUFF_ICONS[math.random(#ns._PV_DEBUFF_ICONS)]
+        local spells = ns._PV_DEBUFF_SPELLS
+        return GetSpellIcon(spells[math.random(#spells)])
     end
 end
 
@@ -12019,7 +12104,10 @@ local function PvAuraTick()
                 local f = pf[fi]
                 if f and f._pvDebuffs and f._pvDebuffs[1] and f._health then
                     local icon = f._pvDebuffs[1]
-                    icon._tex:SetTexture(5927657)
+                    -- Necrotic Plague is a recognizable Wrath dispellable
+                    -- debuff and is guaranteed to have a legacy texture path.
+                    icon._tex:SetTexture(GetSpellIcon(70337)
+                        or "Interface\\Icons\\INV_Misc_QuestionMark")
                     local _z = s2.debuffIconZoom or 0.08
                     icon._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
                     icon:SetSize(s2.debuffSize or 18, s2.debuffSize or 18)
@@ -13961,8 +14049,7 @@ local function ApplyPreviewData(f, index)
         end
         -- Dispel type icon (positioned per setting)
         if s.showDispelIcons and f._dispelIcon and f._dispelIconTex then
-            local atlas = DISPEL_ICON_ATLAS[dispelType]
-            if atlas then f._dispelIconTex:SetAtlas(atlas) end
+            SetDispelTypeTexture(f._dispelIconTex, dispelType)
             f._dispelIcon:ClearAllPoints()
             local diSz = s.dispelIconSize or 16
             f._dispelIcon:SetSize(diSz, diSz)
@@ -14003,7 +14090,7 @@ local function ApplyPreviewData(f, index)
 
     -- Static dispel debuff icon (shows a fake debuff matching user's debuff settings)
     if f._pvDispelDebuff then
-        if dispVis and dispelType and ns._PV_DISPEL_DB_ICONS[dispelType] then
+        if dispVis and dispelType and ns._PV_DISPEL_DB_SPELLS[dispelType] then
             local ddi = f._pvDispelDebuff
             -- When dispellable debuffs are routed to their own anchor, the
             -- preview icon follows that location, its offsets and its size.
@@ -14011,7 +14098,8 @@ local function ApplyPreviewData(f, index)
             local dbSz
             if dispSplit then dbSz = ns.DispellableDebuffSize(s) else dbSz = s.debuffSize or 18 end
             ddi:SetSize(dbSz, dbSz)
-            ddi._tex:SetTexture(ns._PV_DISPEL_DB_ICONS[dispelType])
+            ddi._tex:SetTexture(GetSpellIcon(ns._PV_DISPEL_DB_SPELLS[dispelType])
+                or "Interface\\Icons\\INV_Misc_QuestionMark")
             local _z = s.debuffIconZoom or 0.08
             ddi._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
 
@@ -15910,12 +15998,44 @@ end
 -- protected action).
 function ns.EnsureRealFramesRestored()
     if not containerFrame then return end
-    -- Tear down any genuinely-active preview FIRST. HidePreview/HidePartyPreview
-    -- now restore container alpha and drop the mouse blockers via combat-legal
-    -- ops only (SetAlpha on our containers; Hide/SetParent on our own non-secure
-    -- preview frames), so they never defer anything.
-    if previewActive then HidePreview() end
-    if ns._partyPvActive then HidePartyPreview() end
+    -- Tear down any genuinely-active preview FIRST, but skip the per-preview
+    -- restore because the shared restore below handles both containers once.
+    if previewActive then HidePreview(true) end
+    if ns._partyPvActive then HidePartyPreview(true) end
+
+    -- Close cleanup must not trust the active flags. Deferred page switches and
+    -- interrupted preview transitions can leave a visible preview surface after
+    -- its flag has already been cleared. Unconditionally reset every preview
+    -- owner so both Overlay Preview and Real Preview are gone when settings
+    -- closes, even when bookkeeping and frame state have diverged.
+    previewActive = false
+    ns._partyPvActive = false
+    StopPvAuraTicker()
+    ns.StopPvBuffTicker()
+    if overlayContainer then
+        overlayContainer:SetScript("OnUpdate", nil)
+        overlayContainer:SetAlpha(1)
+        overlayContainer:Hide()
+    end
+    if previewContainer then previewContainer:Hide() end
+    if ns._previewGroupNumberOverlay then ns._previewGroupNumberOverlay:Hide() end
+    for _, f in ipairs(previewFrames) do
+        f:SetParent(containerFrame)
+        f:Hide()
+    end
+    for _, lbl in ipairs(previewGroupLabels) do
+        lbl:SetParent(containerFrame)
+        lbl:Hide()
+    end
+    if ns._partyOC then
+        ns._partyOC:SetScript("OnUpdate", nil)
+        ns._partyOC:SetAlpha(1)
+        ns._partyOC:Hide()
+    end
+    for i = 1, 5 do
+        if ns._partyPvFrames[i] then ns._partyPvFrames[i]:Hide() end
+    end
+
     -- Hard guarantee: force both real containers fully opaque and drop any mouse
     -- blockers, unconditionally. SetAlpha is not protected, so this is valid in
     -- combat and heals the "left alpha-hidden with the flags already false" cases

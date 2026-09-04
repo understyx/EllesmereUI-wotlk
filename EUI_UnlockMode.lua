@@ -631,7 +631,7 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EBS_Minimap"]        = { module = "EllesmereUIMinimap",         page = "Minimap",           sectionName = "DISPLAY",           highlightText = "Size" },
 
     -- Raid + Party Frames (separate registered pages/tabs)
-    ["RF_RaidFrames"]      = { module = "EllesmereUIRaidFrames",      page = "Raid",              sectionName = "FRAME SIZES",       highlightText = "20 Man Frame Width" },
+    ["RF_RaidFrames"]      = { module = "EllesmereUIRaidFrames",      page = "Raid",              sectionName = "FRAME SIZES",       highlightText = "25 Man Frame Width" },
     ["RF_PartyFrames"]     = { module = "EllesmereUIRaidFrames",      page = "Party",             sectionName = "FRAMES",            highlightText = "Frame Width" },
 
     -- Cooldown Manager dynamic bars: real per-bar keys are "CDM_<key>" / "TBB_<idx>",

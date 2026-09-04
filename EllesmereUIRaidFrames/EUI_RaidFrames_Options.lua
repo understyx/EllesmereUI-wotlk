@@ -4360,12 +4360,12 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "FRAME SIZES", y); y = y - h
 
-        -- Row: 20 Man Frame Width | 20 Man Frame Height
+        -- The baseline size is the normal Wrath raid size (25 players).
         _, h = W:DualRow(parent, y,
-            { type="slider", text="20 Man Frame Width", min=40, max=300, step=1,
+            { type="slider", text="25 Man Frame Width", min=40, max=300, step=1,
               getValue=function() return SVal("frameWidth", 72) end,
               setValue=function(v) SSet("frameWidth", v) end },
-            { type="slider", text="20 Man Frame Height", min=20, max=150, step=1,
+            { type="slider", text="25 Man Frame Height", min=20, max=150, step=1,
               getValue=function() return SVal("frameHeight", 46) end,
               setValue=function(v) SSet("frameHeight", v) end });  y = y - h
 
@@ -5959,6 +5959,10 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  PRIVATE AURAS
         -------------------------------------------------------------------
+        -- Blizzard private auras were introduced long after Wrath. Keep the
+        -- shared retail builder intact, but do not expose a dead section on
+        -- the 3.3.5 client.
+        if not ns.IS_WRATH then
         local paHeader
         _secY = y
         paHeader, h = W:SectionHeader(parent, "PRIVATE AURAS", y); y = y - h
@@ -6105,6 +6109,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("paHideTooltip", v) end });  y = y - h
 
         if onSection then onSection("privateAuras", _secY, y) end
+        end -- not Wrath (private auras)
         -- 12.1 redesign: everything below is retired here (see the gate at
         -- the top of this function).
         if not EllesmereUI.IS_121 then
@@ -6174,7 +6179,7 @@ initFrame:SetScript("OnEvent", function(self)
         local debuffFilterValues = {
             none        = "None",
             all         = "All",
-            raid        = "Raid Debuffs Only",
+            raid        = ns.IS_WRATH and "Raid Whitelist Only" or "Raid Debuffs Only",
             dispellable = "Dispellable Only",
         }
         local debuffFilterOrder = { "none", "all", "raid", "dispellable" }
@@ -6188,7 +6193,45 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return not SVal("hideLustDebuff", true) end,
               setValue=function(v) SSet("hideLustDebuff", not v) end });  y = y - h
 
-        -- Row 2: Debuff Position (+ cog for X/Y) | Growth Direction
+        -- Wrath has no native RAID aura category. Expose explicit spell-ID
+        -- sets: whitelist entries are force-shown and sorted first; blacklist
+        -- entries are always hidden. Editing the comma/space-separated value
+        -- replaces the complete set, which also makes removal straightforward.
+        if ns.IS_WRATH then
+            local function FormatSpellSet(set)
+                local ids = {}
+                if type(set) == "table" then
+                    for id, enabled in pairs(set) do
+                        local numericID = tonumber(id)
+                        if enabled and numericID and numericID > 0 then ids[#ids + 1] = numericID end
+                    end
+                end
+                table.sort(ids)
+                for i = 1, #ids do ids[i] = tostring(ids[i]) end
+                return table.concat(ids, ", ")
+            end
+            local function ParseSpellSet(text)
+                local set = {}
+                for token in tostring(text or ""):gmatch("%d+") do
+                    local id = tonumber(token)
+                    if id and id > 0 then set[id] = true end
+                end
+                return set
+            end
+            _, h = W:DualRow(parent, y,
+                { type="input", inputStyle="popup", text="Raid Debuff Whitelist", inputWidth=180,
+                  tooltip="Spell IDs separated by commas or spaces. Always shown, sorted first, and the complete source for Raid Whitelist Only on Wrath.",
+                  placeholder="e.g. 71224, 70447",
+                  getValue=function() return FormatSpellSet(SVal("raidDebuffWhitelist", {})) end,
+                  setValue=function(v) SSet("raidDebuffWhitelist", ParseSpellSet(v)) end },
+                { type="input", inputStyle="popup", text="Raid Debuff Blacklist", inputWidth=180,
+                  tooltip="Spell IDs separated by commas or spaces. These debuffs never appear, regardless of the selected filter.",
+                  placeholder="e.g. 57723, 57724",
+                  getValue=function() return FormatSpellSet(SVal("raidDebuffBlacklist", {})) end,
+                  setValue=function(v) SSet("raidDebuffBlacklist", ParseSpellSet(v)) end }); y = y - h
+        end
+
+        -- Debuff Position (+ cog for X/Y) | Growth Direction
         local debuffPositionValues = {
             topleft     = "Top Left",
             top         = "Top",
@@ -6931,7 +6974,7 @@ initFrame:SetScript("OnEvent", function(self)
                 dispels = false,
                 debuffs = s.debuffFilter ~= "none",
                 defensives = s.showDefensives or s.showExternals or false,
-                privateAuras = true,
+                privateAuras = not ns.IS_WRATH,
                 buffs = true,
                 indicators = false,
             }
@@ -6946,7 +6989,8 @@ initFrame:SetScript("OnEvent", function(self)
             ns._dispelsVisible = not indOn and testState.dispels
             ns._debuffsPreviewVisible = not indOn and testState.debuffs
             ns._defensivesPreviewVisible = not indOn and testState.defensives
-            ns._privateAurasPreviewVisible = not indOn and testState.privateAuras
+            ns._privateAurasPreviewVisible = not ns.IS_WRATH
+                and not indOn and testState.privateAuras
             ns._testReducedMaxHealth = not indOn and testState.reducedMaxHealth
             ns._testAbsorbs = not indOn and testState.absorbs
             ns._testHealAbsorbs = not indOn and testState.healAbsorbs
@@ -7027,10 +7071,12 @@ initFrame:SetScript("OnEvent", function(self)
             { page = PAGE_DEBUFFS })
             nonIndicatorRows[#nonIndicatorRows + 1] = r end
 
-        do local _, _, r = CheckboxRow("Private Auras", function() return testState.privateAuras end,
-            function(v) testState.privateAuras = v; ns._applyTestState() end,
-            { page = PAGE_DEBUFFS, key = "privateAuras" })
-            nonIndicatorRows[#nonIndicatorRows + 1] = r end
+        if not ns.IS_WRATH then
+            local _, _, r = CheckboxRow("Private Auras", function() return testState.privateAuras end,
+                function(v) testState.privateAuras = v; ns._applyTestState() end,
+                { page = PAGE_DEBUFFS, key = "privateAuras" })
+            nonIndicatorRows[#nonIndicatorRows + 1] = r
+        end
 
         do local _, _, r = CheckboxRow("Configured Buffs", function() return testState.buffs end,
             function(v) testState.buffs = v; ns._applyTestState() end,
@@ -7142,6 +7188,11 @@ initFrame:SetScript("OnEvent", function(self)
                 testTabBtn:SetScript("OnClick", function() OpenTestMode() end)
             else
                 if testTabBtn then testTabBtn:Hide() end
+                -- Preview frames live under UIParent, not inside this module's
+                -- cached page. Selecting another settings module therefore
+                -- does not hide them automatically; tear them down just like
+                -- closing the settings window does.
+                if ns.EnsureRealFramesRestored then ns.EnsureRealFramesRestored() end
             end
         end)
     end
@@ -7635,5 +7686,3 @@ initFrame:SetScript("OnEvent", function(self)
         ns._InitEUIModule()
     end
 end)
-
-

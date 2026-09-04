@@ -845,7 +845,7 @@ Enum.AddOnProfilerMetric = {
 }
 C_UnitAuras = C_UnitAuras or {}
 C_UA = C_UA or {}
-local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
+local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind, index)
     if name then
         local fromPlayer = source == "player"
             or source == "pet"
@@ -863,7 +863,13 @@ local function PackAuraData(name, rank, icon, count, dispelType, duration, expir
             isStealable = isStealable == 1 or isStealable == true,
             nameplateShowPersonal = nameplateShowPersonal == 1 or nameplateShowPersonal == true,
             spellId = spellId,
-            auraInstanceID = spellId or name or 0,
+            -- Wrath has no aura instance IDs.  Spell IDs are not a safe
+            -- substitute: two copies of the same spell (or a helpful and a
+            -- harmful aura sharing an ID) collide in lookup maps.  Encode the
+            -- base-filter slot instead.  The value is stable for the lifetime
+            -- of this snapshot and every 3.3.5 UNIT_AURA consumer performs a
+            -- full refresh, so no caller relies on it across generations.
+            auraInstanceID = auraKind == "HARMFUL" and (1000 + index) or index,
             castByPlayer = fromPlayer,
             isFromPlayerOrPlayerPet = fromPlayer,
             isHelpful = auraKind == "HELPFUL",
@@ -873,67 +879,126 @@ local function PackAuraData(name, rank, icon, count, dispelType, duration, expir
     return nil
 end
 
--- WotLK's UnitAura API has no incremental UNIT_AURA payload.  The raid-frame
--- consumers therefore all ask for the same complete aura list, and several of
--- them immediately look each returned instance up again for filters, duration,
--- and dispel colour.  Cache one packed snapshot per unit/filter for the current
--- frame so those lookups remain O(1) instead of recursively rescanning up to 40
--- auras for every icon. UNIT_AURA invalidates the snapshot below; the GetTime
--- stamp is a safety net for every other caller.
-local auraSnapshotStamp
+-- WotLK has no incremental UNIT_AURA payload.  Build exactly two native lists
+-- per unit generation (HELPFUL and HARMFUL), then evaluate all compound Retail
+-- filter strings over those packed lists.  This turns the raid-frame hot path
+-- from one native UnitAura walk per filter/consumer into at most two walks per
+-- changed unit, shared by debuffs, dispels, defensives and the Buff Manager.
+--
+-- Snapshots are event-generation cached rather than frame cached. UNIT_AURA is
+-- authoritative on 3.3.5, so unchanged units remain reusable across frames and
+-- an aura event invalidates only the affected unit instead of all 40 members.
 local auraSnapshots = {}
-local auraSnapshotsByID = {}
 
-local function ResetAuraSnapshotsForFrame()
-    local now = GetTime()
-    if auraSnapshotStamp ~= now then
-        auraSnapshotStamp = now
-        wipe(auraSnapshots)
-        wipe(auraSnapshotsByID)
+local function UnitAuraSnapshot(unit)
+    local snapshot = auraSnapshots[unit]
+    if not snapshot then
+        snapshot = { byID = {}, filtered = {} }
+        auraSnapshots[unit] = snapshot
     end
+    return snapshot
 end
 
-local function AuraSnapshotKey(unit, filter)
-    return tostring(unit) .. "\031" .. tostring(filter or "HELPFUL")
-end
-
-local function BuildAuraSnapshot(unit, filter)
-    ResetAuraSnapshotsForFrame()
-    filter = filter or "HELPFUL"
-    local key = AuraSnapshotKey(unit, filter)
-    local list = auraSnapshots[key]
+local function BuildBaseAuraSnapshot(unit, auraKind)
+    local snapshot = UnitAuraSnapshot(unit)
+    local list = snapshot[auraKind]
     if list then return list end
 
     list = {}
-    auraSnapshots[key] = list
-    local auraKind = string.find(filter, "HARMFUL", 1, true) and "HARMFUL" or "HELPFUL"
-    local unitByID = auraSnapshotsByID[unit]
-    if not unitByID then
-        unitByID = { HELPFUL = {}, HARMFUL = {} }
-        auraSnapshotsByID[unit] = unitByID
-    end
-    local kindByID = unitByID[auraKind]
-
+    snapshot[auraKind] = list
     for i = 1, 40 do
         local name, rank, icon, count, dispelType, duration, expirationTime, source,
-            isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, filter)
+            isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, auraKind)
         if not name then break end
         local aura = PackAuraData(name, rank, icon, count, dispelType, duration,
-            expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind)
+            expirationTime, source, isStealable, nameplateShowPersonal, spellId,
+            auraKind, i)
         list[#list + 1] = aura
-        local iid = aura and aura.auraInstanceID
-        if iid ~= nil and kindByID[iid] == nil then kindByID[iid] = aura end
+        snapshot.byID[aura.auraInstanceID] = aura
     end
     return list
 end
 
-function C_UnitAuras.ClearCachedAuraData()
-    -- Invalidation is deliberately whole-cache: it is cheap, guarantees that
-    -- two UNIT_AURA events in the same rendered frame cannot share stale data,
-    -- and the next unit rebuilds only the exact filters it consumes.
-    auraSnapshotStamp = nil
-    wipe(auraSnapshots)
-    wipe(auraSnapshotsByID)
+local playerDispelClass
+local function PlayerCanDispel(dispelType)
+    if not dispelType then return false end
+    if not playerDispelClass then _, playerDispelClass = UnitClass("player") end
+    local class = playerDispelClass
+    if dispelType == "Magic" then
+        return class == "PALADIN" or class == "PRIEST"
+    elseif dispelType == "Curse" then
+        return class == "DRUID" or class == "MAGE" or class == "SHAMAN"
+    elseif dispelType == "Disease" then
+        return class == "PALADIN" or class == "PRIEST" or class == "SHAMAN"
+    elseif dispelType == "Poison" then
+        return class == "DRUID" or class == "PALADIN" or class == "SHAMAN"
+    end
+    return false
+end
+
+local function AuraMatchesLegacyFilter(aura, filter)
+    for rawToken in string.gmatch(filter or "", "[^|]+") do
+        local negated = string.sub(rawToken, 1, 1) == "!"
+        local token = negated and string.sub(rawToken, 2) or rawToken
+        local matches
+        if token == "HELPFUL" then
+            matches = aura.isHelpful == true
+        elseif token == "HARMFUL" then
+            matches = aura.isHarmful == true
+        elseif token == "PLAYER" then
+            matches = aura.isFromPlayerOrPlayerPet == true
+        elseif token == "RAID_PLAYER_DISPELLABLE" then
+            matches = PlayerCanDispel(aura.dispelType)
+        elseif token == "BIG_DEFENSIVE" or token == "EXTERNAL_DEFENSIVE" then
+            local tag = token == "BIG_DEFENSIVE" and "defensive" or "external"
+            matches = C_CooldownViewer and C_CooldownViewer.IsAuraSpellTagged
+                and C_CooldownViewer.IsAuraSpellTagged(aura.spellId, tag) or false
+        else
+            -- RAID/RAID_IN_COMBAT and newer classifications have no native
+            -- 3.3.5 equivalent. Feature code that needs those semantics owns
+            -- the corresponding spell catalog (raid frames do this for their
+            -- user whitelist) while the generic compatibility API stays
+            -- permissive for unknown tokens.
+            matches = nil
+        end
+        if matches ~= nil
+            and ((not negated and not matches) or (negated and matches)) then
+            return false
+        end
+    end
+    return true
+end
+
+local function BuildAuraSnapshot(unit, filter)
+    filter = filter or "HELPFUL"
+    local snapshot = UnitAuraSnapshot(unit)
+    local cached = snapshot.filtered[filter]
+    if cached then return cached end
+
+    local auraKind = string.find(filter, "HARMFUL", 1, true) and "HARMFUL" or "HELPFUL"
+    local base = BuildBaseAuraSnapshot(unit, auraKind)
+    if filter == auraKind then
+        snapshot.filtered[filter] = base
+        return base
+    end
+
+    local list = {}
+    for i = 1, #base do
+        local aura = base[i]
+        if AuraMatchesLegacyFilter(aura, filter) then
+            list[#list + 1] = aura
+        end
+    end
+    snapshot.filtered[filter] = list
+    return list
+end
+
+function C_UnitAuras.ClearCachedAuraData(unit)
+    if unit then
+        auraSnapshots[unit] = nil
+    else
+        wipe(auraSnapshots)
+    end
 end
 
 -- This frame is created with the compatibility layer, before feature add-ons
@@ -942,8 +1007,8 @@ end
 local auraCacheInvalidator = CreateFrame("Frame")
 auraCacheInvalidator:RegisterEvent("UNIT_AURA")
 auraCacheInvalidator:RegisterEvent("PLAYER_ENTERING_WORLD")
-auraCacheInvalidator:SetScript("OnEvent", function()
-    C_UnitAuras.ClearCachedAuraData()
+auraCacheInvalidator:SetScript("OnEvent", function(_, event, unit)
+    C_UnitAuras.ClearCachedAuraData(event == "UNIT_AURA" and unit or nil)
 end)
 
 C_UnitAuras.GetAuraDataByIndex = function(unit, index, filter)
@@ -985,17 +1050,15 @@ end
 
 C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, iid)
     if not unit or not iid then return nil end
-    ResetAuraSnapshotsForFrame()
-    local unitByID = auraSnapshotsByID[unit]
-    local cached = unitByID and (unitByID.HELPFUL[iid] or unitByID.HARMFUL[iid])
+    local snapshot = UnitAuraSnapshot(unit)
+    local cached = snapshot.byID[iid]
     if cached then return cached end
-    BuildAuraSnapshot(unit, "HELPFUL")
-    unitByID = auraSnapshotsByID[unit]
-    local aura = unitByID and unitByID.HELPFUL[iid]
-    if aura then return aura end
-    BuildAuraSnapshot(unit, "HARMFUL")
-    unitByID = auraSnapshotsByID[unit]
-    return unitByID and unitByID.HARMFUL[iid] or nil
+    -- Synthetic Wrath IDs encode harmful slots above 1000, so a cold targeted
+    -- lookup only builds the relevant base list instead of pessimistically
+    -- walking both kinds.
+    local isHarmfulSlot = type(iid) == "number" and iid > 1000
+    BuildAuraSnapshot(unit, isHarmfulSlot and "HARMFUL" or "HELPFUL")
+    return snapshot.byID[iid]
 end
 
 C_UnitAuras.GetAuraDataBySpellName = function(unit, name, filter)
@@ -1020,45 +1083,30 @@ C_UnitAuras.IsAuraFilteredOutByInstanceID = function(unit, iid, filter)
     if not unit or not iid then return true end
     local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, iid)
     if not aura then return true end
-
-    local function MatchesToken(token)
-        if token == "HELPFUL" then return aura.isHelpful == true end
-        if token == "HARMFUL" then return aura.isHarmful == true end
-        if token == "PLAYER" then return aura.isFromPlayerOrPlayerPet == true end
-        if token == "BIG_DEFENSIVE" or token == "EXTERNAL_DEFENSIVE" then
-            local tag = token == "BIG_DEFENSIVE" and "defensive" or "external"
-            return C_CooldownViewer
-                and C_CooldownViewer.IsAuraSpellTagged
-                and C_CooldownViewer.IsAuraSpellTagged(aura.spellId, tag)
-                or false
-        end
-        -- Other Retail-only classifications are ignored until their WotLK
-        -- catalogs are supplied. Returning nil is important for negated
-        -- unknown tokens too: both forms preserve the old permissive behavior.
-        return nil
-    end
-
-    for rawToken in string.gmatch(filter or "", "[^|]+") do
-        local negated = string.sub(rawToken, 1, 1) == "!"
-        local token = negated and string.sub(rawToken, 2) or rawToken
-        local matches = MatchesToken(token)
-        if matches ~= nil
-            and ((not negated and not matches) or (negated and matches)) then
-            return true
-        end
-    end
-    return false
+    return not AuraMatchesLegacyFilter(aura, filter)
 end
 
 C_UnitAuras.GetAuraDuration = function(unit, iid)
     if not unit or not iid then return nil end
     local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, iid)
     if aura then
+        if aura._durationObject then return aura._durationObject end
         local duration = aura.duration or 0
         local expirationTime = aura.expirationTime or 0
-        return DurationObject:Create(expirationTime - duration, duration, expirationTime)
+        aura._durationObject = DurationObject:Create(
+            expirationTime - duration, duration, expirationTime)
+        return aura._durationObject
     end
     return nil
+end
+
+C_UnitAuras.GetAuraApplicationDisplayCount = function(unit, iid, minimum, maximum)
+    local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, iid)
+    local count = aura and tonumber(aura.applications) or 0
+    minimum = minimum or 2
+    if count < minimum then return nil end
+    if maximum and count > maximum then count = maximum end
+    return tostring(count)
 end
 
 C_UnitAuras.GetAuraDispelTypeColor = function(unitOrDispelType, iid, curve)
@@ -1083,6 +1131,7 @@ C_UA.GetAuraDataByAuraInstanceID = C_UnitAuras.GetAuraDataByAuraInstanceID
 C_UA.GetAuraDataBySpellName = C_UnitAuras.GetAuraDataBySpellName
 C_UA.IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
 C_UA.GetAuraDuration = C_UnitAuras.GetAuraDuration
+C_UA.GetAuraApplicationDisplayCount = C_UnitAuras.GetAuraApplicationDisplayCount
 C_UA.GetAuraDispelTypeColor = C_UnitAuras.GetAuraDispelTypeColor
 C_UA.ClearCachedAuraData = C_UnitAuras.ClearCachedAuraData
 
@@ -1090,14 +1139,14 @@ C_UA.GetAuraSlots = function(unit, filter)
     local slots = {}
     local snapshot = BuildAuraSnapshot(unit, filter)
     for i = 1, #snapshot do
-        slots[#slots + 1] = i
+        slots[#slots + 1] = snapshot[i].auraInstanceID
     end
     -- Retail returns a continuation token followed by the slot IDs. Callers
     -- intentionally collect the varargs and begin at index 2.
     return nil, unpack(slots)
 end
 C_UA.GetAuraDataBySlot = function(unit, slot)
-    return BuildAuraSnapshot(unit, "HELPFUL")[slot]
+    return C_UnitAuras.GetAuraDataByAuraInstanceID(unit, slot)
 end
 
 

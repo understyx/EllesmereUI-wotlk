@@ -10,6 +10,14 @@ if not C_Timer then
     local timerFrame = CreateFrame("Frame")
     local timerIds = {}
 
+    -- Some 3.3.5 DebugTools builds expect message, stack, and locals strings.
+    -- Passing only pcall's error leaves locals nil and makes the error viewer
+    -- throw a second error while formatting the original one.
+    local function ReportTimerError(err)
+        local stack = type(debugstack) == "function" and debugstack(2, 20, 20) or ""
+        geterrorhandler()(tostring(err or "Unknown timer callback error"), stack, "")
+    end
+
     timerFrame:SetScript("OnUpdate", function(self, elapsed)
         iterating = true
         -- Lua 5.1's pairs()/next() traversal can fail with "invalid key to
@@ -33,7 +41,7 @@ if not C_Timer then
                         end
                         local success, err = pcall(t.callback, t)
                         if not success then
-                            geterrorhandler()(err)
+                            ReportTimerError(err)
                         end
                         if t.cancelled then
                             timers[id] = nil
@@ -46,7 +54,7 @@ if not C_Timer then
                         timers[id] = nil
                         local success, err = pcall(t.callback)
                         if not success then
-                            geterrorhandler()(err)
+                            ReportTimerError(err)
                         end
                     end
                 end

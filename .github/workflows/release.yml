@@ -18,4 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set version from the latest commit date
+        run: bash .tools/update-version.sh
+
       - uses: BigWigsMods/packager@v2

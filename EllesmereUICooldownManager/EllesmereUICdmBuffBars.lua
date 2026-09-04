@@ -5043,6 +5043,7 @@ end
 function ns.BuildTrackedBuffBars()
     ECME = ns.ECME
     if not ECME or not ECME.db then return end
+    if not ns.GetActiveSpecKey or not ns.GetActiveSpecKey() then return end
     -- No InCombatLockdown guard needed: TBB frames are our own (UIParent),
     -- not secure Blizzard frames, so positioning in combat is safe.
     _tbbRebuildPending = false
@@ -5258,6 +5259,7 @@ end
 function ns.RegisterTBBUnlockElements()
     if not EllesmereUI or not EllesmereUI.RegisterUnlockElements then return end
     if not ECME or not ECME.db then return end
+    if not ns.GetActiveSpecKey or not ns.GetActiveSpecKey() then return end
     -- Per-spec unlock-link views: this path can run on spec change before a
     -- TBB build (CDM setup registers synchronously so anchor data is ready
     -- for CollectAndReanchor), so sync the link stores here too.

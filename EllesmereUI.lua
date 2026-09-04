@@ -7311,13 +7311,10 @@ local function CreateMainFrame()
                 dot:SetPoint("RIGHT", btn, "RIGHT", -14, 0)
                 local t = dot:CreateTexture(nil, "OVERLAY")
                 t:SetAllPoints()
-                t:SetTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
-                -- Round: run the solid color through the portrait circle mask.
-                local mask = dot:CreateMaskTexture()
-                mask:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_mask.tga",
-                    "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-                mask:SetAllPoints(t)
-                t:AddMaskTexture(mask)
+                -- The RGBA mask image can be drawn directly as the dot. This
+                -- keeps it round on Wrath 3.3.5, which has no MaskTexture API.
+                t:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_mask.tga")
+                t:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
                 local ag = dot:CreateAnimationGroup()
                 ag:SetLooping("REPEAT")
                 local a1 = ag:CreateAnimation("Alpha")
@@ -10949,7 +10946,8 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.6.4"
+-- Keep the runtime version tied to the root addon's generated TOC metadata.
+EllesmereUI.VERSION = GetAddOnMetadata(EUI_HOST_ADDON, "Version") or "8.6.4-wotlk"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

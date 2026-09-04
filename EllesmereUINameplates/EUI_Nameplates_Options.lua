@@ -1396,6 +1396,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 SetPVFont(nameFS, fontPath, fontSize, npOutline)
                 nameFS:SetParent(healthTextFrame)
+                nameFS:ClearAllPoints()
                 nameFS:SetPoint(point, health, anchor, xOff + txOff + markerShift, tyOff)
                 nameFS:SetJustifyH(justify)
                 -- Estimate health text width in opposing bar slots
@@ -1427,6 +1428,7 @@ initFrame:SetScript("OnEvent", function(self)
                 pvNameSlotKey = "textSlotTop"
                 SetPVFont(nameFS, fontPath, topFontSz, npOutline)
                 nameFS:SetParent(topTextFrame)
+                nameFS:ClearAllPoints()
                 nameFS:SetPoint("BOTTOM", health, "TOP", topXOff + (pvNameMarkerReserve * 0.5), 4 + nameYOff + cpPush + topYOff)
                 nameFS:SetJustifyH("CENTER")
                 local nameW = barW - pvNameMarkerReserve
