@@ -3616,7 +3616,7 @@ local _trinketEventFrame = EllesmereUI.SafeCreateFrame("Frame")
 _trinketEventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 _trinketEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 _trinketEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-_trinketEventFrame:RegisterEvent("UNIT_AURA")
+_trinketEventFrame:RegisterUnitEvent("UNIT_AURA", "player")
 -- True when a user-added equipment slot needs another tooltip-data pass.
 -- Trinket slots do not depend on tooltip classification anymore.
 local function SlotScanIncomplete(f)

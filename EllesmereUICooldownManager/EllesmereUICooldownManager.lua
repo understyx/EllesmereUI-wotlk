@@ -12,10 +12,14 @@ local _, ns = ...
 -- engine entered through -- and build/enable/hook code runs under the
 -- parent's lifecycle dispatch, so a frame born there bills the PARENT
 -- forever (probe-verified; see EllesmereUI_Ticker.lua). These shells are
--- born HERE, in the first-loading file's main chunk, which stamps them to
--- CooldownManager. Runtime code in ANY of this addon's files adopts one via
--- ns.TakeShell() instead of EllesmereUI.SafeCreateFrame("Frame") whenever the frame will
--- carry event registrations or script handlers.
+-- born HERE, in the first-loading file's main chunk, which stamps broad-event
+-- and OnUpdate work to CooldownManager. On Wrath, RegisterUnitEvent is now
+-- routed through the core compatibility reactor to restore real unit filtering;
+-- those callbacks are intentionally billed to the core in exchange for avoiding
+-- every nominally filtered CDM listener waking on every unit's event. Runtime
+-- code in ANY of this addon's files adopts one via ns.TakeShell() instead of
+-- EllesmereUI.SafeCreateFrame("Frame") whenever the frame will carry event
+-- registrations or script handlers.
 -- Plain unnamed Frames only, persistent hosts only: the pool has no
 -- release, so transient throwaway frames keep using EllesmereUI.SafeCreateFrame.
 do

@@ -11156,7 +11156,7 @@ function EAB:FinishSetup()
     _petEventFrame:RegisterEvent("PET_UI_UPDATE")
     _petEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     _petEventFrame:RegisterEvent("UNIT_PET")
-    _petEventFrame:RegisterEvent("UNIT_AURA")
+    _petEventFrame:RegisterUnitEvent("UNIT_AURA", "pet")
     _petEventFrame:SetScript("OnEvent", UpdatePetBar)
 
     -- Stance bar GCD / cooldown swipe.
