@@ -474,6 +474,216 @@ local function UnregisterSyntheticEvent(frame, event)
     end
 end
 
+-------------------------------------------------------------------------------
+-- Central RegisterUnitEvent compatibility
+--
+-- Wrath has no native RegisterUnitEvent.  The old compatibility method simply
+-- called RegisterEvent, so every nominally unit-filtered frame received every
+-- matching event.  That is especially expensive for raid frames and
+-- nameplates: one UNIT_AURA could enter dozens of identical handlers.
+--
+-- Keep one native registration per event here and route it only to frames that
+-- subscribed to the event's first (unit) argument.  Frames still own their
+-- OnEvent scripts and can freely mix broad and unit registrations.  The
+-- per-frame wrappers below make RegisterEvent, UnregisterEvent,
+-- UnregisterAllEvents and IsEventRegistered retain Blizzard-compatible
+-- behavior without requiring feature modules to know about this dispatcher.
+-------------------------------------------------------------------------------
+local unitEventRegistry = {}
+local frameUnitEvents = setmetatable({}, { __mode = "k" })
+local unitEventDispatchSnapshots = {}
+local unitEventDispatchDepth = 0
+local unitEventDispatcher = CreateFrame("Frame")
+
+local function ReportUnitEventError(err)
+    local handler = geterrorhandler and geterrorhandler()
+    if handler then handler(err) end
+end
+
+local function StopUnitEvent(event, entry)
+    unitEventRegistry[event] = nil
+    pcall(unitEventDispatcher.UnregisterEvent, unitEventDispatcher, event)
+    UnregisterSyntheticEvent(unitEventDispatcher, event)
+end
+
+local function UnregisterCentralUnitEvent(frame, event)
+    local registered = frameUnitEvents[frame]
+    local units = registered and registered[event]
+    if not units then return false end
+
+    registered[event] = nil
+    if not next(registered) then frameUnitEvents[frame] = nil end
+
+    local entry = unitEventRegistry[event]
+    if entry then
+        for unit in pairs(units) do
+            local subscribers = entry.byUnit[unit]
+            if subscribers then
+                subscribers[frame] = nil
+                if not next(subscribers) then entry.byUnit[unit] = nil end
+            end
+        end
+        entry.count = entry.count - 1
+        if entry.count <= 0 then StopUnitEvent(event, entry) end
+    end
+    return true
+end
+
+local function UnregisterAllCentralUnitEvents(frame)
+    local registered = frameUnitEvents[frame]
+    if not registered then return end
+
+    -- UnregisterCentralUnitEvent mutates registered, so collect event names
+    -- first rather than invalidating a Lua 5.1 next() traversal.
+    local events = {}
+    for event in pairs(registered) do events[#events + 1] = event end
+    for i = 1, #events do UnregisterCentralUnitEvent(frame, events[i]) end
+end
+
+local function EnsureUnitEventFrameWrappers(frame)
+    if frame._euiUnitEventWrapped then return end
+    frame._euiUnitEventWrapped = true
+
+    local originalRegisterEvent = frame.RegisterEvent
+    local originalUnregisterEvent = frame.UnregisterEvent
+    local originalUnregisterAllEvents = frame.UnregisterAllEvents
+    local originalIsEventRegistered = frame.IsEventRegistered
+
+    if originalRegisterEvent then
+        frame.RegisterEvent = function(self, event, ...)
+            -- A broad registration replaces a unit-filtered registration for
+            -- the same frame/event, matching the native event API.
+            UnregisterCentralUnitEvent(self, event)
+            return originalRegisterEvent(self, event, ...)
+        end
+    end
+    if originalUnregisterEvent then
+        frame.UnregisterEvent = function(self, event, ...)
+            UnregisterCentralUnitEvent(self, event)
+            return originalUnregisterEvent(self, event, ...)
+        end
+    end
+    if originalUnregisterAllEvents then
+        frame.UnregisterAllEvents = function(self, ...)
+            UnregisterAllCentralUnitEvents(self)
+            return originalUnregisterAllEvents(self, ...)
+        end
+    end
+    if originalIsEventRegistered then
+        frame.IsEventRegistered = function(self, event, ...)
+            local registered = frameUnitEvents[self]
+            if registered and registered[event] then return true end
+            return originalIsEventRegistered(self, event, ...)
+        end
+    end
+end
+
+local function RegisterUnitEventCompat(frame, event, ...)
+    if type(event) ~= "string" then
+        error("Usage: RegisterUnitEvent(\"event\", \"unit\" [, \"unit2\"])", 2)
+    end
+
+    local unitCount = select("#", ...)
+    if unitCount < 1 or unitCount > 2 then
+        error("Usage: RegisterUnitEvent(\"event\", \"unit\" [, \"unit2\"])", 2)
+    end
+
+    local units = {}
+    for i = 1, unitCount do
+        local unit = select(i, ...)
+        if type(unit) ~= "string" then
+            error("Usage: RegisterUnitEvent(\"event\", \"unit\" [, \"unit2\"])", 2)
+        end
+        units[unit] = true
+    end
+
+    EnsureUnitEventFrameWrappers(frame)
+
+    -- Remove either an earlier unit registration or a native broad
+    -- registration before installing the new filtered route.
+    frame:UnregisterEvent(event)
+
+    local entry = unitEventRegistry[event]
+    if not entry then
+        entry = {
+            byUnit = {},
+            count = 0,
+        }
+        unitEventRegistry[event] = entry
+
+        -- Some retail-only unit events are synthetic on Wrath.  Register them
+        -- with the existing synthetic bus when the native client rejects the
+        -- event name, so both paths use the same filtered dispatcher.
+        local ok = pcall(unitEventDispatcher.RegisterEvent, unitEventDispatcher, event)
+        if not ok then RegisterSyntheticEvent(unitEventDispatcher, event) end
+    end
+
+    local registered = frameUnitEvents[frame]
+    if not registered then
+        registered = {}
+        frameUnitEvents[frame] = registered
+    end
+    registered[event] = units
+    for unit in pairs(units) do
+        local subscribers = entry.byUnit[unit]
+        if not subscribers then
+            subscribers = setmetatable({}, { __mode = "k" })
+            entry.byUnit[unit] = subscribers
+        end
+        subscribers[frame] = true
+    end
+    entry.count = entry.count + 1
+    return true
+end
+
+unitEventDispatcher:SetScript("OnEvent", function(_, event, unit, ...)
+    local entry = unitEventRegistry[event]
+    if not entry or type(unit) ~= "string" then return end
+    local subscribers = entry.byUnit[unit]
+    if not subscribers then return end
+
+    unitEventDispatchDepth = unitEventDispatchDepth + 1
+    local snapshot = unitEventDispatchSnapshots[unitEventDispatchDepth]
+    if not snapshot then
+        snapshot = {}
+        unitEventDispatchSnapshots[unitEventDispatchDepth] = snapshot
+    end
+    local count = 0
+    for frame in pairs(subscribers) do
+        count = count + 1
+        snapshot[count] = frame
+    end
+    for i = count + 1, #snapshot do
+        snapshot[i] = nil
+    end
+
+    -- A handler may unregister itself or another subscriber.  Traverse the
+    -- stable snapshot and re-check membership before entering each callback.
+    for i = 1, count do
+        local frame = snapshot[i]
+        snapshot[i] = nil
+        if subscribers[frame] then
+            local onEvent = frame.GetScript and frame:GetScript("OnEvent")
+            if onEvent then
+                local ok, err = pcall(onEvent, frame, event, unit, ...)
+                if not ok then ReportUnitEventError(err) end
+            end
+        end
+    end
+    unitEventDispatchDepth = unitEventDispatchDepth - 1
+end)
+
+-- Lightweight diagnostics for profiling/debug commands without exposing the
+-- mutable registry itself.
+function EUI.API.GetUnitEventReactorStats()
+    local events, subscribers = 0, 0
+    for _, entry in pairs(unitEventRegistry) do
+        events = events + 1
+        subscribers = subscribers + entry.count
+    end
+    return events, subscribers
+end
+
 function EUI.API.FireEvent(event, ...)
     local listeners = syntheticEventRegistry[event]
     if not listeners then return end
@@ -561,12 +771,10 @@ function EUI.API.ApplyFrameCompat(frame)
         end
     end
 
-    -- RegisterUnitEvent was added after WotLK. Register the underlying event;
-    -- legacy UNIT_* events still include the unit token in their payload.
+    -- RegisterUnitEvent was added after WotLK. Route it through one shared
+    -- dispatcher so legacy frames receive only their requested unit(s).
     if not frame.RegisterUnitEvent then
-        frame.RegisterUnitEvent = function(self, event, ...)
-            return self:RegisterEvent(event)
-        end
+        frame.RegisterUnitEvent = RegisterUnitEventCompat
     end
 
     if not frame.SetColorTexture then
@@ -978,9 +1186,7 @@ local function PatchWidgetMetatable(obj)
             end
         end
         if not idx.RegisterUnitEvent then
-            idx.RegisterUnitEvent = function(self, event, ...)
-                return self:RegisterEvent(event)
-            end
+            idx.RegisterUnitEvent = RegisterUnitEventCompat
         end
         if not idx.SetPassThroughButtons then
             idx.SetPassThroughButtons = function(self, ...)
@@ -1118,9 +1324,7 @@ local function PatchWidgetMetatable(obj)
             end
         end
         if not obj.RegisterUnitEvent then
-            obj.RegisterUnitEvent = function(self, event, ...)
-                return self:RegisterEvent(event)
-            end
+            obj.RegisterUnitEvent = RegisterUnitEventCompat
         end
         if not obj.SetColorTexture then
             obj.SetColorTexture = function(self, r, g, b, a)
