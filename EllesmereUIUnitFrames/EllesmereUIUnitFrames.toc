@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Simple unit frames with a modern visual style.
 ## Author: Ellesmere
-## Version: 8.6.4-wotlk.20260901
+## Version: 8.6.4-wotlk.20260905
 ## Dependencies: EllesmereUI
 ## OptionalDeps: EllesmereUICooldownManager
 ## SavedVariables: EllesmereUIUnitFramesDB
