@@ -887,7 +887,7 @@ tracker:RegisterUnitEvent("UNIT_AURA", "player", "target")
 tracker:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 tracker:RegisterEvent("SPELL_UPDATE_USABLE")
 tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
-tracker:RegisterEvent("UNIT_HEALTH")
+tracker:RegisterUnitEvent("UNIT_HEALTH", "target")
 tracker:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 tracker:SetScript("OnEvent", function(self, event, ...)
