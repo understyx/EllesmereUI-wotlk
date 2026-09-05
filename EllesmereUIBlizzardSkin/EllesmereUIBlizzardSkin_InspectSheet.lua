@@ -768,24 +768,38 @@ local function SkinInspectSheet()
             local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
             if S and S.StripTextures then S:StripTextures(tal, true) end
             tal:ClearAllPoints()
-            tal:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-            tal:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+            tal:SetAllPoints(frame)
+            if tal.SetClipsChildren then tal:SetClipsChildren(true) end
 
             if _G.InspectTalentFrameCloseButton then _G.InspectTalentFrameCloseButton:Hide() end
 
             local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
 
+            -- Give the WotLK-only talent page the same deliberate body surface
+            -- as the Inspect PvP page.  Keeping this inside the Inspect shell
+            -- also prevents the tree and its scrollbar from bleeding into the
+            -- footer tabs at unusual UI scales.
+            local surface = EllesmereUI.SafeCreateFrame("Frame", nil, tal)
+            surface:SetPoint("TOPLEFT", tal, "TOPLEFT", 16, -70)
+            surface:SetPoint("BOTTOMRIGHT", tal, "BOTTOMRIGHT", -16, 39)
+            surface:SetFrameLevel(math.max(0, tal:GetFrameLevel() - 1))
+            surface:EnableMouse(false)
+            SetInspectSurface(surface, 0.025, 0.035, 0.04, 0.72)
+            GetFFD(tal).surface = surface
+
+            local talentTabs = {}
             for i = 1, 3 do
                 local tab = _G["InspectTalentFrameTab" .. i]
                 if tab then
                     if S and S.StripTextures then S:StripTextures(tab) end
                     if S and S.HandleTab then S:HandleTab(tab) end
-                    tab:ClearAllPoints()
-                    if i == 1 then
-                        tab:SetPoint("TOPLEFT", tal, "TOPLEFT", 18, -40)
-                    else
-                        tab:SetPoint("LEFT", _G["InspectTalentFrameTab" .. (i - 1)], "RIGHT", -12, 0)
+                    tab:SetSize(124, 25)
+                    local label = tab:GetFontString()
+                    if label then
+                        label:SetFont(fontPath, 10, "")
+                        label:SetTextColor(1, 1, 1, 0.62)
                     end
+                    talentTabs[#talentTabs + 1] = tab
                 end
             end
 
@@ -793,29 +807,55 @@ local function SkinInspectSheet()
             if sf then
                 if S and S.StripTextures then S:StripTextures(sf) end
                 sf:ClearAllPoints()
-                sf:SetPoint("TOPRIGHT", tal, "TOPRIGHT", -55, -75)
-                sf:SetPoint("BOTTOM", tal, "BOTTOM", 0, 90)
-                sf:SetWidth(300)
+                sf:SetPoint("TOPLEFT", surface, "TOPLEFT", 18, -7)
+                sf:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", -34, 31)
+                if sf.SetClipsChildren then sf:SetClipsChildren(true) end
+
+                -- Scale the entire scroll child so talent buttons, dependency
+                -- arrows, and connector lines remain aligned as one unit.
+                local scrollChild = sf.GetScrollChild and sf:GetScrollChild()
+                if scrollChild and not GetFFD(scrollChild)._euiScaled then
+                    GetFFD(scrollChild)._euiScaled = true
+                    scrollChild:SetScale(1.06)
+                end
 
                 local sb = _G.InspectTalentFrameScrollFrameScrollBar
-                if sb and not sb.backdrop then
-                    if S and S.HandleScrollBar then S:HandleScrollBar(sb) end
+                if sb then
+                    if S and S.StripTextures then S:StripTextures(sb) end
                     sb:ClearAllPoints()
-                    sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 6, -17)
-                    sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 6, 17)
-                end
-            end
+                    sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 8, 0)
+                    sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 8, 0)
+                    sb:SetWidth(8)
 
-            if _G.InspectTalentFrameBackgroundTopLeft then
-                _G.InspectTalentFrameBackgroundTopLeft:ClearAllPoints()
-                _G.InspectTalentFrameBackgroundTopLeft:SetPoint("TOPLEFT", tal, "TOPLEFT", 18, -75)
-                _G.InspectTalentFrameBackgroundTopLeft:SetAlpha(0.25)
+                    local sbName = sb.GetName and sb:GetName()
+                    for _, suffix in ipairs({"ScrollUpButton", "ScrollDownButton", "UpButton", "DownButton"}) do
+                        local arrow = sbName and _G[sbName .. suffix]
+                        if arrow then
+                            arrow:SetAlpha(0)
+                            arrow:EnableMouse(false)
+                            arrow:SetSize(1, 1)
+                        end
+                    end
+
+                    local track = sb:CreateTexture(nil, "BACKGROUND")
+                    track:SetTexture(1, 1, 1, 0.04)
+                    track:SetWidth(3)
+                    track:SetPoint("TOP", sb, "TOP", 0, 0)
+                    track:SetPoint("BOTTOM", sb, "BOTTOM", 0, 0)
+                    local thumb = (sb.GetThumbTexture and sb:GetThumbTexture())
+                        or (sbName and _G[sbName .. "ThumbTexture"])
+                    if thumb then
+                        thumb:SetTexture(1, 1, 1, 0.42)
+                        thumb:SetWidth(4)
+                    end
+                end
             end
 
             if _G.InspectTalentFramePointsBar then
                 if S and S.StripTextures then S:StripTextures(_G.InspectTalentFramePointsBar) end
                 _G.InspectTalentFramePointsBar:ClearAllPoints()
-                _G.InspectTalentFramePointsBar:SetPoint("BOTTOM", tal, "BOTTOM", 0, 90)
+                _G.InspectTalentFramePointsBar:SetPoint("BOTTOM", surface, "BOTTOM", 0, 8)
+                _G.InspectTalentFramePointsBar:SetWidth(350)
                 for i = 1, select("#", _G.InspectTalentFramePointsBar:GetRegions()) do
                     local r = select(i, _G.InspectTalentFramePointsBar:GetRegions())
                     if r and r:IsObjectType("FontString") then
@@ -839,43 +879,113 @@ local function SkinInspectSheet()
                     local rank = _G["InspectTalentFrameTalent" .. i .. "Rank"]
 
                     if btn then
-                        -- TalentFrame_Update has already populated the native
-                        -- icon by the time our secure hook runs. Cache it before
-                        -- stripping, then prefer the inspect API result. This
-                        -- also covers private clients whose GetTalentInfo return
-                        -- timing differs slightly from stock 3.3.5.
-                        local nativeIconTexture = icon and icon:GetTexture()
-                        local _, iconTexturePath = GetTalentInfo(
-                            tabIndex, i, curTal.inspect ~= false, isPet, group)
-                        iconTexturePath = iconTexturePath or nativeIconTexture
+                        local bfd = GetFFD(btn)
+                        if not bfd.nativeIcon and icon then bfd.nativeIcon = icon:GetTexture() end
 
-                        if not btn.isSkinned then
+                        local iconTexturePath, currentRank, maxRank
+                        if _G.GetTalentInfo then
+                            local _, apiIcon, _, _, apiRank, apiMaxRank = GetTalentInfo(
+                                tabIndex, i, curTal.inspect ~= false, isPet, group)
+                            iconTexturePath = apiIcon
+                            currentRank = apiRank
+                            maxRank = apiMaxRank
+                        end
+                        iconTexturePath = iconTexturePath
+                            or (icon and icon:GetTexture())
+                            or bfd.nativeIcon
+
+                        if not bfd.euiSkinned then
                             if S and S.StripTextures then S:StripTextures(btn) end
                             if S and S.CreateBackdrop then S:CreateBackdrop(btn, "Default") end
                             if S and S.StyleButton then S:StyleButton(btn) end
-                            btn.isSkinned = true
+                            bfd.euiSkinned = true
                         end
                         btn:SetFrameLevel(btn:GetParent():GetFrameLevel() + 2)
 
                         if icon then
-                            icon:SetTexture(iconTexturePath or "Interface\\Icons\\INV_Misc_QuestionMark")
+                            icon:SetTexture(iconTexturePath)
                             icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                             icon:SetDrawLayer("ARTWORK")
-                            icon:Show()
-                            icon:SetAlpha(1)
-                            if S and S.SetInside then S:SetInside(icon) end
+                            if iconTexturePath then icon:Show() else icon:Hide() end
+                            icon:SetAlpha(iconTexturePath and 1 or 0)
+                            if S and S.SetInside then S:SetInside(icon, btn, 2, 2) end
                         end
 
                         if rank then
-                            rank:SetFont(fontPath, 10, "OUTLINE")
+                            rank:SetFont(fontPath, 9, "OUTLINE")
+                            rank:SetDrawLayer("OVERLAY", 7)
+                            rank:ClearAllPoints()
+                            rank:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
+                            rank:SetWidth(math.max(20, (btn:GetWidth() or 32) - 4))
+                            rank:SetHeight(11)
+                            rank:SetJustifyH("RIGHT")
+                            rank:SetJustifyV("BOTTOM")
+                            if currentRank ~= nil and maxRank then
+                                rank:SetText(currentRank .. "/" .. maxRank)
+                            end
+                            rank:SetTextColor(1, 1, 1, (currentRank or 0) > 0 and 1 or 0.58)
+                            rank:SetShadowColor(0, 0, 0, 1)
+                            rank:SetShadowOffset(1, -1)
+                            rank:Show()
+                        end
+                    end
+                end
+
+                local accent = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+                for i, tab in ipairs(talentTabs) do
+                    local active = i == tabIndex
+                    local label = tab:GetFontString()
+                    if label then
+                        if active then label:SetTextColor(1, 1, 1, 1)
+                        else label:SetTextColor(1, 1, 1, 0.58) end
+                    end
+                    if tab.backdrop then
+                        tab.backdrop:SetBackdropColor(active and 0.08 or 0.035,
+                            active and 0.10 or 0.045, active and 0.11 or 0.05, 0.94)
+                        if active then
+                            tab.backdrop:SetBackdropBorderColor(accent.r, accent.g, accent.b, 0.75)
+                        else
+                            tab.backdrop:SetBackdropBorderColor(1, 1, 1, 0.12)
                         end
                     end
                 end
             end
+
+            local function LayoutTalentTabs()
+                local count = #talentTabs
+                if count == 0 then return end
+                local gap = 4
+                local tabW = talentTabs[1]:GetWidth()
+                local totalW = count * tabW + (count - 1) * gap
+                for i, tab in ipairs(talentTabs) do
+                    tab:ClearAllPoints()
+                    if i == 1 then
+                        tab:SetPoint("TOPLEFT", tal, "TOP", -totalW / 2, -37)
+                    else
+                        tab:SetPoint("LEFT", talentTabs[i - 1], "RIGHT", gap, 0)
+                    end
+                end
+            end
+
+            LayoutTalentTabs()
             UpdateInspectTalents()
+            GetFFD(tal).updateTalents = UpdateInspectTalents
+            for _, tab in ipairs(talentTabs) do
+                tab:HookScript("OnClick", function()
+                    C_Timer.After(0, UpdateInspectTalents)
+                end)
+            end
             if _G.InspectTalentFrame_Update then
                 hooksecurefunc("InspectTalentFrame_Update", UpdateInspectTalents)
             end
+            tal:HookScript("OnShow", function()
+                LayoutTalentTabs()
+                UpdateInspectTalents()
+                C_Timer.After(0, UpdateInspectTalents)
+                C_Timer.After(0.2, UpdateInspectTalents)
+            end)
+        elseif GetFFD(tal).updateTalents then
+            GetFFD(tal).updateTalents()
         end
     end
 

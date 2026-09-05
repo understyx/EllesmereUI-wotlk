@@ -1373,6 +1373,30 @@ local function SkinFriendsFrame()
     if FriendsFramePortrait then FriendsFramePortrait:Hide() end
     if FriendsFrameIcon then FriendsFrameIcon:Hide() end
 
+    -- The 3.3.5 FriendsFrame predates NineSlice and keeps most of its portrait,
+    -- stone border, and inset artwork as direct texture regions.  The member
+    -- lookups above therefore miss exactly the chrome used by the legacy
+    -- client.  Strip those direct regions before creating our background; the
+    -- actual Friends/Who controls are child frames and remain functional.
+    local isLegacyFriends = not frame.NineSlice and _G.WhoListScrollFrame ~= nil
+    if isLegacyFriends then
+        StripTextures(frame)
+        for _, legacyChrome in ipairs({
+            _G.FriendsFrameInset,
+            _G.FriendsFramePortraitFrame,
+        }) do
+            if legacyChrome then
+                StripTextures(legacyChrome)
+                -- Hiding an inset Frame would also hide controls parented to
+                -- it on some 3.3.5 forks; only the portrait ornament is safe to
+                -- suppress as a whole.
+                if legacyChrome == _G.FriendsFramePortraitFrame then
+                    legacyChrome:Hide()
+                end
+            end
+        end
+    end
+
     for _, key in ipairs({"TopBorder", "TopRightCorner", "RightBorder",
                           "BottomRightCorner", "BottomBorder", "BottomLeftCorner",
                           "LeftBorder", "TopLeftCorner", "BtnCornerLeft",
@@ -2734,207 +2758,327 @@ local function SkinFriendsFrame()
 
     -- Who tab
     do
-        local who = WhoFrame
+        local who = _G.WhoFrame
         if who then
             StripFrameChrome(who)
+            if who.SetClipsChildren then who:SetClipsChildren(true) end
             who:ClearAllPoints()
-            who:SetPoint("TOPLEFT", frame, "TOPLEFT", 7, 0)
-            who:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -11, 0)
+            who:SetAllPoints(frame)
 
-            local whoInset = _G.WhoFrameListInset
-            if whoInset then
-                StripTextures(whoInset)
-                if whoInset.Bg then whoInset.Bg:Hide() end
-                if whoInset.NineSlice then
-                    StripTextures(whoInset.NineSlice)
-                    whoInset.NineSlice:Hide()
-                end
-                whoInset:SetClipsChildren(true)
-                whoInset:ClearAllPoints()
-                whoInset:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -92)
-                whoInset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 35)
-                local whoBg = whoInset:CreateTexture(nil, "BACKGROUND", nil, -5)
-                whoBg:SetAllPoints()
-                whoBg:SetTexture(0, 0.08, 0.10, 0.35)
-                PP.CreateBorder(whoInset, 1, 1, 1, 0.1, 1, "OVERLAY", 5)
+            -- Retail and WotLK expose different list objects.  In particular,
+            -- 3.3.5 uses WhoListScrollFrame and WhoFrameDropDown (capital D),
+            -- which the previous skin never reached.
+            local scrollBox = who.ScrollBox
+                or (who.List and who.List.ScrollBox)
+                or who.scrollFrame
+                or _G.WhoListScrollFrame
+            local scrollBar = (scrollBox and scrollBox.ScrollBar)
+                or who.ScrollBar
+                or _G.WhoListScrollFrameScrollBar
+            local legacyScroll = scrollBox == _G.WhoListScrollFrame
+
+            local nativeInset = _G.WhoFrameListInset or _G.FriendsFrameInset
+            if nativeInset then
+                StripTextures(nativeInset)
+                if nativeInset.Bg then nativeInset.Bg:Hide() end
+                if nativeInset.NineSlice then nativeInset.NineSlice:Hide() end
             end
+            if scrollBox then StripTextures(scrollBox) end
 
+            -- One explicit body surface keeps every result, query control, and
+            -- count in the same coordinate system.  It also replaces the
+            -- stretched legacy inset that produced the opaque black band.
+            local whoPane = EllesmereUI.SafeCreateFrame("Frame", nil, who)
+            whoPane:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -74)
+            whoPane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 46)
+            whoPane:SetFrameLevel(math.max(0, who:GetFrameLevel() - 1))
+            whoPane:EnableMouse(false)
+            local whoBg = whoPane:CreateTexture(nil, "BACKGROUND", nil, -5)
+            whoBg:SetAllPoints()
+            whoBg:SetTexture(0.025, 0.035, 0.04, 0.78)
+            PP.CreateBorder(whoPane, 1, 1, 1, 0.10, 1, "OVERLAY", 5)
+            GetFFD(who).pane = whoPane
+
+            local headerBg = whoPane:CreateTexture(nil, "BACKGROUND", nil, -4)
+            headerBg:SetPoint("TOPLEFT", whoPane, "TOPLEFT", 1, -1)
+            headerBg:SetPoint("TOPRIGHT", whoPane, "TOPRIGHT", -1, -1)
+            headerBg:SetHeight(23)
+            headerBg:SetTexture(1, 1, 1, 0.035)
+
+            -- Preserve the native/localized column order while distributing it
+            -- over the new pane.  Sorting by the original on-screen position is
+            -- more reliable here than assuming one FrameXML revision's indices.
+            local columns = {}
             for i = 1, 4 do
                 local col = _G["WhoFrameColumnHeader" .. i]
                 if col then
-                    hooksecurefunc(col, "SetPoint", function(self)
-                        if GetFFD(self).adjusting then return end
-                        GetFFD(self).adjusting = true
-                        local p1, rel, p2, x, y = self:GetPoint(1)
-                        if p1 then
-                            self:ClearAllPoints()
-                            local xOff = (i == 1) and 5 or 0
-                            self:SetPoint(p1, rel, p2, (x or 0) + xOff, (y or 0) + 10)
-                        end
-                        GetFFD(self).adjusting = false
-                    end)
-                end
-            end
-
-            local col1 = _G["WhoFrameColumnHeader1"]
-            local whoInset2 = _G.WhoFrameListInset
-            if col1 and whoInset2 then
-                local headerBg = who:CreateTexture(nil, "BACKGROUND", nil, -6)
-                headerBg:SetPoint("TOPLEFT", col1, "TOPLEFT", 0, 0)
-                headerBg:SetPoint("RIGHT", whoInset2, "RIGHT", 0, 0)
-                headerBg:SetHeight(col1:GetHeight())
-                headerBg:SetTexture(0, 0, 0, 0.3)
-            end
-
-            for i = 1, 4 do
-                local col = _G["WhoFrameColumnHeader" .. i]
-                if col then
+                    columns[#columns + 1] = {
+                        frame = col,
+                        left = col:GetLeft() or i,
+                        order = i,
+                    }
                     StripTextures(col)
                     local text = col:GetFontString()
                     if text then
                         text:SetFont(fontPath, 10, "")
-                        text:SetTextColor(1, 1, 1, 0.5)
+                        text:SetTextColor(1, 1, 1, 0.55)
                     end
-                    col:SetClipsChildren(true)
                     local hlTex = col:CreateTexture(nil, "HIGHLIGHT")
-                    local nextCol = _G["WhoFrameColumnHeader" .. (i + 1)]
-                    if nextCol then
-                        hlTex:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
-                        hlTex:SetPoint("BOTTOMRIGHT", nextCol, "BOTTOMLEFT", 0, 0)
-                    else
-                        local whoInset3 = _G.WhoFrameListInset
-                        if whoInset3 then
-                            hlTex:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
-                            hlTex:SetPoint("BOTTOM", col, "BOTTOM", 0, 0)
-                            hlTex:SetPoint("RIGHT", whoInset3, "RIGHT", 0, 0)
-                        else
-                            hlTex:SetAllPoints()
-                        end
-                    end
-                    hlTex:SetTexture(1, 1, 1, 0.1)
+                    hlTex:SetAllPoints()
+                    hlTex:SetTexture(1, 1, 1, 0.07)
                     hlTex:SetBlendMode("ADD")
-                    if i > 1 then
-                        local div = col:CreateTexture(nil, "OVERLAY", nil, 7)
-                        PP.DisablePixelSnap(div)
-                        div:SetWidth(PP.mult or 1)
-                        div:SetTexture(1, 1, 1, 0.1)
-                        div:SetPoint("TOPLEFT", col, "TOPLEFT", 0, -2)
-                        div:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, 2)
-                    end
                 end
             end
+            table.sort(columns, function(a, b)
+                if a.left == b.left then return a.order < b.order end
+                return a.left < b.left
+            end)
 
-            local zoneDropdown = _G.WhoFrameDropdown
+            local columnFractions = {
+                { 0.00, 0.36 },
+                { 0.36, 0.30 },
+                { 0.66, 0.12 },
+                { 0.78, 0.22 },
+            }
+            for i = 2, #columns do
+                local div = whoPane:CreateTexture(nil, "OVERLAY", nil, 6)
+                PP.DisablePixelSnap(div)
+                div:SetWidth(PP.mult or 1)
+                div:SetHeight(19)
+                div:SetTexture(1, 1, 1, 0.08)
+                columns[i].divider = div
+            end
+
+            local function SkinLegacyScrollBar()
+                if not legacyScroll or not scrollBar or GetFFD(scrollBar).whoSkinned then return end
+                GetFFD(scrollBar).whoSkinned = true
+                StripTextures(scrollBar)
+                scrollBar:SetWidth(8)
+
+                local scrollName = scrollBar.GetName and scrollBar:GetName()
+                for _, suffix in ipairs({"ScrollUpButton", "ScrollDownButton", "UpButton", "DownButton"}) do
+                    local arrow = scrollName and _G[scrollName .. suffix]
+                    if arrow then
+                        arrow:SetAlpha(0)
+                        arrow:EnableMouse(false)
+                        arrow:SetSize(1, 1)
+                    end
+                end
+
+                local track = scrollBar:CreateTexture(nil, "BACKGROUND")
+                track:SetTexture(1, 1, 1, 0.04)
+                track:SetWidth(3)
+                track:SetPoint("TOP", scrollBar, "TOP", 0, 0)
+                track:SetPoint("BOTTOM", scrollBar, "BOTTOM", 0, 0)
+
+                local thumb = (scrollBar.GetThumbTexture and scrollBar:GetThumbTexture())
+                    or (scrollName and _G[scrollName .. "ThumbTexture"])
+                if thumb then
+                    thumb:SetTexture(1, 1, 1, 0.40)
+                    thumb:SetWidth(4)
+                end
+                scrollBar:SetAlpha(0.65)
+                scrollBar:HookScript("OnEnter", function(self) self:SetAlpha(1) end)
+                scrollBar:HookScript("OnLeave", function(self) self:SetAlpha(0.65) end)
+            end
+            SkinLegacyScrollBar()
+
+            local zoneDropdown = _G.WhoFrameDropdown or _G.WhoFrameDropDown
             if zoneDropdown then
-                zoneDropdown:SetAlpha(0)
-                zoneDropdown:SetSize(1, 1)
-                zoneDropdown:EnableMouse(false)
+                zoneDropdown:SetAlpha(1)
+                zoneDropdown:EnableMouse(true)
                 zoneDropdown:ClearAllPoints()
-                zoneDropdown:SetPoint("TOPLEFT", who, "TOPLEFT", 0, 0)
+                zoneDropdown:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -9, -33)
+
+                -- The legacy selector chooses the variable Who-list column.
+                -- Keep it functional, but move it out of the column header so
+                -- it reads as a compact filter/control rather than old chrome.
+                if zoneDropdown == _G.WhoFrameDropDown then
+                    if _G.UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(zoneDropdown, 108) end
+                    StripTextures(zoneDropdown)
+                    local ddSurface = EllesmereUI.SafeCreateFrame("Frame", nil, who)
+                    ddSurface:SetPoint("TOPLEFT", zoneDropdown, "TOPLEFT", 18, -3)
+                    ddSurface:SetPoint("BOTTOMRIGHT", zoneDropdown, "BOTTOMRIGHT", -14, 4)
+                    ddSurface:SetFrameLevel(math.max(0, zoneDropdown:GetFrameLevel() - 1))
+                    ddSurface:EnableMouse(false)
+                    local ddBg = ddSurface:CreateTexture(nil, "BACKGROUND")
+                    ddBg:SetAllPoints()
+                    ddBg:SetTexture(0.025, 0.035, 0.045, 0.92)
+                    PP.CreateBorder(ddSurface, 1, 1, 1, 0.16, 1, "OVERLAY", 7)
+
+                    local ddName = zoneDropdown.GetName and zoneDropdown:GetName()
+                    local ddText = ddName and _G[ddName .. "Text"]
+                    if ddText then
+                        ddText:SetFont(fontPath, 9, "")
+                        ddText:SetTextColor(1, 1, 1, 0.72)
+                    end
+                    local ddButton = ddName and _G[ddName .. "Button"]
+                    if ddButton then
+                        StripTextures(ddButton)
+                        local arrow = ddButton:CreateTexture(nil, "OVERLAY")
+                        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga")
+                        arrow:SetSize(10, 10)
+                        arrow:SetPoint("CENTER", ddButton, "CENTER", 0, 0)
+                        arrow:SetVertexColor(1, 1, 1, 0.65)
+                    end
+                end
             end
 
             local editBox = _G.WhoFrameEditBox
             if editBox then
                 StripTextures(editBox)
-                editBox:SetScale(0.9)
-                local p1, rel, p2, ox, oy = editBox:GetPoint(1)
-                if p1 then
-                    editBox:SetPoint(p1, rel, p2, (ox or 0) - 1, (oy or 0) + 3)
-                end
+                editBox:SetScale(1)
+                editBox:ClearAllPoints()
+                editBox:SetPoint("BOTTOMLEFT", whoPane, "BOTTOMLEFT", 7, 7)
+                editBox:SetPoint("BOTTOMRIGHT", whoPane, "BOTTOMRIGHT", -7, 7)
+                editBox:SetHeight(20)
                 local ebBg = editBox:CreateTexture(nil, "BACKGROUND", nil, -6)
-                ebBg:SetTexture(0, 0, 0, 0.4)
+                ebBg:SetTexture(0, 0, 0, 0.38)
                 ebBg:SetAllPoints()
-                editBox:SetTextColor(1, 1, 1, 0.8)
-                PP.CreateBorder(editBox, 1, 1, 1, 0.1, 1, "OVERLAY", 7)
+                editBox:SetTextColor(1, 1, 1, 0.82)
+                PP.CreateBorder(editBox, 1, 1, 1, 0.12, 1, "OVERLAY", 7)
             end
 
             local totalCount = _G.WhoFrameTotals
             if totalCount and totalCount.SetFont then
                 totalCount:SetFont(fontPath, 10, "")
-                totalCount:SetTextColor(1, 1, 1, 0.5)
+                totalCount:SetTextColor(1, 1, 1, 0.55)
+                totalCount:ClearAllPoints()
+                totalCount:SetPoint("BOTTOM", editBox or whoPane, editBox and "TOP" or "BOTTOM", 0, editBox and 5 or 32)
             end
 
-            local whoInsetRef = _G.WhoFrameListInset
             local whoBtnNames = {"WhoFrameWhoButton", "WhoFrameAddFriendButton", "WhoFrameGroupInviteButton"}
-            if whoInsetRef then
-                local function LayoutWhoBtns()
-                    local totalW2 = whoInsetRef:GetWidth()
-                    local btnW = math.floor(totalW2 / 3)
-                    local btnY = -22 - 10 + 10
-                    local btns = {}
-                    for _, name in ipairs(whoBtnNames) do
-                        btns[#btns + 1] = _G[name]
-                    end
-                    if btns[1] then
-                        btns[1]:ClearAllPoints()
-                        btns[1]:SetSize(btnW, 22)
-                        btns[1]:SetPoint("BOTTOMLEFT", whoInsetRef, "BOTTOMLEFT", 0, btnY)
-                    end
-                    if btns[2] then
-                        btns[2]:ClearAllPoints()
-                        btns[2]:SetSize(btnW, 22)
-                        btns[2]:SetPoint("BOTTOMLEFT", whoInsetRef, "BOTTOMLEFT", btnW, btnY)
-                    end
-                    if btns[3] then
-                        btns[3]:ClearAllPoints()
-                        btns[3]:SetSize(btnW, 22)
-                        btns[3]:SetPoint("BOTTOMRIGHT", whoInsetRef, "BOTTOMRIGHT", 0, btnY)
-                    end
+            local whoButtons = {}
+            for _, name in ipairs(whoBtnNames) do
+                local btn = _G[name]
+                if btn then
+                    whoButtons[#whoButtons + 1] = btn
+                    SkinBottomButton(btn)
+                    hooksecurefunc(btn, "Disable", function(self) self:SetAlpha(0.4) end)
+                    hooksecurefunc(btn, "Enable", function(self) self:SetAlpha(1) end)
+                    if not btn:IsEnabled() then btn:SetAlpha(0.4) end
                 end
-                for _, name in ipairs(whoBtnNames) do
-                    local btn = _G[name]
-                    if btn then
-                        SkinBottomButton(btn)
-                        hooksecurefunc(btn, "Disable", function(self) self:SetAlpha(0.4) end)
-                        hooksecurefunc(btn, "Enable", function(self) self:SetAlpha(1) end)
-                        if not btn:IsEnabled() then btn:SetAlpha(0.4) end
-                    end
-                end
-                LayoutWhoBtns()
-                who:HookScript("OnShow", LayoutWhoBtns)
             end
 
             local function SkinWhoRows()
-                for i = 1, 22 do
+                for i = 1, (_G.WHOS_TO_DISPLAY or 22) do
                     local btn = _G["WhoFrameButton" .. i]
                     if btn and not GetFFD(btn).skinned then
                         GetFFD(btn).skinned = true
                         StripTextures(btn)
-                        local hover2 = btn:CreateTexture(nil, "HIGHLIGHT")
-                        hover2:SetAllPoints()
-                        hover2:SetTexture(1, 1, 1, 0.04)
-                        hover2:SetBlendMode("ADD")
+                        local hover = btn:CreateTexture(nil, "HIGHLIGHT")
+                        hover:SetAllPoints()
+                        hover:SetTexture(1, 1, 1, 0.05)
+                        hover:SetBlendMode("ADD")
+                        local separator = btn:CreateTexture(nil, "BACKGROUND")
+                        separator:SetTexture(1, 1, 1, 0.035)
+                        separator:SetHeight(PP.mult or 1)
+                        separator:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+                        separator:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
                         for _, key in ipairs({"Name", "Level", "Class", "Variable"}) do
                             local txt = _G["WhoFrameButton" .. i .. key]
                             if txt and txt.SetFont then
                                 txt:SetFont(fontPath, 11, "")
+                                txt:SetTextColor(1, 1, 1, 0.78)
                             end
                         end
                     end
                 end
             end
-            SkinWhoRows()
-            who:HookScript("OnShow", SkinWhoRows)
 
-            local sb = who.ScrollBox or (who.scrollFrame)
-            if sb then
-                local p1, rel, p2, x, y = sb:GetPoint(1)
-                if p1 then
-                    sb:SetPoint(p1, rel, p2, (x or 0) + 5, (y or 0) - 35)
+            local rowFields = {
+                Name     = { 0.00, 0.36, "LEFT" },
+                Variable = { 0.36, 0.30, "LEFT" },
+                Level    = { 0.66, 0.12, "CENTER" },
+                Class    = { 0.78, 0.22, "LEFT" },
+            }
+
+            local function LayoutWhoPane()
+                local paneW = whoPane:GetWidth()
+                if not paneW or paneW < 100 then return end
+
+                who:ClearAllPoints()
+                who:SetAllPoints(frame)
+
+                for i, info in ipairs(columns) do
+                    local frac = columnFractions[i]
+                    if frac then
+                        local x = math.floor(paneW * frac[1]) + 1
+                        local w = math.max(30, math.floor(paneW * frac[2]))
+                        info.frame:ClearAllPoints()
+                        info.frame:SetPoint("TOPLEFT", whoPane, "TOPLEFT", x, -1)
+                        info.frame:SetSize(w, 23)
+                        if info.divider then
+                            info.divider:ClearAllPoints()
+                            info.divider:SetPoint("TOPLEFT", whoPane, "TOPLEFT", x, -3)
+                        end
+                    end
+                end
+
+                if scrollBox then
+                    scrollBox:ClearAllPoints()
+                    scrollBox:SetPoint("TOPLEFT", whoPane, "TOPLEFT", 3, -25)
+                    scrollBox:SetPoint("BOTTOMRIGHT", whoPane, "BOTTOMRIGHT", -12, 53)
+                end
+                if legacyScroll and scrollBar then
+                    scrollBar:ClearAllPoints()
+                    scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 3, 0)
+                    scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 3, 0)
+                end
+
+                local rowY = -26
+                for i = 1, (_G.WHOS_TO_DISPLAY or 22) do
+                    local btn = _G["WhoFrameButton" .. i]
+                    if btn then
+                        local rowH = math.max(16, btn:GetHeight() or 16)
+                        local rowW = paneW - 20
+                        btn:ClearAllPoints()
+                        btn:SetPoint("TOPLEFT", whoPane, "TOPLEFT", 4, rowY)
+                        btn:SetWidth(rowW)
+
+                        -- Keep row data on the same grid as the redistributed
+                        -- headers.  Variable is the WotLK Zone/Guild/Race
+                        -- column selected by the compact dropdown above.
+                        for key, spec in pairs(rowFields) do
+                            local txt = _G["WhoFrameButton" .. i .. key]
+                            if txt then
+                                txt:ClearAllPoints()
+                                txt:SetPoint("LEFT", btn, "LEFT", math.floor(rowW * spec[1]) + 5, 0)
+                                txt:SetWidth(math.max(20, math.floor(rowW * spec[2]) - 8))
+                                txt:SetJustifyH(spec[3])
+                            end
+                        end
+                        rowY = rowY - rowH
+                    end
+                end
+
+                local gap = 4
+                local available = frame:GetWidth() - 30 - gap * 2
+                local btnW = math.floor(available / 3)
+                for i, btn in ipairs(whoButtons) do
+                    btn:ClearAllPoints()
+                    btn:SetSize(btnW, 24)
+                    if i == 1 then
+                        btn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 15, 10)
+                    else
+                        btn:SetPoint("LEFT", whoButtons[i - 1], "RIGHT", gap, 0)
+                    end
                 end
             end
 
-            who:ClearAllPoints()
-            who:SetPoint("TOPLEFT", frame, "TOPLEFT", 7, -10)
-            who:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -11, 10)
+            SkinWhoRows()
+            LayoutWhoPane()
+            who:HookScript("OnShow", function()
+                StripFrameChrome(who)
+                if nativeInset then StripTextures(nativeInset) end
+                SkinWhoRows()
+                LayoutWhoPane()
+            end)
+            if _G.WhoList_Update then hooksecurefunc("WhoList_Update", LayoutWhoPane) end
 
-            if col1 then
-                col1:ClearAllPoints()
-                col1:SetPoint("TOPLEFT", frame, "TOPLEFT", 7, -102)
+            if scrollBox and scrollBar and not legacyScroll then
+                SkinOneScrollbar(scrollBox, scrollBar)
             end
-
-            local bar = sb and (sb.ScrollBar or who.ScrollBar) or who.ScrollBar
-            if sb and bar then SkinOneScrollbar(sb, bar) end
         end
     end
 
@@ -3128,16 +3272,23 @@ local function SkinFriendsFrame()
     local closeBtn = frame.CloseButton or _G.FriendsFrameCloseButton
     if closeBtn then
         StripTextures(closeBtn)
-        GetFFD(closeBtn).x = closeBtn:CreateFontString(nil, "OVERLAY")
-        GetFFD(closeBtn).x:SetFont(fontPath, 14, "")
-        GetFFD(closeBtn).x:SetText("x")
-        GetFFD(closeBtn).x:SetTextColor(1, 1, 1, 0.5)
-        GetFFD(closeBtn).x:SetPoint("CENTER", -2, -3)
+        closeBtn:ClearAllPoints()
+        closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -7, -7)
+        closeBtn:SetSize(16, 16)
+        if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
+        if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
+        if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
+        if closeBtn.SetDisabledTexture then closeBtn:SetDisabledTexture("") end
+        GetFFD(closeBtn).x = closeBtn:CreateTexture(nil, "OVERLAY")
+        GetFFD(closeBtn).x:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+        GetFFD(closeBtn).x:SetSize(14, 14)
+        GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.65)
+        GetFFD(closeBtn).x:SetPoint("CENTER", 0, 0)
         closeBtn:HookScript("OnEnter", function()
-            GetFFD(closeBtn).x:SetTextColor(1, 1, 1, 0.9)
+            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1)
         end)
         closeBtn:HookScript("OnLeave", function()
-            GetFFD(closeBtn).x:SetTextColor(1, 1, 1, 0.5)
+            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.65)
         end)
     end
 
