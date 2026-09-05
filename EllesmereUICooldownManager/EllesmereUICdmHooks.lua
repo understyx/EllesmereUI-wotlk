@@ -4795,10 +4795,110 @@ end
 local reanchorDirty = false
 local reanchorFrame = nil
 local viewerHooksInstalled = false
+local reanchorRunning = false
+local reanchorRetryAt = 0
+local reanchorFailureCount = 0
+local visibilityFailureCount = 0
+
+-- Preserve refresh failures in SavedVariables because client log files do not
+-- contain ordinary Lua errors. Repeated instances of the same failure are
+-- folded together so a persistent bad adapter cannot grow the database without
+-- bound while the retry queue is recovering.
+ns.CDMErrorTraceback = ns.CDMErrorTraceback or function(err)
+    local message = tostring(err)
+    if debugstack then
+        return message .. "\n" .. debugstack(3, 24, 24)
+    end
+    return message
+end
+
+function ns.RecordCDMRuntimeError(scope, err)
+    local message = tostring(err)
+    local now = GetTime and GetTime() or 0
+    local record = ns._lastCDMRuntimeError
+    local shouldReport = true
+    if record and record.scope == scope and record.message == message
+       and now - (record.sessionTime or 0) < 10 then
+        record.count = (record.count or 1) + 1
+        record.sessionTime = now
+        record.timestamp = time and time() or 0
+        shouldReport = false
+    else
+        record = {
+            scope = scope or "unknown",
+            message = message,
+            count = 1,
+            sessionTime = now,
+            timestamp = time and time() or 0,
+        }
+        ns._lastCDMRuntimeError = record
+        local sv = ECME and ECME.db and ECME.db.sv
+        if sv then
+            local errors = sv.cdmRuntimeErrors
+            if type(errors) ~= "table" then
+                errors = {}
+                sv.cdmRuntimeErrors = errors
+            end
+            errors[#errors + 1] = record
+            while #errors > 10 do table.remove(errors, 1) end
+        end
+    end
+
+    if shouldReport then
+        local handler = geterrorhandler and geterrorhandler()
+        if handler then
+            pcall(handler, "EllesmereUI CDM [" .. tostring(scope) .. "]\n" .. message)
+        else
+            print("|cffff5555EllesmereUI CDM error:|r " .. message)
+        end
+    end
+    return record
+end
+_G._ECME_RecordDiagnostic = ns.RecordCDMRuntimeError
+
+SLASH_EUICDMERRORS1 = "/cdmerrors"
+SlashCmdList.EUICDMERRORS = function(msg)
+    local sv = ECME and ECME.db and ECME.db.sv
+    local errors = sv and sv.cdmRuntimeErrors
+    if msg and msg:lower() == "clear" then
+        if errors then wipe(errors) end
+        ns._lastCDMRuntimeError = nil
+        print("|cff0cd29fEllesmereUI CDM:|r saved runtime errors cleared.")
+        return
+    end
+    if not errors or #errors == 0 then
+        print("|cff0cd29fEllesmereUI CDM:|r no saved runtime errors.")
+        return
+    end
+    print("|cff0cd29fEllesmereUI CDM:|r saved runtime errors (newest first):")
+    for i = #errors, math.max(1, #errors - 2), -1 do
+        local entry = errors[i]
+        print(("#%d [%s] x%d: %s"):format(i, tostring(entry.scope), entry.count or 1,
+            tostring(entry.message)))
+    end
+end
 
 local function CollectAndReanchor()
     local p = ECME.db and ECME.db.profile
-    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).enabled then return end
+    if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).enabled then return true end
+
+    -- A visual/lifecycle callback can arrive synchronously while frame methods
+    -- below are being applied. Never recurse into the mutable scratch/icon
+    -- arrays: remember the newer request and let the single queue run it after
+    -- this pass completes.
+    if reanchorRunning then
+        reanchorDirty = true
+        if reanchorFrame then reanchorFrame:Show() end
+        return false
+    end
+    if IsCDMSettingsOpen() then
+        reanchorDirty = true
+        if reanchorFrame then reanchorFrame:Hide() end
+        return false
+    end
+    reanchorRunning = true
+
+    local ok, err = xpcall(function()
 
     if ns.RebuildCDMSpellCaches then ns.RebuildCDMSpellCaches() end
 
@@ -6650,14 +6750,38 @@ local function CollectAndReanchor()
         if EllesmereUI then EllesmereUI._cdmRebuilding = nil end
     end
 
-    -- Refresh the options-panel preview (if open) so the content header
-    -- reflects the icons we just populated. Without this, the preview
-    -- shows empty on login/spec swap because it builds before the first
-    -- queued CollectAndReanchor fires.
+    end, ns.CDMErrorTraceback)
+
+    reanchorRunning = false
+    if not ok then
+        -- Fail open: retain the request and retry after a short backoff. Also
+        -- release cross-system rebuild gates that would otherwise stay latched
+        -- when the exception bypasses the normal tail of this function.
+        reanchorFailureCount = reanchorFailureCount + 1
+        local retryDelay = math.min(10, 2 ^ math.min(reanchorFailureCount - 1, 4))
+        reanchorDirty = true
+        reanchorRetryAt = (GetTime and GetTime() or 0) + retryDelay
+        if reanchorFrame then reanchorFrame:Show() end
+        if EllesmereUI then EllesmereUI._cdmRebuilding = nil end
+        ns.RecordCDMRuntimeError("CollectAndReanchor", err)
+        return false
+    end
+    reanchorFailureCount = 0
+    reanchorRetryAt = 0
+
+    -- The settings preview is a consumer of the completed live state, not part
+    -- of the live refresh transaction. A broken preview must never make the
+    -- cooldown collector fail or enter its retry loop.
     if EllesmereUI and EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown() then
         local pv = EllesmereUI._contentHeaderPreview
-        if pv and pv.Update then pv:Update() end
+        if pv and pv.Update then
+            local previewOK, previewErr = pcall(pv.Update, pv)
+            if not previewOK then
+                ns.RecordCDMRuntimeError("CDMPreviewUpdate", previewErr)
+            end
+        end
     end
+    return true
 end
 ns.CollectAndReanchor = CollectAndReanchor
 
@@ -6876,31 +7000,6 @@ ns.UpdateCustomBuffBars = UpdateCustomBuffBars
 
 function ns.UpdateCustomBuffAuraTracking() end
 
--------------------------------------------------------------------------------
---  Lightweight position re-snap: re-applies stored _cdmAnchor on all claimed
---  icons without re-enumerating viewers or re-categorizing frames.
---  Used by OnActiveStateChanged where Blizzard may move frames but the icon
---  list hasn't changed.
--------------------------------------------------------------------------------
-local function ReapplyPositions()
-    for barKey, icons in pairs(cdmBarIcons) do
-        if icons then
-            for i = 1, #icons do
-                local frame = icons[i]
-                if frame then
-                    local fd = hookFrameData[frame]
-                    local anchor = fd and fd._cdmAnchor
-                    if anchor then
-                        frame:ClearAllPoints()
-                        frame:SetPoint(anchor[1], anchor[2], anchor[3], anchor[4], anchor[5])
-                    end
-                end
-            end
-        end
-    end
-end
-
--------------------------------------------------------------------------------
 --  Reanchor Queue
 -------------------------------------------------------------------------------
 local REANCHOR_THROTTLE = 0.2
@@ -6927,12 +7026,28 @@ ns.ClearQueuedReanchor = ClearQueuedReanchor
 local function ProcessReanchorQueue(self)
     if not reanchorDirty then self:Hide(); return end
     local now = GetTime()
+    if reanchorRunning or now < reanchorRetryAt then return end
+    if IsCDMSettingsOpen() then self:Hide(); return end
     if now - _lastReanchorTime < REANCHOR_THROTTLE then return end
+    -- Clear before entering so callbacks raised by this pass can mark a newer
+    -- generation dirty. CollectAndReanchor restores dirty on failure.
     reanchorDirty = false
     _lastReanchorTime = now
-    CollectAndReanchor()
+    local ok = CollectAndReanchor()
     -- Reapply visibility: newly collected icons may be at alpha 0.
-    if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
+    if ok and ns.CDMApplyVisibility then
+        local visibilityOK, visibilityErr = xpcall(ns.CDMApplyVisibility, ns.CDMErrorTraceback)
+        if not visibilityOK then
+            visibilityFailureCount = visibilityFailureCount + 1
+            local retryDelay = math.min(10, 2 ^ math.min(visibilityFailureCount - 1, 4))
+            reanchorDirty = true
+            reanchorRetryAt = now + retryDelay
+            ns.RecordCDMRuntimeError("CDMApplyVisibility", visibilityErr)
+        else
+            visibilityFailureCount = 0
+        end
+    end
+    if not reanchorDirty then self:Hide() end
 end
 
 -------------------------------------------------------------------------------
@@ -7039,7 +7154,6 @@ function ns.SetupViewerHooks()
     -- 2. Pool acquire hooks: detect new frames + install per-frame hooks
     -- Track which frames have been hooked (weak-keyed, no taint)
     local _activeStateHooked = setmetatable({}, { __mode = "k" })
-    local _activeStateReanchorPending = false
 
     local function InstallBuffFrameHooks(viewer)
         if not viewer or not viewer.itemFramePool or type(viewer.itemFramePool.EnumerateActive) ~= "function" then return end
@@ -7055,26 +7169,12 @@ function ns.SetupViewerHooks()
             if not _activeStateHooked[frame] then
                 _activeStateHooked[frame] = true
                 -- Hook OnActiveStateChanged: Blizzard calls this when a buff
-                -- becomes active/inactive. Run a full reanchor so new/removed
-                -- icons get collected and centered. Batched via C_Timer to
-                -- collapse the spam (fires many times per frame).
+                -- becomes active/inactive. Feed the single throttled queue;
+                -- never allocate a private OnUpdate driver per adapter or call
+                -- the collector directly from a lifecycle callback.
                 if type(frame.OnActiveStateChanged) == "function" then
-                    local _asDeferFrame = EllesmereUI.SafeCreateFrame("Frame")
-                    _asDeferFrame:Hide()
-                    local _asDeferTicks = 0
-                    _asDeferFrame:SetScript("OnUpdate", function(self)
-                        _asDeferTicks = _asDeferTicks + 1
-                        if _asDeferTicks < 2 then return end
-                        self:Hide()
-                        _activeStateReanchorPending = false
-                        CollectAndReanchor()
-                    end)
                     hooksecurefunc(frame, "OnActiveStateChanged", function()
-                        ReapplyPositions()
-                        if _activeStateReanchorPending then return end
-                        _activeStateReanchorPending = true
-                        _asDeferTicks = 0
-                        _asDeferFrame:Show()
+                        QueueReanchor()
                     end)
                 end
             end
@@ -7194,26 +7294,16 @@ function ns.SetupViewerHooks()
         end
     end
 
-    -- 3b. Buff viewer RefreshLayout hooks: IMMEDIATE reanchor so buff
-    -- icons appear at our positions instantly (no 0.2s flash). A minimal
-    -- time guard collapses the spam when Blizzard rebuilds all pools
-    -- every tick (Lightsmith Holy Armaments churn) without adding latency
-    -- to real buff procs. 0.05s = one frame at 20 fps.
-    local _lastDirectReanchor = 0
-    local DIRECT_REANCHOR_GUARD = 0.05
-    local function DirectBuffReanchor()
-        local now = GetTime()
-        if now - _lastDirectReanchor < DIRECT_REANCHOR_GUARD then return end
-        _lastDirectReanchor = now
-        CollectAndReanchor()
-    end
+    -- 3b. Buff viewer RefreshLayout hooks. These lifecycle callbacks may fire
+    -- from inside pool or frame updates, so they only dirty the shared queue.
+    -- Its 0.2s throttle coalesces layout churn without collector recursion.
     local buffViewer = _G["BuffIconCooldownViewer"]
     if buffViewer and buffViewer.RefreshLayout then
-        hooksecurefunc(buffViewer, "RefreshLayout", DirectBuffReanchor)
+        hooksecurefunc(buffViewer, "RefreshLayout", QueueReanchor)
     end
     local buffBarViewer = _G["BuffBarCooldownViewer"]
     if buffBarViewer and buffBarViewer.RefreshLayout then
-        hooksecurefunc(buffBarViewer, "RefreshLayout", DirectBuffReanchor)
+        hooksecurefunc(buffBarViewer, "RefreshLayout", QueueReanchor)
     end
 
     -- 4. CooldownViewerSettings show/hide: force reanchor.

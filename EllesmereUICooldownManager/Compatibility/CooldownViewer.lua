@@ -440,12 +440,31 @@ local function RefreshAdapterVisual(frame)
     end
 end
 
-local function GetOrCreateAdapter(cdID)
-    if not adapters[cdID] then
-        adapters[cdID] = CreateAdapterFrame(cdID)
+local function CompatibilityTraceback(err)
+    local message = tostring(err)
+    if debugstack then return message .. "\n" .. debugstack(3, 18, 18) end
+    return message
+end
+
+local function ReportCompatibilityError(scope, err)
+    local reporter = _G._ECME_RecordDiagnostic
+    if reporter then
+        reporter(scope, err)
+        return
     end
-    RefreshAdapterVisual(adapters[cdID])
-    return adapters[cdID]
+    local handler = geterrorhandler and geterrorhandler()
+    if handler then pcall(handler, "EllesmereUI CDM [" .. scope .. "]\n" .. tostring(err)) end
+end
+
+-- A single malformed/transient adapter must not abort the remaining cooldown
+-- definitions in ReevaluateState. The state loop is the only live visual writer
+-- now that pool enumeration is read-only.
+local function SafeRefreshAdapter(frame, scope)
+    -- pcall accepts function arguments on Lua 5.1 and avoids allocating one
+    -- closure per adapter on high-frequency cooldown events.
+    local ok, err = pcall(RefreshAdapterVisual, frame)
+    if not ok then ReportCompatibilityError(scope or "RefreshAdapterVisual", err) end
+    return ok
 end
 
 local function IsInternalCooldownActive(state, now)
@@ -468,7 +487,7 @@ local function StartInternalCooldown(cdID, startTime)
     state.internalCooldownExpiration = expiration
     runtimeState[cdID] = state
 
-    if adapters[cdID] then RefreshAdapterVisual(adapters[cdID]) end
+    if adapters[cdID] then SafeRefreshAdapter(adapters[cdID], "InternalCooldownStart") end
 
     if C_Timer and C_Timer.After then
         local delay = expiration - GetTime()
@@ -482,7 +501,7 @@ local function StartInternalCooldown(cdID, startTime)
                 current.cooldownDuration = 0
                 current.cooldownEnabled = false
                 current.internalCooldownExpiration = nil
-                if adapters[cdID] then RefreshAdapterVisual(adapters[cdID]) end
+                if adapters[cdID] then SafeRefreshAdapter(adapters[cdID], "InternalCooldownEnd") end
             end
         end)
     end
@@ -828,11 +847,24 @@ local function ReevaluateState()
 
         runtimeState[cdID] = state
 
+        -- Materialize known adapters here, in the state-writer path, rather
+        -- than from EnumerateActive. This preserves lazy per-class allocation
+        -- while keeping pool enumeration strictly read-only.
+        if avail and avail.isKnown and not adapters[cdID] then
+            adapters[cdID] = CreateAdapterFrame(cdID)
+        end
+
         -- Update persistent adapter
         if adapters[cdID] then
-            RefreshAdapterVisual(adapters[cdID])
+            SafeRefreshAdapter(adapters[cdID], "ReevaluateAdapter:" .. tostring(cdID))
         end
     end
+end
+
+local function SafeReevaluateState(scope)
+    local ok, err = xpcall(ReevaluateState, CompatibilityTraceback)
+    if not ok then ReportCompatibilityError(scope or "ReevaluateState", err) end
+    return ok
 end
 
 -- The parent framework's PLAYER_LOGIN frame is created before this child
@@ -842,9 +874,16 @@ end
 -- map.  Expose an explicit synchronous refresh so CDM initialization and
 -- equipment rebuilds never depend on event-frame dispatch order.
 function ns.RefreshCooldownViewerCompatibility()
-    UpdateAuraCache()
-    ReevaluateAvailability()
-    ReevaluateState()
+    local ok, err = xpcall(function()
+        UpdateAuraCache()
+        ReevaluateAvailability()
+        ReevaluateState()
+    end, CompatibilityTraceback)
+    if not ok then
+        ReportCompatibilityError("RefreshCooldownViewerCompatibility", err)
+        return false
+    end
+    return true
 end
 
 -- Coalesce UNIT_AURA and combat-log notifications into one refresh on the next
@@ -852,14 +891,35 @@ end
 -- UNIT_AURA; the combat-log path below supplies a second authoritative wakeup
 -- without adding a permanent polling ticker.
 local auraRefreshQueued = false
+local auraRefreshRetryAt = 0
+local auraRefreshFailureCount = 0
 local auraRefreshFrame = CreateFrame("Frame")
 auraRefreshFrame:Hide()
 auraRefreshFrame:SetScript("OnUpdate", function(self)
-    self:Hide()
-    if not auraRefreshQueued then return end
+    if not auraRefreshQueued then self:Hide(); return end
+    local now = GetTime()
+    if now < auraRefreshRetryAt then return end
+    -- Consume the generation before work starts so a callback raised during
+    -- the refresh can mark a newer generation dirty without being overwritten
+    -- by the successful completion of this one.
     auraRefreshQueued = false
-    UpdateAuraCache()
-    ReevaluateState()
+    local ok, err = xpcall(function()
+        UpdateAuraCache()
+        ReevaluateState()
+    end, CompatibilityTraceback)
+    if ok then
+        auraRefreshFailureCount = 0
+        auraRefreshRetryAt = 0
+        if not auraRefreshQueued then self:Hide() end
+    else
+        -- Keep the request armed. Exponential backoff prevents a persistent bad
+        -- payload from becoming a refresh/error storm while still self-healing.
+        auraRefreshFailureCount = auraRefreshFailureCount + 1
+        local retryDelay = math.min(10, 2 ^ math.min(auraRefreshFailureCount - 1, 4))
+        auraRefreshQueued = true
+        auraRefreshRetryAt = now + retryDelay
+        ReportCompatibilityError("AuraRefresh", err)
+    end
 end)
 
 local function QueueAuraRefresh()
@@ -906,10 +966,10 @@ tracker:SetScript("OnEvent", function(self, event, ...)
     elseif event == "UNIT_HEALTH" then
         local unit = ...
         if unit == "target" or (unit and UnitIsUnit and UnitIsUnit(unit, "target")) then
-            ReevaluateState()
+            SafeReevaluateState("UNIT_HEALTH")
         end
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
-        ReevaluateState()
+        SafeReevaluateState(event)
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         local _, subEvent, _, _, _, destinationGUID, _, _, spellID = ...
         if IsAuraCombatLogEvent(subEvent) then
@@ -957,7 +1017,7 @@ local function CreateMockPool(categoryID)
                     i = i + 1
                     local cdID = entries[i]
                     if not cdID then return nil end
-                    local adapter = GetOrCreateAdapter(cdID)
+                    local adapter = adapters[cdID]
                     -- Skip aura-only adapters whose proc is not currently active.
                     -- Their frame is hidden by RefreshAdapterVisual and should not
                     -- participate in the bar layout.
@@ -974,7 +1034,7 @@ local function CreateMockPool(categoryID)
                     -- inactive adapter disappear before Visibility When Missing
                     -- could be applied.
                     local forceYield = (categoryID == 5)
-                    if adapter._adapterActive == false then
+                    if adapter and adapter._adapterActive == false then
                         local def = definitions[cdID]
                         if def then
                             local sid = def.spellID or def.auraSpellID or def.iconSpellID
@@ -988,7 +1048,7 @@ local function CreateMockPool(categoryID)
                             end
                         end
                     end
-                    if adapter._adapterActive ~= false or forceYield then
+                    if adapter and (adapter._adapterActive ~= false or forceYield) then
                         return adapter
                     end
                 end

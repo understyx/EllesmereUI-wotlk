@@ -19873,6 +19873,20 @@ initFrame:SetScript("OnEvent", function(self)
             -- Tracking Bars has no content header (popout preview instead)
             return nil
         end,
+        -- RefreshPage keeps the old wrapper/header alive until a replacement
+        -- build commits. Restore this module's private pointers as well so a
+        -- failed candidate preview cannot receive later live-update callbacks.
+        onPageBuildFailed = function(pageName, oldEntry)
+            if pageName == PAGE_CDM_BARS then
+                _cdmPreview = EllesmereUI._contentHeaderPreview
+                if oldEntry and oldEntry.headerBuilder then
+                    _cdmHeaderBuilder = oldEntry.headerBuilder
+                end
+            elseif pageName == PAGE_BAR_GLOWS
+               and oldEntry and oldEntry.headerBuilder then
+                _glowHeaderBuilder = oldEntry.headerBuilder
+            end
+        end,
         -- CDM Bars content is gated on whichever bar is currently selected
         -- (e.g. FocusKick's "Nameplate Anchor"/"Focus Text Reminders" only
         -- render while barData.key == "focuskick"), and the default selected
