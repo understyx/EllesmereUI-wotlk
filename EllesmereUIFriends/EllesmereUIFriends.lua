@@ -1565,9 +1565,22 @@ local function SkinFriendsFrame()
         GetFFD(frame).tabBarBg:SetPoint("BOTTOM", firstTab, "BOTTOM", 0, 0)
     end
 
-    -- Restyle Blizzard's tabs in-place
+    -- Restyle Blizzard's tabs in-place.  Some Wrath clients report only the
+    -- two modern Friends/Who tabs through frame.numTabs even though the native
+    -- Guild, Chat, and Raid buttons are present and fully functional.  Discover
+    -- the actual buttons so the skin does not accidentally discard those tabs.
     local customTabs = {}
-    for i = 1, frame.numTabs or 4 do
+    local nativeTabCount = frame.numTabs or 0
+    for i = 1, 8 do
+        if _G["FriendsFrameTab" .. i] then
+            nativeTabCount = i
+        end
+    end
+    local hasWrathMainTabs = isLegacyFriends and nativeTabCount >= 5
+    if hasWrathMainTabs and frame.numTabs ~= nativeTabCount and PanelTemplates_SetNumTabs then
+        PanelTemplates_SetNumTabs(frame, nativeTabCount)
+    end
+    for i = 1, nativeTabCount do
         local tab = _G["FriendsFrameTab" .. i]
         if tab then
             for j = 1, select("#", tab:GetRegions()) do
@@ -1593,6 +1606,7 @@ local function SkinFriendsFrame()
             end
 
             local tfd = GetFFD(tab)
+            tfd.nativeTabIndex = i
             if not tfd.activeHL then
                 local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
                 activeHL:SetAllPoints()
@@ -1626,7 +1640,8 @@ local function SkinFriendsFrame()
                 tfd.underline = underline
             end
 
-            customTabs[i] = tab
+            customTabs[#customTabs + 1] = tab
+            if hasWrathMainTabs then tab:Show() end
         end
     end
 
@@ -1637,9 +1652,9 @@ local function SkinFriendsFrame()
         local isContacts = (selected == 1)
         local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
         local useAccent = fp and fp.accentColors ~= false
-        for i, ct in ipairs(customTabs) do
-            local isActive = (i == selected)
+        for _, ct in ipairs(customTabs) do
             local ctd = GetFFD(ct)
+            local isActive = (ctd.nativeTabIndex == selected)
             if ctd.label then ctd.label:SetTextColor(1, 1, 1, isActive and 1 or 0.5) end
             if ctd.underline then
                 if isActive then ctd.underline:Show() else ctd.underline:Hide() end
@@ -1666,11 +1681,13 @@ local function SkinFriendsFrame()
         if GetFFD(frame).listBdr then if showListChrome then GetFFD(frame).listBdr:Show() else GetFFD(frame).listBdr:Hide() end end
         if GetFFD(frame).searchBox then if isContacts then GetFFD(frame).searchBox:Show() else GetFFD(frame).searchBox:Hide() end end
         if not isContacts and GetFFD(frame).searchDropdown then GetFFD(frame).searchDropdown:Hide() end
-        local showTopUI = (selected ~= 3)
         if not isContacts and GetFFD(frame).subTabs then
             for _, ct in ipairs(GetFFD(frame).subTabs) do
                 ct._label:SetTextColor(1, 1, 1, 0.53)
-                if showTopUI then ct:Show() else ct:Hide() end
+                -- Wrath's Guild, Chat, and Raid panels have their own native
+                -- controls.  The Retail-style Friends subtabs only belong on
+                -- the Contacts panel and otherwise obscure those controls.
+                if hasWrathMainTabs or selected == 3 then ct:Hide() else ct:Show() end
             end
         elseif GetFFD(frame).subTabs then
             for _, ct in ipairs(GetFFD(frame).subTabs) do
@@ -1699,12 +1716,24 @@ local function SkinFriendsFrame()
     GetFFD(frame).updateCustomTabs = UpdateCustomTabs
 
     -- Detect tab changes
-    local tabFrames = {
-        { _G.FriendsListFrame, 1 },
-        { _G.WhoFrame,         2 },
-        { _G.RaidFrame,        3 },
-        { _G.QuickJoinFrame,   4 },
-    }
+    local raidTabIndex = hasWrathMainTabs and 5 or 3
+    local tabFrames
+    if hasWrathMainTabs then
+        tabFrames = {
+            { _G.FriendsListFrame, 1 },
+            { _G.WhoFrame,         2 },
+            { _G.GuildFrame,       3 },
+            { _G.ChannelFrame,     4 },
+            { _G.RaidFrame,        5 },
+        }
+    else
+        tabFrames = {
+            { _G.FriendsListFrame, 1 },
+            { _G.WhoFrame,         2 },
+            { _G.RaidFrame,        3 },
+            { _G.QuickJoinFrame,   4 },
+        }
+    end
     for _, entry in ipairs(tabFrames) do
         local sf, tabIdx = entry[1], entry[2]
         if sf then
@@ -1715,7 +1744,7 @@ local function SkinFriendsFrame()
                     RefreshFriendCache()
                     ProcessFriendButtons()
                 end
-                if tabIdx == 3 then C_Timer.After(0, SkinRaidTab); C_Timer.After(0.2, SkinRaidTab) end
+                if tabIdx == raidTabIndex then C_Timer.After(0, SkinRaidTab); C_Timer.After(0.2, SkinRaidTab) end
             end)
         end
     end
@@ -1724,7 +1753,7 @@ local function SkinFriendsFrame()
             local rf = _G.RaidFrame
             if rf then
                 rf:HookScript("OnShow", function()
-                    UpdateCustomTabs(3)
+                    UpdateCustomTabs(raidTabIndex)
                     C_Timer.After(0, SkinRaidTab); C_Timer.After(0.2, SkinRaidTab)
                 end)
             end
@@ -2650,15 +2679,12 @@ local function SkinFriendsFrame()
 
     -- Sync tab labels with Blizzard's tab text
     local function SyncFriendsTabLabels()
-        for i = 1, (FriendsFrame and FriendsFrame.numTabs) or 4 do
-            local tab = _G["FriendsFrameTab" .. i]
-            if tab then
-                local tfd = GetFFD(tab)
-                if tfd.label then
-                    local bliz = tab:GetFontString()
-                    local txt = bliz and bliz:GetText()
-                    if txt then tfd.label:SetText(txt) end
-                end
+        for _, tab in ipairs(customTabs) do
+            local tfd = GetFFD(tab)
+            if tfd.label then
+                local bliz = tab:GetFontString()
+                local txt = bliz and bliz:GetText()
+                if txt then tfd.label:SetText(txt) end
             end
         end
     end
@@ -3236,6 +3262,7 @@ local function SkinFriendsFrame()
 
         local TAB_WIDTHS = { 0.22, 0.22, 0.22, 0.34 }
         local frameW = frame:GetWidth() or 300
+        local equalTabWidth = frameW / numCustomTabs
         for i, ct in ipairs(customTabs) do
             ct:ClearAllPoints()
             ct:SetHeight(snappedTabH)
@@ -3247,7 +3274,9 @@ local function SkinFriendsFrame()
             if i == numCustomTabs then
                 ct:SetPoint("RIGHT", frame, "BOTTOMRIGHT", 0, 0)
             else
-                ct:SetWidth(frameW * (TAB_WIDTHS[i] or 0.25))
+                local width = hasWrathMainTabs and equalTabWidth
+                    or frameW * (TAB_WIDTHS[i] or (1 / numCustomTabs))
+                ct:SetWidth(pxSnap(width))
             end
 
             if i > 1 then
