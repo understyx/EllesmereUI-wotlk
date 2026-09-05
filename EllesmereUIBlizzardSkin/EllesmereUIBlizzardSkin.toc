@@ -20,6 +20,7 @@ EllesmereUIBlizzardSkin_GroupFinder.lua
 # Framework
 EllesmereUIBlizzardSkin_Toolkit.lua
 EllesmereUIBlizzardSkin_Core.lua
+EllesmereUIBlizzardSkin_Achievements.lua
 
 # Skins
 Skins\Character.lua

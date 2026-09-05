@@ -588,6 +588,14 @@ Implementation status (2026-09-05): first checkpoint implemented, pending in-gam
 
 Achievements is currently one of the most visually native WotLK windows and therefore one of the largest gains after the shared components exist.
 
+Implementation status (2026-09-05): first visual checkpoint implemented, pending in-game validation.
+
+- A dedicated WotLK Achievements skin now replaces the wood/parchment shell with the shared background, header, content surfaces, close control, scroll bars, and footer tabs.
+- Category rows now use flat shared row/header treatments, configured-accent selection, and explicit expansion glyphs while keeping Blizzard's hierarchy and click behavior.
+- Summary achievements, detail achievements, statistics rows, and summary/objective progress bars now reuse the shared card, typography, icon, and progress treatments.
+- Native category expansion, achievement selection/tracking, statistics, comparison data, tooltips, and scrolling remain owned by Blizzard.
+- Completion still requires in-game checks of Summary, populated categories, expanded objectives, tracking, Statistics, comparison mode, long text, and both scrollbar states.
+
 1. Replace the native shell and parchment surfaces.
 2. Restyle category rows and recent-achievement cards.
 3. Apply the shared progress-bar and footer-tab components.
