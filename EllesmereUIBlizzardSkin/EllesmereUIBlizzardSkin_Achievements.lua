@@ -313,6 +313,7 @@ local function HideAchievementCardArt(button)
     local name = button.GetName and button:GetName()
     if name then
         for _, suffix in ipairs({
+            "Background",
             "BottomLeftTsunami", "BottomRightTsunami", "TopLeftTsunami", "TopRightTsunami",
             "BottomTsunami1", "TopTsunami1", "TitleBackground", "Glow", "RewardBackground",
         }) do
