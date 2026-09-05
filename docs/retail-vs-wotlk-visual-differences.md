@@ -4,7 +4,7 @@
 
 This document records visible differences between the Retail/Midnight reference UI and the current WotLK 3.3.5 implementation of EllesmereUI. It also identifies changes that can make the WotLK version feel substantially closer to Retail without pretending that both clients expose the same systems or data.
 
-**Status:** Active implementation and design reference. The first Phase 0 code pass attempts the Who layout/chrome and Inspect Talent presentation work, but remains incomplete: the Friends pass still references Retail-only elements that are unavailable on WotLK, and Inspect Talent icons still do not render in game. Keep these as known follow-up items; later phases remain planned work.
+**Status:** Active implementation and design reference. The first Phase 0 code pass attempts the Who layout/chrome and Inspect Talent presentation work, but remains incomplete: the Friends pass still references Retail-only elements that are unavailable on WotLK, and Inspect Talent icons still do not render in game. Phase 1 is now underway with shared WotLK-safe page-title, geometry, typography, surface, accordion/list-row, icon, scroll-bar, button, and tab primitives in the Blizzard skin toolkit. Character sub-pages plus the Character and Inspect footer tabs are the first adopters. The Phase 0 defects remain known follow-up items, and the Phase 1 changes still require in-game visual verification.
 
 For brevity, **Retail** below means the Midnight-era Retail reference shown in the supplied screenshots.
 
