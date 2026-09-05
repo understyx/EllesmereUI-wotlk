@@ -844,46 +844,26 @@ local function SkinCharacterSheet()
 
         local function AddPageSurface(pane)
             if not pane or GetFFD(pane)._euiPageSurface then return end
-            local surface = pane:CreateTexture(nil, "BACKGROUND", nil, -6)
-            surface:SetTexture(0.015, 0.02, 0.025, 0.72)
-            surface:SetPoint("TOPLEFT", pane, "TOPLEFT", 14, -48)
-            surface:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -14, 45)
-            GetFFD(pane)._euiPageSurface = surface
+            GetFFD(pane)._euiPageSurface = WSkin:CreateRetailPageSurface(pane)
         end
 
         local function SkinScrollBar(scrollBar)
-            if scrollBar and not scrollBar.backdrop then
-                WSkin:HandleScrollBar(scrollBar)
-            end
+            if scrollBar then WSkin:HandleRetailScrollBar(scrollBar) end
         end
 
         local function SkinButton(button)
-            if button and not button.isSkinned then
-                WSkin:HandleButton(button, true)
-            end
+            if button then WSkin:HandleRetailButton(button, true) end
         end
 
         local function SetSurface(frame, r, g, b, a)
             if not frame or GetFFD(frame)._euiSurface then return end
-            frame:SetBackdrop({
-                bgFile = "Interface\\Buttons\\WHITE8X8",
-                edgeFile = "Interface\\Buttons\\WHITE8X8",
-                edgeSize = 1,
-            })
-            frame:SetBackdropColor(r or 0.025, g or 0.035, b or 0.04, a or 0.92)
-            frame:SetBackdropBorderColor(1, 1, 1, 0.10)
+            WSkin:ApplyRetailSurface(frame, "card", r, g, b, a)
             GetFFD(frame)._euiSurface = true
         end
 
         local function StyleRegionFonts(frame, size, alpha)
-            if not frame or not frame.GetRegions then return end
-            for i = 1, select("#", frame:GetRegions()) do
-                local region = select(i, frame:GetRegions())
-                if region and region.IsObjectType and region:IsObjectType("FontString") then
-                    region:SetFont(fontPath, size or 10, "")
-                    region:SetTextColor(1, 1, 1, alpha or 0.82)
-                end
-            end
+            if not frame then return end
+            WSkin:ApplyRetailRegionTypography(frame, (size or 10) > 10 and "section" or "row", alpha or 0.82)
         end
 
         -- CharacterFrame is widened by the themed sheet, but Blizzard's
@@ -1373,8 +1353,8 @@ local function SkinCharacterSheet()
             end
             if _G.ReputationListScrollFrameScrollBar and _G.ReputationListScrollFrame then
                 _G.ReputationListScrollFrameScrollBar:ClearAllPoints()
-                _G.ReputationListScrollFrameScrollBar:SetPoint("TOPLEFT", _G.ReputationListScrollFrame, "TOPRIGHT", 6, -17)
-                _G.ReputationListScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.ReputationListScrollFrame, "BOTTOMRIGHT", 6, 17)
+                _G.ReputationListScrollFrameScrollBar:SetPoint("TOPLEFT", _G.ReputationListScrollFrame, "TOPRIGHT", 6, 0)
+                _G.ReputationListScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.ReputationListScrollFrame, "BOTTOMRIGHT", 6, 0)
             end
             if _G.ReputationFrameFactionLabel then
                 _G.ReputationFrameFactionLabel:ClearAllPoints()
@@ -1538,8 +1518,8 @@ local function SkinCharacterSheet()
             end
             if _G.SkillListScrollFrameScrollBar and _G.SkillListScrollFrame then
                 _G.SkillListScrollFrameScrollBar:ClearAllPoints()
-                _G.SkillListScrollFrameScrollBar:SetPoint("TOPLEFT", _G.SkillListScrollFrame, "TOPRIGHT", 6, -17)
-                _G.SkillListScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.SkillListScrollFrame, "BOTTOMRIGHT", 6, 17)
+                _G.SkillListScrollFrameScrollBar:SetPoint("TOPLEFT", _G.SkillListScrollFrame, "TOPRIGHT", 6, 0)
+                _G.SkillListScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.SkillListScrollFrame, "BOTTOMRIGHT", 6, 0)
             end
             if _G.SkillDetailScrollFrame and _G.SkillListScrollFrame then
                 _G.SkillDetailScrollFrame:ClearAllPoints()
@@ -1548,8 +1528,8 @@ local function SkinCharacterSheet()
             end
             if _G.SkillDetailScrollFrameScrollBar and _G.SkillDetailScrollFrame then
                 _G.SkillDetailScrollFrameScrollBar:ClearAllPoints()
-                _G.SkillDetailScrollFrameScrollBar:SetPoint("TOPLEFT", _G.SkillDetailScrollFrame, "TOPRIGHT", 6, -17)
-                _G.SkillDetailScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.SkillDetailScrollFrame, "BOTTOMRIGHT", 6, 17)
+                _G.SkillDetailScrollFrameScrollBar:SetPoint("TOPLEFT", _G.SkillDetailScrollFrame, "TOPRIGHT", 6, 0)
+                _G.SkillDetailScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.SkillDetailScrollFrame, "BOTTOMRIGHT", 6, 0)
             end
             if _G.SkillDetailStatusBar then _G.SkillDetailStatusBar:SetWidth(435) end
             if _G.SkillDetailScrollFrame and _G.SkillDetailScrollFrame.GetScrollChild then
@@ -1575,8 +1555,8 @@ local function SkinCharacterSheet()
             end
             if _G.TokenFrameContainerScrollBar and _G.TokenFrameContainer then
                 _G.TokenFrameContainerScrollBar:ClearAllPoints()
-                _G.TokenFrameContainerScrollBar:SetPoint("TOPLEFT", _G.TokenFrameContainer, "TOPRIGHT", 6, -17)
-                _G.TokenFrameContainerScrollBar:SetPoint("BOTTOMLEFT", _G.TokenFrameContainer, "BOTTOMRIGHT", 6, 17)
+                _G.TokenFrameContainerScrollBar:SetPoint("TOPLEFT", _G.TokenFrameContainer, "TOPRIGHT", 6, 0)
+                _G.TokenFrameContainerScrollBar:SetPoint("BOTTOMLEFT", _G.TokenFrameContainer, "BOTTOMRIGHT", 6, 0)
 
                 _G.TokenFrameContainerScrollBar.Show = function(self)
                     if _G.TokenFrameContainer then _G.TokenFrameContainer:SetWidth(485) end
@@ -1645,24 +1625,17 @@ local function SkinCharacterSheet()
                         SetSurface(button, 0.030, 0.043, 0.048, 0.78)
                         StyleRegionFonts(button, 10, 0.84)
                         if button.icon then
-                            button.icon:SetSize(24, 24)
                             button.icon:ClearAllPoints()
                             button.icon:SetPoint("LEFT", button, "LEFT", 24, 0)
-                            button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                            local iconBorder = button:CreateTexture(nil, "BACKGROUND", nil, 2)
-                            iconBorder:SetTexture(1, 1, 1, 0.12)
-                            iconBorder:SetPoint("TOPLEFT", button.icon, "TOPLEFT", -1, 1)
-                            iconBorder:SetPoint("BOTTOMRIGHT", button.icon, "BOTTOMRIGHT", 1, -1)
-                            GetFFD(button).iconBorder = iconBorder
+                            WSkin:ApplyRetailIcon(button.icon, button, 24)
                         end
                     end
                     button:SetWidth(targetWidth)
-                    button:SetBackdropColor(
-                        isHeader and 0.055 or 0.030,
-                        isHeader and 0.075 or 0.043,
-                        isHeader and 0.080 or 0.048,
-                        isHeader and 0.98 or (rowIndex % 2 == 0 and 0.80 or 0.62))
-                    button:SetBackdropBorderColor(1, 1, 1, isHeader and 0.14 or 0.06)
+                    if isHeader then
+                        WSkin:UpdateRetailAccordionHeader(button, GetFFD(button).expandGlyph, isExpanded)
+                    else
+                        WSkin:UpdateRetailRow(button, false, false, rowIndex % 2 == 0)
+                    end
 
                     if button.expandIcon then
                         button.expandIcon:SetTexture(nil)
@@ -1670,7 +1643,6 @@ local function SkinCharacterSheet()
                     end
                     if GetFFD(button).expandGlyph then
                         GetFFD(button).expandGlyph:SetShown(isHeader and true or false)
-                        GetFFD(button).expandGlyph:SetText(isExpanded and "-" or "+")
                     end
                     if button.icon and not isHeader then
                         if extraCurrencyType == 2 then
@@ -1699,7 +1671,7 @@ local function SkinCharacterSheet()
                         countRegion:SetFont(fontPath, 10, "")
                         countRegion:SetTextColor(1, 1, 1, 0.58)
                     end
-                    if GetFFD(button).iconBorder then GetFFD(button).iconBorder:SetShown(not isHeader) end
+                    if button.icon then WSkin:SetRetailIconShown(button.icon, not isHeader) end
                 end
             end
             SkinTokenRows()
@@ -1736,94 +1708,21 @@ local function SkinCharacterSheet()
     local function StyleCharacterTab(tab, i)
         if not tab or GetFFD(tab)._euiThemedTab then return end
         GetFFD(tab)._euiThemedTab = true
-            for j = 1, select("#", tab:GetRegions()) do
-                local region = select(j, tab:GetRegions())
-                if region and region:IsObjectType("Texture") then
-                    region:SetTexture("")
-                    if region.SetAtlas then region:SetAtlas("") end
-                end
-            end
-            if tab.Left then tab.Left:SetTexture("") end
-            if tab.Middle then tab.Middle:SetTexture("") end
-            if tab.Right then tab.Right:SetTexture("") end
-            if tab.LeftDisabled then tab.LeftDisabled:SetTexture("") end
-            if tab.MiddleDisabled then tab.MiddleDisabled:SetTexture("") end
-            if tab.RightDisabled then tab.RightDisabled:SetTexture("") end
-            local hl = tab:GetHighlightTexture()
-            if hl then hl:SetTexture("") end
-
-            if not GetFFD(tab).bg then
-                GetFFD(tab).bg = tab:CreateTexture(nil, "BACKGROUND")
-                GetFFD(tab).bg:SetAllPoints()
-                GetFFD(tab).bg:SetTexture(0.068, 0.056, 0.052, 1)
-            end
-
-            if not GetFFD(tab).activeHL then
-                local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
-                activeHL:SetAllPoints()
-                activeHL:SetTexture(1, 1, 1, 0.02)
-                activeHL:SetBlendMode("ADD")
-                activeHL:Hide()
-                GetFFD(tab).activeHL = activeHL
-            end
-
-            -- Replace Blizzard's label with our own so font/size are under our control.
-            local blizLabel = tab:GetFontString()
-            local labelText = blizLabel and blizLabel:GetText() or ("Tab " .. i)
-            if blizLabel then blizLabel:SetTextColor(0, 0, 0, 0) end
-            tab:SetPushedTextOffset(0, 0)
-
-            if not GetFFD(tab).label then
-                local label = tab:CreateFontString(nil, "OVERLAY")
-                label:SetFont(fontPath, 9, "")
-                label:SetPoint("CENTER", tab, "CENTER", 0, 0)
-                label:SetJustifyH("CENTER")
-                label:SetText(labelText)
-                GetFFD(tab).label = label
-                hooksecurefunc(tab, "SetText", function(_, newText)
-                    if newText and label then label:SetText(newText) end
-                end)
-            end
-
-            if not GetFFD(tab).underline then
-                local underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
-                if EllesmereUI and EllesmereUI.PanelPP and EllesmereUI.PanelPP.DisablePixelSnap then
-                    EllesmereUI.PanelPP.DisablePixelSnap(underline)
-                    underline:SetHeight(EllesmereUI.PanelPP.mult or 1)
-                else
-                    underline:SetHeight(1)
-                end
-                underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
-                underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
-                underline:SetTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
-                if EllesmereUI and EllesmereUI.RegAccent then
-                    EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
-                end
-                underline:Hide()
-                GetFFD(tab).underline = underline
-            end
+        WSkin:StyleRetailTab(tab)
     end
 
     local function LayoutCharacterTabs()
-        local firstTab = _G.CharacterFrameTab1
-        if not firstTab then return end
-
-        -- Keep the row outside the sheet so it cannot cover the weapon slots.
-        firstTab:ClearAllPoints()
-        firstTab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
-
         -- Pack only tabs Blizzard currently considers available. This lets the
         -- Pet tab disappear without leaving a hole and restores it in-place
         -- when PetPaperDollFrame_UpdateIsAvailable makes it available again.
-        local previous = firstTab
-        for i = 2, 5 do
+        local visibleTabs = {}
+        for i = 1, 5 do
             local tab = _G["CharacterFrameTab" .. i]
             if tab and tab:IsShown() then
-                tab:ClearAllPoints()
-                tab:SetPoint("LEFT", previous, "RIGHT", 0, 0)
-                previous = tab
+                visibleTabs[#visibleTabs + 1] = tab
             end
         end
+        WSkin:LayoutRetailTabRow(visibleTabs, frame)
     end
 
     local function RefreshCharacterTabs()
@@ -1854,15 +1753,7 @@ local function SkinCharacterSheet()
                 -- PanelTemplates_GetSelectedTab is unreliable here -- Blizzard
                 -- updates frame.selectedTab before the template helper agrees.
                 local isActive = (frame.selectedTab or 1) == i
-                if GetFFD(tab).label then
-                    GetFFD(tab).label:SetTextColor(1, 1, 1, isActive and 1 or 0.5)
-                end
-                if GetFFD(tab).underline then
-                    if isActive then GetFFD(tab).underline:Show() else GetFFD(tab).underline:Hide() end
-                end
-                if GetFFD(tab).activeHL then
-                    if isActive then GetFFD(tab).activeHL:Show() else GetFFD(tab).activeHL:Hide() end
-                end
+                WSkin:UpdateRetailTab(tab, isActive)
             end
         end
     end
@@ -1926,6 +1817,15 @@ local function SkinCharacterSheet()
     -- SetShown is NOT flagged, so every visibility toggle below uses SetShown.
     local function ApplyTabVisibility(isCharacterTab)
         UpdateTabVisuals()
+        local selectedTab = frame.selectedTab or 1
+        local pageTitles = {
+            [2] = _G.PETS or "Pets",
+            [3] = _G.REPUTATION or "Reputation",
+            [4] = _G.SKILLS or "Skills",
+            [5] = _G.CURRENCY or "Currency",
+        }
+        local pageTitle = pageTitles[selectedTab] or (UnitName and UnitName("player"))
+        WSkin:SetRetailPageTitle(frame, pageTitle, _G.CharacterFrameTitleText)
         -- Swapping back to the Character bottom-tab also needs to re-highlight
         -- our top-row Character button (hook installed below as _reactivateCharTab).
         if isCharacterTab and GetFFD(frame).reactivateCharTab then

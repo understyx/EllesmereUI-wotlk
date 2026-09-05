@@ -600,13 +600,18 @@ local function SkinInspectSheet()
 
     local function SetInspectSurface(f, r, g, b, a)
         if not f or GetFFD(f)._euiSurface then return end
-        f:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8X8",
-            edgeFile = "Interface\\Buttons\\WHITE8X8",
-            edgeSize = 1,
-        })
-        f:SetBackdropColor(r or 0.025, g or 0.035, b or 0.04, a or 0.92)
-        f:SetBackdropBorderColor(1, 1, 1, 0.10)
+        local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
+        if S and S.ApplyRetailSurface then
+            S:ApplyRetailSurface(f, "card", r, g, b, a)
+        else
+            f:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8X8",
+                edgeFile = "Interface\\Buttons\\WHITE8X8",
+                edgeSize = 1,
+            })
+            f:SetBackdropColor(r or 0.025, g or 0.035, b or 0.04, a or 0.92)
+            f:SetBackdropBorderColor(1, 1, 1, 0.10)
+        end
         GetFFD(f)._euiSurface = true
     end
 
@@ -768,24 +773,42 @@ local function SkinInspectSheet()
             local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
             if S and S.StripTextures then S:StripTextures(tal, true) end
             tal:ClearAllPoints()
-            tal:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-            tal:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+            tal:SetAllPoints(frame)
+            if tal.SetClipsChildren then tal:SetClipsChildren(true) end
 
             if _G.InspectTalentFrameCloseButton then _G.InspectTalentFrameCloseButton:Hide() end
 
             local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
 
+            -- Give the WotLK-only talent page the same deliberate body surface
+            -- as the Inspect PvP page.  Keeping this inside the Inspect shell
+            -- also prevents the tree and its scrollbar from bleeding into the
+            -- footer tabs at unusual UI scales.
+            local surface = EllesmereUI.SafeCreateFrame("Frame", nil, tal)
+            surface:SetPoint("TOPLEFT", tal, "TOPLEFT", 16, -70)
+            surface:SetPoint("BOTTOMRIGHT", tal, "BOTTOMRIGHT", -16, 39)
+            surface:SetFrameLevel(math.max(0, tal:GetFrameLevel() - 1))
+            surface:EnableMouse(false)
+            SetInspectSurface(surface, 0.025, 0.035, 0.04, 0.72)
+            GetFFD(tal).surface = surface
+
+            local talentTabs = {}
             for i = 1, 3 do
                 local tab = _G["InspectTalentFrameTab" .. i]
                 if tab then
-                    if S and S.StripTextures then S:StripTextures(tab) end
-                    if S and S.HandleTab then S:HandleTab(tab) end
-                    tab:ClearAllPoints()
-                    if i == 1 then
-                        tab:SetPoint("TOPLEFT", tal, "TOPLEFT", 18, -40)
+                    if S and S.StyleRetailTab then
+                        S:StyleRetailTab(tab)
                     else
-                        tab:SetPoint("LEFT", _G["InspectTalentFrameTab" .. (i - 1)], "RIGHT", -12, 0)
+                        if S and S.StripTextures then S:StripTextures(tab) end
+                        if S and S.HandleTab then S:HandleTab(tab) end
                     end
+                    tab:SetSize(124, 25)
+                    local label = tab:GetFontString()
+                    if label and not (S and S.StyleRetailTab) then
+                        label:SetFont(fontPath, 10, "")
+                        label:SetTextColor(1, 1, 1, 0.62)
+                    end
+                    talentTabs[#talentTabs + 1] = tab
                 end
             end
 
@@ -793,29 +816,32 @@ local function SkinInspectSheet()
             if sf then
                 if S and S.StripTextures then S:StripTextures(sf) end
                 sf:ClearAllPoints()
-                sf:SetPoint("TOPRIGHT", tal, "TOPRIGHT", -55, -75)
-                sf:SetPoint("BOTTOM", tal, "BOTTOM", 0, 90)
-                sf:SetWidth(300)
+                sf:SetPoint("TOPLEFT", surface, "TOPLEFT", 18, -7)
+                sf:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", -34, 31)
+                if sf.SetClipsChildren then sf:SetClipsChildren(true) end
+
+                -- Scale the entire scroll child so talent buttons, dependency
+                -- arrows, and connector lines remain aligned as one unit.
+                local scrollChild = sf.GetScrollChild and sf:GetScrollChild()
+                if scrollChild and not GetFFD(scrollChild)._euiScaled then
+                    GetFFD(scrollChild)._euiScaled = true
+                    scrollChild:SetScale(1.06)
+                end
 
                 local sb = _G.InspectTalentFrameScrollFrameScrollBar
-                if sb and not sb.backdrop then
-                    if S and S.HandleScrollBar then S:HandleScrollBar(sb) end
+                if sb then
                     sb:ClearAllPoints()
-                    sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 6, -17)
-                    sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 6, 17)
+                    sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 8, 0)
+                    sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 8, 0)
+                    if S and S.HandleRetailScrollBar then S:HandleRetailScrollBar(sb) end
                 end
-            end
-
-            if _G.InspectTalentFrameBackgroundTopLeft then
-                _G.InspectTalentFrameBackgroundTopLeft:ClearAllPoints()
-                _G.InspectTalentFrameBackgroundTopLeft:SetPoint("TOPLEFT", tal, "TOPLEFT", 18, -75)
-                _G.InspectTalentFrameBackgroundTopLeft:SetAlpha(0.25)
             end
 
             if _G.InspectTalentFramePointsBar then
                 if S and S.StripTextures then S:StripTextures(_G.InspectTalentFramePointsBar) end
                 _G.InspectTalentFramePointsBar:ClearAllPoints()
-                _G.InspectTalentFramePointsBar:SetPoint("BOTTOM", tal, "BOTTOM", 0, 90)
+                _G.InspectTalentFramePointsBar:SetPoint("BOTTOM", surface, "BOTTOM", 0, 8)
+                _G.InspectTalentFramePointsBar:SetWidth(350)
                 for i = 1, select("#", _G.InspectTalentFramePointsBar:GetRegions()) do
                     local r = select(i, _G.InspectTalentFramePointsBar:GetRegions())
                     if r and r:IsObjectType("FontString") then
@@ -833,49 +859,107 @@ local function SkinInspectSheet()
                 local isPet = curTal.pet or false
                 local group = curTal.talentGroup or 1
 
+                if S and S.UpdateRetailTab then
+                    for i, tab in ipairs(talentTabs) do
+                        S:UpdateRetailTab(tab, i == tabIndex)
+                    end
+                end
+
                 for i = 1, (MAX_NUM_TALENTS or 40) do
                     local btn = _G["InspectTalentFrameTalent" .. i]
                     local icon = _G["InspectTalentFrameTalent" .. i .. "IconTexture"]
                     local rank = _G["InspectTalentFrameTalent" .. i .. "Rank"]
 
                     if btn then
-                        -- TalentFrame_Update has already populated the native
-                        -- icon by the time our secure hook runs. Cache it before
-                        -- stripping, then prefer the inspect API result. This
-                        -- also covers private clients whose GetTalentInfo return
-                        -- timing differs slightly from stock 3.3.5.
-                        local nativeIconTexture = icon and icon:GetTexture()
-                        local _, iconTexturePath = GetTalentInfo(
-                            tabIndex, i, curTal.inspect ~= false, isPet, group)
-                        iconTexturePath = iconTexturePath or nativeIconTexture
+                        local bfd = GetFFD(btn)
+                        if not bfd.nativeIcon and icon then bfd.nativeIcon = icon:GetTexture() end
 
-                        if not btn.isSkinned then
+                        local iconTexturePath, currentRank, maxRank
+                        if _G.GetTalentInfo then
+                            local _, apiIcon, _, _, apiRank, apiMaxRank = GetTalentInfo(
+                                tabIndex, i, curTal.inspect ~= false, isPet, group)
+                            iconTexturePath = apiIcon
+                            currentRank = apiRank
+                            maxRank = apiMaxRank
+                        end
+                        iconTexturePath = iconTexturePath
+                            or (icon and icon:GetTexture())
+                            or bfd.nativeIcon
+
+                        if not bfd.euiSkinned then
                             if S and S.StripTextures then S:StripTextures(btn) end
                             if S and S.CreateBackdrop then S:CreateBackdrop(btn, "Default") end
                             if S and S.StyleButton then S:StyleButton(btn) end
-                            btn.isSkinned = true
+                            bfd.euiSkinned = true
                         end
                         btn:SetFrameLevel(btn:GetParent():GetFrameLevel() + 2)
 
                         if icon then
-                            icon:SetTexture(iconTexturePath or "Interface\\Icons\\INV_Misc_QuestionMark")
+                            icon:SetTexture(iconTexturePath)
                             icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                             icon:SetDrawLayer("ARTWORK")
-                            icon:Show()
-                            icon:SetAlpha(1)
-                            if S and S.SetInside then S:SetInside(icon) end
+                            if iconTexturePath then icon:Show() else icon:Hide() end
+                            icon:SetAlpha(iconTexturePath and 1 or 0)
+                            if S and S.SetInside then S:SetInside(icon, btn, 2, 2) end
                         end
 
                         if rank then
-                            rank:SetFont(fontPath, 10, "OUTLINE")
+                            rank:SetFont(fontPath, 9, "OUTLINE")
+                            rank:SetDrawLayer("OVERLAY", 7)
+                            rank:ClearAllPoints()
+                            rank:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
+                            rank:SetWidth(math.max(20, (btn:GetWidth() or 32) - 4))
+                            rank:SetHeight(11)
+                            rank:SetJustifyH("RIGHT")
+                            rank:SetJustifyV("BOTTOM")
+                            if currentRank ~= nil and maxRank then
+                                rank:SetText(currentRank .. "/" .. maxRank)
+                            end
+                            rank:SetTextColor(1, 1, 1, (currentRank or 0) > 0 and 1 or 0.58)
+                            rank:SetShadowColor(0, 0, 0, 1)
+                            rank:SetShadowOffset(1, -1)
+                            rank:Show()
                         end
                     end
                 end
+
             end
+
+            local function LayoutTalentTabs()
+                local count = #talentTabs
+                if count == 0 then return end
+                local gap = 4
+                local tabW = talentTabs[1]:GetWidth()
+                local totalW = count * tabW + (count - 1) * gap
+                for i, tab in ipairs(talentTabs) do
+                    tab:ClearAllPoints()
+                    if i == 1 then
+                        tab:SetPoint("TOPLEFT", tal, "TOP", -totalW / 2, -37)
+                    else
+                        tab:SetPoint("LEFT", talentTabs[i - 1], "RIGHT", gap, 0)
+                    end
+                end
+            end
+
+            LayoutTalentTabs()
             UpdateInspectTalents()
+            GetFFD(tal).updateTalents = UpdateInspectTalents
+            for _, tab in ipairs(talentTabs) do
+                tab:HookScript("OnClick", function()
+                    C_Timer.After(0, UpdateInspectTalents)
+                end)
+            end
             if _G.InspectTalentFrame_Update then
                 hooksecurefunc("InspectTalentFrame_Update", UpdateInspectTalents)
             end
+            tal:HookScript("OnShow", function()
+                LayoutTalentTabs()
+                UpdateInspectTalents()
+                C_Timer.After(0, UpdateInspectTalents)
+                C_Timer.After(0.2, UpdateInspectTalents)
+            end)
+        elseif GetFFD(tal).updateTalents then
+            GetFFD(tal).updateTalents()
         end
     end
 
@@ -883,6 +967,7 @@ local function SkinInspectSheet()
     -- User clicks the actual Blizzard button so the secure handler fires
     -- natively with no addon taint in the call stack.
     do
+        local SharedSkin = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
         local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
         local BTN_W, BTN_H = 90, 21
         local BTN_Y = 8
@@ -898,9 +983,11 @@ local function SkinInspectSheet()
             btn:SetSize(BTN_W, BTN_H)
             btn:SetFrameLevel(frame:GetFrameLevel() + 20)
 
-            -- Standard Blizzard-window-skin button look: dark fill + theme
-            -- border + hover highlight. WSkin.Button fades the native textures.
-            if ns.WSkin and ns.WSkin.Button then ns.WSkin.Button(btn) end
+            -- Shared primary-action treatment; the native button remains the
+            -- clickable owner so its secure action continues to fire normally.
+            if SharedSkin and SharedSkin.HandleRetailButton then
+                SharedSkin:HandleRetailButton(btn, true)
+            end
 
             -- Hide the native label (the View button is a dressing-room icon,
             -- not "Transmog") and draw our own, white like other skinned buttons.
@@ -1184,118 +1271,19 @@ local function SkinInspectSheet()
     end
 
     -- Style Tabs (InspectFrameTab1, 2, 3)
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-    local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
-    local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
-
+    local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
     local inspTabs = {}
     for i = 1, 3 do
         local tab = _G["InspectFrameTab" .. i]
         if tab then
             inspTabs[#inspTabs + 1] = tab
-            -- Remove Blizzard textures
-            for j = 1, select("#", tab:GetRegions()) do
-                local region = select(j, tab:GetRegions())
-                if region and region:IsObjectType("Texture") then
-                    region:SetTexture("")
-                    if region.SetAtlas then region:SetAtlas("") end
-                end
-            end
-
-            if tab.Left then tab.Left:SetTexture("") end
-            if tab.Middle then tab.Middle:SetTexture("") end
-            if tab.Right then tab.Right:SetTexture("") end
-            if tab.LeftDisabled then tab.LeftDisabled:SetTexture("") end
-            if tab.MiddleDisabled then tab.MiddleDisabled:SetTexture("") end
-            if tab.RightDisabled then tab.RightDisabled:SetTexture("") end
-
-            local hl = tab:GetHighlightTexture()
-            if hl then hl:SetTexture("") end
-
-            -- Add custom background (matches character sheet tab color)
-            if not GetFFD(tab).bg then
-                GetFFD(tab).bg = tab:CreateTexture(nil, "BACKGROUND")
-                GetFFD(tab).bg:SetAllPoints()
-                GetFFD(tab).bg:SetTexture(0.043, 0.031, 0.027, 1)
-            else
-                GetFFD(tab).bg:Show()
-                GetFFD(tab).bg:SetTexture(0.043, 0.031, 0.027, 1)
-            end
-
-            -- Add active highlight
-            if not GetFFD(tab).activeHL then
-                local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
-                activeHL:SetAllPoints()
-                activeHL:SetTexture(1, 1, 1, 0.02)
-                activeHL:SetBlendMode("ADD")
-                activeHL:Hide()
-                GetFFD(tab).activeHL = activeHL
-            else
-                -- The Blizzard-texture strip loop above clears EVERY one of the
-                -- tab's texture regions, including this one, on each re-skin
-                -- (inspect re-skins on every INSPECT_READY as data streams in).
-                -- Restore the fill, or the active-tab highlight blanks out --
-                -- the same reason the background is re-colored above.
-                GetFFD(tab).activeHL:SetTexture(1, 1, 1, 0.02)
-                GetFFD(tab).activeHL:SetBlendMode("ADD")
-            end
-
-            -- Replace Blizzard label with custom font
-            local blizLabel = tab:GetFontString()
-            local labelText = blizLabel and blizLabel:GetText() or ("Tab " .. i)
-            if blizLabel then blizLabel:SetTextColor(0, 0, 0, 0) end
-            tab:SetPushedTextOffset(0, 0)
-
-            if not GetFFD(tab).label then
-                local label = tab:CreateFontString(nil, "OVERLAY")
-                label:SetFont(fontPath, 9, nil)
-                label:SetPoint("CENTER", tab, "CENTER", 0, 0)
-                label:SetJustifyH("CENTER")
-                label:SetText(labelText)
-                GetFFD(tab).label = label
-
-                hooksecurefunc(tab, "SetText", function(_, newText)
-                    if newText and label then label:SetText(newText) end
-                end)
-            end
-
-            -- Add underline for active tab
-            if not GetFFD(tab).underline then
-                local underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
-                if EllesmereUI and EllesmereUI.PanelPP and EllesmereUI.PanelPP.DisablePixelSnap then
-                    EllesmereUI.PanelPP.DisablePixelSnap(underline)
-                    underline:SetHeight(EllesmereUI.PanelPP.mult or 1)
-                else
-                    underline:SetHeight(1)
-                end
-                underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
-                underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
-                underline:SetTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
-                if EllesmereUI and EllesmereUI.RegAccent then
-                    EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
-                end
-                underline:Hide()
-                GetFFD(tab).underline = underline
-            else
-                -- Same strip-loop restore as activeHL above: re-apply the accent
-                -- fill so the active-tab underline does not blank out on re-skin.
-                GetFFD(tab).underline:SetTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
-            end
+            if S and S.StyleRetailTab then S:StyleRetailTab(tab) end
         end
     end
     if ns.WSkin and ns.WSkin.NormalizeTabRow then ns.WSkin.NormalizeTabRow(inspTabs) end
 
     if isLegacyInspect and #inspTabs > 0 then
-        local TAB_W, TAB_H = 144, 26
-        for i, tab in ipairs(inspTabs) do
-            tab:ClearAllPoints()
-            tab:SetSize(TAB_W, TAB_H)
-            if i == 1 then
-                tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
-            else
-                tab:SetPoint("LEFT", inspTabs[i - 1], "RIGHT", 0, 0)
-            end
-        end
+        if S and S.LayoutRetailTabRow then S:LayoutRetailTabRow(inspTabs, frame, 144) end
     end
 
     -- Update tab visuals on show
@@ -1330,19 +1318,7 @@ local function SkinInspectSheet()
             local tab = _G["InspectFrameTab" .. i]
             if tab then
                 local isActive = (frame.selectedTab or 1) == i
-                -- Ensure background is always visible
-                if GetFFD(tab).bg then
-                    GetFFD(tab).bg:Show()
-                end
-                if GetFFD(tab).label then
-                    GetFFD(tab).label:SetTextColor(1, 1, 1, isActive and 1 or 0.5)
-                end
-                if GetFFD(tab).underline then
-                    if isActive then GetFFD(tab).underline:Show() else GetFFD(tab).underline:Hide() end
-                end
-                if GetFFD(tab).activeHL then
-                    if isActive then GetFFD(tab).activeHL:Show() else GetFFD(tab).activeHL:Hide() end
-                end
+                if S and S.UpdateRetailTab then S:UpdateRetailTab(tab, isActive) end
             end
         end
     end

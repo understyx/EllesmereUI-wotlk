@@ -102,6 +102,24 @@ local function StripTextures(f)
     end
 end
 
+-- Frames already expose SetBackdrop on Wrath.  Newer clients require the
+-- mixin first, so use whichever implementation the current client provides.
+local function ApplyNativeBackdrop(frame, withBackground, borderAlpha)
+    if not frame then return false end
+    if not frame.SetBackdrop and BackdropTemplateMixin and Mixin then
+        Mixin(frame, BackdropTemplateMixin)
+    end
+    if not frame.SetBackdrop then return false end
+    frame:SetBackdrop({
+        bgFile = withBackground and "Interface\\Buttons\\WHITE8x8" or nil,
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    if withBackground then frame:SetBackdropColor(0.025, 0.035, 0.045, 0.94) end
+    frame:SetBackdropBorderColor(1, 1, 1, borderAlpha or 0.12)
+    return true
+end
+
 -------------------------------------------------------------------------------
 --  Raid Tab Skinning
 -------------------------------------------------------------------------------
@@ -109,7 +127,7 @@ end
 -- PP.CreateBorder on any frame in the RaidFrame tree. These permanently
 -- taint the frame, breaking ClaimRaidFrame -> RaidFrame:SetParent().
 -- Safe operations: SetTexture(""), font/color on FontStrings, HookScript,
--- BackdropTemplateMixin.
+-- and the frame's native backdrop methods.
 
 local function SkinRaidRoleIcon(icon)
     -- No-op: CreateTexture on protected parent taints
@@ -155,15 +173,8 @@ local function SkinRaidTabButton(btn)
     if btn.Left then btn.Left:SetAlpha(0) end
     if btn.Right then btn.Right:SetAlpha(0) end
     if btn.Middle then btn.Middle:SetAlpha(0) end
-    if BackdropTemplateMixin then
-        Mixin(btn, BackdropTemplateMixin)
-        btn:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Buttons\\WHITE8x8",
-            edgeSize = 1,
-        })
+    if ApplyNativeBackdrop(btn, true, 0.4) then
         btn:SetBackdropColor(0.025, 0.035, 0.045, 0.92)
-        btn:SetBackdropBorderColor(1, 1, 1, 0.4)
     end
     local text = btn:GetFontString()
     if text then
@@ -195,6 +206,7 @@ end
 local RAID_TAB_BUTTONS = {
     "RaidFrameConvertToRaidButton",
     "RaidFrameRaidInfoButton",
+    "RaidFrameNotInRaidRaidBrowserButton",
     "QuickJoinFrame.JoinQueueButton",
 }
 
@@ -206,12 +218,6 @@ local function SkinCheckbox(checkbox)
     if checkbox.SetPushedTexture then checkbox:SetPushedTexture("") end
     if checkbox.SetHighlightTexture then checkbox:SetHighlightTexture("") end
     if checkbox.SetDisabledTexture then checkbox:SetDisabledTexture("") end
-    for i = 1, select("#", checkbox:GetRegions()) do
-        local region = select(i, checkbox:GetRegions())
-        if region and region:IsObjectType("Texture") then
-            region:SetTexture("")
-        end
-    end
     local text = checkbox.Text or checkbox.text or (checkbox.GetName and _G[checkbox:GetName().."Text"])
     if text and text.SetFont then
         text:SetFont(fontPath, 10, "")
@@ -231,13 +237,7 @@ local function SkinRaidGroup(group)
             region:SetTexture("")
         end
     end
-    if BackdropTemplateMixin then
-        Mixin(group, BackdropTemplateMixin)
-        group:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Buttons\\WHITE8x8",
-            edgeSize = 1,
-        })
+    if ApplyNativeBackdrop(group, true, 0.18) then
         group:SetBackdropColor(0.025, 0.025, 0.03, 0.98)
         group:SetBackdropBorderColor(0.25, 0.25, 0.25, 0.9)
     end
@@ -270,13 +270,7 @@ local function SkinRaidSlot(slot)
             region:SetTexture("")
         end
     end
-    if BackdropTemplateMixin then
-        Mixin(slot, BackdropTemplateMixin)
-        slot:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Buttons\\WHITE8x8",
-            edgeSize = 1,
-        })
+    if ApplyNativeBackdrop(slot, true, 0.12) then
         slot:SetBackdropColor(0.045, 0.045, 0.05, 0.9)
         slot:SetBackdropBorderColor(0.15, 0.15, 0.15, 0.7)
     end
@@ -304,13 +298,7 @@ local function SkinRaidGroupButton(btn)
             region:SetTexture("")
         end
     end
-    if BackdropTemplateMixin then
-        Mixin(btn, BackdropTemplateMixin)
-        btn:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Buttons\\WHITE8x8",
-            edgeSize = 1,
-        })
+    if ApplyNativeBackdrop(btn, true, 0.2) then
         btn:SetBackdropColor(0.06, 0.06, 0.07, 0.95)
         btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.9)
     end
@@ -387,14 +375,7 @@ local function SkinRaidTab()
 
     if raidFrame and not GetFFD(raidFrame).borderAdded then
         GetFFD(raidFrame).borderAdded = true
-        if BackdropTemplateMixin then
-            Mixin(raidFrame, BackdropTemplateMixin)
-            raidFrame:SetBackdrop({
-                edgeFile = "Interface\\Buttons\\WHITE8x8",
-                edgeSize = 1,
-            })
-            raidFrame:SetBackdropBorderColor(1, 1, 1, 0.1)
-        end
+        ApplyNativeBackdrop(raidFrame, true, 0.1)
     end
 
     local inMplus2 = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive()
@@ -410,22 +391,28 @@ local function SkinRaidTab()
 
     local convertBtn = _G.RaidFrameConvertToRaidButton
     local raidInfoBtn = _G.RaidFrameRaidInfoButton
-    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
-    if scrollBox and (convertBtn or raidInfoBtn) then
-        local btnW = math.floor(raidFrame:GetWidth() / 3)
+    local raidBrowserBtn = _G.RaidFrameNotInRaidRaidBrowserButton
+    if raidFrame and (convertBtn or raidInfoBtn or raidBrowserBtn) then
+        local btnW = math.floor((raidFrame:GetWidth() - 6) / 2)
         if convertBtn then
             convertBtn:ClearAllPoints()
             convertBtn:SetSize(btnW, 22)
-            convertBtn:SetPoint("BOTTOMRIGHT", scrollBox, "BOTTOMRIGHT", 0, -22)
+            convertBtn:SetPoint("BOTTOMLEFT", raidFrame, "BOTTOMLEFT", 0, 0)
         end
         if raidInfoBtn then
             raidInfoBtn:ClearAllPoints()
-            raidInfoBtn:SetSize(btnW, 20)
-            raidInfoBtn:SetPoint("TOPRIGHT", scrollBox, "TOPRIGHT", 0, 48)
+            raidInfoBtn:SetSize(btnW, 22)
+            raidInfoBtn:SetPoint("BOTTOMRIGHT", raidFrame, "BOTTOMRIGHT", 0, 0)
+        end
+        if raidBrowserBtn then
+            raidBrowserBtn:ClearAllPoints()
+            raidBrowserBtn:SetSize(raidFrame:GetWidth(), 22)
+            raidBrowserBtn:SetPoint("BOTTOM", raidFrame, "BOTTOM", 0, 0)
         end
     end
 
     local checkBtn = _G.RaidFrameAllAssistCheckButton
+    SkinCheckbox(checkBtn)
     if checkBtn and not GetFFD(checkBtn).shifted then
         GetFFD(checkBtn).shifted = true
         local p1, rel, p2, ox, oy = checkBtn:GetPoint(1)
@@ -433,6 +420,7 @@ local function SkinRaidTab()
     end
     if raidFrame then
         local roleCount = raidFrame.RoleCount
+        SkinRaidRoleCount(roleCount)
         if roleCount and not GetFFD(roleCount).shifted then
             GetFFD(roleCount).shifted = true
             local p1, rel, p2, ox, oy = roleCount:GetPoint(1)
@@ -548,6 +536,15 @@ end
 -- BNet friends keyed by [id], WoW friends keyed by [id + 10000].
 local _friendCache = {}
 local _FC_WOW_OFFSET = 10000
+
+-- Only these rows carry an index accepted by Blizzard's friend click handler.
+-- ScrollBox header/divider frames can reuse the same button template with a
+-- nil id; treating one as a friend makes right-click call GetFriendInfo(nil).
+local function IsActualFriendButton(button)
+    if not button or not button.id then return false end
+    return button.buttonType == FRIENDS_BUTTON_TYPE_BNET
+        or button.buttonType == FRIENDS_BUTTON_TYPE_WOW
+end
 
 local function GetCachedFriendInfo(button)
     if not button or not button.buttonType or not button.id then return nil, nil end
@@ -889,8 +886,7 @@ end
 local function PostUpdateFriendButton(button)
     if not FriendsFrame:IsShown() then return end
     if not EBS.db or not EBS.db.profile.friends.enabled then return end
-    if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
-    if not button.buttonType then return end
+    if not IsActualFriendButton(button) then return end
 
     -- Structural skinning (one-time per button, guarded by FFD flag)
     SkinFriendButton(button)
@@ -1089,9 +1085,7 @@ local function ProcessFriendButtons()
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
     if not scrollBox then return end
     for _, button in scrollBox:EnumerateFrames() do
-        if button.buttonType and button.buttonType ~= FRIENDS_BUTTON_TYPE_DIVIDER
-           and button.buttonType ~= FRIENDS_BUTTON_TYPE_INVITE
-           and button.buttonType ~= FRIENDS_BUTTON_TYPE_INVITE_HEADER then
+        if IsActualFriendButton(button) then
             GetFFD(button).stampType = nil
             PostUpdateFriendButton(button)
         end
@@ -1296,6 +1290,415 @@ local function SkinBottomButton(btn)
     end)
 end
 
+local function SkinLegacyCheckbox(checkbox)
+    if not checkbox or GetFFD(checkbox).euiCheckbox then return end
+    GetFFD(checkbox).euiCheckbox = true
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+
+    if checkbox.SetNormalTexture then checkbox:SetNormalTexture("") end
+    if checkbox.SetPushedTexture then checkbox:SetPushedTexture("") end
+    if checkbox.SetHighlightTexture then checkbox:SetHighlightTexture("") end
+    if checkbox.SetDisabledTexture then checkbox:SetDisabledTexture("") end
+
+    local box = checkbox:CreateTexture(nil, "BACKGROUND")
+    box:SetTexture(0.025, 0.035, 0.045, 0.95)
+    box:SetSize(14, 14)
+    box:SetPoint("CENTER", checkbox, "CENTER", 0, 0)
+    GetFFD(checkbox).box = box
+
+    local border = EllesmereUI.SafeCreateFrame("Frame", nil, checkbox)
+    border:SetAllPoints(box)
+    border:EnableMouse(false)
+    PP.CreateBorder(border, 1, 1, 1, 0.3, 1, "OVERLAY", 7)
+
+    local checked = checkbox.GetCheckedTexture and checkbox:GetCheckedTexture()
+    if checked then
+        checked:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        checked:ClearAllPoints()
+        checked:SetPoint("CENTER", box, "CENTER", 0, 0)
+        checked:SetSize(20, 20)
+    end
+
+    local text = checkbox.Text or checkbox.text
+        or (checkbox.GetName and _G[checkbox:GetName() .. "Text"])
+    if text and text.SetFont then
+        text:SetFont(fontPath, 9, "")
+        text:SetTextColor(1, 1, 1, 0.72)
+    end
+end
+
+local function SkinLegacyScrollFrame(scrollFrame)
+    if not scrollFrame or GetFFD(scrollFrame).euiScroll then return end
+    GetFFD(scrollFrame).euiScroll = true
+    StripTextures(scrollFrame)
+
+    local name = scrollFrame.GetName and scrollFrame:GetName()
+    local scrollBar = scrollFrame.ScrollBar or scrollFrame.scrollBar
+        or (name and _G[name .. "ScrollBar"])
+    if not scrollBar then return end
+    StripTextures(scrollBar)
+    scrollBar:SetWidth(8)
+
+    local barName = scrollBar.GetName and scrollBar:GetName()
+    for _, suffix in ipairs({"ScrollUpButton", "ScrollDownButton", "UpButton", "DownButton"}) do
+        local arrow = barName and _G[barName .. suffix]
+        if arrow then
+            arrow:SetAlpha(0)
+            arrow:EnableMouse(false)
+            arrow:SetSize(1, 1)
+        end
+    end
+
+    local track = scrollBar:CreateTexture(nil, "BACKGROUND")
+    track:SetTexture(1, 1, 1, 0.035)
+    track:SetWidth(3)
+    track:SetPoint("TOP", scrollBar, "TOP", 0, 0)
+    track:SetPoint("BOTTOM", scrollBar, "BOTTOM", 0, 0)
+
+    local thumb = (scrollBar.GetThumbTexture and scrollBar:GetThumbTexture())
+        or (barName and _G[barName .. "ThumbTexture"])
+    if thumb then
+        thumb:SetTexture(1, 1, 1, 0.42)
+        thumb:SetWidth(4)
+        thumb:SetAlpha(1)
+    end
+    scrollBar:SetAlpha(0.65)
+    scrollBar:HookScript("OnEnter", function(self) self:SetAlpha(1) end)
+    scrollBar:HookScript("OnLeave", function(self) self:SetAlpha(0.65) end)
+end
+
+local function SkinLegacyColumnHeader(header)
+    if not header or GetFFD(header).euiHeader then return end
+    GetFFD(header).euiHeader = true
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    StripTextures(header)
+
+    local bg = header:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetTexture(1, 1, 1, 0.035)
+    local divider = header:CreateTexture(nil, "OVERLAY")
+    divider:SetTexture(1, 1, 1, 0.08)
+    divider:SetWidth(PP.mult or 1)
+    divider:SetPoint("TOPRIGHT", header, "TOPRIGHT", 0, 0)
+    divider:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+
+    local text = header:GetFontString()
+    if text then
+        text:SetFont(fontPath, 9, "")
+        text:SetTextColor(1, 1, 1, 0.55)
+        text:ClearAllPoints()
+        text:SetPoint("LEFT", header, "LEFT", 6, 0)
+    end
+    local hl = header:GetHighlightTexture()
+    if hl then
+        hl:SetTexture(1, 1, 1, 0.04)
+        hl:SetAllPoints()
+        hl:SetAlpha(1)
+    end
+end
+
+local function SkinLegacyListRow(row)
+    if not row or GetFFD(row).euiRow then return end
+    GetFFD(row).euiRow = true
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local hl = row:GetHighlightTexture()
+    if hl then
+        hl:SetTexture(1, 1, 1, 0.055)
+        hl:SetAllPoints()
+        hl:SetAlpha(1)
+    end
+    for i = 1, select("#", row:GetRegions()) do
+        local region = select(i, row:GetRegions())
+        if region and region:IsObjectType("FontString") then
+            region:SetFont(fontPath, 9, "")
+        end
+    end
+end
+
+local function AddLegacyPane(frame, key, left, top, right, bottom)
+    if not frame or GetFFD(frame)[key] then return end
+    local pane = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
+    pane:SetPoint("TOPLEFT", frame, "TOPLEFT", left, top)
+    pane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", right, bottom)
+    -- Keep the pane below Blizzard's roster/button child frames.
+    pane:SetFrameLevel(frame:GetFrameLevel())
+    pane:EnableMouse(false)
+    local bg = pane:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetTexture(0, 0, 0, 0.18)
+    PP.CreateBorder(pane, 1, 1, 1, 0.1, 1, "OVERLAY", 7)
+    GetFFD(frame)[key] = pane
+end
+
+local function SkinLegacyGuildTab(hostFrame)
+    local guild = _G.GuildFrame
+    if not guild or GetFFD(guild).euiSkinned then return end
+    GetFFD(guild).euiSkinned = true
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+
+    StripTextures(guild)
+    guild:ClearAllPoints()
+    guild:SetAllPoints(hostFrame)
+    local hostHeight = hostFrame:GetHeight() or 512
+    AddLegacyPane(guild, "rosterPane", 15, -64, -15, math.max(150, hostHeight - 310))
+    AddLegacyPane(guild, "motdPane", 15, -314, -15, 78)
+
+    StripTextures(_G.GuildFrameLFGFrame)
+    if _G.GuildFrameLFGFrame then ApplyNativeBackdrop(_G.GuildFrameLFGFrame, true, 0.1) end
+    SkinLegacyCheckbox(_G.GuildFrameLFGButton)
+    SkinLegacyScrollFrame(_G.GuildListScrollFrame)
+
+    for i = 1, 4 do
+        SkinLegacyColumnHeader(_G["GuildFrameColumnHeader" .. i])
+        SkinLegacyColumnHeader(_G["GuildFrameGuildStatusColumnHeader" .. i])
+    end
+
+    local paneWidth = math.max(250, (hostFrame:GetWidth() or 340) - 48)
+    local rosterColumns = {
+        {"Name", 0.00, 0.30, "LEFT"},
+        {"Zone", 0.30, 0.35, "LEFT"},
+        {"Level", 0.65, 0.11, "CENTER"},
+        {"Class", 0.76, 0.24, "LEFT"},
+    }
+    local statusColumns = {
+        {"Name", 0.00, 0.28, "LEFT"},
+        {"Rank", 0.28, 0.21, "LEFT"},
+        {"Note", 0.49, 0.29, "LEFT"},
+        {"Online", 0.78, 0.22, "LEFT"},
+    }
+
+    local function LayoutHeaders(prefix, columns)
+        local previous
+        for i, spec in ipairs(columns) do
+            local header = _G[prefix .. i]
+            if header then
+                header:ClearAllPoints()
+                header:SetSize(math.floor(paneWidth * spec[3]), 22)
+                if previous then
+                    header:SetPoint("LEFT", previous, "RIGHT", 0, 0)
+                else
+                    header:SetPoint("TOPLEFT", guild, "TOPLEFT", 18, -67)
+                end
+                previous = header
+            end
+        end
+    end
+    LayoutHeaders("GuildFrameColumnHeader", rosterColumns)
+    LayoutHeaders("GuildFrameGuildStatusColumnHeader", statusColumns)
+
+    local function LayoutRows(prefix, columns)
+        local previous
+        for i = 1, (_G.GUILDMEMBERS_TO_DISPLAY or 13) do
+            local row = _G[prefix .. i]
+            if row then
+                SkinLegacyListRow(row)
+                row:ClearAllPoints()
+                row:SetSize(paneWidth, 16)
+                if previous then
+                    row:SetPoint("TOPLEFT", previous, "BOTTOMLEFT", 0, 0)
+                else
+                    row:SetPoint("TOPLEFT", guild, "TOPLEFT", 18, -91)
+                end
+                for _, spec in ipairs(columns) do
+                    local text = _G[prefix .. i .. spec[1]]
+                    if text then
+                        text:ClearAllPoints()
+                        text:SetPoint("LEFT", row, "LEFT", math.floor(paneWidth * spec[2]) + 5, 0)
+                        text:SetWidth(math.max(18, math.floor(paneWidth * spec[3]) - 10))
+                        text:SetJustifyH(spec[4])
+                    end
+                end
+                previous = row
+            end
+        end
+    end
+    LayoutRows("GuildFrameButton", rosterColumns)
+    LayoutRows("GuildFrameGuildStatusButton", statusColumns)
+
+    if _G.GuildListScrollFrame then
+        _G.GuildListScrollFrame:ClearAllPoints()
+        _G.GuildListScrollFrame:SetPoint("TOPLEFT", guild, "TOPLEFT", 18, -91)
+        _G.GuildListScrollFrame:SetSize(paneWidth, 208)
+        local sb = _G.GuildListScrollFrameScrollBar
+        if sb then
+            sb:ClearAllPoints()
+            sb:SetPoint("TOPLEFT", _G.GuildListScrollFrame, "TOPRIGHT", 3, -1)
+            sb:SetPoint("BOTTOMLEFT", _G.GuildListScrollFrame, "BOTTOMRIGHT", 3, 1)
+        end
+    end
+
+    for _, text in ipairs({
+        _G.GuildFrameTotals, _G.GuildFrameOnlineTotals,
+        _G.GuildFrameNotesLabel, _G.GuildFrameNotesText,
+    }) do
+        if text and text.SetFont then
+            text:SetFont(fontPath, 9, "")
+            text:SetTextColor(1, 1, 1, text == _G.GuildFrameNotesText and 0.72 or 0.55)
+        end
+    end
+    if _G.GuildFrameNotesLabel then
+        _G.GuildFrameNotesLabel:ClearAllPoints()
+        _G.GuildFrameNotesLabel:SetPoint("TOPLEFT", guild, "TOPLEFT", 20, -320)
+    end
+    if _G.GuildFrameNotesText then
+        _G.GuildFrameNotesText:SetWidth(math.max(220, (hostFrame:GetWidth() or 340) - 42))
+    end
+
+    for _, button in ipairs({
+        _G.GuildFrameGuildInformationButton,
+        _G.GuildFrameAddMemberButton,
+        _G.GuildFrameControlButton,
+        _G.GuildFrameGuildListToggleButton,
+    }) do
+        if button then SkinBottomButton(button) end
+    end
+
+    local bottomButtons = {
+        _G.GuildFrameGuildInformationButton,
+        _G.GuildFrameAddMemberButton,
+        _G.GuildFrameControlButton,
+    }
+    local gap = 4
+    local buttonWidth = math.floor(((hostFrame:GetWidth() or 340) - 30 - gap * 2) / 3)
+    for i, button in ipairs(bottomButtons) do
+        if button then
+            button:ClearAllPoints()
+            button:SetSize(buttonWidth, 22)
+            if i == 1 then
+                button:SetPoint("BOTTOMLEFT", hostFrame, "BOTTOMLEFT", 15, 44)
+            else
+                button:SetPoint("LEFT", bottomButtons[i - 1], "RIGHT", gap, 0)
+            end
+        end
+    end
+    if _G.GuildFrameGuildListToggleButton then
+        _G.GuildFrameGuildListToggleButton:ClearAllPoints()
+        _G.GuildFrameGuildListToggleButton:SetSize(88, 20)
+        _G.GuildFrameGuildListToggleButton:SetPoint("TOPLEFT", guild, "TOPLEFT", 18, -41)
+    end
+
+    guild:HookScript("OnShow", function()
+        for i = 1, (_G.GUILDMEMBERS_TO_DISPLAY or 13) do
+            SkinLegacyListRow(_G["GuildFrameButton" .. i])
+            SkinLegacyListRow(_G["GuildFrameGuildStatusButton" .. i])
+        end
+    end)
+end
+
+local function SkinLegacyChannelTab(hostFrame)
+    local channel = _G.ChannelFrame
+    if not channel or GetFFD(channel).euiSkinned then return end
+    GetFFD(channel).euiSkinned = true
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+
+    StripTextures(channel)
+    channel:ClearAllPoints()
+    channel:SetAllPoints(hostFrame)
+    if _G.ChannelFrameVerticalBar then _G.ChannelFrameVerticalBar:Hide() end
+
+    local hostWidth = hostFrame:GetWidth() or 340
+    local innerWidth = math.max(280, hostWidth - 40)
+    local gap = 12
+    local leftWidth = math.floor((innerWidth - gap) * 0.52)
+    local rightWidth = innerWidth - gap - leftWidth
+    local rightColumnLeft = 18 + leftWidth + gap
+    AddLegacyPane(channel, "channelListPane", 15, -48,
+        -(hostWidth - 18 - leftWidth), 76)
+    AddLegacyPane(channel, "channelRosterPane", rightColumnLeft - 3, -48, -15, 76)
+
+    SkinLegacyCheckbox(_G.ChannelFrameAutoJoinParty)
+    SkinLegacyCheckbox(_G.ChannelFrameAutoJoinBattleground)
+    SkinLegacyScrollFrame(_G.ChannelListScrollFrame)
+    SkinLegacyScrollFrame(_G.ChannelRosterScrollFrame)
+
+    local displayChannels = _G.MAX_DISPLAY_CHANNEL_BUTTONS or 20
+    for i = 1, displayChannels do
+        local button = _G["ChannelButton" .. i]
+        if button then
+            StripTextures(button)
+            SkinLegacyListRow(button)
+        end
+        local text = _G["ChannelButton" .. i .. "Text"]
+        if text and text.SetFont then
+            text:SetFont(fontPath, 9, "")
+            text:SetTextColor(1, 1, 1, 0.72)
+        end
+        local collapsed = _G["ChannelButton" .. i .. "Collapsed"]
+        if collapsed and collapsed.SetTextColor then collapsed:SetTextColor(1, 1, 1, 0.72) end
+    end
+    for i = 1, 22 do
+        local button = _G["ChannelMemberButton" .. i]
+        if button then SkinLegacyListRow(button) end
+    end
+
+    if _G.ChannelListScrollFrame then
+        _G.ChannelListScrollFrame:ClearAllPoints()
+        _G.ChannelListScrollFrame:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", 18, -52)
+        _G.ChannelListScrollFrame:SetPoint("BOTTOMLEFT", hostFrame, "BOTTOMLEFT", 18, 82)
+        _G.ChannelListScrollFrame:SetWidth(leftWidth)
+    end
+    if _G.ChannelRosterScrollFrame then
+        _G.ChannelRosterScrollFrame:ClearAllPoints()
+        _G.ChannelRosterScrollFrame:SetPoint("TOPRIGHT", hostFrame, "TOPRIGHT", -25, -52)
+        _G.ChannelRosterScrollFrame:SetPoint("BOTTOMRIGHT", hostFrame, "BOTTOMRIGHT", -25, 82)
+        _G.ChannelRosterScrollFrame:SetWidth(rightWidth - 10)
+    end
+    if _G.ChannelRoster then
+        _G.ChannelRoster:ClearAllPoints()
+        _G.ChannelRoster:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", rightColumnLeft, -34)
+        if _G.ChannelRoster.SetFont then
+            _G.ChannelRoster:SetFont(fontPath, 9, "")
+            _G.ChannelRoster:SetTextColor(1, 1, 1, 0.55)
+        end
+    end
+    if _G.ChannelMemberButton1 then
+        _G.ChannelMemberButton1:ClearAllPoints()
+        _G.ChannelMemberButton1:SetPoint("TOPLEFT", hostFrame, "TOPLEFT", rightColumnLeft, -56)
+    end
+    for i = 1, displayChannels do
+        local button = _G["ChannelButton" .. i]
+        if button then button:SetWidth(leftWidth - 4) end
+    end
+    for i = 1, 22 do
+        local button = _G["ChannelMemberButton" .. i]
+        if button then button:SetWidth(rightWidth - 10) end
+    end
+
+    for _, button in pairs({
+        _G.ChannelFrameNewButton,
+        _G.ChannelFrameSettingsButton,
+        channel.NewButton,
+        channel.SettingsButton,
+    }) do
+        if button then SkinBottomButton(button) end
+    end
+    local newButton = _G.ChannelFrameNewButton or channel.NewButton
+    if newButton then
+        newButton:ClearAllPoints()
+        newButton:SetSize(math.max(90, rightWidth), 22)
+        newButton:SetPoint("BOTTOMRIGHT", hostFrame, "BOTTOMRIGHT", -15, 44)
+    end
+
+    local daughter = _G.ChannelFrameDaughterFrame
+    if daughter and not GetFFD(daughter).euiSkinned then
+        GetFFD(daughter).euiSkinned = true
+        StripTextures(daughter)
+        ApplyNativeBackdrop(daughter, true, 0.18)
+        for _, editBox in ipairs({
+            _G.ChannelFrameDaughterFrameChannelName,
+            _G.ChannelFrameDaughterFrameChannelPassword,
+        }) do
+            if editBox then
+                StripTextures(editBox)
+                ApplyNativeBackdrop(editBox, true, 0.18)
+                editBox:SetTextColor(1, 1, 1, 0.82)
+            end
+        end
+        SkinBottomButton(_G.ChannelFrameDaughterFrameOkayButton)
+        SkinBottomButton(_G.ChannelFrameDaughterFrameCancelButton)
+    end
+end
+
 -- Skin known buttons by name
 local KNOWN_BUTTONS = {
     "FriendsFrameAddFriendButton",
@@ -1372,6 +1775,30 @@ local function SkinFriendsFrame()
     if frame.PortraitFrame then frame.PortraitFrame:Hide() end
     if FriendsFramePortrait then FriendsFramePortrait:Hide() end
     if FriendsFrameIcon then FriendsFrameIcon:Hide() end
+
+    -- The 3.3.5 FriendsFrame predates NineSlice and keeps most of its portrait,
+    -- stone border, and inset artwork as direct texture regions.  The member
+    -- lookups above therefore miss exactly the chrome used by the legacy
+    -- client.  Strip those direct regions before creating our background; the
+    -- actual Friends/Who controls are child frames and remain functional.
+    local isLegacyFriends = not frame.NineSlice and _G.WhoListScrollFrame ~= nil
+    if isLegacyFriends then
+        StripTextures(frame)
+        for _, legacyChrome in ipairs({
+            _G.FriendsFrameInset,
+            _G.FriendsFramePortraitFrame,
+        }) do
+            if legacyChrome then
+                StripTextures(legacyChrome)
+                -- Hiding an inset Frame would also hide controls parented to
+                -- it on some 3.3.5 forks; only the portrait ornament is safe to
+                -- suppress as a whole.
+                if legacyChrome == _G.FriendsFramePortraitFrame then
+                    legacyChrome:Hide()
+                end
+            end
+        end
+    end
 
     for _, key in ipairs({"TopBorder", "TopRightCorner", "RightBorder",
                           "BottomRightCorner", "BottomBorder", "BottomLeftCorner",
@@ -1535,9 +1962,22 @@ local function SkinFriendsFrame()
         GetFFD(frame).tabBarBg:SetPoint("BOTTOM", firstTab, "BOTTOM", 0, 0)
     end
 
-    -- Restyle Blizzard's tabs in-place
+    -- Restyle Blizzard's tabs in-place.  Some Wrath clients report only the
+    -- two modern Friends/Who tabs through frame.numTabs even though the native
+    -- Guild, Chat, and Raid buttons are present and fully functional.  Discover
+    -- the actual buttons so the skin does not accidentally discard those tabs.
     local customTabs = {}
-    for i = 1, frame.numTabs or 4 do
+    local nativeTabCount = frame.numTabs or 0
+    for i = 1, 8 do
+        if _G["FriendsFrameTab" .. i] then
+            nativeTabCount = i
+        end
+    end
+    local hasWrathMainTabs = isLegacyFriends and nativeTabCount >= 5
+    if hasWrathMainTabs and frame.numTabs ~= nativeTabCount and PanelTemplates_SetNumTabs then
+        PanelTemplates_SetNumTabs(frame, nativeTabCount)
+    end
+    for i = 1, nativeTabCount do
         local tab = _G["FriendsFrameTab" .. i]
         if tab then
             for j = 1, select("#", tab:GetRegions()) do
@@ -1563,6 +2003,15 @@ local function SkinFriendsFrame()
             end
 
             local tfd = GetFFD(tab)
+            tfd.nativeTabIndex = i
+            if hasWrathMainTabs and not tfd.keepVisibleHook then
+                tfd.keepVisibleHook = true
+                hooksecurefunc(tab, "Hide", function(self)
+                    C_Timer.After(0, function()
+                        if frame:IsShown() then self:Show() end
+                    end)
+                end)
+            end
             if not tfd.activeHL then
                 local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
                 activeHL:SetAllPoints()
@@ -1596,20 +2045,37 @@ local function SkinFriendsFrame()
                 tfd.underline = underline
             end
 
-            customTabs[i] = tab
+            customTabs[#customTabs + 1] = tab
+            if hasWrathMainTabs then tab:Show() end
         end
     end
 
     local _activeSubTab = 1
 
+    local function EnsureSocialTabsVisible()
+        if not hasWrathMainTabs then return end
+        if frame.numTabs ~= nativeTabCount and PanelTemplates_SetNumTabs then
+            PanelTemplates_SetNumTabs(frame, nativeTabCount)
+        end
+        for _, tab in ipairs(customTabs) do
+            tab:Show()
+        end
+    end
+
     local function UpdateCustomTabs(overrideTab)
+        EnsureSocialTabsVisible()
         local selected = overrideTab or PanelTemplates_GetSelectedTab(FriendsFrame) or 1
         local isContacts = (selected == 1)
+        if hasWrathMainTabs then
+            if selected == 3 then SkinLegacyGuildTab(frame) end
+            if selected == 4 then SkinLegacyChannelTab(frame) end
+            if selected == 5 then SkinRaidTab() end
+        end
         local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
         local useAccent = fp and fp.accentColors ~= false
-        for i, ct in ipairs(customTabs) do
-            local isActive = (i == selected)
+        for _, ct in ipairs(customTabs) do
             local ctd = GetFFD(ct)
+            local isActive = (ctd.nativeTabIndex == selected)
             if ctd.label then ctd.label:SetTextColor(1, 1, 1, isActive and 1 or 0.5) end
             if ctd.underline then
                 if isActive then ctd.underline:Show() else ctd.underline:Hide() end
@@ -1636,11 +2102,13 @@ local function SkinFriendsFrame()
         if GetFFD(frame).listBdr then if showListChrome then GetFFD(frame).listBdr:Show() else GetFFD(frame).listBdr:Hide() end end
         if GetFFD(frame).searchBox then if isContacts then GetFFD(frame).searchBox:Show() else GetFFD(frame).searchBox:Hide() end end
         if not isContacts and GetFFD(frame).searchDropdown then GetFFD(frame).searchDropdown:Hide() end
-        local showTopUI = (selected ~= 3)
         if not isContacts and GetFFD(frame).subTabs then
             for _, ct in ipairs(GetFFD(frame).subTabs) do
                 ct._label:SetTextColor(1, 1, 1, 0.53)
-                if showTopUI then ct:Show() else ct:Hide() end
+                -- Wrath's Guild, Chat, and Raid panels have their own native
+                -- controls.  The Retail-style Friends subtabs only belong on
+                -- the Contacts panel and otherwise obscure those controls.
+                if hasWrathMainTabs or selected == 3 then ct:Hide() else ct:Show() end
             end
         elseif GetFFD(frame).subTabs then
             for _, ct in ipairs(GetFFD(frame).subTabs) do
@@ -1650,7 +2118,30 @@ local function SkinFriendsFrame()
         end
         if GetFFD(frame).statusOrb then if isContacts then GetFFD(frame).statusOrb:Show() else GetFFD(frame).statusOrb:Hide() end end
         if GetFFD(frame).broadcastBtn then if isContacts then GetFFD(frame).broadcastBtn:Show() else GetFFD(frame).broadcastBtn:Hide() end end
-        if GetFFD(frame).titleBtn then GetFFD(frame).titleBtn:Show() end
+        if GetFFD(frame).titleBtn then
+            local titleButton = GetFFD(frame).titleBtn
+            local titleLabel = titleButton._label
+            if titleLabel then
+                local labelText
+                if isContacts then
+                    local _, battleTag = BNGetInfo()
+                    labelText = battleTag or FRIENDS or "Friends"
+                else
+                    for _, tab in ipairs(customTabs) do
+                        local tfd = GetFFD(tab)
+                        if tfd.nativeTabIndex == selected and tfd.label then
+                            labelText = tfd.label:GetText()
+                            break
+                        end
+                    end
+                end
+                if labelText then
+                    titleLabel:SetText(labelText)
+                    titleButton:SetWidth((titleLabel:GetStringWidth() or 60) + 16)
+                end
+            end
+            titleButton:Show()
+        end
         if GetFFD(frame).titleDiv then GetFFD(frame).titleDiv:Show() end
         -- Sync scrollbar visibility
         local function SetTrackVisSB(sb, vis)
@@ -1667,14 +2158,32 @@ local function SkinFriendsFrame()
     end
 
     GetFFD(frame).updateCustomTabs = UpdateCustomTabs
+    GetFFD(frame).ensureSocialTabsVisible = EnsureSocialTabsVisible
 
     -- Detect tab changes
-    local tabFrames = {
-        { _G.FriendsListFrame, 1 },
-        { _G.WhoFrame,         2 },
-        { _G.RaidFrame,        3 },
-        { _G.QuickJoinFrame,   4 },
-    }
+    local raidTabIndex = hasWrathMainTabs and 5 or 3
+    if hasWrathMainTabs then
+        SkinLegacyGuildTab(frame)
+        SkinLegacyChannelTab(frame)
+        SkinRaidTab()
+    end
+    local tabFrames
+    if hasWrathMainTabs then
+        tabFrames = {
+            { _G.FriendsListFrame, 1 },
+            { _G.WhoFrame,         2 },
+            { _G.GuildFrame,       3 },
+            { _G.ChannelFrame,     4 },
+            { _G.RaidFrame,        5 },
+        }
+    else
+        tabFrames = {
+            { _G.FriendsListFrame, 1 },
+            { _G.WhoFrame,         2 },
+            { _G.RaidFrame,        3 },
+            { _G.QuickJoinFrame,   4 },
+        }
+    end
     for _, entry in ipairs(tabFrames) do
         local sf, tabIdx = entry[1], entry[2]
         if sf then
@@ -1685,7 +2194,9 @@ local function SkinFriendsFrame()
                     RefreshFriendCache()
                     ProcessFriendButtons()
                 end
-                if tabIdx == 3 then C_Timer.After(0, SkinRaidTab); C_Timer.After(0.2, SkinRaidTab) end
+                if hasWrathMainTabs and tabIdx == 3 then SkinLegacyGuildTab(frame) end
+                if hasWrathMainTabs and tabIdx == 4 then SkinLegacyChannelTab(frame) end
+                if tabIdx == raidTabIndex then C_Timer.After(0, SkinRaidTab); C_Timer.After(0.2, SkinRaidTab) end
             end)
         end
     end
@@ -1694,7 +2205,7 @@ local function SkinFriendsFrame()
             local rf = _G.RaidFrame
             if rf then
                 rf:HookScript("OnShow", function()
-                    UpdateCustomTabs(3)
+                    UpdateCustomTabs(raidTabIndex)
                     C_Timer.After(0, SkinRaidTab); C_Timer.After(0.2, SkinRaidTab)
                 end)
             end
@@ -1703,6 +2214,11 @@ local function SkinFriendsFrame()
     hooksecurefunc(frame, "Show", function()
         UpdateCustomTabs()
     end)
+    if hasWrathMainTabs and FriendsFrame_Update then
+        hooksecurefunc("FriendsFrame_Update", function()
+            C_Timer.After(0, UpdateCustomTabs)
+        end)
+    end
 
     hooksecurefunc(frame, "Hide", function()
         local function HideTrackSB(sb)
@@ -2571,11 +3087,22 @@ local function SkinFriendsFrame()
     ---------------------------------------------------------------------------
     if FriendsFrame_UpdateFriendButton then
         hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
-            if not button or not button.buttonType then return end
-            if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
+            if not IsActualFriendButton(button) then return end
             local fd = GetFFD(button)
             fd.stampType = nil
         end)
+    end
+
+    -- Wrath's handler assumes every frame routed here has a valid friend id.
+    -- Modernized list layouts also route header/recycled rows through the same
+    -- template, so reject those rows before Blizzard calls GetFriendInfo.
+    if FriendsFrameFriendButton_OnClick and not GetFFD(frame).friendClickGuard then
+        local originalFriendButtonOnClick = FriendsFrameFriendButton_OnClick
+        FriendsFrameFriendButton_OnClick = function(button, mouseButton)
+            if not IsActualFriendButton(button) then return end
+            return originalFriendButtonOnClick(button, mouseButton)
+        end
+        GetFFD(frame).friendClickGuard = true
     end
 
     -- Scroll position poller: detects scroll changes (drag, keyboard, etc.)
@@ -2590,9 +3117,9 @@ local function SkinFriendsFrame()
             -- Only re-skin if a recycled button shows different data than its stamp
             local needsSkin = false
             for _, btn in sb:EnumerateFrames() do
-                if btn.buttonType and btn.buttonType ~= FRIENDS_BUTTON_TYPE_DIVIDER then
+                if IsActualFriendButton(btn) then
                     local fd = GetFFD(btn)
-                    if fd.stampType ~= btn.buttonType or fd.stampId ~= (btn.id or 0) then
+                    if fd.stampType ~= btn.buttonType or fd.stampId ~= btn.id then
                         needsSkin = true
                         break
                     end
@@ -2609,15 +3136,12 @@ local function SkinFriendsFrame()
 
     -- Sync tab labels with Blizzard's tab text
     local function SyncFriendsTabLabels()
-        for i = 1, (FriendsFrame and FriendsFrame.numTabs) or 4 do
-            local tab = _G["FriendsFrameTab" .. i]
-            if tab then
-                local tfd = GetFFD(tab)
-                if tfd.label then
-                    local bliz = tab:GetFontString()
-                    local txt = bliz and bliz:GetText()
-                    if txt then tfd.label:SetText(txt) end
-                end
+        for _, tab in ipairs(customTabs) do
+            local tfd = GetFFD(tab)
+            if tfd.label then
+                local bliz = tab:GetFontString()
+                local txt = bliz and bliz:GetText()
+                if txt then tfd.label:SetText(txt) end
             end
         end
     end
@@ -2734,207 +3258,327 @@ local function SkinFriendsFrame()
 
     -- Who tab
     do
-        local who = WhoFrame
+        local who = _G.WhoFrame
         if who then
             StripFrameChrome(who)
+            if who.SetClipsChildren then who:SetClipsChildren(true) end
             who:ClearAllPoints()
-            who:SetPoint("TOPLEFT", frame, "TOPLEFT", 7, 0)
-            who:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -11, 0)
+            who:SetAllPoints(frame)
 
-            local whoInset = _G.WhoFrameListInset
-            if whoInset then
-                StripTextures(whoInset)
-                if whoInset.Bg then whoInset.Bg:Hide() end
-                if whoInset.NineSlice then
-                    StripTextures(whoInset.NineSlice)
-                    whoInset.NineSlice:Hide()
-                end
-                whoInset:SetClipsChildren(true)
-                whoInset:ClearAllPoints()
-                whoInset:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -92)
-                whoInset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 35)
-                local whoBg = whoInset:CreateTexture(nil, "BACKGROUND", nil, -5)
-                whoBg:SetAllPoints()
-                whoBg:SetTexture(0, 0.08, 0.10, 0.35)
-                PP.CreateBorder(whoInset, 1, 1, 1, 0.1, 1, "OVERLAY", 5)
+            -- Retail and WotLK expose different list objects.  In particular,
+            -- 3.3.5 uses WhoListScrollFrame and WhoFrameDropDown (capital D),
+            -- which the previous skin never reached.
+            local scrollBox = who.ScrollBox
+                or (who.List and who.List.ScrollBox)
+                or who.scrollFrame
+                or _G.WhoListScrollFrame
+            local scrollBar = (scrollBox and scrollBox.ScrollBar)
+                or who.ScrollBar
+                or _G.WhoListScrollFrameScrollBar
+            local legacyScroll = scrollBox == _G.WhoListScrollFrame
+
+            local nativeInset = _G.WhoFrameListInset or _G.FriendsFrameInset
+            if nativeInset then
+                StripTextures(nativeInset)
+                if nativeInset.Bg then nativeInset.Bg:Hide() end
+                if nativeInset.NineSlice then nativeInset.NineSlice:Hide() end
             end
+            if scrollBox then StripTextures(scrollBox) end
 
+            -- One explicit body surface keeps every result, query control, and
+            -- count in the same coordinate system.  It also replaces the
+            -- stretched legacy inset that produced the opaque black band.
+            local whoPane = EllesmereUI.SafeCreateFrame("Frame", nil, who)
+            whoPane:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -74)
+            whoPane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 46)
+            whoPane:SetFrameLevel(math.max(0, who:GetFrameLevel() - 1))
+            whoPane:EnableMouse(false)
+            local whoBg = whoPane:CreateTexture(nil, "BACKGROUND", nil, -5)
+            whoBg:SetAllPoints()
+            whoBg:SetTexture(0.025, 0.035, 0.04, 0.78)
+            PP.CreateBorder(whoPane, 1, 1, 1, 0.10, 1, "OVERLAY", 5)
+            GetFFD(who).pane = whoPane
+
+            local headerBg = whoPane:CreateTexture(nil, "BACKGROUND", nil, -4)
+            headerBg:SetPoint("TOPLEFT", whoPane, "TOPLEFT", 1, -1)
+            headerBg:SetPoint("TOPRIGHT", whoPane, "TOPRIGHT", -1, -1)
+            headerBg:SetHeight(23)
+            headerBg:SetTexture(1, 1, 1, 0.035)
+
+            -- Preserve the native/localized column order while distributing it
+            -- over the new pane.  Sorting by the original on-screen position is
+            -- more reliable here than assuming one FrameXML revision's indices.
+            local columns = {}
             for i = 1, 4 do
                 local col = _G["WhoFrameColumnHeader" .. i]
                 if col then
-                    hooksecurefunc(col, "SetPoint", function(self)
-                        if GetFFD(self).adjusting then return end
-                        GetFFD(self).adjusting = true
-                        local p1, rel, p2, x, y = self:GetPoint(1)
-                        if p1 then
-                            self:ClearAllPoints()
-                            local xOff = (i == 1) and 5 or 0
-                            self:SetPoint(p1, rel, p2, (x or 0) + xOff, (y or 0) + 10)
-                        end
-                        GetFFD(self).adjusting = false
-                    end)
-                end
-            end
-
-            local col1 = _G["WhoFrameColumnHeader1"]
-            local whoInset2 = _G.WhoFrameListInset
-            if col1 and whoInset2 then
-                local headerBg = who:CreateTexture(nil, "BACKGROUND", nil, -6)
-                headerBg:SetPoint("TOPLEFT", col1, "TOPLEFT", 0, 0)
-                headerBg:SetPoint("RIGHT", whoInset2, "RIGHT", 0, 0)
-                headerBg:SetHeight(col1:GetHeight())
-                headerBg:SetTexture(0, 0, 0, 0.3)
-            end
-
-            for i = 1, 4 do
-                local col = _G["WhoFrameColumnHeader" .. i]
-                if col then
+                    columns[#columns + 1] = {
+                        frame = col,
+                        left = col:GetLeft() or i,
+                        order = i,
+                    }
                     StripTextures(col)
                     local text = col:GetFontString()
                     if text then
                         text:SetFont(fontPath, 10, "")
-                        text:SetTextColor(1, 1, 1, 0.5)
+                        text:SetTextColor(1, 1, 1, 0.55)
                     end
-                    col:SetClipsChildren(true)
                     local hlTex = col:CreateTexture(nil, "HIGHLIGHT")
-                    local nextCol = _G["WhoFrameColumnHeader" .. (i + 1)]
-                    if nextCol then
-                        hlTex:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
-                        hlTex:SetPoint("BOTTOMRIGHT", nextCol, "BOTTOMLEFT", 0, 0)
-                    else
-                        local whoInset3 = _G.WhoFrameListInset
-                        if whoInset3 then
-                            hlTex:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
-                            hlTex:SetPoint("BOTTOM", col, "BOTTOM", 0, 0)
-                            hlTex:SetPoint("RIGHT", whoInset3, "RIGHT", 0, 0)
-                        else
-                            hlTex:SetAllPoints()
-                        end
-                    end
-                    hlTex:SetTexture(1, 1, 1, 0.1)
+                    hlTex:SetAllPoints()
+                    hlTex:SetTexture(1, 1, 1, 0.07)
                     hlTex:SetBlendMode("ADD")
-                    if i > 1 then
-                        local div = col:CreateTexture(nil, "OVERLAY", nil, 7)
-                        PP.DisablePixelSnap(div)
-                        div:SetWidth(PP.mult or 1)
-                        div:SetTexture(1, 1, 1, 0.1)
-                        div:SetPoint("TOPLEFT", col, "TOPLEFT", 0, -2)
-                        div:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, 2)
-                    end
                 end
             end
+            table.sort(columns, function(a, b)
+                if a.left == b.left then return a.order < b.order end
+                return a.left < b.left
+            end)
 
-            local zoneDropdown = _G.WhoFrameDropdown
+            local columnFractions = {
+                { 0.00, 0.36 },
+                { 0.36, 0.30 },
+                { 0.66, 0.12 },
+                { 0.78, 0.22 },
+            }
+            for i = 2, #columns do
+                local div = whoPane:CreateTexture(nil, "OVERLAY", nil, 6)
+                PP.DisablePixelSnap(div)
+                div:SetWidth(PP.mult or 1)
+                div:SetHeight(19)
+                div:SetTexture(1, 1, 1, 0.08)
+                columns[i].divider = div
+            end
+
+            local function SkinLegacyScrollBar()
+                if not legacyScroll or not scrollBar or GetFFD(scrollBar).whoSkinned then return end
+                GetFFD(scrollBar).whoSkinned = true
+                StripTextures(scrollBar)
+                scrollBar:SetWidth(8)
+
+                local scrollName = scrollBar.GetName and scrollBar:GetName()
+                for _, suffix in ipairs({"ScrollUpButton", "ScrollDownButton", "UpButton", "DownButton"}) do
+                    local arrow = scrollName and _G[scrollName .. suffix]
+                    if arrow then
+                        arrow:SetAlpha(0)
+                        arrow:EnableMouse(false)
+                        arrow:SetSize(1, 1)
+                    end
+                end
+
+                local track = scrollBar:CreateTexture(nil, "BACKGROUND")
+                track:SetTexture(1, 1, 1, 0.04)
+                track:SetWidth(3)
+                track:SetPoint("TOP", scrollBar, "TOP", 0, 0)
+                track:SetPoint("BOTTOM", scrollBar, "BOTTOM", 0, 0)
+
+                local thumb = (scrollBar.GetThumbTexture and scrollBar:GetThumbTexture())
+                    or (scrollName and _G[scrollName .. "ThumbTexture"])
+                if thumb then
+                    thumb:SetTexture(1, 1, 1, 0.40)
+                    thumb:SetWidth(4)
+                end
+                scrollBar:SetAlpha(0.65)
+                scrollBar:HookScript("OnEnter", function(self) self:SetAlpha(1) end)
+                scrollBar:HookScript("OnLeave", function(self) self:SetAlpha(0.65) end)
+            end
+            SkinLegacyScrollBar()
+
+            local zoneDropdown = _G.WhoFrameDropdown or _G.WhoFrameDropDown
             if zoneDropdown then
-                zoneDropdown:SetAlpha(0)
-                zoneDropdown:SetSize(1, 1)
-                zoneDropdown:EnableMouse(false)
+                zoneDropdown:SetAlpha(1)
+                zoneDropdown:EnableMouse(true)
                 zoneDropdown:ClearAllPoints()
-                zoneDropdown:SetPoint("TOPLEFT", who, "TOPLEFT", 0, 0)
+                zoneDropdown:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -9, -33)
+
+                -- The legacy selector chooses the variable Who-list column.
+                -- Keep it functional, but move it out of the column header so
+                -- it reads as a compact filter/control rather than old chrome.
+                if zoneDropdown == _G.WhoFrameDropDown then
+                    if _G.UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(zoneDropdown, 108) end
+                    StripTextures(zoneDropdown)
+                    local ddSurface = EllesmereUI.SafeCreateFrame("Frame", nil, who)
+                    ddSurface:SetPoint("TOPLEFT", zoneDropdown, "TOPLEFT", 18, -3)
+                    ddSurface:SetPoint("BOTTOMRIGHT", zoneDropdown, "BOTTOMRIGHT", -14, 4)
+                    ddSurface:SetFrameLevel(math.max(0, zoneDropdown:GetFrameLevel() - 1))
+                    ddSurface:EnableMouse(false)
+                    local ddBg = ddSurface:CreateTexture(nil, "BACKGROUND")
+                    ddBg:SetAllPoints()
+                    ddBg:SetTexture(0.025, 0.035, 0.045, 0.92)
+                    PP.CreateBorder(ddSurface, 1, 1, 1, 0.16, 1, "OVERLAY", 7)
+
+                    local ddName = zoneDropdown.GetName and zoneDropdown:GetName()
+                    local ddText = ddName and _G[ddName .. "Text"]
+                    if ddText then
+                        ddText:SetFont(fontPath, 9, "")
+                        ddText:SetTextColor(1, 1, 1, 0.72)
+                    end
+                    local ddButton = ddName and _G[ddName .. "Button"]
+                    if ddButton then
+                        StripTextures(ddButton)
+                        local arrow = ddButton:CreateTexture(nil, "OVERLAY")
+                        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga")
+                        arrow:SetSize(10, 10)
+                        arrow:SetPoint("CENTER", ddButton, "CENTER", 0, 0)
+                        arrow:SetVertexColor(1, 1, 1, 0.65)
+                    end
+                end
             end
 
             local editBox = _G.WhoFrameEditBox
             if editBox then
                 StripTextures(editBox)
-                editBox:SetScale(0.9)
-                local p1, rel, p2, ox, oy = editBox:GetPoint(1)
-                if p1 then
-                    editBox:SetPoint(p1, rel, p2, (ox or 0) - 1, (oy or 0) + 3)
-                end
+                editBox:SetScale(1)
+                editBox:ClearAllPoints()
+                editBox:SetPoint("BOTTOMLEFT", whoPane, "BOTTOMLEFT", 7, 7)
+                editBox:SetPoint("BOTTOMRIGHT", whoPane, "BOTTOMRIGHT", -7, 7)
+                editBox:SetHeight(20)
                 local ebBg = editBox:CreateTexture(nil, "BACKGROUND", nil, -6)
-                ebBg:SetTexture(0, 0, 0, 0.4)
+                ebBg:SetTexture(0, 0, 0, 0.38)
                 ebBg:SetAllPoints()
-                editBox:SetTextColor(1, 1, 1, 0.8)
-                PP.CreateBorder(editBox, 1, 1, 1, 0.1, 1, "OVERLAY", 7)
+                editBox:SetTextColor(1, 1, 1, 0.82)
+                PP.CreateBorder(editBox, 1, 1, 1, 0.12, 1, "OVERLAY", 7)
             end
 
             local totalCount = _G.WhoFrameTotals
             if totalCount and totalCount.SetFont then
                 totalCount:SetFont(fontPath, 10, "")
-                totalCount:SetTextColor(1, 1, 1, 0.5)
+                totalCount:SetTextColor(1, 1, 1, 0.55)
+                totalCount:ClearAllPoints()
+                totalCount:SetPoint("BOTTOM", editBox or whoPane, editBox and "TOP" or "BOTTOM", 0, editBox and 5 or 32)
             end
 
-            local whoInsetRef = _G.WhoFrameListInset
             local whoBtnNames = {"WhoFrameWhoButton", "WhoFrameAddFriendButton", "WhoFrameGroupInviteButton"}
-            if whoInsetRef then
-                local function LayoutWhoBtns()
-                    local totalW2 = whoInsetRef:GetWidth()
-                    local btnW = math.floor(totalW2 / 3)
-                    local btnY = -22 - 10 + 10
-                    local btns = {}
-                    for _, name in ipairs(whoBtnNames) do
-                        btns[#btns + 1] = _G[name]
-                    end
-                    if btns[1] then
-                        btns[1]:ClearAllPoints()
-                        btns[1]:SetSize(btnW, 22)
-                        btns[1]:SetPoint("BOTTOMLEFT", whoInsetRef, "BOTTOMLEFT", 0, btnY)
-                    end
-                    if btns[2] then
-                        btns[2]:ClearAllPoints()
-                        btns[2]:SetSize(btnW, 22)
-                        btns[2]:SetPoint("BOTTOMLEFT", whoInsetRef, "BOTTOMLEFT", btnW, btnY)
-                    end
-                    if btns[3] then
-                        btns[3]:ClearAllPoints()
-                        btns[3]:SetSize(btnW, 22)
-                        btns[3]:SetPoint("BOTTOMRIGHT", whoInsetRef, "BOTTOMRIGHT", 0, btnY)
-                    end
+            local whoButtons = {}
+            for _, name in ipairs(whoBtnNames) do
+                local btn = _G[name]
+                if btn then
+                    whoButtons[#whoButtons + 1] = btn
+                    SkinBottomButton(btn)
+                    hooksecurefunc(btn, "Disable", function(self) self:SetAlpha(0.4) end)
+                    hooksecurefunc(btn, "Enable", function(self) self:SetAlpha(1) end)
+                    if not btn:IsEnabled() then btn:SetAlpha(0.4) end
                 end
-                for _, name in ipairs(whoBtnNames) do
-                    local btn = _G[name]
-                    if btn then
-                        SkinBottomButton(btn)
-                        hooksecurefunc(btn, "Disable", function(self) self:SetAlpha(0.4) end)
-                        hooksecurefunc(btn, "Enable", function(self) self:SetAlpha(1) end)
-                        if not btn:IsEnabled() then btn:SetAlpha(0.4) end
-                    end
-                end
-                LayoutWhoBtns()
-                who:HookScript("OnShow", LayoutWhoBtns)
             end
 
             local function SkinWhoRows()
-                for i = 1, 22 do
+                for i = 1, (_G.WHOS_TO_DISPLAY or 22) do
                     local btn = _G["WhoFrameButton" .. i]
                     if btn and not GetFFD(btn).skinned then
                         GetFFD(btn).skinned = true
                         StripTextures(btn)
-                        local hover2 = btn:CreateTexture(nil, "HIGHLIGHT")
-                        hover2:SetAllPoints()
-                        hover2:SetTexture(1, 1, 1, 0.04)
-                        hover2:SetBlendMode("ADD")
+                        local hover = btn:CreateTexture(nil, "HIGHLIGHT")
+                        hover:SetAllPoints()
+                        hover:SetTexture(1, 1, 1, 0.05)
+                        hover:SetBlendMode("ADD")
+                        local separator = btn:CreateTexture(nil, "BACKGROUND")
+                        separator:SetTexture(1, 1, 1, 0.035)
+                        separator:SetHeight(PP.mult or 1)
+                        separator:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+                        separator:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
                         for _, key in ipairs({"Name", "Level", "Class", "Variable"}) do
                             local txt = _G["WhoFrameButton" .. i .. key]
                             if txt and txt.SetFont then
                                 txt:SetFont(fontPath, 11, "")
+                                txt:SetTextColor(1, 1, 1, 0.78)
                             end
                         end
                     end
                 end
             end
-            SkinWhoRows()
-            who:HookScript("OnShow", SkinWhoRows)
 
-            local sb = who.ScrollBox or (who.scrollFrame)
-            if sb then
-                local p1, rel, p2, x, y = sb:GetPoint(1)
-                if p1 then
-                    sb:SetPoint(p1, rel, p2, (x or 0) + 5, (y or 0) - 35)
+            local rowFields = {
+                Name     = { 0.00, 0.36, "LEFT" },
+                Variable = { 0.36, 0.30, "LEFT" },
+                Level    = { 0.66, 0.12, "CENTER" },
+                Class    = { 0.78, 0.22, "LEFT" },
+            }
+
+            local function LayoutWhoPane()
+                local paneW = whoPane:GetWidth()
+                if not paneW or paneW < 100 then return end
+
+                who:ClearAllPoints()
+                who:SetAllPoints(frame)
+
+                for i, info in ipairs(columns) do
+                    local frac = columnFractions[i]
+                    if frac then
+                        local x = math.floor(paneW * frac[1]) + 1
+                        local w = math.max(30, math.floor(paneW * frac[2]))
+                        info.frame:ClearAllPoints()
+                        info.frame:SetPoint("TOPLEFT", whoPane, "TOPLEFT", x, -1)
+                        info.frame:SetSize(w, 23)
+                        if info.divider then
+                            info.divider:ClearAllPoints()
+                            info.divider:SetPoint("TOPLEFT", whoPane, "TOPLEFT", x, -3)
+                        end
+                    end
+                end
+
+                if scrollBox then
+                    scrollBox:ClearAllPoints()
+                    scrollBox:SetPoint("TOPLEFT", whoPane, "TOPLEFT", 3, -25)
+                    scrollBox:SetPoint("BOTTOMRIGHT", whoPane, "BOTTOMRIGHT", -12, 53)
+                end
+                if legacyScroll and scrollBar then
+                    scrollBar:ClearAllPoints()
+                    scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 3, 0)
+                    scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 3, 0)
+                end
+
+                local rowY = -26
+                for i = 1, (_G.WHOS_TO_DISPLAY or 22) do
+                    local btn = _G["WhoFrameButton" .. i]
+                    if btn then
+                        local rowH = math.max(16, btn:GetHeight() or 16)
+                        local rowW = paneW - 20
+                        btn:ClearAllPoints()
+                        btn:SetPoint("TOPLEFT", whoPane, "TOPLEFT", 4, rowY)
+                        btn:SetWidth(rowW)
+
+                        -- Keep row data on the same grid as the redistributed
+                        -- headers.  Variable is the WotLK Zone/Guild/Race
+                        -- column selected by the compact dropdown above.
+                        for key, spec in pairs(rowFields) do
+                            local txt = _G["WhoFrameButton" .. i .. key]
+                            if txt then
+                                txt:ClearAllPoints()
+                                txt:SetPoint("LEFT", btn, "LEFT", math.floor(rowW * spec[1]) + 5, 0)
+                                txt:SetWidth(math.max(20, math.floor(rowW * spec[2]) - 8))
+                                txt:SetJustifyH(spec[3])
+                            end
+                        end
+                        rowY = rowY - rowH
+                    end
+                end
+
+                local gap = 4
+                local available = frame:GetWidth() - 30 - gap * 2
+                local btnW = math.floor(available / 3)
+                for i, btn in ipairs(whoButtons) do
+                    btn:ClearAllPoints()
+                    btn:SetSize(btnW, 24)
+                    if i == 1 then
+                        btn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 15, 10)
+                    else
+                        btn:SetPoint("LEFT", whoButtons[i - 1], "RIGHT", gap, 0)
+                    end
                 end
             end
 
-            who:ClearAllPoints()
-            who:SetPoint("TOPLEFT", frame, "TOPLEFT", 7, -10)
-            who:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -11, 10)
+            SkinWhoRows()
+            LayoutWhoPane()
+            who:HookScript("OnShow", function()
+                StripFrameChrome(who)
+                if nativeInset then StripTextures(nativeInset) end
+                SkinWhoRows()
+                LayoutWhoPane()
+            end)
+            if _G.WhoList_Update then hooksecurefunc("WhoList_Update", LayoutWhoPane) end
 
-            if col1 then
-                col1:ClearAllPoints()
-                col1:SetPoint("TOPLEFT", frame, "TOPLEFT", 7, -102)
+            if scrollBox and scrollBar and not legacyScroll then
+                SkinOneScrollbar(scrollBox, scrollBar)
             end
-
-            local bar = sb and (sb.ScrollBar or who.ScrollBar) or who.ScrollBar
-            if sb and bar then SkinOneScrollbar(sb, bar) end
         end
     end
 
@@ -3075,6 +3719,7 @@ local function SkinFriendsFrame()
 
         local TAB_WIDTHS = { 0.22, 0.22, 0.22, 0.34 }
         local frameW = frame:GetWidth() or 300
+        local equalTabWidth = frameW / numCustomTabs
         for i, ct in ipairs(customTabs) do
             ct:ClearAllPoints()
             ct:SetHeight(snappedTabH)
@@ -3086,7 +3731,9 @@ local function SkinFriendsFrame()
             if i == numCustomTabs then
                 ct:SetPoint("RIGHT", frame, "BOTTOMRIGHT", 0, 0)
             else
-                ct:SetWidth(frameW * (TAB_WIDTHS[i] or 0.25))
+                local width = hasWrathMainTabs and equalTabWidth
+                    or frameW * (TAB_WIDTHS[i] or (1 / numCustomTabs))
+                ct:SetWidth(pxSnap(width))
             end
 
             if i > 1 then
@@ -3128,16 +3775,23 @@ local function SkinFriendsFrame()
     local closeBtn = frame.CloseButton or _G.FriendsFrameCloseButton
     if closeBtn then
         StripTextures(closeBtn)
-        GetFFD(closeBtn).x = closeBtn:CreateFontString(nil, "OVERLAY")
-        GetFFD(closeBtn).x:SetFont(fontPath, 14, "")
-        GetFFD(closeBtn).x:SetText("x")
-        GetFFD(closeBtn).x:SetTextColor(1, 1, 1, 0.5)
-        GetFFD(closeBtn).x:SetPoint("CENTER", -2, -3)
+        closeBtn:ClearAllPoints()
+        closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -7, -7)
+        closeBtn:SetSize(16, 16)
+        if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
+        if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
+        if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
+        if closeBtn.SetDisabledTexture then closeBtn:SetDisabledTexture("") end
+        GetFFD(closeBtn).x = closeBtn:CreateTexture(nil, "OVERLAY")
+        GetFFD(closeBtn).x:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+        GetFFD(closeBtn).x:SetSize(14, 14)
+        GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.65)
+        GetFFD(closeBtn).x:SetPoint("CENTER", 0, 0)
         closeBtn:HookScript("OnEnter", function()
-            GetFFD(closeBtn).x:SetTextColor(1, 1, 1, 0.9)
+            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1)
         end)
         closeBtn:HookScript("OnLeave", function()
-            GetFFD(closeBtn).x:SetTextColor(1, 1, 1, 0.5)
+            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.65)
         end)
     end
 

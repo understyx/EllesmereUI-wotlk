@@ -13,9 +13,9 @@
 --  Taint / secret-value safety (read before editing):
 --   - All per-frame skin state lives in an EXTERNAL weak-keyed table (FFD), never
 --     as custom keys on Blizzard frame tables. (CLAUDE.md hard rule.)
---   - Visual-only: we SetAlpha(0) native textures and lay our own layers under
---     them. We NEVER Hide/Show/SetParent a Blizzard frame and never recurse
---     EnableMouse over the frame tree.
+--   - Native content is visual-only: we SetAlpha(0) on textures and lay our own
+--     layers under them. We never Hide/Show/SetParent native child controls or
+--     recurse EnableMouse over the frame tree.
 --   - Post-hooks only (hooksecurefunc) on globals/methods; HookScript (never
 --     SetScript) on secure frames. The original secure handler always runs first.
 --   - We NEVER read per-result/per-member search data. In Midnight the browse/
@@ -27,6 +27,13 @@
 local ADDON_NAME, ns = ...
 local EUI = EllesmereUI
 local issecretvalue = issecretvalue or function() return false end
+
+-- IsForbidden is not part of the stock 3.3.5 widget API. Some Wrath clients
+-- backport it and others do not, so every shared Group Finder primitive must
+-- treat a missing method as an ordinary, usable frame.
+local function IsForbidden(frame)
+    return frame and frame.IsForbidden and frame:IsForbidden()
+end
 
 -- Weak-keyed external state (prevents tainting Blizzard frames) ----------------
 local FFD = setmetatable({}, { __mode = "k" })
@@ -84,7 +91,7 @@ end
 --  `keep` is a set of texture objects to leave alone. Visual-only, no Hide().
 -------------------------------------------------------------------------------
 local function FadeRegions(frame, keep)
-    if not frame or frame:IsForbidden() then return end
+    if not frame or IsForbidden(frame) then return end
     local regions = { frame:GetRegions() }
     for i = 1, #regions do
         local r = regions[i]
@@ -101,7 +108,7 @@ local _restrip = {}
 local function Register(frame, keep) if frame then _restrip[frame] = keep or true end end
 local function Restrip()
     for frame, keep in pairs(_restrip) do
-        if frame and not frame:IsForbidden() then
+        if frame and not IsForbidden(frame) then
             local k = (type(keep) == "table") and keep or nil
             local d = FFD[frame]
             -- Protect every texture we created ourselves: the backdrop pieces,
@@ -138,7 +145,7 @@ end
 -- PVEFrame shell only.
 local BG_ASPECT = 561 / 433
 local function SkinAtlasPanel(frame)
-    if not frame or frame:IsForbidden() then return end
+    if not frame or IsForbidden(frame) then return end
     local d = GetFFD(frame)
     local keep = {}
     if d.bg then keep[d.bg] = true end
@@ -208,7 +215,7 @@ end
 -- Flat solid panel. opts.noBg = strip only (let the parent backdrop show through);
 -- opts.inset = darker nested fill; opts.noBorder = skip border.
 local function SkinPanel(frame, opts)
-    if not frame or frame:IsForbidden() then return end
+    if not frame or IsForbidden(frame) then return end
     opts = opts or {}
     local d = GetFFD(frame)
     local keep = {}
@@ -229,7 +236,7 @@ end
 -- Strip an InsetFrameTemplate child (its Bg + rounded box) so it blends into the
 -- panel backdrop instead of showing a nested box.
 local function FadeInset(inset)
-    if not inset or inset:IsForbidden() then return end
+    if not inset or IsForbidden(inset) then return end
     FadeRegions(inset)
     if inset.Bg then inset.Bg:SetAlpha(0) end
     if inset.NineSlice then FadeRegions(inset.NineSlice) end
@@ -239,7 +246,7 @@ end
 -- Generic action button -> flat dark block with hover. keepKeys preserves named
 -- regions (e.g. {"Icon"}); never reads any data.
 local function SkinButton(btn, keepKeys)
-    if not btn or btn:IsForbidden() then return end
+    if not btn or IsForbidden(btn) then return end
     local d = GetFFD(btn)
     if d.skinned then return end
     d.skinned = true
@@ -277,7 +284,7 @@ end
 -- so repeated skin passes never compound it). Handles multi-point anchoring by
 -- lifting every point, not just the first.
 local function LiftButton(btn)
-    if not btn or btn:IsForbidden() then return end
+    if not btn or IsForbidden(btn) then return end
     local d = GetFFD(btn)
     if d.lifted then return end
     local n = btn:GetNumPoints() or 0
@@ -295,7 +302,7 @@ end
 
 -- Search / input box -> flat block, keep the magnifier + clear button art.
 local function SkinEditBox(eb)
-    if not eb or eb:IsForbidden() then return end
+    if not eb or IsForbidden(eb) then return end
     local d = GetFFD(eb)
     if d.bg then return end
     FadeRegions(eb)
@@ -314,7 +321,7 @@ end
 -- hover-or-checked. State is driven off the Blizzard checkbox via hooks so it
 -- always mirrors the real value (no writing to the Blizzard frame's table).
 local function SkinCheckbox(cb)
-    if not cb or cb:IsForbidden() then return end
+    if not cb or IsForbidden(cb) then return end
     local d = GetFFD(cb)
     if d.skinned then return end
     d.skinned = true
@@ -373,7 +380,7 @@ end
 -- Modern dropdown / selector -> flat block. Heavily nil-guarded because the
 -- dropdown template changes shape across builds; a mismatch simply no-ops.
 local function SkinDropdown(dd)
-    if not dd or dd:IsForbidden() then return end
+    if not dd or IsForbidden(dd) then return end
     local d = GetFFD(dd)
     if d.skinned then return end
     d.skinned = true
@@ -407,7 +414,7 @@ end
 -- MinimalScrollBar -> strip track/arrows; the thumb becomes a slim 5px white
 -- strip centered in the thumb's hit area (the house scrollbar look).
 local function SkinScrollBar(sb)
-    if not sb or sb:IsForbidden() then return end
+    if not sb or IsForbidden(sb) then return end
     local d = GetFFD(sb)
     if d.skinned then return end
     d.skinned = true
@@ -433,7 +440,7 @@ end
 
 -- Close (X) button -> strip art, draw the house close glyph.
 local function SkinCloseButton(btn)
-    if not btn or btn:IsForbidden() then return end
+    if not btn or IsForbidden(btn) then return end
     local d = GetFFD(btn)
     if d.x then return end
     if btn.SetNormalTexture then btn:SetNormalTexture("") end
@@ -454,7 +461,7 @@ end
 -- PVEFrame bottom tab -> CharacterSheet tab pattern (bg + accent underline when
 -- active). Visuals driven by UpdateTabVisuals (reads PVEFrame.selectedTab).
 local function SkinTab(tab)
-    if not tab or tab:IsForbidden() then return end
+    if not tab or IsForbidden(tab) then return end
     local d = GetFFD(tab)
     if d.bg then return end
     for j = 1, select("#", tab:GetRegions()) do
@@ -582,7 +589,7 @@ local function ApplyRailAnchors(btn)
 end
 
 local function SkinCategoryButton(btn, opts)
-    if not btn or btn:IsForbidden() then return end
+    if not btn or IsForbidden(btn) then return end
     local d = GetFFD(btn)
     d.isRail = true
     -- Full-width cards: pin both side edges to the rail-column wash so every
@@ -810,7 +817,394 @@ local function Skin_PVEFrame()
     UpdateTabVisuals()
 end
 
+-------------------------------------------------------------------------------
+-- Wrath Dungeon Finder / Raid Browser
+--
+-- The 3.3.5 client owns these as two small, independent top-level windows.
+-- Keep those native frames and every native action intact, but seat each one in
+-- a full-width Dungeons & Raids shell. Wrath does not own Retail's category
+-- buttons, so this path must not reserve or invent a left rail. This path is
+-- deliberately excluded when Retail's PVEFrame exists.
+-------------------------------------------------------------------------------
+-- Wider than Blizzard's 355px pane, but still compact enough to retain the
+-- proportions of the Wrath dialog instead of reading like a Retail side rail.
+local LEGACY_PVE_WIDTH = 410
+
+local function SharedSkin()
+    return _G.EllesmereUIBlizzardSkin
+end
+
+local function FindLegacyCloseButton(frame)
+    if not frame then return end
+    local named = _G[(frame:GetName() or "") .. "CloseButton"]
+    if named then return named end
+    for i = 1, select("#", frame:GetChildren()) do
+        local child = select(i, frame:GetChildren())
+        if child and child.IsObjectType and child:IsObjectType("Button") then
+            local name = child.GetName and child:GetName()
+            if not name or name:find("CloseButton", 1, true) then return child end
+        end
+    end
+end
+
+-- WotLK has no texture atlases, so the Retail-only close helper in this file
+-- cannot be used here. The project close texture is available on every client.
+local function SkinLegacyCloseButton(button, owner)
+    if not button or IsForbidden(button) then return end
+    local d = GetFFD(button)
+    if not d.legacyClose then
+        d.legacyClose = button:CreateTexture(nil, "OVERLAY")
+        d.legacyClose:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+        d.legacyClose:SetSize(14, 14)
+        d.legacyClose:SetPoint("CENTER")
+        d.legacyClose:SetVertexColor(1, 1, 1, 0.75)
+        button:HookScript("OnEnter", function()
+            if d.legacyClose then d.legacyClose:SetVertexColor(1, 1, 1, 1) end
+        end)
+        button:HookScript("OnLeave", function()
+            if d.legacyClose then d.legacyClose:SetVertexColor(1, 1, 1, 0.75) end
+        end)
+    end
+    for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
+        local texture = button[getter] and button[getter](button)
+        if texture and texture ~= d.legacyClose then texture:SetAlpha(0) end
+    end
+    for i = 1, select("#", button:GetRegions()) do
+        local region = select(i, button:GetRegions())
+        if region and region.IsObjectType and region:IsObjectType("Texture") and region ~= d.legacyClose then
+            region:SetAlpha(0)
+        end
+    end
+    button:ClearAllPoints()
+    button:SetPoint("TOPRIGHT", owner or button:GetParent(), "TOPRIGHT", -3, -3)
+    button:SetSize(24, 24)
+end
+
+local function SetLegacyPageTitle(frame, title, titleRegion)
+    if not frame then return end
+    local S = SharedSkin()
+    local d = GetFFD(frame)
+    if not titleRegion then
+        if not d.legacyTitle then
+            d.legacyTitle = frame:CreateFontString(nil, "OVERLAY")
+            -- An untemplated 3.3.5 FontString must receive a font before text.
+            if S and S.ApplyRetailTypography then
+                S:ApplyRetailTypography(d.legacyTitle, "title")
+            else
+                d.legacyTitle:SetFont(Theme.fontPath or STANDARD_TEXT_FONT, 14, "")
+            end
+        end
+        titleRegion = d.legacyTitle
+    end
+    if S and S.SetRetailPageTitle then
+        S:SetRetailPageTitle(frame, title, titleRegion)
+    else
+        titleRegion:SetText(title or "")
+        titleRegion:ClearAllPoints()
+        titleRegion:SetPoint("TOP", frame, "TOP", 0, -6)
+    end
+end
+
+local function ApplyLegacyPVEShell(frame, titleRegion)
+    if not frame then return end
+    frame:SetSize(LEGACY_PVE_WIDTH, 440)
+    SkinAtlasPanel(frame)
+    SetLegacyPageTitle(frame, "Dungeons & Raids", titleRegion)
+    SkinLegacyCloseButton(FindLegacyCloseButton(frame), frame)
+
+    local S = SharedSkin()
+    local d = GetFFD(frame)
+    if not d.legacyContentSurface then
+        local content = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
+        content:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -48)
+        content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 45)
+        content:SetFrameLevel(frame:GetFrameLevel())
+        if S and S.ApplyRetailSurface then S:ApplyRetailSurface(content, "body") end
+        d.legacyContentSurface = content
+    end
+end
+
+local function SeatLegacyPVEPane(pane, parent)
+    if not pane or GetFFD(pane).legacySeated then return end
+    GetFFD(pane).legacySeated = true
+    pane:ClearAllPoints()
+    pane:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+    pane:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+end
+
+local function StyleLegacyDropDown(dropdown)
+    if not dropdown or IsForbidden(dropdown) then return end
+    local S = SharedSkin()
+    local d = GetFFD(dropdown)
+    local name = dropdown.GetName and dropdown:GetName()
+    FadeRegions(dropdown, d.legacyArrow and { [d.legacyArrow] = true } or nil)
+    if name then
+        for _, suffix in ipairs({ "Left", "Middle", "Right" }) do
+            local region = _G[name .. suffix]
+            if region then region:SetAlpha(0) end
+        end
+        local button = _G[name .. "Button"]
+        if button then
+            for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
+                local texture = button[getter] and button[getter](button)
+                if texture then texture:SetAlpha(0) end
+            end
+        end
+        local text = _G[name .. "Text"]
+        if text and S and S.ApplyRetailTypography then S:ApplyRetailTypography(text, "row") end
+        local label = _G[name .. "Name"]
+        if label and S and S.ApplyRetailTypography then S:ApplyRetailTypography(label, "secondary") end
+    end
+    if S and S.ApplyRetailSurface then S:ApplyRetailSurface(dropdown, "input") end
+    if not d.legacyArrow then
+        local arrow = dropdown:CreateTexture(nil, "OVERLAY")
+        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga")
+        arrow:SetSize(10, 10)
+        arrow:SetPoint("RIGHT", dropdown, "RIGHT", -11, 1)
+        arrow:SetVertexColor(1, 1, 1, 0.72)
+        d.legacyArrow = arrow
+    end
+end
+
+local function StyleLegacyPVERows(prefix, count)
+    local S = SharedSkin()
+    if not (S and S.UpdateRetailRow) then return end
+    for i = 1, count do
+        local row = _G[prefix .. i]
+        if row then
+            local keep = {}
+            if row.heroicIcon then keep[row.heroicIcon] = true end
+            FadeRegions(row, keep)
+            local header = false
+            if row.id and _G.LFGIsIDHeader then header = LFGIsIDHeader(row.id) and true or false end
+            S:UpdateRetailRow(row, false, header, not header and i % 2 == 0)
+            if row.instanceName then
+                S:ApplyRetailTypography(row.instanceName, header and "section" or "row")
+                if header then
+                    local ar, ag, ab = S:GetRetailAccent()
+                    row.instanceName:SetTextColor(ar, ag, ab, 1)
+                end
+            end
+            if row.level then S:ApplyRetailTypography(row.level, "secondary") end
+        end
+    end
+end
+
+local function StyleLegacyOverlay(frame, primaryKeys)
+    if not frame then return end
+    local S = SharedSkin()
+    if S and S.ApplyRetailSurface then S:ApplyRetailSurface(frame, "card") end
+    if S and S.ApplyRetailRegionTypography then S:ApplyRetailRegionTypography(frame, "row") end
+    if primaryKeys and S and S.HandleRetailButton then
+        for key, primary in pairs(primaryKeys) do
+            local button = frame[key] or _G[(frame:GetName() or "") .. key]
+            if button then S:HandleRetailButton(button, primary) end
+        end
+    end
+end
+
+local function LayoutLegacyLFDContent(queue)
+    if not queue then return end
+
+    -- The native pane was authored at 355x440. The legacy shell is wider, so
+    -- explicitly grow the scroll/list and blocking-state layers instead of
+    -- leaving them right-aligned at their stock width.
+    local tank = _G.LFDQueueFrameRoleButtonTank
+    if tank then
+        tank:ClearAllPoints()
+        tank:SetPoint("TOPLEFT", queue, "TOPLEFT", 65, -60)
+    end
+
+    local random = _G.LFDQueueFrameRandomScrollFrame
+    if random then
+        random:ClearAllPoints()
+        random:SetPoint("TOPLEFT", queue, "TOPLEFT", 24, -158)
+        random:SetPoint("BOTTOMRIGHT", queue, "BOTTOMRIGHT", -34, 30)
+    end
+    local randomChild = _G.LFDQueueFrameRandomScrollFrameChildFrame
+    if randomChild then
+        randomChild:SetWidth(330)
+        for _, key in ipairs({ "description", "rewardsDescription", "pugDescription" }) do
+            local region = randomChild[key]
+            if region then region:SetWidth(310) end
+        end
+    end
+
+    for i = 1, 15 do
+        local row = _G["LFDQueueFrameSpecificListButton" .. i]
+        if row then row:SetWidth(350) end
+    end
+    local first = _G.LFDQueueFrameSpecificListButton1
+    if first then
+        first:ClearAllPoints()
+        first:SetPoint("TOPLEFT", queue, "TOPLEFT", 24, -165)
+    end
+
+    for _, name in ipairs({
+        "LFDQueueFrameCooldownFrame",
+        "LFDQueueFramePartyBackfill",
+        "LFDQueueFrameNoLFDWhileLFR",
+    }) do
+        local overlay = _G[name]
+        if overlay then
+            overlay:ClearAllPoints()
+            overlay:SetPoint("TOPLEFT", queue, "TOPLEFT", 18, -151)
+            overlay:SetPoint("BOTTOMRIGHT", queue, "BOTTOMRIGHT", -18, 28)
+        end
+    end
+end
+
+local function SkinLegacyLFD()
+    local parent, queue = _G.LFDParentFrame, _G.LFDQueueFrame
+    if not parent or not queue or _G.PVEFrame then return end
+    local S = SharedSkin()
+    ApplyLegacyPVEShell(parent, _G.LFDQueueFrameTitleText)
+    SeatLegacyPVEPane(queue, parent)
+    LayoutLegacyLFDContent(queue)
+    FadeRegions(queue)
+    if _G.LFDParentFramePortrait then FadeRegions(_G.LFDParentFramePortrait) end
+
+    local d = GetFFD(queue)
+    if not d.legacyRoleCard then
+        local card = EllesmereUI.SafeCreateFrame("Frame", nil, queue)
+        card:SetPoint("TOPLEFT", queue, "TOPLEFT", 18, -48)
+        card:SetPoint("TOPRIGHT", queue, "TOPRIGHT", -18, -48)
+        card:SetHeight(62)
+        card:SetFrameLevel(queue:GetFrameLevel())
+        if S and S.ApplyRetailSurface then S:ApplyRetailSurface(card, "card") end
+        d.legacyRoleCard = card
+    end
+
+    StyleLegacyDropDown(_G.LFDQueueFrameTypeDropDown)
+    if _G.LFDQueueFrameRandomScrollFrame then
+        FadeRegions(_G.LFDQueueFrameRandomScrollFrame)
+        if S and S.ApplyRetailSurface then S:ApplyRetailSurface(_G.LFDQueueFrameRandomScrollFrame, "card") end
+    end
+    local randomChild = _G.LFDQueueFrameRandomScrollFrameChildFrame
+    if randomChild and S then
+        if randomChild.title then S:ApplyRetailTypography(randomChild.title, "section") end
+        if randomChild.description then S:ApplyRetailTypography(randomChild.description, "row") end
+        if randomChild.rewardsLabel then S:ApplyRetailTypography(randomChild.rewardsLabel, "section") end
+        if randomChild.rewardsDescription then S:ApplyRetailTypography(randomChild.rewardsDescription, "row") end
+        if randomChild.pugDescription then S:ApplyRetailTypography(randomChild.pugDescription, "secondary") end
+        if randomChild.moneyLabel then S:ApplyRetailTypography(randomChild.moneyLabel, "secondary") end
+        if randomChild.xpLabel then S:ApplyRetailTypography(randomChild.xpLabel, "secondary") end
+        if randomChild.xpAmount then S:ApplyRetailTypography(randomChild.xpAmount, "value") end
+    end
+    if S and S.HandleRetailScrollBar then
+        S:HandleRetailScrollBar(_G.LFDQueueFrameRandomScrollFrameScrollBar)
+        S:HandleRetailScrollBar(_G.LFDQueueFrameSpecificListScrollFrameScrollBar)
+    end
+    StyleLegacyPVERows("LFDQueueFrameSpecificListButton", 15)
+
+    if S and S.HandleRetailButton then
+        S:HandleRetailButton(_G.LFDQueueFrameFindGroupButton, true)
+        S:HandleRetailButton(_G.LFDQueueFrameCancelButton, false)
+    end
+    local findButton = _G.LFDQueueFrameFindGroupButton
+    if findButton and not GetFFD(findButton).legacySeated then
+        GetFFD(findButton).legacySeated = true
+        findButton:ClearAllPoints()
+        findButton:SetPoint("BOTTOM", queue, "BOTTOM", -42, 8)
+    end
+    local cancelButton = _G.LFDQueueFrameCancelButton
+    if cancelButton and not GetFFD(cancelButton).legacySeated then
+        GetFFD(cancelButton).legacySeated = true
+        cancelButton:ClearAllPoints()
+        cancelButton:SetPoint("BOTTOMRIGHT", queue, "BOTTOMRIGHT", -8, 8)
+    end
+
+    StyleLegacyOverlay(_G.LFDQueueFrameCooldownFrame)
+    StyleLegacyOverlay(_G.LFDQueueFramePartyBackfill, { BackfillButton = true, NoBackfillButton = false })
+    StyleLegacyOverlay(_G.LFDQueueFrameNoLFDWhileLFR, { LeaveQueueButton = true })
+end
+
+local function SkinLegacyLFR()
+    local parent = _G.LFRParentFrame
+    if not parent or _G.PVEFrame then return end
+    local S = SharedSkin()
+    ApplyLegacyPVEShell(parent)
+    if _G.LFRParentFrameIcon then _G.LFRParentFrameIcon:SetAlpha(0) end
+    if _G.LFRQueueFrameTitleText then _G.LFRQueueFrameTitleText:SetAlpha(0) end
+    if _G.LFRBrowseFrameTitleText then _G.LFRBrowseFrameTitleText:SetAlpha(0) end
+
+    local queue, browse = _G.LFRQueueFrame, _G.LFRBrowseFrame
+    if queue then
+        SeatLegacyPVEPane(queue, parent)
+        FadeRegions(queue)
+        StyleLegacyDropDown(_G.LFRQueueFrameTypeDropDown)
+        if _G.LFRQueueFrameComment then
+            FadeRegions(_G.LFRQueueFrameComment)
+            if S and S.ApplyRetailSurface then S:ApplyRetailSurface(_G.LFRQueueFrameComment, "input") end
+            if S and S.ApplyRetailTypography then S:ApplyRetailTypography(_G.LFRQueueFrameComment, "row") end
+        end
+        StyleLegacyPVERows("LFRQueueFrameSpecificListButton", 14)
+        if S and S.HandleRetailScrollBar then S:HandleRetailScrollBar(_G.LFRQueueFrameSpecificListScrollFrameScrollBar) end
+        if S and S.HandleRetailButton then
+            S:HandleRetailButton(_G.LFRQueueFrameFindGroupButton, true)
+            S:HandleRetailButton(_G.LFRQueueFrameAcceptCommentButton, false)
+        end
+        StyleLegacyOverlay(_G.LFRQueueFrameNoLFRWhileLFD, { LeaveQueueButton = true })
+    end
+
+    if browse then
+        SeatLegacyPVEPane(browse, parent)
+        FadeRegions(browse)
+        StyleLegacyDropDown(_G.LFRBrowseFrameRaidDropDown)
+        for i = 1, 19 do
+            local row = _G["LFRBrowseFrameListButton" .. i]
+            if row and S and S.UpdateRetailRow then
+                local keep = {}
+                for _, key in ipairs({ "tankIcon", "healerIcon", "damageIcon", "partyIcon" }) do
+                    if row[key] then keep[row[key]] = true end
+                end
+                FadeRegions(row, keep)
+                local selected = row.GetHighlightTexture and row:GetHighlightTexture()
+                    and row:GetHighlightTexture():IsShown()
+                S:UpdateRetailRow(row, selected and true or false, false, i % 2 == 0)
+                if S.ApplyRetailRegionTypography then S:ApplyRetailRegionTypography(row, "row") end
+            end
+        end
+        for i = 1, 7 do
+            local header = _G["LFRBrowseFrameColumnHeader" .. i]
+            if header then
+                local keep = header.icon and { [header.icon] = true } or nil
+                FadeRegions(header, keep)
+                if S.ApplyRetailSurface then S:ApplyRetailSurface(header, "header") end
+                if S.ApplyRetailRegionTypography then S:ApplyRetailRegionTypography(header, "secondary") end
+            end
+        end
+        if S and S.HandleRetailScrollBar then S:HandleRetailScrollBar(_G.LFRBrowseFrameListScrollFrameScrollBar) end
+        if S and S.HandleRetailButton then
+            S:HandleRetailButton(_G.LFRBrowseFrameSendMessageButton, false)
+            S:HandleRetailButton(_G.LFRBrowseFrameInviteButton, true)
+            S:HandleRetailButton(_G.LFRBrowseFrameRefreshButton, false)
+        end
+    end
+
+    local tabs = { _G.LFRParentFrameTab1, _G.LFRParentFrameTab2 }
+    if tabs[1] and tabs[2] and S and S.StyleRetailTab then
+        local d = GetFFD(parent)
+        if not d.legacyTabOwner then
+            d.legacyTabOwner = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
+            d.legacyTabOwner:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 14, 0)
+            d.legacyTabOwner:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -14, 0)
+            d.legacyTabOwner:SetHeight(0)
+        end
+        S:StyleRetailTab(tabs[1]); S:StyleRetailTab(tabs[2])
+        S:LayoutRetailTabRow(tabs, d.legacyTabOwner, (LEGACY_PVE_WIDTH - 28) / 2, 0)
+        local active = parent.activeTab or 1
+        S:UpdateRetailTab(tabs[1], active == 1)
+        S:UpdateRetailTab(tabs[2], active == 2)
+    end
+end
+
 local function Skin_GroupFinder()
+    if _G.LFDParentFrame and not _G.PVEFrame then
+        SkinLegacyLFD()
+        SkinLegacyLFR()
+        return
+    end
     for i = 1, 4 do
         local gb = CategoryButton(i)
         if gb then SkinCategoryButton(gb, { keepRing = true, onSelect = UpdateCategorySelection }) end
@@ -837,7 +1231,7 @@ end
 -- button skin plus a white selection wash held on while that category is the
 -- active pick, matching the left sidebar rail's active state.
 local function SkinLFGCategoryButton(btn)
-    if not btn or btn:IsForbidden() then return end
+    if not btn or IsForbidden(btn) then return end
     SkinButton(btn)
     local d = GetFFD(btn)
     if not d.selWash then
@@ -878,7 +1272,7 @@ end
 -- (desaturated + white vertex, 0.9 -> 1 on hover). Matches the Auction House
 -- refresh button.
 local function SkinRefreshGlyph(rb)
-    if not rb or rb:IsForbidden() then return end
+    if not rb or IsForbidden(rb) then return end
     local d = GetFFD(rb)
     if d.glyph then return end
     if not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton")) then return end
@@ -920,7 +1314,7 @@ local function Skin_LFGList()
             GetFFD(CS).addBtnHook = true
             hooksecurefunc("LFGListCategorySelection_AddButton", function(cs, btnIndex, categoryID, filters)
                 local b = cs and cs.CategoryButtons and cs.CategoryButtons[btnIndex]
-                if not b or b:IsForbidden() then return end
+                if not b or IsForbidden(b) then return end
                 SkinLFGCategoryButton(b)
                 local d = FFD[b]
                 if d and d.selWash then
@@ -1182,6 +1576,358 @@ local function InstallPVPHooks()
     end
 end
 
+-------------------------------------------------------------------------------
+-- Wrath standalone PvP summary and Battleground queue
+-------------------------------------------------------------------------------
+local function ApplyLegacyPVPShell()
+    local parent = _G.PVPParentFrame
+    if not parent or _G.PVPUIFrame then return end
+    local S = SharedSkin()
+    parent:SetSize(432, 512)
+    SkinAtlasPanel(parent)
+    SkinLegacyCloseButton(_G.PVPParentFrameCloseButton or FindLegacyCloseButton(parent), parent)
+
+    local d = GetFFD(parent)
+    if not d.legacyContentSurface then
+        local surface = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
+        surface:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, -48)
+        surface:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -14, 45)
+        surface:SetFrameLevel(parent:GetFrameLevel())
+        if S and S.ApplyRetailSurface then S:ApplyRetailSurface(surface, "body") end
+        d.legacyContentSurface = surface
+    end
+end
+
+local function UpdateLegacyPVPTabs()
+    local parent = _G.PVPParentFrame
+    if not parent or _G.PVPUIFrame then return end
+    local S = SharedSkin()
+    local battlegrounds = _G.PVPBattlegroundFrame and _G.PVPBattlegroundFrame:IsShown()
+    SetLegacyPageTitle(parent, battlegrounds and (BATTLEGROUNDS or "Battlegrounds")
+        or (PLAYER_V_PLAYER or "Player vs. Player"))
+    if S and S.UpdateRetailTab then
+        S:UpdateRetailTab(_G.PVPParentFrameTab1, not battlegrounds)
+        S:UpdateRetailTab(_G.PVPParentFrameTab2, battlegrounds and true or false)
+    end
+end
+
+local function SkinLegacyPVPTabs()
+    local parent = _G.PVPParentFrame
+    local tab1, tab2 = _G.PVPParentFrameTab1, _G.PVPParentFrameTab2
+    local S = SharedSkin()
+    if not parent or not tab1 or not tab2 or not (S and S.StyleRetailTab) then return end
+    tab1:Show(); tab2:Show()
+    S:StyleRetailTab(tab1); S:StyleRetailTab(tab2)
+    tab1:ClearAllPoints()
+    tab1:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, 0)
+    tab1:SetSize(216, 26)
+    tab2:ClearAllPoints()
+    tab2:SetPoint("LEFT", tab1, "RIGHT", 0, 0)
+    tab2:SetSize(216, 26)
+    tab1:SetFrameLevel(parent:GetFrameLevel() + 5)
+    tab2:SetFrameLevel(parent:GetFrameLevel() + 5)
+    UpdateLegacyPVPTabs()
+end
+
+local function StyleLegacyPVPResources()
+    local parent = _G.PVPParentFrame
+    local S = SharedSkin()
+    if not parent or not S then return end
+    local d = GetFFD(parent)
+    if not d.legacyResourceCard then
+        local card = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
+        card:SetPoint("TOPLEFT", parent, "TOPLEFT", 24, -54)
+        card:SetSize(384, 38)
+        card:SetFrameLevel(parent:GetFrameLevel())
+        if S.ApplyRetailSurface then S:ApplyRetailSurface(card, "card") end
+        d.legacyResourceCard = card
+    end
+
+    local honor, arena = _G.PVPFrameHonor, _G.PVPFrameArena
+    if honor then
+        honor:ClearAllPoints()
+        honor:SetPoint("LEFT", d.legacyResourceCard, "LEFT", 12, 0)
+        honor:SetSize(180, 20)
+        if S.ApplyRetailRegionTypography then S:ApplyRetailRegionTypography(honor, "row") end
+        if _G.PVPFrameHonorLabel then S:ApplyRetailTypography(_G.PVPFrameHonorLabel, "secondary") end
+        if _G.PVPFrameHonorPoints then S:ApplyRetailTypography(_G.PVPFrameHonorPoints, "value") end
+    end
+    if arena then
+        arena:ClearAllPoints()
+        arena:SetPoint("LEFT", d.legacyResourceCard, "LEFT", 205, 0)
+        arena:SetSize(170, 20)
+        if S.ApplyRetailRegionTypography then S:ApplyRetailRegionTypography(arena, "row") end
+        if _G.PVPFrameArenaLabel then S:ApplyRetailTypography(_G.PVPFrameArenaLabel, "secondary") end
+        if _G.PVPFrameArenaPoints then S:ApplyRetailTypography(_G.PVPFrameArenaPoints, "value") end
+    end
+end
+
+local function StyleLegacyPVPStats()
+    local parent, honor = _G.PVPParentFrame, _G.PVPHonor
+    local S = SharedSkin()
+    if not parent or not honor or not S then return end
+    local d = GetFFD(parent)
+    if not d.legacyStatsCard then
+        local card = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
+        card:SetPoint("TOPLEFT", parent, "TOPLEFT", 24, -100)
+        card:SetSize(384, 108)
+        card:SetFrameLevel(parent:GetFrameLevel())
+        if S.ApplyRetailSurface then S:ApplyRetailSurface(card, "card") end
+        d.legacyStatsCard = card
+    end
+    honor:ClearAllPoints()
+    honor:SetPoint("TOPLEFT", d.legacyStatsCard, "TOPLEFT", 12, -2)
+    honor:SetSize(360, 104)
+
+    for _, column in ipairs({ { "Today", -100 }, { "Yesterday", 0 }, { "Lifetime", 100 } }) do
+        local prefix, x = column[1], column[2]
+        local heading = _G["PVPHonor" .. prefix .. "Label"]
+        local kills = _G["PVPHonor" .. prefix .. "Kills"]
+        local points = _G["PVPHonor" .. prefix .. "Honor"]
+        if heading then heading:ClearAllPoints(); heading:SetPoint("TOP", honor, "TOP", x, -12) end
+        if kills then kills:ClearAllPoints(); kills:SetPoint("TOP", honor, "TOP", x, -46) end
+        if points then points:ClearAllPoints(); points:SetPoint("TOP", honor, "TOP", x, -76) end
+    end
+    if _G.PVPHonorKillsLabel then
+        _G.PVPHonorKillsLabel:ClearAllPoints()
+        _G.PVPHonorKillsLabel:SetPoint("TOPLEFT", honor, "TOPLEFT", 8, -46)
+    end
+    if _G.PVPHonorHonorLabel then
+        _G.PVPHonorHonorLabel:ClearAllPoints()
+        _G.PVPHonorHonorLabel:SetPoint("TOPLEFT", honor, "TOPLEFT", 8, -76)
+    end
+    if _G.PVPFrameLine1 then
+        _G.PVPFrameLine1:ClearAllPoints()
+        _G.PVPFrameLine1:SetPoint("TOP", honor, "TOP", 0, -31)
+        _G.PVPFrameLine1:SetSize(250, 1)
+        _G.PVPFrameLine1:SetTexture(1, 1, 1, 0.10)
+    end
+    for _, name in ipairs({
+        "PVPHonorTodayLabel", "PVPHonorTodayKills", "PVPHonorTodayHonor",
+        "PVPHonorYesterdayLabel", "PVPHonorYesterdayKills", "PVPHonorYesterdayHonor",
+        "PVPHonorLifetimeLabel", "PVPHonorLifetimeKills", "PVPHonorLifetimeHonor",
+        "PVPHonorKillsLabel", "PVPHonorHonorLabel",
+    }) do
+        local region = _G[name]
+        if region then
+            local tier = name:find("Label", 1, true) and "secondary" or "value"
+            S:ApplyRetailTypography(region, tier)
+        end
+    end
+end
+
+local function StyleLegacyPVPTeams()
+    local parent, pvp = _G.PVPParentFrame, _G.PVPFrame
+    local S = SharedSkin()
+    if not parent or not pvp or not S then return end
+    for i = 1, 3 do
+        local team = _G["PVPTeam" .. i]
+        local standard = _G["PVPTeam" .. i .. "Standard"]
+        local data = _G["PVPTeam" .. i .. "Data"]
+        if team then
+            FadeRegions(team)
+            if S.ApplyRetailSurface then S:ApplyRetailSurface(team, "card") end
+            team:SetSize(384, 70)
+            team:ClearAllPoints()
+            if i == 1 then
+                team:SetPoint("TOPLEFT", parent, "TOPLEFT", 24, -216)
+            else
+                team:SetPoint("TOPLEFT", _G["PVPTeam" .. (i - 1)], "BOTTOMLEFT", 0, -8)
+            end
+            if S.ApplyRetailRegionTypography then S:ApplyRetailRegionTypography(team, "row") end
+
+            local highlight = _G["PVPTeam" .. i .. "Highlight"]
+            if highlight then
+                highlight:ClearAllPoints()
+                highlight:SetAllPoints(team)
+                if S.ApplyRetailSurface then
+                    S:ApplyRetailSurface(highlight, "row", 0.03, 0.06, 0.06, 0.35)
+                    local ar, ag, ab = S:GetRetailAccent()
+                    highlight:SetBackdropBorderColor(ar, ag, ab, 0.65)
+                end
+            end
+        end
+        if standard and team then
+            standard:ClearAllPoints()
+            standard:SetPoint("LEFT", team, "LEFT", 8, 5)
+            standard:SetFrameLevel(team:GetFrameLevel() + 2)
+        end
+        if data and team then
+            FadeRegions(data)
+            data:ClearAllPoints()
+            data:SetPoint("TOPLEFT", team, "TOPLEFT", 86, -3)
+            data:SetPoint("BOTTOMRIGHT", team, "BOTTOMRIGHT", -10, 3)
+            if S.ApplyRetailRegionTypography then S:ApplyRetailRegionTypography(data, "row") end
+        end
+    end
+    if _G.PVPFrameToggleButton then
+        _G.PVPFrameToggleButton:ClearAllPoints()
+        _G.PVPFrameToggleButton:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -24, 52)
+        if S.ApplyRetailTypography and _G.PVPFrameToggleButton.GetFontString then
+            S:ApplyRetailTypography(_G.PVPFrameToggleButton:GetFontString(), "secondary")
+        end
+    end
+end
+
+local function StyleLegacyBattlegroundRows()
+    local S = SharedSkin()
+    local holder = _G.PVPBattlegroundFrame
+    if not S or not holder then return end
+    for i = 1, 5 do
+        local row = _G["BattlegroundType" .. i]
+        if row then
+            FadeRegions(row)
+            row:SetSize(372, 18)
+            if i == 1 then
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", holder, "TOPLEFT", 24, -80)
+            end
+            local selected = row.BGindex and holder.selectedBG and row.BGindex == holder.selectedBG
+            S:UpdateRetailRow(row, selected and true or false, false, i % 2 == 0)
+            if row.title then S:ApplyRetailTypography(row.title, "row") end
+        end
+    end
+end
+
+local function SkinLegacyBattleground()
+    local parent, frame = _G.PVPParentFrame, _G.PVPBattlegroundFrame
+    local S = SharedSkin()
+    if not parent or not frame or not S or _G.PVPUIFrame then return end
+    if not GetFFD(frame).legacySeated then
+        GetFFD(frame).legacySeated = true
+        frame:ClearAllPoints()
+        frame:SetAllPoints(parent)
+    end
+    FadeRegions(frame)
+    if _G.PVPBattlegroundFramePortrait then _G.PVPBattlegroundFramePortrait:SetAlpha(0) end
+    if _G.PVPBattlegroundFrameBGTex then _G.PVPBattlegroundFrameBGTex:SetAlpha(0) end
+    if _G.PVPBattlegroundFrameFrameLabel then _G.PVPBattlegroundFrameFrameLabel:SetAlpha(0) end
+
+    local header = _G.PVPBattlegroundFrameNameHeader
+    if header then
+        header:ClearAllPoints()
+        header:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -58)
+        S:ApplyRetailTypography(header, "section")
+    end
+    if _G.WintergraspTimer then
+        _G.WintergraspTimer:ClearAllPoints()
+        _G.WintergraspTimer:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -50)
+        if _G.WintergraspTimer.text then S:ApplyRetailTypography(_G.WintergraspTimer.text, "secondary") end
+        if _G.WintergraspTimer.texture and S.ApplyRetailIcon then
+            S:ApplyRetailIcon(_G.WintergraspTimer.texture, _G.WintergraspTimer, 24)
+        end
+    end
+    StyleLegacyBattlegroundRows()
+
+    if S.HandleRetailScrollBar then
+        S:HandleRetailScrollBar(_G.PVPBattlegroundFrameTypeScrollFrameScrollBar)
+        S:HandleRetailScrollBar(_G.PVPBattlegroundFrameInfoScrollFrameScrollBar)
+    end
+    local info = _G.PVPBattlegroundFrameInfoScrollFrame
+    if info then
+        FadeRegions(info)
+        info:ClearAllPoints()
+        info:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -180)
+        info:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -24, 84)
+        if S.ApplyRetailSurface then S:ApplyRetailSurface(info, "card") end
+    end
+    for _, name in ipairs({
+        "PVPBattlegroundFrameInfoScrollFrameChildFrame",
+        "PVPBattlegroundFrameInfoScrollFrameChildFrameDescription",
+        "PVPBattlegroundFrameInfoScrollFrameChildFrameRewardsInfo",
+    }) do
+        local region = _G[name]
+        if region and region.IsObjectType and region:IsObjectType("FontString") then
+            S:ApplyRetailTypography(region, "row")
+        elseif region and S.ApplyRetailRegionTypography then
+            S:ApplyRetailRegionTypography(region, "row")
+        end
+    end
+
+    local group = _G.PVPBattlegroundFrameGroupJoinButton
+    local join = _G.PVPBattlegroundFrameJoinButton
+    local cancel = _G.PVPBattlegroundFrameCancelButton
+    if S.HandleRetailButton then
+        S:HandleRetailButton(group, false)
+        S:HandleRetailButton(join, true)
+        S:HandleRetailButton(cancel, false)
+    end
+    if group then
+        group:ClearAllPoints(); group:SetSize(132, 22)
+        group:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 24, 53)
+    end
+    if join then
+        join:ClearAllPoints(); join:SetSize(108, 22)
+        join:SetPoint("LEFT", group, "RIGHT", 4, 0)
+    end
+    if cancel then
+        cancel:ClearAllPoints(); cancel:SetSize(80, 22)
+        cancel:SetPoint("LEFT", join, "RIGHT", 4, 0)
+    end
+end
+
+local function SkinLegacyPVP()
+    local parent, pvp = _G.PVPParentFrame, _G.PVPFrame
+    if not parent or not pvp or _G.PVPUIFrame then return end
+    ApplyLegacyPVPShell()
+    FadeRegions(pvp)
+    -- PVPFrame's stock title is an unnamed FontString, so it cannot be reached
+    -- through a global. It is the only direct FontString on this frame.
+    for i = 1, select("#", pvp:GetRegions()) do
+        local region = select(i, pvp:GetRegions())
+        if region and region.IsObjectType and region:IsObjectType("FontString") then
+            region:SetAlpha(0)
+        end
+    end
+    if _G.PVPFramePortrait then _G.PVPFramePortrait:SetAlpha(0) end
+    if _G.PVPFrameBackground then _G.PVPFrameBackground:SetAlpha(0) end
+    StyleLegacyPVPResources()
+    StyleLegacyPVPStats()
+    StyleLegacyPVPTeams()
+    if _G.PVPFrameOffSeason then
+        _G.PVPFrameOffSeason:ClearAllPoints()
+        _G.PVPFrameOffSeason:SetPoint("TOPLEFT", parent, "TOPLEFT", 24, -216)
+        _G.PVPFrameOffSeason:SetSize(384, 226)
+        StyleLegacyOverlay(_G.PVPFrameOffSeason)
+    end
+    SkinLegacyBattleground()
+    SkinLegacyPVPTabs()
+    UpdateLegacyPVPTabs()
+end
+
+local _legacyHooksInstalled = false
+local function InstallLegacyHooks()
+    if _legacyHooksInstalled or _G.PVEFrame then return end
+    if not (_G.LFDParentFrame or _G.LFRParentFrame or _G.PVPParentFrame) then return end
+    _legacyHooksInstalled = true
+    if _G.LFDParentFrame then _G.LFDParentFrame:HookScript("OnShow", SkinLegacyLFD) end
+    if _G.LFRParentFrame then _G.LFRParentFrame:HookScript("OnShow", SkinLegacyLFR) end
+    if _G.PVPParentFrame then _G.PVPParentFrame:HookScript("OnShow", SkinLegacyPVP) end
+    if _G.LFDQueueFrameSpecificList_Update then
+        hooksecurefunc("LFDQueueFrameSpecificList_Update", function()
+            LayoutLegacyLFDContent(_G.LFDQueueFrame)
+            StyleLegacyPVERows("LFDQueueFrameSpecificListButton", 15)
+        end)
+    end
+    if _G.LFDQueueFrameRandom_UpdateFrame then hooksecurefunc("LFDQueueFrameRandom_UpdateFrame", SkinLegacyLFD) end
+    if _G.LFRQueueFrameSpecificList_Update then
+        hooksecurefunc("LFRQueueFrameSpecificList_Update", function()
+            StyleLegacyPVERows("LFRQueueFrameSpecificListButton", 14)
+        end)
+    end
+    if _G.LFRBrowseFrameList_Update then hooksecurefunc("LFRBrowseFrameList_Update", SkinLegacyLFR) end
+    if _G.LFRBrowseButton_OnClick then hooksecurefunc("LFRBrowseButton_OnClick", SkinLegacyLFR) end
+    if _G.LFRFrame_SetActiveTab then hooksecurefunc("LFRFrame_SetActiveTab", SkinLegacyLFR) end
+    if _G.PVPFrame_Update then hooksecurefunc("PVPFrame_Update", SkinLegacyPVP) end
+    if _G.PVPBattleground_UpdateBattlegrounds then
+        hooksecurefunc("PVPBattleground_UpdateBattlegrounds", StyleLegacyBattlegroundRows)
+    end
+    if _G.PVPBattleground_UpdateInfo then hooksecurefunc("PVPBattleground_UpdateInfo", SkinLegacyBattleground) end
+    if _G.PVPBattlegroundButton_OnClick then hooksecurefunc("PVPBattlegroundButton_OnClick", SkinLegacyBattleground) end
+    if _G.PVPParentFrameTab1 then _G.PVPParentFrameTab1:HookScript("OnClick", UpdateLegacyPVPTabs) end
+    if _G.PVPParentFrameTab2 then _G.PVPParentFrameTab2:HookScript("OnClick", UpdateLegacyPVPTabs) end
+end
+
 -- Full pass + re-strip; safe to call repeatedly (idempotent skinners).
 local function RefreshAll()
     if not SkinEnabled() then return end
@@ -1191,6 +1937,7 @@ local function RefreshAll()
     Skin_RaidFinder()
     Skin_Challenges()
     Skin_PVP()
+    SkinLegacyPVP()
     Restrip()
 end
 
@@ -1534,6 +2281,7 @@ local function DoSkinPass()
     if not Theme.bgR then ResolveTheme() end
     RefreshAll()
     InstallHooks()
+    InstallLegacyHooks()
 end
 
 local ON_ADDON = {

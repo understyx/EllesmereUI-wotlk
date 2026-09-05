@@ -245,6 +245,447 @@ WSkin.FontTemplate = function(self, frame, ...)
 	end
 end
 
+-------------------------------------------------------------------------------
+-- Retail visual primitives
+--
+-- These helpers deliberately use only APIs available on the 3.3.5 client.
+-- Keep their state outside Blizzard-owned frames so applying a visual style
+-- does not add fields to protected UI objects.
+-------------------------------------------------------------------------------
+WSkin.Retail = {
+	colors = {
+		body      = { 0.015, 0.020, 0.025, 0.72 },
+		card      = { 0.030, 0.043, 0.048, 0.78 },
+		row       = { 0.030, 0.043, 0.048, 0.62 },
+		rowAlt    = { 0.030, 0.043, 0.048, 0.80 },
+		header    = { 0.055, 0.075, 0.080, 0.98 },
+		input     = { 0.025, 0.035, 0.040, 1.00 },
+		button    = { 0.070, 0.105, 0.115, 1.00 },
+		tab       = { 0.055, 0.043, 0.039, 1.00 },
+		border    = { 1.000, 1.000, 1.000, 0.10 },
+		track     = { 1.000, 1.000, 1.000, 0.04 },
+		thumb     = { 1.000, 1.000, 1.000, 0.42 },
+	},
+	geometry = {
+		headerHeight = 48,
+		bodyInset = 14,
+		footerHeight = 45,
+		tabHeight = 26,
+		rowHeight = 28,
+	},
+	type = {
+		title     = { size = 14, alpha = 1.00 },
+		section   = { size = 11, alpha = 0.95 },
+		row       = { size = 10, alpha = 0.84 },
+		value     = { size = 10, alpha = 1.00 },
+		secondary = { size = 9,  alpha = 0.58 },
+		tab       = { size = 9,  alpha = 0.50 },
+		button    = { size = 10, alpha = 0.92 },
+	},
+}
+
+local retailState = setmetatable({}, { __mode = "k" })
+local function RetailState(object)
+	local state = retailState[object]
+	if not state then
+		state = {}
+		retailState[object] = state
+	end
+	return state
+end
+
+local function RetailAccent()
+	local accent = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
+	return (accent and accent.r) or 0.05,
+		(accent and accent.g) or 0.82,
+		(accent and accent.b) or 0.62
+end
+
+local function RetailColor(kind)
+	return WSkin.Retail.colors[kind] or WSkin.Retail.colors.card
+end
+
+local function SetTextureColor(texture, color)
+	if texture and color then texture:SetTexture(unpack(color)) end
+end
+
+function WSkin:GetRetailAccent()
+	return RetailAccent()
+end
+
+function WSkin:ApplyRetailTypography(fontString, tier, alpha)
+	if not fontString or not fontString.SetFont then return end
+	local style = WSkin.Retail.type[tier or "row"] or WSkin.Retail.type.row
+	local font = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin"))
+		or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+	fontString:SetFont(font, style.size, "")
+	fontString:SetTextColor(1, 1, 1, alpha or style.alpha)
+	if fontString.SetShadowOffset then fontString:SetShadowOffset(1, -1) end
+	if fontString.SetShadowColor then fontString:SetShadowColor(0, 0, 0, 0.75) end
+end
+
+function WSkin:ApplyRetailRegionTypography(frame, tier, alpha)
+	if not frame or not frame.GetRegions then return end
+	for i = 1, select("#", frame:GetRegions()) do
+		local region = select(i, frame:GetRegions())
+		if region and region.IsObjectType and region:IsObjectType("FontString") then
+			self:ApplyRetailTypography(region, tier, alpha)
+		end
+	end
+end
+
+function WSkin:ApplyRetailSurface(frame, kind, r, g, b, a)
+	if not frame or not frame.SetBackdrop then return end
+	local color = RetailColor(kind or "card")
+	frame:SetBackdrop({
+		bgFile = blankTex,
+		edgeFile = blankTex,
+		tile = false,
+		tileSize = 0,
+		edgeSize = mult,
+		insets = { left = 0, right = 0, top = 0, bottom = 0 },
+	})
+	frame:SetBackdropColor(r or color[1], g or color[2], b or color[3], a or color[4])
+	local border = WSkin.Retail.colors.border
+	frame:SetBackdropBorderColor(unpack(border))
+	RetailState(frame).surface = true
+	return frame
+end
+
+function WSkin:CreateRetailPageSurface(pane, top, bottom, inset)
+	if not pane or not pane.CreateTexture then return end
+	local state = RetailState(pane)
+	local surface = state.pageSurface
+	if not surface then
+		surface = pane:CreateTexture(nil, "BACKGROUND", nil, -6)
+		state.pageSurface = surface
+		state.pageBorders = {}
+		for i = 1, 4 do
+			state.pageBorders[i] = pane:CreateTexture(nil, "BACKGROUND", nil, -5)
+			state.pageBorders[i]:SetTexture(1, 1, 1, 0.10)
+		end
+	end
+	local geometry = WSkin.Retail.geometry
+	inset = inset or geometry.bodyInset
+	surface:ClearAllPoints()
+	surface:SetPoint("TOPLEFT", pane, "TOPLEFT", inset, -(top or geometry.headerHeight))
+	surface:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -inset, bottom or geometry.footerHeight)
+	SetTextureColor(surface, WSkin.Retail.colors.body)
+	surface:Show()
+	local borders = state.pageBorders
+	if borders then
+		for i = 1, 4 do borders[i]:ClearAllPoints() end
+		borders[1]:SetHeight(1)
+		borders[1]:SetPoint("TOPLEFT", surface, "TOPLEFT", 0, 0)
+		borders[1]:SetPoint("TOPRIGHT", surface, "TOPRIGHT", 0, 0)
+		borders[2]:SetHeight(1)
+		borders[2]:SetPoint("BOTTOMLEFT", surface, "BOTTOMLEFT", 0, 0)
+		borders[2]:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", 0, 0)
+		borders[3]:SetWidth(1)
+		borders[3]:SetPoint("TOPLEFT", surface, "TOPLEFT", 0, 0)
+		borders[3]:SetPoint("BOTTOMLEFT", surface, "BOTTOMLEFT", 0, 0)
+		borders[4]:SetWidth(1)
+		borders[4]:SetPoint("TOPRIGHT", surface, "TOPRIGHT", 0, 0)
+		borders[4]:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", 0, 0)
+		for i = 1, 4 do borders[i]:Show() end
+	end
+	return surface
+end
+
+function WSkin:SetRetailPageTitle(frame, title, titleRegion)
+	if not frame then return end
+	titleRegion = titleRegion or frame.TitleText
+	local frameName = frame.GetName and frame:GetName()
+	if not titleRegion and frameName then titleRegion = _G[frameName .. "TitleText"] end
+	if not titleRegion then return end
+	if title ~= nil then titleRegion:SetText(title) end
+	titleRegion:ClearAllPoints()
+	titleRegion:SetPoint("TOP", frame, "TOP", 0, -6)
+	titleRegion:SetJustifyH("CENTER")
+	self:ApplyRetailTypography(titleRegion, "title")
+	return titleRegion
+end
+
+function WSkin:UpdateRetailRow(frame, selected, isHeader, alternate)
+	if not frame then return end
+	local kind = isHeader and "header" or (alternate and "rowAlt" or "row")
+	self:ApplyRetailSurface(frame, kind)
+	local state = RetailState(frame)
+	if not state.selectionEdge and frame.CreateTexture then
+		state.selectionEdge = frame:CreateTexture(nil, "OVERLAY")
+		state.selectionEdge:SetWidth(2)
+		state.selectionEdge:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+		state.selectionEdge:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+		if EllesmereUI and EllesmereUI.RegAccent then
+			EllesmereUI.RegAccent({ type = "solid", obj = state.selectionEdge, a = 1 })
+		end
+	end
+	if state.selectionEdge then
+		local ar, ag, ab = RetailAccent()
+		state.selectionEdge:SetTexture(ar, ag, ab, 1)
+		state.selectionEdge:SetShown(selected and true or false)
+	end
+	if selected then
+		local ar, ag, ab = RetailAccent()
+		frame:SetBackdropColor(ar * 0.18, ag * 0.18, ab * 0.18, 0.92)
+		frame:SetBackdropBorderColor(ar, ag, ab, 0.55)
+	else
+		frame:SetBackdropBorderColor(1, 1, 1, isHeader and 0.14 or 0.06)
+	end
+end
+
+function WSkin:UpdateRetailAccordionHeader(frame, glyph, expanded)
+	if not frame then return end
+	self:UpdateRetailRow(frame, false, true)
+	if glyph then
+		self:ApplyRetailTypography(glyph, "section")
+		local ar, ag, ab = RetailAccent()
+		glyph:SetTextColor(ar, ag, ab, 1)
+		glyph:SetText(expanded and "-" or "+")
+		glyph:Show()
+	end
+end
+
+function WSkin:ApplyRetailIcon(icon, parent, size)
+	if not icon then return end
+	if size and icon.SetSize then icon:SetSize(size, size) end
+	if icon.SetTexCoord then icon:SetTexCoord(unpack(WSkin.TexCoords)) end
+	parent = parent or (icon.GetParent and icon:GetParent())
+	if not parent or not parent.CreateTexture then return end
+	local state = RetailState(icon)
+	if not state.border then
+		state.border = parent:CreateTexture(nil, "BACKGROUND", nil, 2)
+		state.border:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+		state.border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
+	end
+	state.border:SetTexture(1, 1, 1, 0.12)
+	state.border:Show()
+	return state.border
+end
+
+function WSkin:SetRetailIconShown(icon, shown)
+	if not icon then return end
+	icon:SetShown(shown and true or false)
+	local state = RetailState(icon)
+	if state.border then state.border:SetShown(shown and true or false) end
+end
+
+function WSkin:HandleRetailScrollBar(frame, horizontal)
+	if not frame then return end
+	local state = RetailState(frame)
+	local frameName = frame.GetName and frame:GetName()
+	local parent = frame.GetParent and frame:GetParent()
+	local thumb = (frame.GetThumbTexture and frame:GetThumbTexture())
+		or frame.thumbTexture
+		or (frameName and _G[frameName .. "ThumbTexture"])
+
+	StripTextures(frame)
+	if horizontal then Height(frame, 8) else Width(frame, 8) end
+
+	if not state.track then
+		state.track = frame:CreateTexture(nil, "BACKGROUND")
+		if horizontal then
+			state.track:SetHeight(2)
+			state.track:SetPoint("LEFT", frame, "LEFT", 0, 0)
+			state.track:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+		else
+			state.track:SetWidth(2)
+			state.track:SetPoint("TOP", frame, "TOP", 0, 0)
+			state.track:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)
+		end
+	end
+	SetTextureColor(state.track, WSkin.Retail.colors.track)
+	state.track:Show()
+
+	if thumb then
+		if horizontal then
+			thumb:SetSize(22, 4)
+		else
+			thumb:SetSize(4, 22)
+		end
+		SetTextureColor(thumb, WSkin.Retail.colors.thumb)
+		thumb:Show()
+		state.thumb = thumb
+	end
+
+	if not horizontal and frameName then
+		local function HideArrow(arrow)
+			if not arrow then return end
+			arrow:SetAlpha(0)
+			arrow:EnableMouse(false)
+		end
+		HideArrow(parent and parent.scrollUp)
+		HideArrow(parent and parent.scrollDown)
+		HideArrow(_G[frameName .. "ScrollUpButton"])
+		HideArrow(_G[frameName .. "ScrollDownButton"])
+		HideArrow(_G[frameName .. "UpButton"])
+		HideArrow(_G[frameName .. "DownButton"])
+		HideArrow(_G[frameName .. "ScrollUp"])
+		HideArrow(_G[frameName .. "ScrollDown"])
+	end
+	state.retailScrollBar = true
+	return frame
+end
+
+local function UpdateRetailButtonVisual(button)
+	if not button then return end
+	local state = RetailState(button)
+	local enabled = true
+	if button.IsEnabled then
+		local value = button:IsEnabled()
+		enabled = value == true or value == 1
+	end
+	local ar, ag, ab = RetailAccent()
+	if state.primary and enabled then
+		button:SetBackdropBorderColor(ar, ag, ab, state.hovered and 0.95 or 0.62)
+	elseif enabled then
+		button:SetBackdropBorderColor(1, 1, 1, state.hovered and 0.26 or 0.12)
+	else
+		button:SetBackdropBorderColor(1, 1, 1, 0.05)
+	end
+	local label = button.GetFontString and button:GetFontString()
+	if label then
+		if state.primary and enabled then
+			label:SetTextColor(ar, ag, ab, 1)
+		else
+			label:SetTextColor(1, 1, 1, enabled and 0.88 or 0.32)
+		end
+	end
+end
+
+function WSkin:HandleRetailButton(button, primary)
+	if not button then return end
+	local state = RetailState(button)
+	state.primary = primary and true or false
+	if button.SetNormalTexture then button:SetNormalTexture("") end
+	if button.SetHighlightTexture then button:SetHighlightTexture("") end
+	if button.SetPushedTexture then button:SetPushedTexture("") end
+	if button.SetDisabledTexture then button:SetDisabledTexture("") end
+	StripTextures(button)
+	self:ApplyRetailSurface(button, "button")
+	self:ApplyRetailTypography(button.GetFontString and button:GetFontString(), "button")
+	if not state.buttonHooks then
+		state.buttonHooks = true
+		button:HookScript("OnEnter", function(self)
+			RetailState(self).hovered = true
+			UpdateRetailButtonVisual(self)
+		end)
+		button:HookScript("OnLeave", function(self)
+			RetailState(self).hovered = false
+			UpdateRetailButtonVisual(self)
+		end)
+		button:HookScript("OnEnable", UpdateRetailButtonVisual)
+		button:HookScript("OnDisable", UpdateRetailButtonVisual)
+	end
+	UpdateRetailButtonVisual(button)
+	return button
+end
+
+function WSkin:StyleRetailTab(tab)
+	if not tab then return end
+	local state = RetailState(tab)
+	for i = 1, select("#", tab:GetRegions()) do
+		local region = select(i, tab:GetRegions())
+		if region and region.IsObjectType and region:IsObjectType("Texture")
+			and region ~= state.background and region ~= state.activeFill and region ~= state.underline then
+			region:SetTexture("")
+		end
+	end
+	for _, key in ipairs({ "Left", "Middle", "Right", "LeftDisabled", "MiddleDisabled", "RightDisabled" }) do
+		if tab[key] then tab[key]:SetTexture("") end
+	end
+	if tab.SetHighlightTexture then tab:SetHighlightTexture("") end
+
+	if not state.background then
+		state.background = tab:CreateTexture(nil, "BACKGROUND")
+		state.background:SetAllPoints(tab)
+	end
+	SetTextureColor(state.background, WSkin.Retail.colors.tab)
+	state.background:Show()
+
+	if not state.activeFill then
+		state.activeFill = tab:CreateTexture(nil, "ARTWORK", nil, -6)
+		state.activeFill:SetAllPoints(tab)
+		state.activeFill:SetBlendMode("ADD")
+	end
+	state.activeFill:SetTexture(1, 1, 1, 0.025)
+
+	local nativeLabel = tab.GetFontString and tab:GetFontString()
+	local labelText = nativeLabel and nativeLabel:GetText()
+	if nativeLabel then nativeLabel:SetTextColor(0, 0, 0, 0) end
+	if tab.SetPushedTextOffset then tab:SetPushedTextOffset(0, 0) end
+	if not state.label then
+		state.label = tab:CreateFontString(nil, "OVERLAY")
+		state.label:SetPoint("CENTER", tab, "CENTER", 0, 0)
+		state.label:SetJustifyH("CENTER")
+		-- Unlike newer clients, 3.3.5 raises "Font not set" when SetText is
+		-- called on an untemplated FontString before its first SetFont call.
+		self:ApplyRetailTypography(state.label, "tab")
+		state.label:SetText(labelText or "")
+		if hooksecurefunc and tab.SetText then
+			hooksecurefunc(tab, "SetText", function(_, text)
+				if text then state.label:SetText(text) end
+			end)
+		end
+	end
+	self:ApplyRetailTypography(state.label, "tab")
+
+	if not state.underline then
+		state.underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
+		state.underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
+		state.underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+		if EllesmereUI and EllesmereUI.PanelPP and EllesmereUI.PanelPP.DisablePixelSnap then
+			EllesmereUI.PanelPP.DisablePixelSnap(state.underline)
+			state.underline:SetHeight(EllesmereUI.PanelPP.mult or 1)
+		else
+			state.underline:SetHeight(1)
+		end
+		if EllesmereUI and EllesmereUI.RegAccent then
+			EllesmereUI.RegAccent({ type = "solid", obj = state.underline, a = 1 })
+		end
+	end
+	local ar, ag, ab = RetailAccent()
+	state.underline:SetTexture(ar, ag, ab, 1)
+	self:UpdateRetailTab(tab, state.active)
+	return tab
+end
+
+function WSkin:LayoutRetailTabRow(tabs, owner, tabWidth, gap)
+	if not tabs or not owner then return 0 end
+	local visible = {}
+	for _, tab in ipairs(tabs) do
+		if tab and (not tab.IsShown or tab:IsShown()) then
+			visible[#visible + 1] = tab
+		end
+	end
+	local count = #visible
+	if count == 0 then return 0 end
+	gap = gap or 0
+	if not tabWidth then
+		tabWidth = (owner:GetWidth() - ((count - 1) * gap)) / count
+	end
+	for i, tab in ipairs(visible) do
+		tab:ClearAllPoints()
+		tab:SetSize(tabWidth, WSkin.Retail.geometry.tabHeight)
+		if i == 1 then
+			tab:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, 0)
+		else
+			tab:SetPoint("LEFT", visible[i - 1], "RIGHT", gap, 0)
+		end
+	end
+	return count, tabWidth
+end
+
+function WSkin:UpdateRetailTab(tab, active)
+	if not tab then return end
+	local state = RetailState(tab)
+	state.active = active and true or false
+	if state.background then state.background:Show() end
+	if state.activeFill then state.activeFill:SetShown(state.active) end
+	if state.underline then state.underline:SetShown(state.active) end
+	if state.label then state.label:SetTextColor(1, 1, 1, state.active and 1 or 0.50) end
+end
+
 local fontString = CreateFrame("Frame"):CreateFontString()
 local fontStringMt = getmetatable(fontString) and getmetatable(fontString).__index
 if fontStringMt and not fontStringMt.FontTemplate then
@@ -683,5 +1124,3 @@ function WSkin:HandleButtonHighlight(frame, r, g, b, a)
 		highlightTexture:SetVertexColor(r, g, b, a)
 	end
 end
-
-
