@@ -393,20 +393,7 @@ local function SetDispelTypeTexture(texture, dispelType)
     end
 end
 
--- Rez spells by class (for dead target range checking)
--- IsSpellInRange returns normal booleans, not secret values.
-local REZ_SPELL_BY_CLASS = {
-    DRUID       = 20484,   -- Rebirth
-    PRIEST      = 2006,    -- Resurrection
-    PALADIN     = 461622,  -- Intercession
-    SHAMAN      = 2008,    -- Ancestral Spirit
-    MONK        = 115178,  -- Resuscitate
-    DEATHKNIGHT = 61999,   -- Raise Ally
-    WARLOCK     = 20707,   -- Soulstone
-    EVOKER      = 361227,  -- Return
-}
 local _, playerClassToken = UnitClass("player")
-local playerRezSpell = REZ_SPELL_BY_CLASS[playerClassToken]
 
 -- Classes that use IsSpellInRange instead of UnitInRange for living units.
 -- These classes have shorter effective ranges that 43yd UnitInRange misrepresents.
@@ -9537,11 +9524,8 @@ end
 
 -------------------------------------------------------------------------------
 --  Range fading
---  Event-driven via UNIT_IN_RANGE_UPDATE for the standard ~40yd interact range
---  (all classes), which also covers dead units (they use UnitInRange like the
---  living). A conditional 0.5s refiner poll handles only what the event cannot:
---  the tighter friendly-spell range (Evoker/Rogue) and re-syncing a revived unit
---  back to that tight range. Pure classes with no rez run fully event-driven.
+--  Wrath does not fire a usable range-boundary event as units move, so poll
+--  every assigned button at 0.5s while the raid or party frames are active.
 -------------------------------------------------------------------------------
 -- Wrapped in a do-block so these helpers stay out of the main chunk's 200-local
 -- cap; only Start/StopRangeTicker (+ the forward-declared RangeUpdate) need to
@@ -9556,8 +9540,6 @@ local C_Spell_IsSpellInRange = C_Spell and C_Spell.IsSpellInRange
 -- Classes whose effective reach is well under the ~40yd UnitInRange interact
 -- range, so living units are refined with a tighter friendly spell check.
 local usesSpellRange = playerFriendlySpell ~= nil
--- Whether the player can resurrect (enables dead-unit rez-range refinement).
-local playerHasRez   = playerRezSpell ~= nil
 
 -- Apply final alpha to a button: range alpha * BM frame alpha. Range alpha is
 -- stored in FFD so BM can read it; BM alpha lives in _bmSavedAlpha so range can
@@ -9634,26 +9616,6 @@ local function UpdateButtonRange(unit, btn)
 end
 ns._UpdateButtonRange = UpdateButtonRange
 
--- Refiner handles only what UNIT_IN_RANGE_UPDATE cannot: the tighter
--- friendly-spell range (Evoker/Rogue). Dead units use the event-driven
--- UnitInRange path like living units, but are still polled so a spell-range
--- class hands a revived unit back to its tight spell range (one-shot resync via
--- _rangeWasDead). Living, non-spell-range units are owned by the event and
--- skipped here, so the poll does ~no work for a stable raid.
-local function RefineButtonRange(unit, btn)
-    if not UnitExists(unit) or UnitIsUnit(unit, "player") then return end
-    local d = GetFFD(btn)
-    if UnitIsDeadOrGhost(unit) then
-        d._rangeWasDead = true
-        UpdateButtonRange(unit, btn)
-    elseif d._rangeWasDead then
-        d._rangeWasDead = nil
-        UpdateButtonRange(unit, btn)
-    elseif usesSpellRange then
-        UpdateButtonRange(unit, btn)
-    end
-end
-
 -- Seed / full re-evaluation of every assigned unit (enable, roster change,
 -- phase change). Kept as RangeUpdate (forward-declared) for existing callers.
 RangeUpdate = function()
@@ -9665,21 +9627,11 @@ RangeUpdate = function()
 end
 ns._RangeSeedAll = RangeUpdate
 
-local function RangeRefineAll()
-    local t0 = ns.ProfBegin("RangeRefine")
-    for unit, btn in pairs(unitToButton) do RefineButtonRange(unit, btn) end
-    for unit, btn in pairs(ns._partyUnitToButton) do RefineButtonRange(unit, btn) end
-    for unit, btn in pairs(ns._xfUnitToButton) do RefineButtonRange(unit, btn) end
-    ns.ProfEnd("RangeRefine", t0)
-end
-
 function StartRangeTicker()
-    -- Seed initial alpha; UNIT_IN_RANGE_UPDATE only fires on later changes.
+    -- Seed immediately, then keep movement-driven range alpha current.
     RangeUpdate()
-    -- Conditional refiner: only spell-range or rez-capable classes poll.
-    -- Everyone else is fully event-driven (zero polling).
-    if not rangeTicker and (usesSpellRange or playerHasRez) then
-        rangeTicker = C_Timer.NewTicker(0.5, RangeRefineAll)
+    if not rangeTicker then
+        rangeTicker = C_Timer.NewTicker(0.5, RangeUpdate)
     end
 end
 
