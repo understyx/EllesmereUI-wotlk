@@ -8751,6 +8751,17 @@ local function CreateMainFrame()
         end
     end
 
+    -- Drop one stashed header after a transactional same-page rebuild commits.
+    -- Frames cannot be destroyed on this client; keep discarded regions on the
+    -- hidden stash and release the cache references just like the all-page path.
+    function EllesmereUI:DiscardContentHeaderCacheEntry(cacheKey)
+        local entry = _contentHeaderCache[cacheKey]
+        if not entry then return end
+        for _, c in ipairs(entry.children) do c:Hide(); c:SetParent(nil) end
+        for _, r in ipairs(entry.regions) do r:Hide(); r:SetParent(_chStash) end
+        _contentHeaderCache[cacheKey] = nil
+    end
+
     function EllesmereUI:SetContentHeader(buildFunc)
         ClearContentHeaderInner()
         contentHeaderFrame:Show()
@@ -10258,37 +10269,88 @@ function EllesmereUI:SelectPage(pageName)
         _activePageWrapper = wrapper
 
         local config = modules[activeModule]
-        local totalH = 0
-        if config.buildPage then
-            local startY = -6
+        local function ColdBuildTraceback(err)
+            local message = tostring(err)
+            if debugstack then return message .. "\n" .. debugstack(3, 24, 24) end
+            return message
+        end
+        local ok, built = xpcall(function()
+            local totalH = 0
+            if config.buildPage then
+                local startY = -6
+                EllesmereUI._buildingModule = activeModule
+                EllesmereUI._buildingPage = pageName
+                totalH = config.buildPage(pageName, wrapper, startY) or 600
+                contentFrame:SetHeight(totalH + 30)
+            end
 
-            EllesmereUI._buildingModule = activeModule
-            EllesmereUI._buildingPage = pageName
-            totalH = config.buildPage(pageName, wrapper, startY) or 600
-            EllesmereUI._buildingModule = nil
-            EllesmereUI._buildingPage = nil
-            EllesmereUI._buildingSelector = nil
-            contentFrame:SetHeight(totalH + 30)
+            local headerBuilder = nil
+            if config.getHeaderBuilder then
+                headerBuilder = config.getHeaderBuilder(pageName)
+            end
+            local cachedRefreshList = {}
+            for i = 1, #_widgetRefreshList do
+                cachedRefreshList[i] = _widgetRefreshList[i]
+            end
+            return {
+                wrapper = wrapper,
+                totalH = totalH,
+                headerBuilder = headerBuilder,
+                refreshList = cachedRefreshList,
+            }
+        end, ColdBuildTraceback)
+        EllesmereUI._buildingModule = nil
+        EllesmereUI._buildingPage = nil
+        EllesmereUI._buildingSelector = nil
+
+        if not ok then
+            local buildError = built
+            -- Keep the settings usable and give the player a retry path rather
+            -- than caching a featureless partial wrapper.
+            HideAllChildren(wrapper)
+            ClearWidgetRefreshList()
+            if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
+            EllesmereUI._contentHeaderPreview = nil
+            if config.onPageBuildFailed then
+                pcall(config.onPageBuildFailed, pageName, nil)
+            end
+            local failureText = wrapper:CreateFontString(nil, "OVERLAY")
+            failureText:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 13, "")
+            failureText:SetTextColor(1, 0.35, 0.35, 1)
+            failureText:SetPoint("TOPLEFT", wrapper, "TOPLEFT", 24, -28)
+            failureText:SetWidth(700)
+            failureText:SetJustifyH("LEFT")
+            if activeModule == "EllesmereUICooldownManager" then
+                failureText:SetText("This settings page could not be loaded. The error was saved; use /cdmerrors to inspect it.")
+            else
+                failureText:SetText("This settings page could not be loaded. Please retry.")
+            end
+
+            local retry = EllesmereUI.SafeCreateFrame("Button", nil, wrapper, "UIPanelButtonTemplate")
+            retry:SetSize(110, 26)
+            retry:SetPoint("TOPLEFT", failureText, "BOTTOMLEFT", 0, -16)
+            retry:SetText("Retry")
+            retry:SetScript("OnClick", function() EllesmereUI:RefreshPage(true) end)
+
+            built = {
+                wrapper = wrapper,
+                totalH = 120,
+                headerBuilder = nil,
+                refreshList = {},
+                _buildFailed = true,
+            }
+            contentFrame:SetHeight(150)
+            local reporter = activeModule == "EllesmereUICooldownManager"
+                and _G._ECME_RecordDiagnostic
+            if reporter then
+                reporter("SettingsPageCold:" .. tostring(pageName), buildError)
+            else
+                local handler = geterrorhandler and geterrorhandler()
+                if handler then pcall(handler, buildError) end
+            end
         end
 
-        -- Capture the content header builder for this page (if one was set)
-        local headerBuilder = nil
-        if config.getHeaderBuilder then
-            headerBuilder = config.getHeaderBuilder(pageName)
-        end
-
-        -- Cache this page's refresh list
-        local cachedRefreshList = {}
-        for i = 1, #_widgetRefreshList do
-            cachedRefreshList[i] = _widgetRefreshList[i]
-        end
-
-        _pageCache[cacheKey] = {
-            wrapper = wrapper,
-            totalH = totalH,
-            headerBuilder = headerBuilder,
-            refreshList = cachedRefreshList,
-        }
+        _pageCache[cacheKey] = built
     end
 
     -- Reset scroll to top on tab switch
@@ -10339,20 +10401,30 @@ function EllesmereUI:RefreshPage(force)
     local savedScroll = scrollFrame and scrollFrame:GetVerticalScroll() or 0
     local savedTarget = scrollTarget
 
-    -- Invalidate the current page's cache entry and destroy ONLY its wrapper.
-    -- CRITICAL: Do NOT call ClearContent() here -- it calls SetParent(nil) on
-    -- ALL scrollChild children, which orphans other cached pages' wrappers.
-    -- Those wrappers are still referenced by _pageCache and will be restored
-    -- when the user switches back to that tab.  If they've been orphaned,
-    -- Show() makes them appear detached and the layout breaks ("settings fly
-    -- all over the screen" bug).
+    -- Transactional slow path: preserve the working wrapper, header and refresh
+    -- callbacks until the replacement page has built successfully. A module
+    -- exception must not turn a functioning page into an empty wrapper.
     local cacheKey = activeModule .. "::" .. activePage
     local oldEntry = _pageCache[cacheKey]
-    if oldEntry and oldEntry.wrapper then
-        oldEntry.wrapper:Hide()
-        oldEntry.wrapper:SetParent(nil)
+    local oldWrapper = oldEntry and oldEntry.wrapper
+    local oldActiveWrapper = _activePageWrapper
+    local oldPreview = EllesmereUI._contentHeaderPreview
+    local oldBuildingModule = EllesmereUI._buildingModule
+    local oldBuildingPage = EllesmereUI._buildingPage
+    local oldBuildingSelector = EllesmereUI._buildingSelector
+    local oldSkipReanchor = skipScrollChildReanchor
+    local oldSuppressRange = suppressScrollRangeChanged
+    local oldRefreshList = {}
+    for i = 1, #_widgetRefreshList do oldRefreshList[i] = _widgetRefreshList[i] end
+
+    -- Stash the current header under this page's cache key. On failure it is
+    -- restored; on success the stale cache reference is discarded while the
+    -- replacement header remains live.
+    local oldHeaderSaved = false
+    if EllesmereUI.SaveContentHeaderToCache then
+        oldHeaderSaved = EllesmereUI:SaveContentHeaderToCache(cacheKey)
     end
-    _pageCache[cacheKey] = nil
+    if oldWrapper then oldWrapper:Hide() end
 
     -- Clear widget refresh registry and header (safe -- these are per-page)
     ClearWidgetRefreshList()
@@ -10370,38 +10442,91 @@ function EllesmereUI:RefreshPage(force)
     -- Create a fresh wrapper for the rebuilt page
     local wrapper = EllesmereUI.SafeCreateFrame("Frame", nil, scrollChild)
     wrapper:SetAllPoints(scrollChild)
+    wrapper:Hide()
+    _activePageWrapper = wrapper
 
     local config = modules[activeModule]
-    local totalH = 0
-    if config.buildPage then
-        local startY = -6
-        EllesmereUI._buildingModule = activeModule
-        EllesmereUI._buildingPage = activePage
-        totalH = config.buildPage(activePage, wrapper, startY) or 600
-        EllesmereUI._buildingModule = nil
-        EllesmereUI._buildingPage = nil
-        EllesmereUI._buildingSelector = nil
-        contentFrame:SetHeight(totalH + 30)
+    local function PageBuildTraceback(err)
+        local message = tostring(err)
+        if debugstack then return message .. "\n" .. debugstack(3, 24, 24) end
+        return message
+    end
+    local ok, built = xpcall(function()
+        local totalH = 0
+        if config.buildPage then
+            local startY = -6
+            EllesmereUI._buildingModule = activeModule
+            EllesmereUI._buildingPage = activePage
+            totalH = config.buildPage(activePage, wrapper, startY) or 600
+        end
+
+        local headerBuilder = nil
+        if config.getHeaderBuilder then
+            headerBuilder = config.getHeaderBuilder(activePage)
+        end
+        local cachedRefreshList = {}
+        for i = 1, #_widgetRefreshList do
+            cachedRefreshList[i] = _widgetRefreshList[i]
+        end
+        return {
+            wrapper = wrapper,
+            totalH = totalH,
+            headerBuilder = headerBuilder,
+            refreshList = cachedRefreshList,
+        }
+    end, PageBuildTraceback)
+
+    -- Always release construction/suppression state, including the error path.
+    EllesmereUI._buildingModule = oldBuildingModule
+    EllesmereUI._buildingPage = oldBuildingPage
+    EllesmereUI._buildingSelector = oldBuildingSelector
+    skipScrollChildReanchor = oldSkipReanchor
+    suppressScrollRangeChanged = oldSuppressRange
+
+    if not ok then
+        wrapper:Hide()
+        wrapper:SetParent(nil)
+        ClearWidgetRefreshList()
+        for i = 1, #oldRefreshList do _widgetRefreshList[i] = oldRefreshList[i] end
+        if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
+        if oldHeaderSaved and EllesmereUI.RestoreContentHeaderFromCache then
+            EllesmereUI:RestoreContentHeaderFromCache(cacheKey)
+        end
+        EllesmereUI._contentHeaderPreview = oldPreview
+        _activePageWrapper = oldActiveWrapper
+        if oldWrapper then oldWrapper:Show() end
+        if oldEntry then contentFrame:SetHeight((oldEntry.totalH or 600) + 30) end
+        if config.onPageBuildFailed then
+            pcall(config.onPageBuildFailed, activePage, oldEntry)
+        end
+
+        local reporter = activeModule == "EllesmereUICooldownManager"
+            and _G._ECME_RecordDiagnostic
+        if reporter then
+            reporter("SettingsPage:" .. tostring(activePage), built)
+        else
+            local handler = geterrorhandler and geterrorhandler()
+            if handler then pcall(handler, built) end
+        end
+        return false
     end
 
-    -- Re-cache
-    local headerBuilder = nil
-    if config.getHeaderBuilder then
-        headerBuilder = config.getHeaderBuilder(activePage)
+    -- Commit: only now detach the previous wrapper and replace its cache entry.
+    if oldWrapper then
+        oldWrapper:Hide()
+        oldWrapper:SetParent(nil)
     end
-    local cachedRefreshList = {}
-    for i = 1, #_widgetRefreshList do
-        cachedRefreshList[i] = _widgetRefreshList[i]
+    -- The replacement header is live, so any entry under this same page key is
+    -- necessarily the superseded header (including a stale pre-existing entry
+    -- when there was no visible header to save above).
+    if EllesmereUI.DiscardContentHeaderCacheEntry then
+        EllesmereUI:DiscardContentHeaderCacheEntry(cacheKey)
     end
-    _pageCache[cacheKey] = {
-        wrapper = wrapper,
-        totalH = totalH,
-        headerBuilder = headerBuilder,
-        refreshList = cachedRefreshList,
-    }
+    _pageCache[cacheKey] = built
+    _activePageWrapper = wrapper
+    wrapper:Show()
+    contentFrame:SetHeight(built.totalH + 30)
 
-    skipScrollChildReanchor = false
-    suppressScrollRangeChanged = false
     isSmoothing = false
     if smoothFrame then smoothFrame:Hide() end
     if scrollFrame then
@@ -10411,6 +10536,7 @@ function EllesmereUI:RefreshPage(force)
         scrollFrame:SetVerticalScroll(restored)
         UpdateScrollThumb()
     end
+    return true
 end
 
 -- Consume a rebuild that was requested while the panel was hidden (see the
