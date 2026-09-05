@@ -1931,10 +1931,12 @@ local function ShowUrlPopup(url)
         bdTex:SetAllPoints()
         bdTex:SetTexture(0, 0, 0, 0.10)
         local fadeIn = urlBackdrop:CreateAnimationGroup()
-        fadeIn:SetToFinalAlpha(true)
-        local a = fadeIn:CreateAnimation("Alpha")
-        a:SetFromAlpha(0); a:SetToAlpha(1); a:SetDuration(0.2)
-        urlBackdrop._fadeIn = fadeIn
+        if fadeIn.SetToFinalAlpha then
+            fadeIn:SetToFinalAlpha(true)
+            local a = fadeIn:CreateAnimation("Alpha")
+            a:SetFromAlpha(0); a:SetToAlpha(1); a:SetDuration(0.2)
+            urlBackdrop._fadeIn = fadeIn
+        end
         urlBackdrop:RegisterForClicks("AnyUp")
         urlBackdrop:SetScript("OnClick", HideUrlPopup)
         urlBackdrop:Hide()
@@ -1945,10 +1947,12 @@ local function ShowUrlPopup(url)
         urlPopup:SetSize(340, 52)
         urlPopup:EnableMouse(true)
         local popFade = urlPopup:CreateAnimationGroup()
-        popFade:SetToFinalAlpha(true)
-        local pa = popFade:CreateAnimation("Alpha")
-        pa:SetFromAlpha(0); pa:SetToAlpha(1); pa:SetDuration(0.2)
-        urlPopup._fadeIn = popFade
+        if popFade.SetToFinalAlpha then
+            popFade:SetToFinalAlpha(true)
+            local pa = popFade:CreateAnimation("Alpha")
+            pa:SetFromAlpha(0); pa:SetToAlpha(1); pa:SetDuration(0.2)
+            urlPopup._fadeIn = popFade
+        end
 
         local bg = urlPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
@@ -1976,11 +1980,6 @@ local function ShowUrlPopup(url)
             PP.CreateBorder(eb, 1, 1, 1, 0.02, 1, "OVERLAY", 7)
         end
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); HideUrlPopup() end)
-        eb:SetScript("OnKeyDown", function(self, key)
-            if key == "C" and IsControlKeyDown() then
-                C_Timer.After(0.05, HideUrlPopup)
-            end
-        end)
         eb:SetScript("OnMouseUp", function(self) self:HighlightText() end)
         urlPopup:SetScript("OnMouseDown", function() urlPopup._eb:SetFocus(); urlPopup._eb:HighlightText() end)
         urlPopup._eb = eb
@@ -1990,8 +1989,12 @@ local function ShowUrlPopup(url)
     local cx, cy = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()
     urlPopup:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", cx / scale, cy / scale + 10)
-    urlBackdrop:SetAlpha(0); urlBackdrop:Show(); urlBackdrop._fadeIn:Play()
-    urlPopup:SetAlpha(0); urlPopup:Show(); urlPopup._fadeIn:Play()
+    urlBackdrop:SetAlpha(urlBackdrop._fadeIn and 0 or 1)
+    urlBackdrop:Show()
+    if urlBackdrop._fadeIn then urlBackdrop._fadeIn:Play() end
+    urlPopup:SetAlpha(urlPopup._fadeIn and 0 or 1)
+    urlPopup:Show()
+    if urlPopup._fadeIn then urlPopup._fadeIn:Play() end
     urlPopup._eb:SetFocus(); urlPopup._eb:HighlightText()
 end
 
@@ -2025,12 +2028,42 @@ local function OnHyperlinkLeave(self)
     end
 end
 
--- URL click handler: open copy popup when user clicks a wrapped URL link.
-hooksecurefunc("SetItemRef", function(link)
-    if not link then return end
-    local url = link:match("^" .. addonName .. "url:(.+)$")
-    if url then
-        ShowUrlPopup(url)
+-- URL click handler: consume our custom link before Blizzard passes it to
+-- ItemRefTooltip:SetHyperlink(), which rejects unknown hyperlink types.
+-- Blizzard_CombatLog can replace SetItemRef while it loads, so install a new
+-- wrapper after that addon as well.  Each wrapper captures the function that
+-- was current when installed; this keeps Blizzard's own link handling intact.
+local _urlSetItemRef
+local function InstallUrlSetItemRef()
+    local previousSetItemRef = _G.SetItemRef
+    if not previousSetItemRef or previousSetItemRef == _urlSetItemRef then return end
+
+    local wrapper = function(link, ...)
+        if type(link) == "string" then
+            local url = link:match("^" .. addonName .. "url:(.+)$")
+            if url then
+                -- Open on the next frame so the mouse-up that activated the
+                -- hyperlink cannot also hit the newly shown backdrop and
+                -- immediately dismiss the popup.
+                C_Timer.After(0, function() ShowUrlPopup(url) end)
+                return
+            end
+        end
+        return previousSetItemRef(link, ...)
+    end
+
+    _urlSetItemRef = wrapper
+    _G.SetItemRef = wrapper
+end
+
+InstallUrlSetItemRef()
+
+local urlLinkEventFrame = EllesmereUI.SafeCreateFrame("Frame")
+urlLinkEventFrame:RegisterEvent("ADDON_LOADED")
+urlLinkEventFrame:SetScript("OnEvent", function(self, _, loadedAddon)
+    if loadedAddon == "Blizzard_CombatLog" then
+        InstallUrlSetItemRef()
+        self:UnregisterEvent("ADDON_LOADED")
     end
 end)
 
