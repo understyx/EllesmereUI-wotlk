@@ -570,6 +570,15 @@ This produces the broadest improvement and prevents each page from drifting into
 
 These screens establish how the project handles WotLK workflows that do not map exactly to Midnight.
 
+Implementation status (2026-09-05): first checkpoint implemented, pending in-game validation.
+
+- The native WotLK Dungeon Finder and Raid Browser now share a `Dungeons & Raids` shell and a two-destination category rail.
+- Native role selection, dungeon/raid selection, comments, browse results, queue actions, and disabled states remain owned by Blizzard's original controls.
+- The standalone PvP summary now uses the shared header, content surface, typography, stats-card, arena-team-card, and footer-tab treatments established by Inspect PvP.
+- The Battleground queue now uses flat selectable rows, a dark detail surface, compact Wintergrasp status, shared scroll bars, and one consistent action row while retaining the original selection and queue workflow.
+- Repaint hooks reapply visual state after dungeon, raid-browser, PvP-team, battleground-selection, reward, and queue updates.
+- Completion still requires the role, random/specific, queued/cancel, empty/populated arena team, Battleground party/solo, disabled, reward, and long-locale checks listed below.
+
 1. Bring Dungeon Finder into the shared Dungeons & Raids shell and move Raid Browser into its category rail.
 2. Restyle the PvP summary using the Inspect PvP tab as its component reference.
 3. Apply the provisional modernized-WotLK treatment to the Battleground queue without changing its workflow.
