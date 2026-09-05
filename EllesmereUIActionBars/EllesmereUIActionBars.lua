@@ -3168,7 +3168,7 @@ do
         dispatcher:RegisterEvent("SPELL_UPDATE_COOLDOWN")
         dispatcher:RegisterEvent("BAG_UPDATE_COOLDOWN")
         dispatcher:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
-        dispatcher:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+        dispatcher:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_STATE")
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_USABLE")
         dispatcher:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
@@ -3219,12 +3219,21 @@ do
         -- caused visible frame drops on high-frequency events.
         dispatcher:SetScript("OnEvent", function(_, event, arg1)
             if event == "UNIT_SPELLCAST_SUCCEEDED" then
-                if arg1 and arg1 ~= "player" then return end
+                if arg1 ~= "player" then return end
                 ns._cdDirtyUntil = GetTime() + 2
                 ns._cdAnyLive = true
                 ns._cdWalkNext = 0
                 ns._stWalkNext = 0
                 ns._gcdGen = (ns._gcdGen or 0) + 1
+                ScheduleCooldownRefresh()
+                return
+            end
+            -- A successful cast commonly emits several of these equivalent
+            -- notifications in one burst. They all repaint the same cooldown
+            -- state, so share the delayed cast refresh and perform one button
+            -- walk after the event burst settles.
+            if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN"
+               or event == "BAG_UPDATE_COOLDOWN" or event == "PET_BAR_UPDATE_COOLDOWN" then
                 ScheduleCooldownRefresh()
                 return
             end

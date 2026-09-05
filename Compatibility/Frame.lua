@@ -74,7 +74,10 @@ local function RefreshCooldownText(cooldown, now)
         return true
     end
     if text then text:Hide() end
-    return remaining > 0
+    -- Once a timer reaches the GCD-sized range it will never show text again.
+    -- Drop it from the per-frame text driver instead of polling an invisible
+    -- FontString until the final fraction of the cooldown expires.
+    return remaining > 1.5
 end
 
 cooldownDoneDriver:SetScript("OnUpdate", function(self)
@@ -141,15 +144,24 @@ local function ApplyCooldownCompat(target)
                 start = tonumber(start) or 0
                 duration = tonumber(duration) or 0
                 if start > 0 and duration > 0 then
-                    EnsureCooldownText(self)
                     local modRate = tonumber((...)) or 1
                     if modRate <= 0 then modRate = 1 end
                     self._euiCooldownFinish = start + (duration / modRate)
-                    cooldownTextWatch[self] = self._euiCooldownFinish
-                    RefreshCooldownText(self, GetTime())
-                    cooldownDoneDriver:Show()
+                    local now = GetTime()
+                    -- A GCD is never eligible for countdown text. Avoid both
+                    -- creating a FontString for every action button on the
+                    -- first cast and scanning those hidden strings every frame.
+                    if self._euiCooldownFinish - now > 1.5 then
+                        EnsureCooldownText(self)
+                        cooldownTextWatch[self] = self._euiCooldownFinish
+                        RefreshCooldownText(self, now)
+                        cooldownDoneDriver:Show()
+                    else
+                        cooldownTextWatch[self] = nil
+                        if self._euiCooldownText then self._euiCooldownText:Hide() end
+                    end
                     if HasCooldownDoneHandler(self)
-                       and self._euiCooldownFinish > GetTime() then
+                       and self._euiCooldownFinish > now then
                         cooldownDoneWatch[self] = self._euiCooldownFinish
                         cooldownDoneDriver:Show()
                     else
@@ -263,10 +275,16 @@ local function ApplyCooldownCompat(target)
         target.SetHideCountdownNumbers = function(self, hide)
             self._euiHideCountdownNumbers = hide and true or false
             if self._euiCooldownFinish and self._euiCooldownFinish > GetTime() then
-                EnsureCooldownText(self)
-                cooldownTextWatch[self] = self._euiCooldownFinish
-                RefreshCooldownText(self, GetTime())
-                cooldownDoneDriver:Show()
+                local now = GetTime()
+                if self._euiCooldownFinish - now > 1.5 then
+                    EnsureCooldownText(self)
+                    cooldownTextWatch[self] = self._euiCooldownFinish
+                    RefreshCooldownText(self, now)
+                    cooldownDoneDriver:Show()
+                else
+                    cooldownTextWatch[self] = nil
+                    if self._euiCooldownText then self._euiCooldownText:Hide() end
+                end
             elseif self._euiCooldownText then
                 self._euiCooldownText:Hide()
             end

@@ -861,12 +861,6 @@ local function ReevaluateState()
     end
 end
 
-local function SafeReevaluateState(scope)
-    local ok, err = xpcall(ReevaluateState, CompatibilityTraceback)
-    if not ok then ReportCompatibilityError(scope or "ReevaluateState", err) end
-    return ok
-end
-
 -- The parent framework's PLAYER_LOGIN frame is created before this child
 -- addon loads.  Once the compatibility layer moved into the child addon, that
 -- framework frame could run the CDM's OnEnable before this tracker's own
@@ -891,39 +885,51 @@ end
 -- UNIT_AURA; the combat-log path below supplies a second authoritative wakeup
 -- without adding a permanent polling ticker.
 local auraRefreshQueued = false
+local stateRefreshQueued = false
 local auraRefreshRetryAt = 0
 local auraRefreshFailureCount = 0
 local auraRefreshFrame = CreateFrame("Frame")
 auraRefreshFrame:Hide()
 auraRefreshFrame:SetScript("OnUpdate", function(self)
-    if not auraRefreshQueued then self:Hide(); return end
+    if not stateRefreshQueued then self:Hide(); return end
     local now = GetTime()
     if now < auraRefreshRetryAt then return end
     -- Consume the generation before work starts so a callback raised during
     -- the refresh can mark a newer generation dirty without being overwritten
     -- by the successful completion of this one.
+    local refreshAuras = auraRefreshQueued
     auraRefreshQueued = false
+    stateRefreshQueued = false
     local ok, err = xpcall(function()
-        UpdateAuraCache()
+        if refreshAuras then UpdateAuraCache() end
         ReevaluateState()
     end, CompatibilityTraceback)
     if ok then
         auraRefreshFailureCount = 0
         auraRefreshRetryAt = 0
-        if not auraRefreshQueued then self:Hide() end
+        if not stateRefreshQueued then self:Hide() end
     else
         -- Keep the request armed. Exponential backoff prevents a persistent bad
         -- payload from becoming a refresh/error storm while still self-healing.
         auraRefreshFailureCount = auraRefreshFailureCount + 1
         local retryDelay = math.min(10, 2 ^ math.min(auraRefreshFailureCount - 1, 4))
-        auraRefreshQueued = true
+        -- Preserve both the failed generation and any newer aura request
+        -- raised synchronously while ReevaluateState was running.
+        auraRefreshQueued = auraRefreshQueued or refreshAuras
+        stateRefreshQueued = true
         auraRefreshRetryAt = now + retryDelay
-        ReportCompatibilityError("AuraRefresh", err)
+        ReportCompatibilityError(refreshAuras and "AuraRefresh" or "StateRefresh", err)
     end
 end)
 
 local function QueueAuraRefresh()
     auraRefreshQueued = true
+    stateRefreshQueued = true
+    auraRefreshFrame:Show()
+end
+
+local function QueueStateRefresh()
+    stateRefreshQueued = true
     auraRefreshFrame:Show()
 end
 
@@ -966,10 +972,12 @@ tracker:SetScript("OnEvent", function(self, event, ...)
     elseif event == "UNIT_HEALTH" then
         local unit = ...
         if unit == "target" or (unit and UnitIsUnit and UnitIsUnit(unit, "target")) then
-            SafeReevaluateState("UNIT_HEALTH")
+            QueueStateRefresh()
         end
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
-        SafeReevaluateState(event)
+        -- Both events normally arrive together after a cast. Coalesce them,
+        -- along with any same-frame aura notification, into one state pass.
+        QueueStateRefresh()
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         local _, subEvent, _, _, _, destinationGUID, _, _, spellID = ...
         if IsAuraCombatLogEvent(subEvent) then
