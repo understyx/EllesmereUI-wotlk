@@ -15,9 +15,7 @@
 --     as custom keys on Blizzard frame tables. (CLAUDE.md hard rule.)
 --   - Native content is visual-only: we SetAlpha(0) on textures and lay our own
 --     layers under them. We never Hide/Show/SetParent native child controls or
---     recurse EnableMouse over the frame tree. The addon-owned Wrath category
---     rail is the sole navigation exception and calls Blizzard's stock top-level
---     LFD/LFR panel toggles without replacing either workflow.
+--     recurse EnableMouse over the frame tree.
 --   - Post-hooks only (hooksecurefunc) on globals/methods; HookScript (never
 --     SetScript) on secure frames. The original secure handler always runs first.
 --   - We NEVER read per-result/per-member search data. In Midnight the browse/
@@ -824,12 +822,11 @@ end
 --
 -- The 3.3.5 client owns these as two small, independent top-level windows.
 -- Keep those native frames and every native action intact, but seat each one in
--- the same Dungeons & Raids shell and expose the two real destinations in a
--- shared left rail. This path is deliberately excluded when Retail's PVEFrame
--- exists.
+-- a full-width Dungeons & Raids shell. Wrath does not own Retail's category
+-- buttons, so this path must not reserve or invent a left rail. This path is
+-- deliberately excluded when Retail's PVEFrame exists.
 -------------------------------------------------------------------------------
 local LEGACY_PVE_WIDTH = 495
-local LEGACY_PVE_RAIL = 140
 
 local function SharedSkin()
     return _G.EllesmereUIBlizzardSkin
@@ -906,81 +903,18 @@ local function SetLegacyPageTitle(frame, title, titleRegion)
     end
 end
 
-local function SwitchLegacyPVE(source, target, toggle)
-    if source and source:IsShown() then HideUIPanel(source) end
-    if target and target:IsShown() then return end
-    if toggle then
-        toggle()
-    elseif target then
-        ShowUIPanel(target)
-    end
-end
-
-local function CreateLegacyRailButton(rail, textValue, selected, onClick)
-    local S = SharedSkin()
-    local button = EllesmereUI.SafeCreateFrame("Button", nil, rail)
-    button:SetHeight(34)
-    local label = button:CreateFontString(nil, "OVERLAY")
-    label:SetPoint("LEFT", button, "LEFT", 12, 0)
-    label:SetPoint("RIGHT", button, "RIGHT", -8, 0)
-    label:SetJustifyH("LEFT")
-    if S and S.ApplyRetailTypography then
-        S:ApplyRetailTypography(label, selected and "section" or "row")
-    else
-        label:SetFont(Theme.fontPath or STANDARD_TEXT_FONT, 10, "")
-    end
-    label:SetText(textValue or "")
-    if S and S.UpdateRetailRow then S:UpdateRetailRow(button, selected, false) end
-    if selected then
-        local ar, ag, ab = Theme.accR, Theme.accG, Theme.accB
-        if S and S.GetRetailAccent then ar, ag, ab = S:GetRetailAccent() end
-        label:SetTextColor(ar, ag, ab, 1)
-    end
-    if onClick then button:SetScript("OnClick", onClick) end
-    return button
-end
-
-local function ApplyLegacyPVERail(frame, selectedRaid)
-    local S = SharedSkin()
-    local d = GetFFD(frame)
-    if not d.legacyRail then
-        local rail = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-        rail:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -48)
-        rail:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 126, 45)
-        rail:SetFrameLevel(frame:GetFrameLevel())
-        if S and S.ApplyRetailSurface then S:ApplyRetailSurface(rail, "header") end
-        d.legacyRail = rail
-
-        local dungeon = CreateLegacyRailButton(rail, LOOKING_FOR_DUNGEON or "Dungeon Finder", not selectedRaid, function()
-            if frame == _G.LFDParentFrame then return end
-            SwitchLegacyPVE(frame, _G.LFDParentFrame, _G.ToggleLFDParentFrame)
-        end)
-        dungeon:SetPoint("TOPLEFT", rail, "TOPLEFT", 6, -8)
-        dungeon:SetPoint("TOPRIGHT", rail, "TOPRIGHT", -6, -8)
-
-        local raid = CreateLegacyRailButton(rail, LOOKING_FOR_RAID or "Raid Browser", selectedRaid, function()
-            if frame == _G.LFRParentFrame then return end
-            SwitchLegacyPVE(frame, _G.LFRParentFrame, _G.ToggleLFRParentFrame)
-        end)
-        raid:SetPoint("TOPLEFT", dungeon, "BOTTOMLEFT", 0, -4)
-        raid:SetPoint("TOPRIGHT", dungeon, "BOTTOMRIGHT", 0, -4)
-        d.legacyDungeonButton, d.legacyRaidButton = dungeon, raid
-    end
-end
-
-local function ApplyLegacyPVEShell(frame, selectedRaid, titleRegion)
+local function ApplyLegacyPVEShell(frame, titleRegion)
     if not frame then return end
     frame:SetSize(LEGACY_PVE_WIDTH, 440)
     SkinAtlasPanel(frame)
     SetLegacyPageTitle(frame, "Dungeons & Raids", titleRegion)
     SkinLegacyCloseButton(FindLegacyCloseButton(frame), frame)
-    ApplyLegacyPVERail(frame, selectedRaid)
 
     local S = SharedSkin()
     local d = GetFFD(frame)
     if not d.legacyContentSurface then
         local content = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-        content:SetPoint("TOPLEFT", frame, "TOPLEFT", LEGACY_PVE_RAIL, -48)
+        content:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -48)
         content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 45)
         content:SetFrameLevel(frame:GetFrameLevel())
         if S and S.ApplyRetailSurface then S:ApplyRetailSurface(content, "body") end
@@ -992,7 +926,7 @@ local function SeatLegacyPVEPane(pane, parent)
     if not pane or GetFFD(pane).legacySeated then return end
     GetFFD(pane).legacySeated = true
     pane:ClearAllPoints()
-    pane:SetPoint("TOPLEFT", parent, "TOPLEFT", LEGACY_PVE_RAIL, 0)
+    pane:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     pane:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
 end
 
@@ -1067,12 +1001,64 @@ local function StyleLegacyOverlay(frame, primaryKeys)
     end
 end
 
+local function LayoutLegacyLFDContent(queue)
+    if not queue then return end
+
+    -- The native pane was authored at 355x440. The legacy shell is wider, so
+    -- explicitly grow the scroll/list and blocking-state layers instead of
+    -- leaving them right-aligned at their stock width.
+    local tank = _G.LFDQueueFrameRoleButtonTank
+    if tank then
+        tank:ClearAllPoints()
+        tank:SetPoint("TOPLEFT", queue, "TOPLEFT", 105, -60)
+    end
+
+    local random = _G.LFDQueueFrameRandomScrollFrame
+    if random then
+        random:ClearAllPoints()
+        random:SetPoint("TOPLEFT", queue, "TOPLEFT", 24, -158)
+        random:SetPoint("BOTTOMRIGHT", queue, "BOTTOMRIGHT", -34, 30)
+    end
+    local randomChild = _G.LFDQueueFrameRandomScrollFrameChildFrame
+    if randomChild then
+        randomChild:SetWidth(415)
+        for _, key in ipairs({ "description", "rewardsDescription", "pugDescription" }) do
+            local region = randomChild[key]
+            if region then region:SetWidth(395) end
+        end
+    end
+
+    for i = 1, 15 do
+        local row = _G["LFDQueueFrameSpecificListButton" .. i]
+        if row then row:SetWidth(435) end
+    end
+    local first = _G.LFDQueueFrameSpecificListButton1
+    if first then
+        first:ClearAllPoints()
+        first:SetPoint("TOPLEFT", queue, "TOPLEFT", 24, -165)
+    end
+
+    for _, name in ipairs({
+        "LFDQueueFrameCooldownFrame",
+        "LFDQueueFramePartyBackfill",
+        "LFDQueueFrameNoLFDWhileLFR",
+    }) do
+        local overlay = _G[name]
+        if overlay then
+            overlay:ClearAllPoints()
+            overlay:SetPoint("TOPLEFT", queue, "TOPLEFT", 18, -151)
+            overlay:SetPoint("BOTTOMRIGHT", queue, "BOTTOMRIGHT", -18, 28)
+        end
+    end
+end
+
 local function SkinLegacyLFD()
     local parent, queue = _G.LFDParentFrame, _G.LFDQueueFrame
     if not parent or not queue or _G.PVEFrame then return end
     local S = SharedSkin()
-    ApplyLegacyPVEShell(parent, false, _G.LFDQueueFrameTitleText)
+    ApplyLegacyPVEShell(parent, _G.LFDQueueFrameTitleText)
     SeatLegacyPVEPane(queue, parent)
+    LayoutLegacyLFDContent(queue)
     FadeRegions(queue)
     if _G.LFDParentFramePortrait then FadeRegions(_G.LFDParentFramePortrait) end
 
@@ -1135,7 +1121,7 @@ local function SkinLegacyLFR()
     local parent = _G.LFRParentFrame
     if not parent or _G.PVEFrame then return end
     local S = SharedSkin()
-    ApplyLegacyPVEShell(parent, true)
+    ApplyLegacyPVEShell(parent)
     if _G.LFRParentFrameIcon then _G.LFRParentFrameIcon:SetAlpha(0) end
     if _G.LFRQueueFrameTitleText then _G.LFRQueueFrameTitleText:SetAlpha(0) end
     if _G.LFRBrowseFrameTitleText then _G.LFRBrowseFrameTitleText:SetAlpha(0) end
@@ -1199,12 +1185,12 @@ local function SkinLegacyLFR()
         local d = GetFFD(parent)
         if not d.legacyTabOwner then
             d.legacyTabOwner = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-            d.legacyTabOwner:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", LEGACY_PVE_RAIL, 0)
+            d.legacyTabOwner:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 14, 0)
             d.legacyTabOwner:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -14, 0)
             d.legacyTabOwner:SetHeight(0)
         end
         S:StyleRetailTab(tabs[1]); S:StyleRetailTab(tabs[2])
-        S:LayoutRetailTabRow(tabs, d.legacyTabOwner, (LEGACY_PVE_WIDTH - LEGACY_PVE_RAIL - 14) / 2, 0)
+        S:LayoutRetailTabRow(tabs, d.legacyTabOwner, (LEGACY_PVE_WIDTH - 28) / 2, 0)
         local active = parent.activeTab or 1
         S:UpdateRetailTab(tabs[1], active == 1)
         S:UpdateRetailTab(tabs[2], active == 2)
@@ -1628,16 +1614,16 @@ local function SkinLegacyPVPTabs()
     local tab1, tab2 = _G.PVPParentFrameTab1, _G.PVPParentFrameTab2
     local S = SharedSkin()
     if not parent or not tab1 or not tab2 or not (S and S.StyleRetailTab) then return end
-    local d = GetFFD(parent)
-    if not d.legacyTabOwner then
-        local owner = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-        owner:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 14, 45)
-        owner:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -14, 45)
-        owner:SetHeight(0)
-        d.legacyTabOwner = owner
-    end
+    tab1:Show(); tab2:Show()
     S:StyleRetailTab(tab1); S:StyleRetailTab(tab2)
-    S:LayoutRetailTabRow({ tab1, tab2 }, d.legacyTabOwner, 202, 0)
+    tab1:ClearAllPoints()
+    tab1:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 14, 19)
+    tab1:SetSize(202, 26)
+    tab2:ClearAllPoints()
+    tab2:SetPoint("LEFT", tab1, "RIGHT", 0, 0)
+    tab2:SetSize(202, 26)
+    tab1:SetFrameLevel(parent:GetFrameLevel() + 5)
+    tab2:SetFrameLevel(parent:GetFrameLevel() + 5)
     UpdateLegacyPVPTabs()
 end
 
@@ -1883,6 +1869,14 @@ local function SkinLegacyPVP()
     if not parent or not pvp or _G.PVPUIFrame then return end
     ApplyLegacyPVPShell()
     FadeRegions(pvp)
+    -- PVPFrame's stock title is an unnamed FontString, so it cannot be reached
+    -- through a global. It is the only direct FontString on this frame.
+    for i = 1, select("#", pvp:GetRegions()) do
+        local region = select(i, pvp:GetRegions())
+        if region and region.IsObjectType and region:IsObjectType("FontString") then
+            region:SetAlpha(0)
+        end
+    end
     if _G.PVPFramePortrait then _G.PVPFramePortrait:SetAlpha(0) end
     if _G.PVPFrameBackground then _G.PVPFrameBackground:SetAlpha(0) end
     StyleLegacyPVPResources()
@@ -1909,6 +1903,7 @@ local function InstallLegacyHooks()
     if _G.PVPParentFrame then _G.PVPParentFrame:HookScript("OnShow", SkinLegacyPVP) end
     if _G.LFDQueueFrameSpecificList_Update then
         hooksecurefunc("LFDQueueFrameSpecificList_Update", function()
+            LayoutLegacyLFDContent(_G.LFDQueueFrame)
             StyleLegacyPVERows("LFDQueueFrameSpecificListButton", 15)
         end)
     end

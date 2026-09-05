@@ -157,7 +157,7 @@ Likely implementation area: `EllesmereUIBlizzardSkin/EllesmereUIBlizzardSkin_Ins
 - Midnight presents Dungeon Finder inside a large `Dungeons & Raids` window using the shared dark shell, centered title, and simple close icon.
 - WotLK presents Dungeon Finder as a much smaller floating native panel. Much of the world remains visible through or around the content, so the controls do not read as one contained window.
 - Midnight uses a left category rail for Dungeon Finder, Raid Finder, and Premade Groups.
-- WotLK does not have equivalent versions of every modern category; its related secondary action is Raid Browser.
+- WotLK does not expose the equivalent left-side category buttons; its related secondary action is the native Raid Browser button.
 - Midnight places role controls in a clear horizontal group at the top of the content pane.
 - WotLK uses similar role icons, but they float near the top without the same header/content structure.
 - Both versions use a Type dropdown followed by the selected activity's description and rewards.
@@ -169,10 +169,10 @@ Likely implementation area: `EllesmereUIBlizzardSkin/EllesmereUIBlizzardSkin_Ins
 
 1. Use the Midnight `Dungeons & Raids` composition as the primary visual target.
 2. Contain all WotLK Dungeon Finder controls within the shared dark shell and content surface.
-3. Reuse the large left navigation rail, but include only real WotLK destinations such as Dungeon Finder and Raid Browser.
+3. Do not reserve or invent a left navigation rail on WotLK; expand the native pane across the full shared shell instead.
 4. Keep role selection, Type, description, rewards, and queue behavior native while restyling and repositioning them.
 5. Present `Find Group` as the primary centered action.
-6. Move Raid Browser into the left rail instead of leaving it as a competing red button.
+6. Keep Raid Browser as its native secondary action and give it the shared secondary-button treatment.
 7. Use the shared dropdown, reward card, money display, primary button, footer, and close-button styles.
 8. Do not create decorative Raid Finder, Premade Groups, or Mythic+ destinations when the WotLK client/server does not implement them.
 
@@ -572,14 +572,14 @@ These screens establish how the project handles WotLK workflows that do not map 
 
 Implementation status (2026-09-05): first checkpoint implemented, pending in-game validation.
 
-- The native WotLK Dungeon Finder and Raid Browser now share a `Dungeons & Raids` shell and a two-destination category rail.
+- The native WotLK Dungeon Finder now fills the `Dungeons & Raids` shell without reserving space for Retail-only category buttons; Raid Browser remains its real native secondary action.
 - Native role selection, dungeon/raid selection, comments, browse results, queue actions, and disabled states remain owned by Blizzard's original controls.
 - The standalone PvP summary now uses the shared header, content surface, typography, stats-card, arena-team-card, and footer-tab treatments established by Inspect PvP.
 - The Battleground queue now uses flat selectable rows, a dark detail surface, compact Wintergrasp status, shared scroll bars, and one consistent action row while retaining the original selection and queue workflow.
 - Repaint hooks reapply visual state after dungeon, raid-browser, PvP-team, battleground-selection, reward, and queue updates.
 - Completion still requires the role, random/specific, queued/cancel, empty/populated arena team, Battleground party/solo, disabled, reward, and long-locale checks listed below.
 
-1. Bring Dungeon Finder into the shared Dungeons & Raids shell and move Raid Browser into its category rail.
+1. Bring Dungeon Finder into the full-width shared Dungeons & Raids shell while retaining its native Raid Browser action.
 2. Restyle the PvP summary using the Inspect PvP tab as its component reference.
 3. Apply the provisional modernized-WotLK treatment to the Battleground queue without changing its workflow.
 4. Verify every queue, role, selection, disabled, party, and cancel state before completion.
