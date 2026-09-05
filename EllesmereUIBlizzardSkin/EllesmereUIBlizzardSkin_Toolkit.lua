@@ -618,6 +618,9 @@ function WSkin:StyleRetailTab(tab)
 		state.label = tab:CreateFontString(nil, "OVERLAY")
 		state.label:SetPoint("CENTER", tab, "CENTER", 0, 0)
 		state.label:SetJustifyH("CENTER")
+		-- Unlike newer clients, 3.3.5 raises "Font not set" when SetText is
+		-- called on an untemplated FontString before its first SetFont call.
+		self:ApplyRetailTypography(state.label, "tab")
 		state.label:SetText(labelText or "")
 		if hooksecurefunc and tab.SetText then
 			hooksecurefunc(tab, "SetText", function(_, text)
