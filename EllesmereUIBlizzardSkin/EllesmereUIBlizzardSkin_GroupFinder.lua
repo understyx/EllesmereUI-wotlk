@@ -826,7 +826,9 @@ end
 -- buttons, so this path must not reserve or invent a left rail. This path is
 -- deliberately excluded when Retail's PVEFrame exists.
 -------------------------------------------------------------------------------
-local LEGACY_PVE_WIDTH = 495
+-- Wider than Blizzard's 355px pane, but still compact enough to retain the
+-- proportions of the Wrath dialog instead of reading like a Retail side rail.
+local LEGACY_PVE_WIDTH = 410
 
 local function SharedSkin()
     return _G.EllesmereUIBlizzardSkin
@@ -1010,7 +1012,7 @@ local function LayoutLegacyLFDContent(queue)
     local tank = _G.LFDQueueFrameRoleButtonTank
     if tank then
         tank:ClearAllPoints()
-        tank:SetPoint("TOPLEFT", queue, "TOPLEFT", 105, -60)
+        tank:SetPoint("TOPLEFT", queue, "TOPLEFT", 65, -60)
     end
 
     local random = _G.LFDQueueFrameRandomScrollFrame
@@ -1021,16 +1023,16 @@ local function LayoutLegacyLFDContent(queue)
     end
     local randomChild = _G.LFDQueueFrameRandomScrollFrameChildFrame
     if randomChild then
-        randomChild:SetWidth(415)
+        randomChild:SetWidth(330)
         for _, key in ipairs({ "description", "rewardsDescription", "pugDescription" }) do
             local region = randomChild[key]
-            if region then region:SetWidth(395) end
+            if region then region:SetWidth(310) end
         end
     end
 
     for i = 1, 15 do
         local row = _G["LFDQueueFrameSpecificListButton" .. i]
-        if row then row:SetWidth(435) end
+        if row then row:SetWidth(350) end
     end
     local first = _G.LFDQueueFrameSpecificListButton1
     if first then
@@ -1617,11 +1619,11 @@ local function SkinLegacyPVPTabs()
     tab1:Show(); tab2:Show()
     S:StyleRetailTab(tab1); S:StyleRetailTab(tab2)
     tab1:ClearAllPoints()
-    tab1:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 14, 19)
-    tab1:SetSize(202, 26)
+    tab1:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, 0)
+    tab1:SetSize(216, 26)
     tab2:ClearAllPoints()
     tab2:SetPoint("LEFT", tab1, "RIGHT", 0, 0)
-    tab2:SetSize(202, 26)
+    tab2:SetSize(216, 26)
     tab1:SetFrameLevel(parent:GetFrameLevel() + 5)
     tab2:SetFrameLevel(parent:GetFrameLevel() + 5)
     UpdateLegacyPVPTabs()

@@ -549,6 +549,15 @@ end
 local _friendCache = {}
 local _FC_WOW_OFFSET = 10000
 
+-- Only these rows carry an index accepted by Blizzard's friend click handler.
+-- ScrollBox header/divider frames can reuse the same button template with a
+-- nil id; treating one as a friend makes right-click call GetFriendInfo(nil).
+local function IsActualFriendButton(button)
+    if not button or not button.id then return false end
+    return button.buttonType == FRIENDS_BUTTON_TYPE_BNET
+        or button.buttonType == FRIENDS_BUTTON_TYPE_WOW
+end
+
 local function GetCachedFriendInfo(button)
     if not button or not button.buttonType or not button.id then return nil, nil end
     local key
@@ -889,8 +898,7 @@ end
 local function PostUpdateFriendButton(button)
     if not FriendsFrame:IsShown() then return end
     if not EBS.db or not EBS.db.profile.friends.enabled then return end
-    if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
-    if not button.buttonType then return end
+    if not IsActualFriendButton(button) then return end
 
     -- Structural skinning (one-time per button, guarded by FFD flag)
     SkinFriendButton(button)
@@ -1089,9 +1097,7 @@ local function ProcessFriendButtons()
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
     if not scrollBox then return end
     for _, button in scrollBox:EnumerateFrames() do
-        if button.buttonType and button.buttonType ~= FRIENDS_BUTTON_TYPE_DIVIDER
-           and button.buttonType ~= FRIENDS_BUTTON_TYPE_INVITE
-           and button.buttonType ~= FRIENDS_BUTTON_TYPE_INVITE_HEADER then
+        if IsActualFriendButton(button) then
             GetFFD(button).stampType = nil
             PostUpdateFriendButton(button)
         end
@@ -2595,11 +2601,22 @@ local function SkinFriendsFrame()
     ---------------------------------------------------------------------------
     if FriendsFrame_UpdateFriendButton then
         hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
-            if not button or not button.buttonType then return end
-            if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
+            if not IsActualFriendButton(button) then return end
             local fd = GetFFD(button)
             fd.stampType = nil
         end)
+    end
+
+    -- Wrath's handler assumes every frame routed here has a valid friend id.
+    -- Modernized list layouts also route header/recycled rows through the same
+    -- template, so reject those rows before Blizzard calls GetFriendInfo.
+    if FriendsFrameFriendButton_OnClick and not GetFFD(frame).friendClickGuard then
+        local originalFriendButtonOnClick = FriendsFrameFriendButton_OnClick
+        FriendsFrameFriendButton_OnClick = function(button, mouseButton)
+            if not IsActualFriendButton(button) then return end
+            return originalFriendButtonOnClick(button, mouseButton)
+        end
+        GetFFD(frame).friendClickGuard = true
     end
 
     -- Scroll position poller: detects scroll changes (drag, keyboard, etc.)
@@ -2614,9 +2631,9 @@ local function SkinFriendsFrame()
             -- Only re-skin if a recycled button shows different data than its stamp
             local needsSkin = false
             for _, btn in sb:EnumerateFrames() do
-                if btn.buttonType and btn.buttonType ~= FRIENDS_BUTTON_TYPE_DIVIDER then
+                if IsActualFriendButton(btn) then
                     local fd = GetFFD(btn)
-                    if fd.stampType ~= btn.buttonType or fd.stampId ~= (btn.id or 0) then
+                    if fd.stampType ~= btn.buttonType or fd.stampId ~= btn.id then
                         needsSkin = true
                         break
                     end
