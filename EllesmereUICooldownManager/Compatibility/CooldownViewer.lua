@@ -36,8 +36,128 @@ local cachedTargetDebuffsAnySource = {}
 local cachedTargetDebuffsAnySourceByName = {}
 local cachedAuraTime = 0
 
+-- Some 3.3.5 cores intermittently lose UnitAura's caster token (and may also
+-- return an empty HARMFUL|PLAYER view), notably after the player is
+-- resurrected.  Keep the authoritative ownership edge from CLEU so the
+-- unfiltered target scan can still identify the player's copy of a debuff.
+-- Entries are keyed by destination GUID because the same spell can be active
+-- on several targets at once.
+local playerDebuffsByGUID = {}
+local learnedPlayerDebuffDurations = {}
+local PLAYER_DEBUFF_EXPIRY_SLOP = 0.5
+
 -- Event Tracker Frame
 local tracker = CreateFrame("Frame")
+
+local function IsPlayerOrPetGUID(guid)
+    if not guid then return false end
+    local playerGUID = UnitGUID and UnitGUID("player")
+    if playerGUID and guid == playerGUID then return true end
+    local petGUID = UnitGUID and UnitGUID("pet")
+    return petGUID and guid == petGUID or false
+end
+
+local function GetPlayerDebuffEntry(destinationGUID, spellID)
+    local bySpell = destinationGUID and playerDebuffsByGUID[destinationGUID]
+    local entry = bySpell and bySpell[spellID]
+    if not entry then return nil end
+
+    local expirationTime = entry.expirationTime or 0
+    if expirationTime > 0 and GetTime() > expirationTime + PLAYER_DEBUFF_EXPIRY_SLOP then
+        bySpell[spellID] = nil
+        if not next(bySpell) then playerDebuffsByGUID[destinationGUID] = nil end
+        return nil
+    end
+    return entry
+end
+
+local function RememberPlayerDebuff(destinationGUID, spellID, spellName, refreshDuration)
+    if not destinationGUID or not spellID then return end
+    local bySpell = playerDebuffsByGUID[destinationGUID]
+    if not bySpell then
+        bySpell = {}
+        playerDebuffsByGUID[destinationGUID] = bySpell
+    end
+
+    local entry = bySpell[spellID]
+    if not entry then
+        entry = {}
+        bySpell[spellID] = entry
+    end
+    entry.spellName = spellName or entry.spellName
+    if refreshDuration or entry.preferNewest == nil then
+        entry.preferNewest = true
+    end
+
+    if refreshDuration then
+        local duration = learnedPlayerDebuffDurations[spellID]
+        if duration and duration > 0 then
+            entry.duration = duration
+            entry.expirationTime = GetTime() + duration
+        else
+            entry.expirationTime = nil
+        end
+    end
+end
+
+local function ForgetPlayerDebuff(destinationGUID, spellID)
+    local bySpell = destinationGUID and playerDebuffsByGUID[destinationGUID]
+    if not bySpell then return end
+    bySpell[spellID] = nil
+    if not next(bySpell) then playerDebuffsByGUID[destinationGUID] = nil end
+end
+
+local function LearnPlayerDebuffAura(destinationGUID, spellID, aura)
+    if not destinationGUID or not spellID or not aura then return end
+    local duration = aura.duration or 0
+    if duration > 0 then learnedPlayerDebuffDurations[spellID] = duration end
+
+    local bySpell = playerDebuffsByGUID[destinationGUID]
+    if not bySpell then
+        bySpell = {}
+        playerDebuffsByGUID[destinationGUID] = bySpell
+    end
+    local entry = bySpell[spellID]
+    if not entry then
+        entry = {}
+        bySpell[spellID] = entry
+    end
+    entry.duration = duration
+    entry.expirationTime = aura.expirationTime or 0
+    entry.spellName = aura.name or entry.spellName
+    entry.preferNewest = false
+end
+
+local function SelectOwnedAuraCandidate(candidates, entry)
+    if not candidates or #candidates == 0 then return nil end
+    if #candidates == 1 then return candidates[1] end
+
+    local selected = candidates[1]
+    if entry and not entry.preferNewest and (entry.expirationTime or 0) > 0 then
+        -- Preserve the previously selected copy when another player refreshes
+        -- the same spell.  This matters in raids with multiple players of the
+        -- same class, where several identical spell IDs may coexist.
+        local wanted = entry.expirationTime
+        local bestDelta = math.abs((selected.expirationTime or 0) - wanted)
+        for i = 2, #candidates do
+            local candidate = candidates[i]
+            local delta = math.abs((candidate.expirationTime or 0) - wanted)
+            if delta < bestDelta then
+                selected = candidate
+                bestDelta = delta
+            end
+        end
+    else
+        -- A fresh CLEU application/refresh belongs to the newest matching aura.
+        for i = 2, #candidates do
+            local candidate = candidates[i]
+            if (candidate.expirationTime or 0) > (selected.expirationTime or 0) then
+                selected = candidate
+            end
+        end
+    end
+    return selected
+end
 
 local function ValidateDefinition(def)
     if not def.key then return false, "Missing key" end
@@ -621,6 +741,8 @@ local function UpdateAuraCache()
     wipe(cachedTargetDebuffs)
     wipe(cachedTargetDebuffsAnySource)
     wipe(cachedTargetDebuffsAnySourceByName)
+    local targetDebuffCandidates = {}
+    local explicitlyOwned = {}
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HELPFUL")
         if not name then break end
@@ -636,6 +758,7 @@ local function UpdateAuraCache()
         end
     end
     if UnitExists("target") then
+        local targetGUID = UnitGUID and UnitGUID("target")
         -- Raid-category cache: every harmful aura, regardless of caster.
         for i = 1, 40 do
             local name, rank, icon, count, debuffType, duration, expirationTime,
@@ -651,7 +774,15 @@ local function UpdateAuraCache()
                     icon = icon,
                     name = name,
                 }
-                if spellID then cachedTargetDebuffsAnySource[spellID] = aura end
+                if spellID then
+                    cachedTargetDebuffsAnySource[spellID] = aura
+                    local candidates = targetDebuffCandidates[spellID]
+                    if not candidates then
+                        candidates = {}
+                        targetDebuffCandidates[spellID] = candidates
+                    end
+                    candidates[#candidates + 1] = aura
+                end
                 -- PLAYER-filtered UnitAura is unreliable on some 3.3.5 server
                 -- cores. Trust an explicit player/pet caster from the complete
                 -- scan, then merge the filtered scan below as a compatibility
@@ -659,7 +790,11 @@ local function UpdateAuraCache()
                 local fromPlayer = source == "player" or source == "pet"
                     or (source and UnitIsUnit
                         and (UnitIsUnit(source, "player") or UnitIsUnit(source, "pet")))
-                if spellID and fromPlayer then cachedTargetDebuffs[spellID] = aura end
+                if spellID and fromPlayer then
+                    cachedTargetDebuffs[spellID] = aura
+                    explicitlyOwned[spellID] = true
+                    LearnPlayerDebuffAura(targetGUID, spellID, aura)
+                end
                 -- Some 3.3.5 servers expose a server-specific spellID for an
                 -- otherwise standard aura. Raid equivalence groups also index
                 -- localized spell names so Sunder/Expose-style effects still
@@ -674,8 +809,8 @@ local function UpdateAuraCache()
                 source, isStealable, nameplateShowPersonal, spellID =
                 UnitAura("target", i, "HARMFUL|PLAYER")
             if not name then break end
-            if spellID then
-                cachedTargetDebuffs[spellID] = {
+            if spellID and not explicitlyOwned[spellID] then
+                local aura = {
                     duration = duration or 0,
                     expirationTime = expirationTime or 0,
                     count = count or 0,
@@ -683,6 +818,39 @@ local function UpdateAuraCache()
                     icon = icon,
                     name = name,
                 }
+                cachedTargetDebuffs[spellID] = aura
+                LearnPlayerDebuffAura(targetGUID, spellID, aura)
+            end
+        end
+
+        -- If both UnitAura ownership mechanisms failed, correlate the
+        -- unfiltered aura with the player's CLEU application.  CLEU identifies
+        -- ownership by GUID and remains reliable across death/resurrection on
+        -- cores that temporarily lose UnitAura's caster token.
+        local ownedBySpell = targetGUID and playerDebuffsByGUID[targetGUID]
+        if ownedBySpell then
+            for spellID in pairs(ownedBySpell) do
+                local entry = GetPlayerDebuffEntry(targetGUID, spellID)
+                if entry and not cachedTargetDebuffs[spellID] then
+                    local aura = SelectOwnedAuraCandidate(targetDebuffCandidates[spellID], entry)
+                    if aura then
+                        cachedTargetDebuffs[spellID] = aura
+                        LearnPlayerDebuffAura(targetGUID, spellID, aura)
+                    elseif entry.duration and entry.duration > 0
+                        and (entry.expirationTime or 0) > GetTime() then
+                        -- The target's unfiltered list can briefly lag the CLEU
+                        -- event (or be capped). Keep the known timer alive until
+                        -- a later scan supplies authoritative aura fields.
+                        cachedTargetDebuffs[spellID] = {
+                            duration = entry.duration,
+                            expirationTime = entry.expirationTime,
+                            count = 0,
+                            spellID = spellID,
+                            icon = GetSpellTexture and GetSpellTexture(spellID),
+                            name = entry.spellName or (GetSpellInfo and GetSpellInfo(spellID)),
+                        }
+                    end
+                end
             end
         end
     end
@@ -960,6 +1128,7 @@ tracker:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" or event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "PLAYER_EQUIPMENT_CHANGED" then
         ns.RefreshCooldownViewerCompatibility()
     elseif event == "PLAYER_ENTERING_WORLD" then
+        wipe(playerDebuffsByGUID)
         ns.RefreshCooldownViewerCompatibility()
     elseif event == "UNIT_AURA" then
         local unit = ...
@@ -979,7 +1148,20 @@ tracker:SetScript("OnEvent", function(self, event, ...)
         -- along with any same-frame aura notification, into one state pass.
         QueueStateRefresh()
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        local _, subEvent, _, _, _, destinationGUID, _, _, spellID = ...
+        local _, subEvent, sourceGUID, _, _, destinationGUID, _, _, spellID, spellName = ...
+        local auraType = select(subEvent == "SPELL_AURA_BROKEN_SPELL" and 15 or 12, ...)
+        if subEvent == "UNIT_DIED" then
+            if destinationGUID then playerDebuffsByGUID[destinationGUID] = nil end
+        elseif auraType == "DEBUFF" and IsPlayerOrPetGUID(sourceGUID) then
+            if subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH" then
+                RememberPlayerDebuff(destinationGUID, spellID, spellName, true)
+            elseif subEvent == "SPELL_AURA_APPLIED_DOSE" or subEvent == "SPELL_AURA_REMOVED_DOSE" then
+                RememberPlayerDebuff(destinationGUID, spellID, spellName, false)
+            elseif subEvent == "SPELL_AURA_REMOVED" or subEvent == "SPELL_AURA_BROKEN"
+                or subEvent == "SPELL_AURA_BROKEN_SPELL" then
+                ForgetPlayerDebuff(destinationGUID, spellID)
+            end
+        end
         if IsAuraCombatLogEvent(subEvent) then
             local targetGUID = UnitGUID("target")
             if targetGUID and destinationGUID == targetGUID then

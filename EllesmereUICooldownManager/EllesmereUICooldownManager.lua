@@ -643,7 +643,10 @@ end
 -- so future exports/copies cannot accidentally resurrect divergent layouts.
 function ns.EnsureProfileWideCDMLayout()
     local p = ECME.db and ECME.db.profile
-    if not p or rawget(p, "_cdmLayoutProfileWideV1") then return p end
+    -- Use an ordinary read so Spec Overrides' read-tracing proxy can see the
+    -- completed migration flag. rawget() sees only the intentionally empty
+    -- proxy and used to rerun this migration during every golden-border walk.
+    if not p or p._cdmLayoutProfileWideV1 then return p end
 
     local profiles = ns.GetSpecProfilesForProfile(ns.GetActiveProfileName())
     local legacy

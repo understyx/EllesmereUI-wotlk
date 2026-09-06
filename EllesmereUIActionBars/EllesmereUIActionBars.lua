@@ -1919,6 +1919,12 @@ end
 
 local NUM_AB_PAGES = NUM_ACTIONBAR_PAGES or 6
 
+-- Wrath vehicles reuse bonus-bar offset 5. VehicleMenuBarActionButton1-6 are
+-- BonusActionButtonTemplate buttons with alwaysBonus=true, so Blizzard resolves
+-- their actions from page NUM_ACTIONBAR_PAGES + 5 (page 11), not the page-12
+-- vehicle index used by later clients.
+EAB_VTABLE.VEHICLE_ACTION_PAGE = NUM_AB_PAGES + 5
+
 -- Keybinds are routed through our secure buttons. Blizzard's native action
 -- buttons are hidden and detached by HideBlizzardBars(), so dispatching a
 -- binding through ACTIONBUTTONn/MULTIACTIONBARnBUTTONn can execute a native
@@ -1931,7 +1937,6 @@ local NUM_AB_PAGES = NUM_ACTIONBAR_PAGES or 6
 do
     local V = EAB_VTABLE
     V.GetOverrideBarIndex = GetOverrideBarIndex or (C_ActionBar and C_ActionBar.GetOverrideBarIndex) or function() return 14 end
-    V.GetVehicleBarIndex = GetVehicleBarIndex or (C_ActionBar and C_ActionBar.GetVehicleBarIndex) or function() return 12 end
     V.GetActionBarPage = GetActionBarPage or (C_ActionBar and C_ActionBar.GetActionBarPage) or function() return 1 end
     V.HasVehicleActionBar = HasVehicleActionBar or (C_ActionBar and C_ActionBar.HasVehicleActionBar) or function() return false end
     V.HasOverrideActionBar = HasOverrideActionBar or (C_ActionBar and C_ActionBar.HasOverrideActionBar) or function() return false end
@@ -1991,11 +1996,9 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
     local _, class = UnitClass("player")
     local parts = {}
     if barKey == "MainBar" then
-        -- [overridebar]/[possessbar] don't exist in WotLK; use [vehicleui] for
-        -- vehicle paging and [bonusbar:5] (added below) for possess bar.
-        if EAB_VTABLE.GetVehicleBarIndex then
-            parts[#parts + 1] = "[vehicleui] " .. EAB_VTABLE.GetVehicleBarIndex()
-        end
+        -- [overridebar]/[possessbar] don't exist in WotLK. Vehicles and
+        -- possession both use bonus-bar offset 5 (action page 11).
+        parts[#parts + 1] = "[vehicleui] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE
     end
     for _, state in ipairs(PG.modifier) do
         local page = pagingConfig[state.id]
@@ -2004,7 +2007,7 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
         end
     end
     if barKey == "MainBar" then
-        parts[#parts + 1] = "[bonusbar:5] 11"
+        parts[#parts + 1] = "[bonusbar:5] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE
         for i = 2, NUM_AB_PAGES do
             parts[#parts + 1] = "[bar:" .. i .. "] " .. i
         end
@@ -2056,14 +2059,12 @@ local function GetClassPagingConditions()
     local _, class = UnitClass("player")
     local conditions = ""
 
-    -- Vehicle bar: [vehicleui] is valid in WotLK. [overridebar]/[possessbar]
-    -- are Cata+ and not valid in WotLK. Possess bar uses [bonusbar:5] (below).
-    if EAB_VTABLE.GetVehicleBarIndex then
-        conditions = conditions .. "[vehicleui] " .. EAB_VTABLE.GetVehicleBarIndex() .. "; "
-    end
+    -- VehicleMenuBarActionButton uses the same bonus-bar page as possession
+    -- on Wrath. [overridebar]/[possessbar] are later-client conditionals.
+    conditions = conditions .. "[vehicleui] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE .. "; "
 
     -- Dragonriding (all classes)
-    conditions = conditions .. "[bonusbar:5] 11; "
+    conditions = conditions .. "[bonusbar:5] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE .. "; "
 
     -- Manual page switching (pages 2-6)
     -- [bar:N] responds to WoW's internal page set by ChangeActionBarPage().

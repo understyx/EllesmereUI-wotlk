@@ -10,14 +10,6 @@ if not C_Timer then
     local timerFrame = CreateFrame("Frame")
     local timerIds = {}
 
-    -- Some 3.3.5 DebugTools builds expect message, stack, and locals strings.
-    -- Passing only pcall's error leaves locals nil and makes the error viewer
-    -- throw a second error while formatting the original one.
-    local function ReportTimerError(err)
-        local stack = type(debugstack) == "function" and debugstack(2, 20, 20) or ""
-        geterrorhandler()(tostring(err or "Unknown timer callback error"), stack, "")
-    end
-
     timerFrame:SetScript("OnUpdate", function(self, elapsed)
         iterating = true
         -- Lua 5.1's pairs()/next() traversal can fail with "invalid key to
@@ -39,10 +31,12 @@ if not C_Timer then
                         if t.remaining <= 0 then
                             t.remaining = t.duration
                         end
-                        local success, err = pcall(t.callback, t)
-                        if not success then
-                            ReportTimerError(err)
-                        end
+                        -- xpcall invokes Blizzard's handler before the callback
+                        -- stack unwinds.  The 3.3.5 DebugTools frame collects its
+                        -- own stack/locals at that point; reporting a pcall error
+                        -- afterwards leaves `locals` nil and the viewer itself
+                        -- errors recursively while trying to format it.
+                        xpcall(t.runner, geterrorhandler())
                         if t.cancelled then
                             timers[id] = nil
                         elseif t.maxIterations and t.iterations >= t.maxIterations then
@@ -52,10 +46,7 @@ if not C_Timer then
                     else
                         t.cancelled = true
                         timers[id] = nil
-                        local success, err = pcall(t.callback)
-                        if not success then
-                            ReportTimerError(err)
-                        end
+                        xpcall(t.runner, geterrorhandler())
                     end
                 end
             elseif t then
@@ -90,6 +81,9 @@ if not C_Timer then
             maxIterations = maxIterations,
             cancelled = false,
         }
+        -- Lua 5.1 xpcall cannot forward arguments.  Tickers therefore keep a
+        -- zero-argument runner that preserves C_Timer's callback(ticker) API.
+        t.runner = isTicker and function() return callback(t) end or callback
         function t:Cancel()
             self.cancelled = true
             timers[id] = nil

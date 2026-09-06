@@ -3841,22 +3841,47 @@ end
 -------------------------------------------------------------------------------
 local _traceSink = nil
 local _traceReal = nil
+local TRACE_NIL = {}
 
-local function MakeReadProxy(real, folder, prefix)
+-- Getter code is supposed to be read-only, but a few "ensure" helpers also do
+-- idempotent writes (for example `value = value or default`).  Writing through
+-- the old proxy could store a child proxy in the real profile.  Every later
+-- trace then wrapped that proxy again until an ordinary profile read overflowed
+-- the C stack.  Keep writes in a per-trace shadow instead: getters retain a
+-- coherent view of their own writes, while the live profile remains untouched.
+local function MakeReadProxy(real, folder, prefix, cache)
+    cache = cache or {}
+    local cacheKey = prefix or false
+    local byPath = cache[real]
+    if not byPath then
+        byPath = {}
+        cache[real] = byPath
+    elseif byPath[cacheKey] then
+        return byPath[cacheKey]
+    end
+
     local proxy = {}
+    local shadow = {}
+    byPath[cacheKey] = proxy
     setmetatable(proxy, {
         __index = function(_, k)
+            local pending = shadow[k]
+            if pending ~= nil then
+                return pending == TRACE_NIL and nil or pending
+            end
             local v = real[k]
             local path = prefix and (prefix .. PS .. tostring(k)) or tostring(k)
             if type(v) == "table" then
-                return MakeReadProxy(v, folder, path)
+                return MakeReadProxy(v, folder, path, cache)
             end
             if _traceSink then
                 _traceSink[folder .. FS .. path] = true
             end
             return v
         end,
-        __newindex = function(_, k, v) real[k] = v end,
+        __newindex = function(_, k, v)
+            shadow[k] = v == nil and TRACE_NIL or v
+        end,
     })
     return proxy
 end
@@ -3865,10 +3890,15 @@ local function BeginTrace()
     local reg = EllesmereUI.Lite and EllesmereUI.Lite._dbRegistry
     if not reg or _traceReal then return false end
     _traceReal = {}
+    local caches = {}
     for _, db in ipairs(reg) do
-        if db.folder and type(db.profile) == "table" then
+        -- Multiple NewDB users can share one folder/profile.  Give those views
+        -- one transaction, and ignore an accidental duplicate registry entry
+        -- rather than wrapping the proxy installed earlier in this same pass.
+        if db.folder and type(db.profile) == "table" and not _traceReal[db] then
+            caches[db.folder] = caches[db.folder] or {}
             _traceReal[db] = db.profile
-            db.profile = MakeReadProxy(db.profile, db.folder, nil)
+            db.profile = MakeReadProxy(db.profile, db.folder, nil, caches[db.folder])
         end
     end
     return true
