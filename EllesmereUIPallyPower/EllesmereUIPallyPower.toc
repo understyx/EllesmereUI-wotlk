@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Author: Ellesmere; based on work by Aznamir and NoM0Re
 ## Title: |cff0cd29fEllesmereUI|r PallyPower
-## Version: 8.6.4-wotlk.20260906
+## Version: 8.6.4-wotlk.20260907
 ## Notes: EllesmereUI module for Paladin blessing assignments and buff monitoring.
 ## Notes-esES: Buffs de Paladín para Grupo/Banda
 ## Notes-zhCN: 圣骑士祝福管理

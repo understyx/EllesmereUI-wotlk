@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Lightweight damage meters with simple but powerful customization.
 ## Author: Ellesmere
-## Version: 8.6.4-wotlk.20260906
+## Version: 8.6.4-wotlk.20260907
 ## Dependencies: EllesmereUI
 ## OptionalDeps: Skada
 ## SavedVariables: EllesmereUIDamageMetersDB
