@@ -25,7 +25,6 @@ local AURA_TAGS = {
     ["priest.pain_suppression"] = { external = true, defensive = true },
     ["priest.guardian_spirit"] = { external = true, defensive = true },
     ["priest.dispersion"] = { defensive = true },
-    ["priest.fear_ward"] = { external = true },
 }
 
 local function Register(def)

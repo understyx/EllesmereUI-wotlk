@@ -9,6 +9,7 @@ _G.EllesmereUIHealAbsorb = tracker
 
 local healComm = LibStub and LibStub("LibHealComm-4.0", true)
 local absorbs = LibStub and LibStub("SpecializedAbsorbs-1.0", true)
+local max, min = math.max, math.min
 local listeners = tracker.listeners or setmetatable({}, { __mode = "k" })
 tracker.listeners = listeners
 tracker.isLegacy = not (_G.UnitGetIncomingHeals and _G.UnitGetTotalAbsorbs)
@@ -17,7 +18,13 @@ function tracker.GetIncomingHeals(unit, casterGUID)
     if not healComm or not unit then return 0 end
     local guid = UnitGUID(unit)
     if not guid then return 0 end
-    return healComm:GetHealAmount(guid, healComm.ALL_HEALS, nil, casterGUID) or 0
+    local amount = healComm:GetHealAmount(guid, healComm.ALL_HEALS, nil, casterGUID) or 0
+    -- The EUI prediction bars begin at the current-health edge. Clamp the
+    -- library total to that remaining segment so combined casts and HoT ticks
+    -- can never paint beyond maximum health. Wrath health values are ordinary
+    -- numbers, unlike the secret values used by modern clients.
+    local missing = max(0, (UnitHealthMax(unit) or 0) - (UnitHealth(unit) or 0))
+    return min(max(0, amount), missing)
 end
 
 function tracker.GetAbsorbs(unit)
