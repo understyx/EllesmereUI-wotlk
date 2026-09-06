@@ -57,7 +57,6 @@ local AURA_TAGS = {
     ["paladin.hand_of_salvation"] = EXTERNAL,
     ["paladin.aura_mastery"] = DEFENSIVE,
     ["paladin.divine_sacrifice"] = DEFENSIVE,
-    ["paladin.sacred_shield"] = EXTERNAL_DEFENSIVE,
     ["paladin.holy_shield"] = DEFENSIVE,
     ["paladin.ardent_defender"] = DEFENSIVE,
     ["paladin.buff.divine_protection"] = DEFENSIVE,
@@ -68,8 +67,6 @@ local AURA_TAGS = {
     ["paladin.buff.hand_of_salvation"] = EXTERNAL,
     ["paladin.buff.divine_sacrifice"] = DEFENSIVE,
     ["paladin.buff.aura_mastery"] = DEFENSIVE,
-    ["paladin.buff.sacred_shield"] = EXTERNAL_DEFENSIVE,
-    ["paladin.bar.sacred_shield"] = EXTERNAL_DEFENSIVE,
 }
 local function Register(def)
     def.class = "PALADIN"

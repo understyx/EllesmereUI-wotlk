@@ -5345,6 +5345,22 @@ local function UpdateDefensives(button, unit, updateInfo)
             if ns.IS_WRATH then
                 isExternal = wrathTags and wrathTags.external == true or false
                 isBigDef = wrathTags and wrathTags.defensive == true or false
+                -- The Wrath catalog describes spells that can be externals;
+                -- the live caster decides whether this particular aura is one.
+                -- Unknown casters retain the catalog classification for cores
+                -- that do not populate UnitAura's source token.
+                if isExternal and auraData.sourceUnit and UnitIsUnit then
+                    isExternal = not UnitIsUnit(auraData.sourceUnit, unit)
+                end
+                -- Bone Shield is a real tank defensive, but Wrath Unholy DPS
+                -- also carries it as part of the normal talent build. Respect
+                -- the shared role detector (including manual overrides) so it
+                -- is not promoted to a defensive indicator for DPS players.
+                if isBigDef and auraData.spellId == 49222
+                    and EllesmereUI.RoleDetector
+                    and EllesmereUI.RoleDetector:GetRole(unit) == "DAMAGER" then
+                    isBigDef = false
+                end
             else
                 isExternal = not C_UnitAuras_IsAuraFilteredOutByInstanceID(
                     unit, iid, "HELPFUL|EXTERNAL_DEFENSIVE")
@@ -6333,6 +6349,14 @@ end
 if EllesmereUI.RoleDetector then
     EllesmereUI.RoleDetector:RegisterCallback(function()
         if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
+        -- Bone Shield is classified by the holder's detected role on Wrath.
+        -- Talent inspection completes asynchronously, so repaint defensives
+        -- when that role result arrives instead of waiting for another aura.
+        if ns.IS_WRATH then
+            for unit, btn in pairs(unitToButton) do UpdateDefensives(btn, unit) end
+            for unit, btn in pairs(ns._partyUnitToButton) do UpdateDefensives(btn, unit) end
+            for unit, btn in pairs(ns._xfUnitToButton) do UpdateDefensives(btn, unit) end
+        end
     end)
 end
 
@@ -10114,7 +10138,10 @@ local function OnEvent(self, event, arg1, ...)
                 ns._LayoutPartyFrames()
             end
         end)
-    elseif not framesVisible and not ns._partyFramesVisible then
+    elseif not framesVisible and not ns._partyFramesVisible
+        and event ~= "PLAYER_SPECIALIZATION_CHANGED"
+        and event ~= "ACTIVE_TALENT_GROUP_CHANGED"
+        and event ~= "PLAYER_TALENT_UPDATE" then
         -- Skip all per-unit event processing when no frames are visible
         return
     elseif event == "UNIT_IN_RANGE_UPDATE" then
@@ -10331,7 +10358,8 @@ local function OnEvent(self, event, arg1, ...)
             if ns._UpdateButtonHealth then ns._UpdateButtonHealth(btn) end
             UpdateReadyCheck(btn, arg1)
         end
-    elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
+    elseif event == "PLAYER_SPECIALIZATION_CHANGED"
+        or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_TALENT_UPDATE" then
         if ns.BM_RebuildLookup then ns.BM_RebuildLookup(db) end
         -- BM_RebuildLookup only rebuilds the global spell-lookup tables for the
         -- new spec; it re-renders no button and never clears any per-button
@@ -16199,13 +16227,20 @@ function ERF:OnEnable()
     if tracker and tracker.isLegacy and not ns._healAbsorbTrackerRegistered then
         ns._healAbsorbTrackerRegistered = true
         tracker.Register(ns, function(_, guid, change)
-            for _, button in ipairs(allButtons) do
-                local unit = button:GetAttribute("unit")
-                if unit and button:IsVisible() and UnitGUID(unit) == guid then
-                    UpdateAbsorb(button, unit)
-                    if change == "HEAL_ABSORB" then ns.UpdateHealAbsorbTextFor(button, unit) end
+            local function RefreshTrackedButtons(buttons)
+                for _, button in ipairs(buttons) do
+                    local unit = button:GetAttribute("unit")
+                    if unit and button:IsVisible() and UnitGUID(unit) == guid then
+                        UpdateAbsorb(button, unit)
+                        if change == "HEAL_ABSORB" then ns.UpdateHealAbsorbTextFor(button, unit) end
+                    end
                 end
             end
+            RefreshTrackedButtons(allButtons)
+            -- Party buttons live in a separate pool. Omitting them meant a
+            -- stopped/interrupted cast left its last non-zero prediction drawn
+            -- until some unrelated health event happened to refresh the unit.
+            RefreshTrackedButtons(ns._partyAllButtons or {})
         end)
     end
 
@@ -16367,7 +16402,16 @@ function ERF:OnEnable()
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PARTY_MEMBER_ENABLE")
     eventFrame:RegisterEvent("PARTY_MEMBER_DISABLE")
-    eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    if ns.IS_WRATH then
+        -- Wrath never fires PLAYER_SPECIALIZATION_CHANGED. Dual-spec swaps and
+        -- talent edits must rebuild the active healer-spell lookup themselves,
+        -- otherwise the old lookup eventually clears live buffs with no event
+        -- capable of restoring them.
+        eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+        eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    else
+        eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    end
     eventFrame:RegisterEvent("UNIT_PHASE")
     eventFrame:RegisterEvent("ENCOUNTER_START")
     eventFrame:RegisterEvent("ENCOUNTER_END")

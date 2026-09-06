@@ -936,7 +936,7 @@ local function PlayerCanDispel(dispelType)
     return false
 end
 
-local function AuraMatchesLegacyFilter(aura, filter)
+local function AuraMatchesLegacyFilter(aura, filter, unit)
     for rawToken in string.gmatch(filter or "", "[^|]+") do
         local negated = string.sub(rawToken, 1, 1) == "!"
         local token = negated and string.sub(rawToken, 2) or rawToken
@@ -953,6 +953,16 @@ local function AuraMatchesLegacyFilter(aura, filter)
             local tag = token == "BIG_DEFENSIVE" and "defensive" or "external"
             matches = C_CooldownViewer and C_CooldownViewer.IsAuraSpellTagged
                 and C_CooldownViewer.IsAuraSpellTagged(aura.spellId, tag) or false
+            -- An external is a buff supplied by another unit, not merely a
+            -- spell that is capable of being cast on someone else. This keeps
+            -- self-side auras such as Tricks of the Trade's threat-transfer
+            -- state out of the external display while retaining the recipient
+            -- buff. Some private-server cores omit caster tokens, so preserve
+            -- the catalog result when attribution is unavailable.
+            if matches and token == "EXTERNAL_DEFENSIVE" and unit
+                and aura.sourceUnit and UnitIsUnit then
+                matches = not UnitIsUnit(aura.sourceUnit, unit)
+            end
         else
             -- RAID/RAID_IN_COMBAT and newer classifications have no native
             -- 3.3.5 equivalent. Feature code that needs those semantics owns
@@ -985,7 +995,7 @@ local function BuildAuraSnapshot(unit, filter)
     local list = {}
     for i = 1, #base do
         local aura = base[i]
-        if AuraMatchesLegacyFilter(aura, filter) then
+        if AuraMatchesLegacyFilter(aura, filter, unit) then
             list[#list + 1] = aura
         end
     end
@@ -1007,6 +1017,9 @@ end
 local auraCacheInvalidator = CreateFrame("Frame")
 auraCacheInvalidator:RegisterEvent("UNIT_AURA")
 auraCacheInvalidator:RegisterEvent("PLAYER_ENTERING_WORLD")
+auraCacheInvalidator:RegisterEvent("GROUP_ROSTER_UPDATE")
+auraCacheInvalidator:RegisterEvent("RAID_ROSTER_UPDATE")
+auraCacheInvalidator:RegisterEvent("PARTY_MEMBERS_CHANGED")
 auraCacheInvalidator:SetScript("OnEvent", function(_, event, unit)
     C_UnitAuras.ClearCachedAuraData(event == "UNIT_AURA" and unit or nil)
 end)
@@ -1083,7 +1096,7 @@ C_UnitAuras.IsAuraFilteredOutByInstanceID = function(unit, iid, filter)
     if not unit or not iid then return true end
     local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, iid)
     if not aura then return true end
-    return not AuraMatchesLegacyFilter(aura, filter)
+    return not AuraMatchesLegacyFilter(aura, filter, unit)
 end
 
 C_UnitAuras.GetAuraDuration = function(unit, iid)

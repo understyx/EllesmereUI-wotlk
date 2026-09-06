@@ -14,6 +14,7 @@
 local addonName, ns = ...
 local EUI = _G.EllesmereUI
 if not EUI then return end
+local IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
 
 ns.ECHAT = ns.ECHAT or {}
 local ECHAT = ns.ECHAT
@@ -969,16 +970,27 @@ function ECHAT.ApplyForceOnScreen()
     cf1:SetClampedToScreen(force)
 end
 
--- Chat frame size: Blizzard is sole authority for chat sizing.
--- We no longer apply saved width/height.
+-- Chat frame size is addon-owned on Wrath, where Retail Edit Mode does not
+-- exist. The modern path remains Blizzard-owned to avoid its protected layout.
 local function ApplyChatSize()
-    -- no-op: Blizzard handles all chat frame sizing
+    if not IS_WRATH then return end
+    local cfg = ECHAT.DB()
+    local cf1 = _G.ChatFrame1
+    if not cfg or not cf1 or not cfg.chatWidth or not cfg.chatHeight then return end
+    _cfResizing = true
+    cf1:SetSize(max(200, cfg.chatWidth), max(100, cfg.chatHeight))
+    _cfResizing = false
 end
 ECHAT.ApplyChatSize = ApplyChatSize
 
 function ECHAT.ApplyLockChatSize()
     local cfg = ECHAT.DB()
-    -- No-op: custom resize grip removed, Blizzard handles sizing.
+    if not IS_WRATH then return end
+    local resizeBtn = _G.ChatFrame1ResizeButton
+    if not resizeBtn then return end
+    local locked = cfg and cfg.lockChatSize == true
+    resizeBtn:EnableMouse(not locked)
+    if locked then resizeBtn:Hide() else resizeBtn:Show() end
 end
 
 -- Flip sidebar to left or right side of chat bg
@@ -4162,6 +4174,8 @@ initFrame:SetScript("OnEvent", function(self)
         ECHAT.ApplySidebarIconScale()
         ECHAT.ApplyIconFreeMove()
         ECHAT.ApplyLockChatSize()
+        ApplyChatPosition()
+        ApplyChatSize()
         ECHAT.ApplyBackground()
         ECHAT.ApplyFonts()
         ECHAT.ApplyForceOnScreen()
@@ -4169,17 +4183,134 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  9-12. Chat positioning: Blizzard / Edit Mode owns position+size.
-    --        No reparenting, no hooks, no unlock registration.
+    --  9-12. Chat positioning: Retail Edit Mode owns the modern frame. Wrath
+    --        has no Edit Mode, so EUI captures and manages ChatFrame1 through
+    --        the same unlock system as the rest of the suite.
     ---------------------------------------------------------------------------
     -- Clamp state follows the saved "Force Chat on Screen" preference (default off:
     -- chat may be dragged off-screen). Toggled from the Chat options panel.
     ECHAT.ApplyForceOnScreen()
 
+    if IS_WRATH then
+        local function CaptureChatPosition()
+            if _cfIgnoreSetPoint then return end
+            local cfg = ECHAT.DB()
+            local cf1 = _G.ChatFrame1
+            if not cfg or not cf1 then return end
+            local point, _, relPoint, x, y = cf1:GetPoint(1)
+            if point and x and y then
+                cfg.chatPosition = {
+                    point = point,
+                    relPoint = relPoint or point,
+                    x = x,
+                    y = y,
+                }
+            end
+        end
+
+        -- Capture native resize/move changes too, so Blizzard's resize handle
+        -- and EUI Unlock Mode always converge on the same saved dimensions.
+        ChatFrame1:HookScript("OnSizeChanged", function(_, width, height)
+            if _cfResizing then return end
+            local cfg = ECHAT.DB()
+            if cfg and width and height then
+                cfg.chatWidth = width
+                cfg.chatHeight = height
+            end
+        end)
+        if FCF_StopMoving and hooksecurefunc then
+            hooksecurefunc("FCF_StopMoving", function(chatFrame)
+                if chatFrame == ChatFrame1 then CaptureChatPosition() end
+            end)
+        end
+
+        local captureFrame = EllesmereUI.SafeCreateFrame("Frame")
+        captureFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        captureFrame:SetScript("OnEvent", function(self)
+            self:UnregisterAllEvents()
+            local cfg = ECHAT.DB()
+            if not cfg then return end
+            if not cfg.chatPosition then CaptureChatPosition() end
+            if not cfg.chatWidth then cfg.chatWidth = ChatFrame1:GetWidth() end
+            if not cfg.chatHeight then cfg.chatHeight = ChatFrame1:GetHeight() end
+            ApplyChatPosition()
+            ApplyChatSize()
+            ECHAT.ApplyLockChatSize()
+            if FCF_SavePositionAndDimensions then
+                FCF_SavePositionAndDimensions(ChatFrame1)
+            end
+        end)
+
+        if EUI.RegisterUnlockElements and EUI.MakeUnlockElement then
+            local MK = EUI.MakeUnlockElement
+            EUI:RegisterUnlockElements({
+                MK({
+                    key   = "ECHAT_ChatFrame",
+                    label = "Chat",
+                    group = "Chat",
+                    order = 600,
+                    noAnchorTo = true,
+                    noInitHook = true,
+                    getFrame = function() return ChatFrame1 end,
+                    getSize = function()
+                        local cfg = ECHAT.DB()
+                        local cf1 = _G.ChatFrame1
+                        return (cfg and cfg.chatWidth) or (cf1 and cf1:GetWidth()) or 400,
+                            (cfg and cfg.chatHeight) or (cf1 and cf1:GetHeight()) or 200
+                    end,
+                    setWidth = function(_, newWidth)
+                        if InCombatLockdown() then return end
+                        local cfg = ECHAT.DB()
+                        if not cfg then return end
+                        local PPc = EllesmereUI and EllesmereUI.PP
+                        cfg.chatWidth = PPc and PPc.Snap(max(200, newWidth))
+                            or floor(max(200, newWidth) + 0.5)
+                        if not cfg.chatHeight then cfg.chatHeight = ChatFrame1:GetHeight() end
+                        ApplyChatSize()
+                    end,
+                    setHeight = function(_, newHeight)
+                        if InCombatLockdown() then return end
+                        local cfg = ECHAT.DB()
+                        if not cfg then return end
+                        local PPc = EllesmereUI and EllesmereUI.PP
+                        cfg.chatHeight = PPc and PPc.Snap(max(100, newHeight))
+                            or floor(max(100, newHeight) + 0.5)
+                        if not cfg.chatWidth then cfg.chatWidth = ChatFrame1:GetWidth() end
+                        ApplyChatSize()
+                    end,
+                    isHidden = function()
+                        local cfg = ECHAT.DB()
+                        return cfg and cfg.visibility == "never"
+                    end,
+                    savePos = function(_, point, relPoint, x, y)
+                        local cfg = ECHAT.DB()
+                        if not cfg then return end
+                        cfg.chatPosition = {
+                            point = point,
+                            relPoint = relPoint or point,
+                            x = x,
+                            y = y,
+                        }
+                        if not EllesmereUI._unlockActive then ApplyChatPosition() end
+                    end,
+                    loadPos = function()
+                        local cfg = ECHAT.DB()
+                        return cfg and cfg.chatPosition
+                    end,
+                    clearPos = function()
+                        local cfg = ECHAT.DB()
+                        if cfg then cfg.chatPosition = nil end
+                    end,
+                    applyPos = function() ApplyChatPosition() end,
+                }),
+            }, "EllesmereUIChat")
+        end
+    end
+
     -- One-time overlay informing user that chat is now Edit Mode controlled
     do
         local cfg = ECHAT.DB()
-        if cfg and not cfg._editModeNoticeDismissed and cfg.chatPosition then
+        if not IS_WRATH and cfg and not cfg._editModeNoticeDismissed and cfg.chatPosition then
             local cf1bg = CFD(ChatFrame1).bg
             if cf1bg then
                 local overlay = EllesmereUI.SafeCreateFrame("Frame", nil, cf1bg)

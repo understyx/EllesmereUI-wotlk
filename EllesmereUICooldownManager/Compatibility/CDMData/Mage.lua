@@ -455,5 +455,4 @@ Register({
     iconSpellID = 54646,
     trackingType = "aura",
     hasAura = true,
-    auraTags = { external = true },
 })

@@ -45,7 +45,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         if isChat then
 
-        -- Edit Mode reposition label + "Reset Chat Position" link
+        -- Unlock Mode reposition label + "Force Chat on Screen" link
         do
             local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
             local infoFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
@@ -57,7 +57,7 @@ initFrame:SetScript("OnEvent", function(self)
             infoLabel:SetTextColor(1, 1, 1, 0.75)
             infoLabel:SetPoint("CENTER")
             infoLabel:SetJustifyH("CENTER")
-            infoLabel:SetText(EllesmereUI.L("Reposition this element within Blizzard Edit Mode"))
+            infoLabel:SetText(EllesmereUI.L("Reposition this element within EllesmereUI Unlock Mode"))
 
             -- Accent toggle beneath the label. "Force Chat on Screen" keeps the chat
             -- frame clamped to the screen; clicking again ("Allow Chat to be Moved
@@ -85,7 +85,7 @@ initFrame:SetScript("OnEvent", function(self)
                 Set("forceOnScreen", not (Cfg("forceOnScreen") == true))
                 if ECHAT.ApplyForceOnScreen then ECHAT.ApplyForceOnScreen() end
                 UpdateForceOnScreenLabel()
-                if EditModeManagerFrame then ShowUIPanel(EditModeManagerFrame) end
+                if EllesmereUI.OpenUnlockMode then EllesmereUI:OpenUnlockMode() end
             end)
             y = y - 68
         end
