@@ -194,6 +194,15 @@ end
 local floor = math.floor
 local GetTime = GetTime
 
+function ns.TraceCDM(scope, detail, forceChat, verboseOnly)
+    if ns.CDMTrace then ns.CDMTrace(scope, detail, forceChat, verboseOnly) end
+end
+
+function ns.CDMProfileMS()
+    if debugprofilestop then return debugprofilestop() end
+    return (GetTime and GetTime() or 0) * 1000
+end
+
 ns.DEFAULT_MAPPING_NAME = "Buff Name (eg: Divine Purpose)"
 
 -------------------------------------------------------------------------------
@@ -7176,6 +7185,7 @@ local function UpdateAllCDMBars(dt) end
 _CDMApplyVisibility = function()
     local p = ECME.db and ECME.db.profile
     if not p then return end
+    local traceStarted = ns.CDMProfileMS()
     local inCombat = _inCombat
     -- Full vehicle UI: hide all bars
     local inVehicle = _cdmInVehicle
@@ -7187,6 +7197,9 @@ _CDMApplyVisibility = function()
     local visState = { inCombat = inCombat, inRaid = inRaid, inParty = inParty }
 
     local unlockActive = EllesmereUI._unlockActive
+    ns.TraceCDM("visibility.begin", ("combat=%s vehicle=%s raid=%s party=%s unlock=%s"):format(
+        tostring(inCombat), tostring(inVehicle), tostring(inRaid), tostring(inParty),
+        tostring(unlockActive and true or false)))
 
     for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         local frame = cdmBarFrames[barData.key]
@@ -7381,6 +7394,17 @@ _CDMApplyVisibility = function()
             end
         end
     end
+    local hiddenBars, totalBars = 0, 0
+    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
+        local frame = cdmBarFrames[barData.key]
+        if frame then
+            totalBars = totalBars + 1
+            if frame._visHidden then hiddenBars = hiddenBars + 1 end
+        end
+    end
+    local elapsedMS = ns.CDMProfileMS() - traceStarted
+    ns.TraceCDM("visibility.end", ("ms=%.2f hidden=%d total=%d"):format(
+        elapsedMS, hiddenBars, totalBars), elapsedMS >= 10)
 end
 ns.CDMApplyVisibility = _CDMApplyVisibility
 _G._ECME_ApplyVisibility = _CDMApplyVisibility
@@ -7655,11 +7679,17 @@ ns.ApplyCachedKeybinds = ApplyCachedKeybinds
 ns.CDMKeybindCache = _cdmKeybindCache
 
 BuildAllCDMBars = function()
+    local traceStarted = ns.CDMProfileMS()
+    local activeSpecKey = ns.GetActiveSpecKey()
+    ns.TraceCDM("build.begin", "spec=" .. tostring(activeSpecKey))
     ns._spellOrderDirty = true  -- force spell order cache rebuild
     -- Hard guard: never build with an unknown spec. CDMFinishSetup is
     -- gated on GetActiveSpecKey() at OnEnable, so this is a defense in
     -- depth for any other path that calls BuildAllCDMBars too early.
-    if not ns.GetActiveSpecKey() then return end
+    if not activeSpecKey then
+        ns.TraceCDM("build.skip", "reason=unknown_spec", true)
+        return
+    end
     if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
 
     -- Mark CDM as rebuilding so width/height match propagation gates off
@@ -7708,6 +7738,7 @@ BuildAllCDMBars = function()
         for key, frame in pairs(cdmBarFrames) do
             EllesmereUI.SetElementVisibility(frame, false)
         end
+        ns.TraceCDM("build.end", "disabled=true ms=" .. string.format("%.2f", ns.CDMProfileMS() - traceStarted))
         return
     end
 
@@ -7882,6 +7913,14 @@ BuildAllCDMBars = function()
             end
         end
     end)
+    local builtBars, builtIcons = 0, 0
+    for _, icons in pairs(cdmBarIcons) do
+        builtBars = builtBars + 1
+        builtIcons = builtIcons + #icons
+    end
+    local elapsedMS = ns.CDMProfileMS() - traceStarted
+    ns.TraceCDM("build.end", ("spec=%s ms=%.2f bars=%d icons=%d hooked=%s"):format(
+        tostring(activeSpecKey), elapsedMS, builtBars, builtIcons, tostring(hookActive)), elapsedMS >= 20)
 end
 
 -- Expose for options
@@ -7985,6 +8024,11 @@ end
 
 function ns.FullCDMRebuild(reason)
     _rebuildGen = _rebuildGen + 1
+    local traceStarted = ns.CDMProfileMS()
+    reason = reason or "unknown"
+    ns.TraceCDM("rebuild.begin", ("gen=%d reason=%s spec=%s combat=%s"):format(
+        _rebuildGen, tostring(reason), tostring(ns.GetActiveSpecKey()),
+        tostring(InCombatLockdown and InCombatLockdown() or false)), true)
     ns._spellOrderDirty = true  -- force spell order cache rebuild
     -- Full-wipe reasons: clear per-frame caches and run a direct reanchor.
     -- Used for talent change and any path where spell IDs behind
@@ -7994,6 +8038,7 @@ function ns.FullCDMRebuild(reason)
     -- 1. Wipe all caches
     if ns.MarkCDMSpellCacheDirty then ns.MarkCDMSpellCacheDirty() end
     if ns.InvalidateTBBFrameCache then ns.InvalidateTBBFrameCache() end
+    ns.TraceCDM("rebuild.phase1", "gen=" .. _rebuildGen .. " caches_invalidated", false, true)
 
     -- 2. Clear old preset frames (trinkets, racials, custom spells)
     if ns._presetFrames then
@@ -8003,6 +8048,7 @@ function ns.FullCDMRebuild(reason)
         end
         wipe(ns._presetFrames)
     end
+    ns.TraceCDM("rebuild.phase2", "gen=" .. _rebuildGen .. " preset_frames_cleared", false, true)
 
     -- Cooldown/utility defaults still use viewer spillover. Aura-family
     -- defaults are picker-authoritative allow-lists and intentionally remain
@@ -8014,12 +8060,15 @@ function ns.FullCDMRebuild(reason)
 
     -- 3. Rebuild route maps (must happen before BuildAllCDMBars)
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    ns.TraceCDM("rebuild.phase3", "gen=" .. _rebuildGen .. " route_map_rebuilt", false, true)
 
     -- 4. Rebuild all bar frames
     BuildAllCDMBars()
+    ns.TraceCDM("rebuild.phase4", "gen=" .. _rebuildGen .. " bars_built", false, true)
 
     -- 5. Rebuild tracked buff bars
     if ns.BuildTrackedBuffBars then ns.BuildTrackedBuffBars() end
+    ns.TraceCDM("rebuild.phase5", "gen=" .. _rebuildGen .. " tracking_bars_built", false, true)
 
     -- 6. Full-wipe path: wipe per-frame caches + icon arrays + anchor
     -- state, then reanchor directly. Used by talent_reconcile when spell
@@ -8073,6 +8122,7 @@ function ns.FullCDMRebuild(reason)
         if ns.ClearQueuedReanchor then ns.ClearQueuedReanchor() end
         -- Direct reanchor for the freshly-wiped state
         if ns.CollectAndReanchor then ns.CollectAndReanchor() end
+        ns.TraceCDM("rebuild.phase6", "gen=" .. _rebuildGen .. " full_wipe_reanchored", false, true)
     end
 
     -- 7. Glows
@@ -8082,6 +8132,8 @@ function ns.FullCDMRebuild(reason)
     -- window (login/reload); this queued pass corrects them once the API is
     -- trustworthy again. No-ops instantly when no icon uses a ready-glow effect.
     if ns.QueueCDGlowResourceCheck then ns.QueueCDGlowResourceCheck() end
+    ns.TraceCDM("rebuild.end", ("gen=%d reason=%s ms=%.2f fullWipe=%s"):format(
+        _rebuildGen, tostring(reason), ns.CDMProfileMS() - traceStarted, tostring(isFullWipe)), true)
 end
 
 function ns.GetRebuildGen()
@@ -8676,6 +8728,7 @@ end
 --  capture and the normal `CDMFinishSetup` path.
 -------------------------------------------------------------------------------
 function ECME:OnInitialize()
+    ns.TraceCDM("lifecycle.initialize.begin", "addon=EllesmereUICooldownManager", true)
     self.db = EllesmereUI.Lite.NewDB("EllesmereUICooldownManagerDB", DEFAULTS, true)
 
     -- Save spec profile before StripDefaults runs on logout
@@ -8720,6 +8773,7 @@ function ECME:OnInitialize()
             ns.TBB_TEXTURES
         )
     end
+    ns.TraceCDM("lifecycle.initialize.end", "needsCapture=" .. tostring(self._needsCapture), true)
 end
 
 -- Tracks whether CDMFinishSetup has already run for this session.
@@ -8728,6 +8782,7 @@ end
 local _cdmSetupStarted = false
 
 function ECME:OnEnable()
+    ns.TraceCDM("lifecycle.enable.begin", "spec=" .. tostring(ns.GetActiveSpecKey()), true)
     -- The Lite lifecycle frame predates the child-owned WotLK CDM polyfill,
     -- so its PLAYER_LOGIN handler runs first.  Prime definitions and equipped
     -- trinket availability synchronously before the first bar build instead
@@ -8735,6 +8790,7 @@ function ECME:OnEnable()
     if ns.RefreshCooldownViewerCompatibility then
         ns.RefreshCooldownViewerCompatibility()
     end
+    ns.TraceCDM("lifecycle.enable.compatibility", "refresh_complete", false, true)
 
     -- Cache player race/class for trinket/racial/potion tracking
     _playerRace = select(2, UnitRace("player"))
@@ -8778,8 +8834,13 @@ function ECME:OnEnable()
     -- model with "wait until the truth is known, then build once."
     local function TryBuildCDM()
         if _cdmSetupStarted then return end
-        if not ns.GetActiveSpecKey() then return end -- spec API not ready yet
+        if not ns.GetActiveSpecKey() then
+            ns.TraceCDM("lifecycle.enable.wait", "spec_api_not_ready", false, true)
+            return
+        end -- spec API not ready yet
         _cdmSetupStarted = true
+        ns.TraceCDM("lifecycle.enable.ready", ("spec=%s capture=%s"):format(
+            tostring(ns.GetActiveSpecKey()), tostring(self._needsCapture)), true)
         EnsureMappings(GetStore())
         if self._needsCapture then
             -- Capture Blizzard's Edit Mode layout once it has applied positions
@@ -8855,9 +8916,11 @@ function ECME:OnEnable()
     -- Initialize Bar Glows overlay system
     if ns.InitBarGlows then ns.InitBarGlows() end
 
+    ns.TraceCDM("lifecycle.enable.end", "setupStarted=" .. tostring(_cdmSetupStarted), true)
 end
 
 function ECME:OnCDMFirstLogin()
+    ns.TraceCDM("lifecycle.first_login", "capture=" .. tostring(not self.db.sv._capturedOnce_CDM), true)
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
     -- A profile import can stamp the capture flag mid-session (imported data
     -- is a chosen layout). Honor the stamp here so a still-pending capture
@@ -8889,6 +8952,8 @@ end
 -- assignedSpells + diversion-set route map model no longer permits.)
 
 function ECME:CDMFinishSetup()
+    local traceStarted = ns.CDMProfileMS()
+    ns.TraceCDM("setup.begin", "spec=" .. tostring(ns.GetActiveSpecKey()), true)
 
     -- This is the one-time construction hub for a normal login/reload enable:
     -- preload unlock helpers, build the initial bar set, spin up the periodic
@@ -8898,11 +8963,13 @@ function ECME:CDMFinishSetup()
     -- (ApplyAnchorPosition, PropagateWidthMatch, etc.) are available for
     -- the initial build pass. CDM SavedVariables are ready by this point.
     EllesmereUI:EnsureLoaded()
+    ns.TraceCDM("setup.ensure_loaded", "complete", false, true)
 
     -- Pre-size CDM bar frames using cached icon counts from last session.
     -- Purely cosmetic: gives anchored elements correct dimensions to compute
     -- against before the real spell data populates. BuildAllCDMBars below
     -- overwrites everything with real data.
+    local presizedBars = 0
     do
         local p = ECME.db and ECME.db.profile
         if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).enabled and EllesmereUIDB then
@@ -8916,6 +8983,7 @@ function ECME:CDMFinishSetup()
                     if barData.enabled then
                         local cachedCount = counts[barData.key]
                         if cachedCount and cachedCount > 0 then
+                            presizedBars = presizedBars + 1
                             local key = barData.key
                             local frame = cdmBarFrames[key]
                             if not frame then
@@ -8981,12 +9049,14 @@ function ECME:CDMFinishSetup()
             end
         end
     end
+    ns.TraceCDM("setup.presized", "bars=" .. presizedBars, false, true)
 
     -- (Migration moved to CollectAndReanchor: it must run after the
     -- viewer pools are populated, which only happens after the first
     -- successful reanchor.)
 
     ns.FullCDMRebuild("init")
+    ns.TraceCDM("setup.initial_rebuild", "complete", false, true)
 
     -- Initialize Tracking Bars
     -- GetTrackedBuffBars auto-initializes empty bars if none exist.
@@ -9002,6 +9072,7 @@ function ECME:CDMFinishSetup()
 
     -- Hook Blizzard CDM viewer pools (route map already built by FullCDMRebuild)
     ns.SetupViewerHooks()
+    ns.TraceCDM("setup.viewer_hooks", "installed", true)
 
     -- A cold login can reach the initial build before the player spellbook is
     -- populated.  Racials are custom frames, so merely reanchoring after the
@@ -9086,6 +9157,8 @@ function ECME:CDMFinishSetup()
     --      ERB bars haven't), anchors silently drop and the bar lands at
     --      its CENTER/CENTER fallback (= screen center).
     ns._pendingApplyOnReanchor = true
+    ns.TraceCDM("setup.end", ("ms=%.2f presized=%d"):format(
+        ns.CDMProfileMS() - traceStarted, presizedBars), true)
 end
 
 -------------------------------------------------------------------------------
@@ -9341,11 +9414,14 @@ end
 -- into a single deferred rebuild rather than firing once per click.
 local _talentRebuildToken = 0
 
-local function ScheduleTalentRebuild()
+local function ScheduleTalentRebuild(reason)
     _talentRebuildToken = _talentRebuildToken + 1
     local token = _talentRebuildToken
+    ns.TraceCDM("talent.schedule", ("token=%d reason=%s"):format(token, tostring(reason or "event")))
     C_Timer.After(0.5, function()
         if token ~= _talentRebuildToken then return end  -- superseded
+        local traceStarted = ns.CDMProfileMS()
+        ns.TraceCDM("talent.begin", ("token=%d reason=%s"):format(token, tostring(reason or "event")), true)
         -- Wipe per-spell caches that may reference stale override IDs or
         -- stale charge data from spells that changed with the talent swap.
         -- Also wipe the persisted DB entries so CacheMultiChargeSpell
@@ -9397,6 +9473,8 @@ local function ScheduleTalentRebuild()
         if ns.InvalidateTBBFrameCache then ns.InvalidateTBBFrameCache() end
         if ns.MarkCDMSpellCacheDirty then ns.MarkCDMSpellCacheDirty() end
         if ns.QueueReanchor then ns.QueueReanchor() end
+        ns.TraceCDM("talent.end", ("token=%d ms=%.2f"):format(token,
+            ns.CDMProfileMS() - traceStarted), true)
     end)
 end
 
@@ -9419,6 +9497,7 @@ end
 eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if not ECME.db then return end
     if event == "PLAYER_LOGOUT" then
+        ns.TraceCDM("event.logout", "saving_cached_bar_sizes", true)
         ns.SaveCachedBarSizes()
         return
     end
@@ -9452,10 +9531,12 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- The spell set may have changed: let the post-rebuild reanchor
         -- re-run the automatic base-bar materialization for this spec.
         if ns._reseededSpecsSession then wipe(ns._reseededSpecsSession) end
-        ScheduleTalentRebuild()
+        ns.TraceCDM("event.talent", event)
+        ScheduleTalentRebuild(event)
         return
     end
     if event == "GROUP_ROSTER_UPDATE" then
+        ns.TraceCDM("event.roster", "combat=" .. tostring(InCombatLockdown and InCombatLockdown() or false), false, true)
         ScheduleRosterRebuild()
         _CDMApplyVisibility()
         return
@@ -9475,6 +9556,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_EQUIPMENT_CHANGED" then
+        ns.TraceCDM("event.equipment", ("slot=%s combat=%s"):format(tostring(unit),
+            tostring(InCombatLockdown and InCombatLockdown() or false)), true)
         if InCombatLockdown() then return end
         -- Refresh the compatibility catalog before rebuilding.  This also
         -- makes trinket swaps independent of event-frame dispatch order.
@@ -9519,6 +9602,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "ZONE_CHANGED_NEW_AREA" then
+        ns.TraceCDM("event.state", event, false, true)
         if ns._syncRotationCombatState then ns._syncRotationCombatState() end
         if event == "PLAYER_REGEN_DISABLED" then
             _inCombat = true
@@ -9566,8 +9650,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         local _, instType = IsInInstance()
         local wasPvP = ns._cdmWasInPvP
         local isPvP = (instType == "arena" or instType == "pvp")
+        ns.TraceCDM("event.enter_world", ("instance=%s wasPvP=%s isPvP=%s combat=%s"):format(
+            tostring(instType), tostring(wasPvP and true or false), tostring(isPvP), tostring(_inCombat)), true)
         if wasPvP and not isPvP then
-            ScheduleTalentRebuild()
+            ScheduleTalentRebuild("leave_pvp")
         end
         ns._cdmWasInPvP = isPvP or nil
         if isPvP and not wasPvP then
@@ -9583,6 +9669,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         C_Timer.After(3, _CDMApplyVisibility)
     end
     if event == "SPELLS_CHANGED" then
+        ns.TraceCDM("event.spells_changed", "spec=" .. tostring(ns.GetActiveSpecKey()))
         CheckSpecChange()
         ns._spellsReadyForApply = true
         -- SPELLS_CHANGED may be the first point on a cold login at which
@@ -9616,6 +9703,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_SPECIALIZATION_CHANGED" and unit == "player" then
+        ns.TraceCDM("event.specialization", "unit=player spec=" .. tostring(ns.GetActiveSpecKey()), true)
         -- Non-rebuild work only. The actual spec change rebuild is
         -- driven by SPELLS_CHANGED above (which fires for both manual
         -- and auto swaps). This handler just invalidates caches that

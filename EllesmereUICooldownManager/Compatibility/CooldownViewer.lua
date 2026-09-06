@@ -39,6 +39,15 @@ local cachedAuraTime = 0
 -- Event Tracker Frame
 local tracker = CreateFrame("Frame")
 
+local function CDMTrace(scope, detail, forceChat, verboseOnly)
+    if ns.CDMTrace then ns.CDMTrace(scope, detail, forceChat, verboseOnly) end
+end
+
+local function ProfileMS()
+    if debugprofilestop then return debugprofilestop() end
+    return (GetTime and GetTime() or 0) * 1000
+end
+
 local function ValidateDefinition(def)
     if not def.key then return false, "Missing key" end
     if not def.cooldownID then return false, "Missing cooldownID" end
@@ -851,6 +860,8 @@ local function ReevaluateState()
         -- than from EnumerateActive. This preserves lazy per-class allocation
         -- while keeping pool enumeration strictly read-only.
         if avail and avail.isKnown and not adapters[cdID] then
+            CDMTrace("compat.adapter_create", ("cdID=%s spellID=%s key=%s"):format(
+                tostring(cdID), tostring(avail.activeSpellID), tostring(def.key)), false, true)
             adapters[cdID] = CreateAdapterFrame(cdID)
         end
 
@@ -867,16 +878,29 @@ end
 -- PLAYER_LOGIN callback, leaving the first bar build with an empty availability
 -- map.  Expose an explicit synchronous refresh so CDM initialization and
 -- equipment rebuilds never depend on event-frame dispatch order.
-function ns.RefreshCooldownViewerCompatibility()
+function ns.RefreshCooldownViewerCompatibility(reason)
+    local traceStarted = ProfileMS()
+    CDMTrace("compat.refresh.begin", "reason=" .. tostring(reason or "direct"))
     local ok, err = xpcall(function()
         UpdateAuraCache()
+        CDMTrace("compat.refresh.auras", "updated", false, true)
         ReevaluateAvailability()
+        CDMTrace("compat.refresh.availability", "updated", false, true)
         ReevaluateState()
     end, CompatibilityTraceback)
     if not ok then
         ReportCompatibilityError("RefreshCooldownViewerCompatibility", err)
         return false
     end
+    local definitionCount, knownCount, adapterCount = 0, 0, 0
+    for cdID in pairs(definitions) do
+        definitionCount = definitionCount + 1
+        if availability[cdID] and availability[cdID].isKnown then knownCount = knownCount + 1 end
+        if adapters[cdID] then adapterCount = adapterCount + 1 end
+    end
+    local elapsedMS = ProfileMS() - traceStarted
+    CDMTrace("compat.refresh.end", ("reason=%s ms=%.2f definitions=%d known=%d adapters=%d"):format(
+        tostring(reason or "direct"), elapsedMS, definitionCount, knownCount, adapterCount), elapsedMS >= 20)
     return true
 end
 
@@ -888,6 +912,7 @@ local auraRefreshQueued = false
 local stateRefreshQueued = false
 local auraRefreshRetryAt = 0
 local auraRefreshFailureCount = 0
+local stateRefreshQueueCount = 0
 local auraRefreshFrame = CreateFrame("Frame")
 auraRefreshFrame:Hide()
 auraRefreshFrame:SetScript("OnUpdate", function(self)
@@ -898,8 +923,12 @@ auraRefreshFrame:SetScript("OnUpdate", function(self)
     -- the refresh can mark a newer generation dirty without being overwritten
     -- by the successful completion of this one.
     local refreshAuras = auraRefreshQueued
+    local queued = stateRefreshQueueCount
+    stateRefreshQueueCount = 0
     auraRefreshQueued = false
     stateRefreshQueued = false
+    local traceStarted = ProfileMS()
+    CDMTrace("compat.state.begin", ("auras=%s queued=%d"):format(tostring(refreshAuras), queued))
     local ok, err = xpcall(function()
         if refreshAuras then UpdateAuraCache() end
         ReevaluateState()
@@ -908,6 +937,9 @@ auraRefreshFrame:SetScript("OnUpdate", function(self)
         auraRefreshFailureCount = 0
         auraRefreshRetryAt = 0
         if not stateRefreshQueued then self:Hide() end
+        local elapsedMS = ProfileMS() - traceStarted
+        CDMTrace("compat.state.end", ("auras=%s queued=%d ms=%.2f"):format(
+            tostring(refreshAuras), queued, elapsedMS), elapsedMS >= 10)
     else
         -- Keep the request armed. Exponential backoff prevents a persistent bad
         -- payload from becoming a refresh/error storm while still self-healing.
@@ -923,12 +955,14 @@ auraRefreshFrame:SetScript("OnUpdate", function(self)
 end)
 
 local function QueueAuraRefresh()
+    stateRefreshQueueCount = stateRefreshQueueCount + 1
     auraRefreshQueued = true
     stateRefreshQueued = true
     auraRefreshFrame:Show()
 end
 
 local function QueueStateRefresh()
+    stateRefreshQueueCount = stateRefreshQueueCount + 1
     stateRefreshQueued = true
     auraRefreshFrame:Show()
 end
@@ -958,9 +992,9 @@ tracker:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 tracker:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" or event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "PLAYER_EQUIPMENT_CHANGED" then
-        ns.RefreshCooldownViewerCompatibility()
+        ns.RefreshCooldownViewerCompatibility(event)
     elseif event == "PLAYER_ENTERING_WORLD" then
-        ns.RefreshCooldownViewerCompatibility()
+        ns.RefreshCooldownViewerCompatibility(event)
     elseif event == "UNIT_AURA" then
         local unit = ...
         if not unit or unit == "player" or unit == "target"

@@ -4799,6 +4799,106 @@ local reanchorRunning = false
 local reanchorRetryAt = 0
 local reanchorFailureCount = 0
 local visibilityFailureCount = 0
+local reanchorPassCount = 0
+local reanchorQueueCount = 0
+
+-- Debug-branch breadcrumbs for failures that terminate the client without a
+-- Lua error.  This is deliberately a fixed-size circular buffer: reanchors can
+-- be frequent during buff churn and diagnostics must never become an unbounded
+-- allocation source of their own.  Quiet tracing is enabled by default; use
+-- /cdmtrace verbose while reproducing to mirror every breadcrumb to chat.
+local cdmTrace = {
+    enabled = true,
+    verbose = false,
+    max = 300,
+    next = 1,
+    count = 0,
+    sequence = 0,
+    entries = {},
+}
+
+local function CDMTrace(scope, detail, forceChat, verboseOnly)
+    if not cdmTrace.enabled or (verboseOnly and not cdmTrace.verbose) then return end
+    cdmTrace.sequence = cdmTrace.sequence + 1
+    local entry = {
+        sequence = cdmTrace.sequence,
+        sessionTime = GetTime and GetTime() or 0,
+        timestamp = time and time() or 0,
+        scope = tostring(scope or "unknown"),
+        detail = tostring(detail or ""),
+    }
+    cdmTrace.entries[cdmTrace.next] = entry
+    cdmTrace.next = (cdmTrace.next % cdmTrace.max) + 1
+    cdmTrace.count = math.min(cdmTrace.count + 1, cdmTrace.max)
+
+    -- Mirroring the live ring into SavedVariables makes normal logout/reload
+    -- captures inspectable afterward. A native process crash cannot flush WoW
+    -- SavedVariables, so verbose chat output remains the reproduction aid for
+    -- that case.
+    local sv = ECME and ECME.db and ECME.db.sv
+    if sv then sv.cdmDebugTrace = cdmTrace end
+
+    if forceChat or cdmTrace.verbose then
+        local oneLine = entry.detail:gsub("[\r\n]+", " | ")
+        print(("|cff0cd29f[CDM Trace %d %.3f]|r %s%s"):format(
+            entry.sequence, entry.sessionTime, entry.scope,
+            oneLine ~= "" and (" - " .. oneLine) or ""))
+    end
+end
+ns.CDMTrace = CDMTrace
+ns.GetCDMTraceState = function() return cdmTrace end
+
+local function DumpCDMTrace(limit)
+    local total = cdmTrace.count
+    local wanted = math.min(math.max(tonumber(limit) or 30, 1), math.min(total, 60))
+    if wanted == 0 then
+        print("|cff0cd29fEllesmereUI CDM:|r trace is empty.")
+        return
+    end
+    print(("|cff0cd29fEllesmereUI CDM:|r newest %d of %d trace entries:"):format(wanted, total))
+    local oldest = total < cdmTrace.max and 1 or cdmTrace.next
+    local firstOffset = total - wanted
+    for offset = firstOffset, total - 1 do
+        local index = ((oldest + offset - 1) % cdmTrace.max) + 1
+        local entry = cdmTrace.entries[index]
+        if entry then
+            local oneLine = entry.detail:gsub("[\r\n]+", " | ")
+            print(("#%d %.3f %s%s"):format(entry.sequence or 0,
+                entry.sessionTime or 0, tostring(entry.scope),
+                oneLine ~= "" and (" - " .. oneLine) or ""))
+        end
+    end
+end
+
+SLASH_EUICDMTRACE1 = "/cdmtrace"
+SlashCmdList.EUICDMTRACE = function(msg)
+    local command, arg = tostring(msg or ""):lower():match("^(%S*)%s*(%S*)")
+    if command == "on" or command == "quiet" then
+        cdmTrace.enabled = true
+        cdmTrace.verbose = false
+        CDMTrace("trace.mode", "quiet", true)
+    elseif command == "verbose" then
+        cdmTrace.enabled = true
+        cdmTrace.verbose = true
+        CDMTrace("trace.mode", "verbose", true)
+    elseif command == "off" then
+        cdmTrace.enabled = false
+        cdmTrace.verbose = false
+        print("|cff0cd29fEllesmereUI CDM:|r trace disabled.")
+    elseif command == "clear" then
+        wipe(cdmTrace.entries)
+        cdmTrace.next = 1
+        cdmTrace.count = 0
+        print("|cff0cd29fEllesmereUI CDM:|r trace cleared.")
+    elseif command == "dump" then
+        DumpCDMTrace(arg)
+    else
+        print(("|cff0cd29fEllesmereUI CDM:|r trace=%s chat=%s entries=%d/%d"):format(
+            cdmTrace.enabled and "on" or "off", cdmTrace.verbose and "verbose" or "quiet",
+            cdmTrace.count, cdmTrace.max))
+        print("  /cdmtrace [on|off|quiet|verbose|dump [1-60]|clear]")
+    end
+end
 
 -- Preserve refresh failures in SavedVariables because client log files do not
 -- contain ordinary Lua errors. Repeated instances of the same failure are
@@ -4845,6 +4945,7 @@ function ns.RecordCDMRuntimeError(scope, err)
     end
 
     if shouldReport then
+        CDMTrace("error." .. tostring(scope or "unknown"), message, true)
         local handler = geterrorhandler and geterrorhandler()
         if handler then
             pcall(handler, "EllesmereUI CDM [" .. tostring(scope) .. "]\n" .. message)
@@ -4889,14 +4990,24 @@ local function CollectAndReanchor()
     if reanchorRunning then
         reanchorDirty = true
         if reanchorFrame then reanchorFrame:Show() end
+        CDMTrace("reanchor.defer", "reason=already_running", false, true)
         return false
     end
     if IsCDMSettingsOpen() then
         reanchorDirty = true
         if reanchorFrame then reanchorFrame:Hide() end
+        CDMTrace("reanchor.defer", "reason=settings_open", false, true)
         return false
     end
     reanchorRunning = true
+    reanchorPassCount = reanchorPassCount + 1
+    local pass = reanchorPassCount
+    local queued = reanchorQueueCount
+    reanchorQueueCount = 0
+    local traceStarted = debugprofilestop and debugprofilestop()
+        or ((GetTime and GetTime() or 0) * 1000)
+    CDMTrace("reanchor.begin", ("pass=%d queued=%d combat=%s"):format(
+        pass, queued, tostring(InCombatLockdown and InCombatLockdown() or false)))
 
     local ok, err = xpcall(function()
 
@@ -4941,6 +5052,7 @@ local function CollectAndReanchor()
     ---------------------------------------------------------------------------
     --  PHASE 1: Enumerate all viewers, split into buff vs CD/utility paths
     ---------------------------------------------------------------------------
+    CDMTrace("reanchor.phase1", "pass=" .. pass .. " enumerate_viewers", false, true)
     for viewerName, defaultBarKey in pairs(VIEWER_TO_BAR) do
         local viewer = _G[viewerName]
         if viewer and viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
@@ -5383,6 +5495,7 @@ local function CollectAndReanchor()
     ---------------------------------------------------------------------------
     --  PHASE 2: Process BUFF bars (existing flow, plus injected custom frames)
     ---------------------------------------------------------------------------
+    CDMTrace("reanchor.phase2", "pass=" .. pass .. " process_buff_bars", false, true)
     -- Composition-gated: reanchors fire constantly in combat as buffs come and
     -- go, but the tracked catalog only changes on rebuilds -- skip the full
     -- reconcile (viewer enumeration + sorts) unless something marked it dirty.
@@ -5680,6 +5793,7 @@ local function CollectAndReanchor()
     --  For each bar: inject custom frames, assign sort keys, sort, position.
     --  No allowSet, no entryBySpell, no dedup, no change detection.
     ---------------------------------------------------------------------------
+    CDMTrace("reanchor.phase3", "pass=" .. pass .. " process_cooldown_bars", false, true)
     -- Ensure custom-frame-only CD/utility bars get processed
     for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if bd.enabled and not bd.isGhostBar
@@ -6228,6 +6342,7 @@ local function CollectAndReanchor()
     --  a pre-move snapshot: diverted frames never re-divert and a bar's cap
     --  counts only its native frames, independent of bar order.
     ---------------------------------------------------------------------------
+    CDMTrace("reanchor.phase3b", "pass=" .. pass .. " process_overflow", false, true)
     do
         local tagged = ns._cdmOverflowTagged
         if tagged then
@@ -6533,6 +6648,7 @@ local function CollectAndReanchor()
     --  FullCDMRebuild never hides) from the unused-frame sweep below -- leaving
     --  it floating at its old position after its bar is gone.
     ---------------------------------------------------------------------------
+    CDMTrace("reanchor.phase4", "pass=" .. pass .. " cleanup_unclaimed", false, true)
     for bk, icons in pairs(cdmBarIcons) do
         if barDataByKey[bk] then
             for ii = 1, #icons do
@@ -6653,6 +6769,7 @@ local function CollectAndReanchor()
     -- rebuild the route map (so the new ghost entries become diversions)
     -- and queue another reanchor (so the now-ghost-routed frames get
     -- moved out of the default bars).
+    CDMTrace("reanchor.finalize", "pass=" .. pass .. " migrations_and_layout", false, true)
     if ns.MigrateSpecToBarFilterModelV6 then
         local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
         local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
@@ -6781,6 +6898,14 @@ local function CollectAndReanchor()
             end
         end
     end
+    local traceEnded = debugprofilestop and debugprofilestop()
+        or ((GetTime and GetTime() or 0) * 1000)
+    local activeCount, usedCount = 0, 0
+    for _ in pairs(_scratch_activeFrames) do activeCount = activeCount + 1 end
+    for _ in pairs(_scratch_usedFrames) do usedCount = usedCount + 1 end
+    local elapsedMS = traceEnded - traceStarted
+    CDMTrace("reanchor.end", ("pass=%d ms=%.2f active=%d used=%d dirty=%s"):format(
+        pass, elapsedMS, activeCount, usedCount, tostring(reanchorDirty)), elapsedMS >= 20)
     return true
 end
 ns.CollectAndReanchor = CollectAndReanchor
@@ -7009,6 +7134,7 @@ local function QueueReanchor()
     -- Always queue, never drop. If a spec swap is in progress the
     -- ProcessReanchorQueue gate will hold the request until the flag
     -- clears, then the queued reanchor fires naturally.
+    reanchorQueueCount = reanchorQueueCount + 1
     reanchorDirty = true
     if reanchorFrame then reanchorFrame:Show() end
 end
@@ -7088,7 +7214,13 @@ end
 --    4. Buff ticker (0.1s) for staleness + glow
 -------------------------------------------------------------------------------
 function ns.SetupViewerHooks()
-    if viewerHooksInstalled then return end
+    if viewerHooksInstalled then
+        CDMTrace("hooks.setup.skip", "already_installed", false, true)
+        return
+    end
+    local traceStarted = debugprofilestop and debugprofilestop()
+        or ((GetTime and GetTime() or 0) * 1000)
+    CDMTrace("hooks.setup.begin", "installing", true)
     viewerHooksInstalled = true
 
     -- Reanchor queue frame
@@ -7345,6 +7477,7 @@ function ns.SetupViewerHooks()
     C_Timer.After(1, DelayedFullRefresh)
     C_Timer.After(3, DelayedFullRefresh)
     C_Timer.After(6, DelayedFullRefresh)
+    CDMTrace("hooks.setup.core", "pool_layout_hooks_installed", false, true)
 
     -- 5. Buff ticker: staleness check + buff/pandemic glow (0.1s)
     do
@@ -7830,6 +7963,9 @@ function ns.SetupViewerHooks()
         QueueReanchor()
         UpdateCustomBuffBars()
     end)
+    local traceEnded = debugprofilestop and debugprofilestop()
+        or ((GetTime and GetTime() or 0) * 1000)
+    CDMTrace("hooks.setup.end", ("ms=%.2f"):format(traceEnded - traceStarted), true)
 end
 
 function ns.IsViewerHooked()
