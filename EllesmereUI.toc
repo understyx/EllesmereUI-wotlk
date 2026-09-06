@@ -11,6 +11,8 @@
 # Libraries
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibGroupTalents-1.0\LibTalentQuery-1.0.lua
+Libs\LibGroupTalents-1.0\LibGroupTalents-1.0.lua
 Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibDeflate\LibDeflate.lua
 Libs\oUF_HealComm4\LibHealComm-4.0\LibHealComm-4.0.lua
@@ -61,6 +63,7 @@ EllesmereUI_Startup.lua
 
 # Shared EllesmereUI Files
 EllesmereUI.lua
+EllesmereUI_Roles.lua
 EllesmereUI_Ticker.lua
 EllesmereUI_BlizzardParty.lua
 EllesmereUI_Kick.lua

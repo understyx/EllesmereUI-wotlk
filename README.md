@@ -24,6 +24,9 @@ directories.
 - `EllesmereUI.toc` and the root Lua files provide the shared framework.
 - `EllesmereUI*/` directories contain feature modules such as action bars,
   bags, chat, nameplates, raid frames, and unit frames.
+- `EllesmereUIPallyPower/` contains the PallyPower module, exposed through
+  `EllesmereUI.PallyPower` for use by sibling modules and listed under QoL
+  Addons in the EllesmereUI settings.
 - `Compatibility/` contains WotLK 3.3.5a compatibility shims.
 - `Locales/` contains translations.
 - `Libs/` contains bundled libraries.
@@ -42,3 +45,7 @@ packaging runs the updater again before building artifacts.
 ## License
 
 This project uses a custom license. See [license.txt](license.txt).
+
+The bundled PallyPower module is derived from PallyPower Improved for 3.3.5.
+Its source revision and attribution are recorded in
+`EllesmereUIPallyPower/UPSTREAM.md`.

@@ -1,0 +1,41 @@
+## Interface: 30300
+## Author: Ellesmere; based on work by Aznamir and NoM0Re
+## Title: |cff0cd29fEllesmereUI|r PallyPower
+## Version: 8.6.4-wotlk.20260905
+## Notes: EllesmereUI module for Paladin blessing assignments and buff monitoring.
+## Notes-esES: Buffs de Paladín para Grupo/Banda
+## Notes-zhCN: 圣骑士祝福管理
+## DefaultState: enabled
+## Dependencies: EllesmereUI
+## OptionalDeps: Ace2, RosterLib, DewdropLib
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## X-Category: EllesmereUI
+## X-Embeds: Ace2, RosterLib, DewdropLib
+## X-Upstream-Version: v3.2.21
+## X-Upstream-Commit: d8f7a78de637e73d7d3e44a67721623f1d3fcd07
+## X-Upstream-URL: https://github.com/NoM0Re/PallyPower-Improved-3.3.5
+## SavedVariables: EllesmereUIPallyPowerDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+#@no-lib-strip@
+embeds.xml
+#@end-no-lib-strip@
+
+locale\enUS.lua
+locale\ruRU.lua
+locale\deDE.lua
+locale\frFR.lua
+locale\koKR.lua
+locale\esES.lua
+locale\esMX.lua
+locale\zhCN.lua
+locale\zhTW.lua
+
+PallyPower.lua
+PallyPowerValues.lua
+PallyPowerOptions.lua
+PallyPower.xml
+EUI_PallyPower_Flyout.lua
+EUI_PallyPower_Style.lua
+EUI_PallyPower_Options.lua

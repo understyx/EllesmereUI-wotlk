@@ -2068,6 +2068,8 @@ initFrame:SetScript("OnEvent", function(self)
                             "instanceResetAnnounce", "instanceResetAnnounceMsg",
                             "healthMacroEnabled", "healthMacroPrio1", "healthMacroPrio2",
                             "healthMacroPrio3", "foodMacroEnabled", "macroFactory",
+                            "autoCancelTricksThreat", "autoCancelMisdirectionThreat",
+                            "roleOverrides",
                         }
                         local savedQoL = {}
                         for _, k in ipairs(qolKeys) do

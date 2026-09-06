@@ -3905,6 +3905,141 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Role-aware threat transfer
+--  Tricks and Misdirection each have a priming aura followed by a distinct
+--  threat-transfer aura (59628 and 35079). When an enabled spell was cast on a
+--  confirmed healer/DPS, remove only that second aura. Tanks, pets, and unknown
+--  roles are deliberately left alone. On 3.3.5 CancelUnitBuff is unrestricted,
+--  so this can happen directly from UNIT_AURA without a macro/key press.
+-------------------------------------------------------------------------------
+do
+    local TRANSFERS = {
+        [57934] = { setting = "autoCancelTricksThreat", aura = 59628 },
+        [34477] = { setting = "autoCancelMisdirectionThreat", aura = 35079 },
+    }
+    local spellNameToID = {}
+    for spellID in pairs(TRANSFERS) do
+        local name = GetSpellInfo(spellID)
+        if name then spellNameToID[name] = spellID end
+    end
+
+    local armed = {}
+    local playerGUID
+    local pendingTargetName
+    local transferFrame = EllesmereUI.SafeCreateFrame("Frame")
+
+    local function Enabled(spellID)
+        local info = TRANSFERS[spellID]
+        return info and EllesmereUIDB and EllesmereUIDB[info.setting] == true
+    end
+
+    local function FindUnitByName(name)
+        if not name then return nil end
+        local wanted = string.lower(name)
+        local function match(unit)
+            if not UnitExists(unit) then return false end
+            local unitName, realm = UnitName(unit)
+            if not unitName then return false end
+            local full = realm and realm ~= "" and (unitName .. "-" .. realm) or unitName
+            return string.lower(unitName) == wanted or string.lower(full) == wanted
+        end
+        local direct = { "target", "focus", "mouseover", "player", "pet" }
+        for i = 1, #direct do if match(direct[i]) then return direct[i] end end
+        local raidN = GetNumRaidMembers and GetNumRaidMembers() or 0
+        for i = 1, raidN do
+            local unit = "raid" .. i
+            if match(unit) then return unit end
+        end
+        local partyN = GetNumPartyMembers and GetNumPartyMembers() or 0
+        for i = 1, partyN do
+            local unit = "party" .. i
+            if match(unit) then return unit end
+            local pet = "partypet" .. i
+            if match(pet) then return pet end
+        end
+        return nil
+    end
+
+    local function Arm(spellID, destGUID, destName)
+        if not Enabled(spellID) then return end
+        local detector = EllesmereUI.RoleDetector
+        local role = detector and destGUID and detector:GetRoleByGUID(destGUID)
+        if (not role or role == "NONE") and detector then
+            local unit = FindUnitByName(destName or pendingTargetName)
+            if unit then role = detector:GetRole(unit) end
+        end
+        -- Only act on a positive non-tank identification. Unknowns are kept so
+        -- a failed/delayed inspection can never discard a useful tank transfer.
+        if role == "HEALER" or role == "DAMAGER" then
+            local auraID = TRANSFERS[spellID].aura
+            armed[auraID] = GetTime() + 35
+        end
+        pendingTargetName = nil
+    end
+
+    local function CancelArmedAura()
+        local now = GetTime()
+        for auraID, expiry in pairs(armed) do
+            if expiry < now then armed[auraID] = nil end
+        end
+        if next(armed) == nil then return end
+
+        for i = 40, 1, -1 do
+            local _, _, _, _, _, _, _, caster, _, _, spellID = UnitBuff("player", i)
+            if spellID and armed[spellID] and (not caster or UnitIsUnit(caster, "player")) then
+                armed[spellID] = nil
+                CancelUnitBuff("player", i)
+            end
+        end
+    end
+
+    transferFrame:SetScript("OnEvent", function(_, event, ...)
+        if event == "PLAYER_LOGIN" then
+            playerGUID = UnitGUID("player")
+            return
+        end
+        if event == "UNIT_SPELLCAST_SENT" then
+            local unit, spellName, _, targetName = ...
+            if unit == "player" and spellNameToID[spellName] then
+                pendingTargetName = targetName
+            end
+            return
+        end
+        if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+            local _, subEvent, sourceGUID, _, _, destGUID, destName, _, spellID = ...
+            if subEvent == "SPELL_CAST_SUCCESS" and sourceGUID == playerGUID and TRANSFERS[spellID] then
+                Arm(spellID, destGUID, destName)
+            end
+            return
+        end
+        if event == "UNIT_AURA" then
+            local unit = ...
+            if unit == "player" then CancelArmedAura() end
+        end
+    end)
+
+    local function ApplyThreatTransfer()
+        transferFrame:UnregisterAllEvents()
+        wipe(armed)
+        pendingTargetName = nil
+        transferFrame:RegisterEvent("PLAYER_LOGIN")
+        if not (Enabled(57934) or Enabled(34477)) then return end
+        playerGUID = UnitGUID("player")
+        transferFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        transferFrame:RegisterEvent("UNIT_SPELLCAST_SENT")
+        transferFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    end
+    EllesmereUI._applyThreatTransfer = ApplyThreatTransfer
+
+    local boot = EllesmereUI.SafeCreateFrame("Frame")
+    boot:RegisterEvent("PLAYER_LOGIN")
+    boot:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        ApplyThreatTransfer()
+    end)
+end
+
+-------------------------------------------------------------------------------
 --  Equipment Flyout item levels
 --  Blizzard's character-sheet gear flyout (hover a gear slot -> the popup of
 --  same-slot items from your bags/equipped) only shows item icons. When this is

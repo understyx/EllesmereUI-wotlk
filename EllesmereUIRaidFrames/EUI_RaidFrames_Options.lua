@@ -2445,7 +2445,8 @@ initFrame:SetScript("OnEvent", function(self)
             blizzDefault = { TANK = "GM-icon-role-tank", HEALER = "GM-icon-role-healer", DAMAGER = "GM-icon-role-dps" },
             blizzLight = { _isTexture = true, TANK = ROLE_MEDIA .. "tank.tga", HEALER = ROLE_MEDIA .. "healer.tga", DAMAGER = ROLE_MEDIA .. "dps.tga" },
         }
-        local playerRole = UnitGroupRolesAssigned("player")
+        local playerRole = EllesmereUI.RoleDetector and EllesmereUI.RoleDetector:GetRole("player")
+            or UnitGroupRolesAssigned("player")
         if playerRole == "NONE" then
             local specIdx = GetSpecialization()
             if specIdx then playerRole = GetSpecializationRole(specIdx) end

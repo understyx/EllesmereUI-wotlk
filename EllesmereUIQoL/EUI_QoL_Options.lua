@@ -2177,6 +2177,36 @@ initFrame:SetScript("OnEvent", function(self)
 
 
         ---------------------------------------------------------------------------
+        --  THREAT TRANSFER
+        ---------------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "THREAT TRANSFER", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Cancel Tricks on Non-Tanks",
+              tooltip="After Tricks of the Trade activates, automatically removes only your threat-transfer aura when the recipient is detected as a healer or DPS. Tank, pet, and unknown recipients keep the transfer.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.autoCancelTricksThreat == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.autoCancelTricksThreat = v
+                  if EllesmereUI._applyThreatTransfer then EllesmereUI._applyThreatTransfer() end
+              end },
+            { type="toggle", text="Cancel Misdirection on Non-Tanks",
+              tooltip="After Misdirection activates, automatically removes its threat-transfer aura when the recipient is detected as a healer or DPS. Tank, pet, and unknown recipients keep the transfer.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.autoCancelMisdirectionThreat == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.autoCancelMisdirectionThreat = v
+                  if EllesmereUI._applyThreatTransfer then EllesmereUI._applyThreatTransfer() end
+              end }
+        );  y = y - h
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        ---------------------------------------------------------------------------
         --  UI
         ---------------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "UI", y);  y = y - h
@@ -2255,7 +2285,7 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
         pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement" },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "tricks", "tricks of the trade", "misdirection", "threat transfer" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2294,6 +2324,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.trainAllButton = false
                 EllesmereUIDB.autoUnwrapCollections = false
                 EllesmereUIDB.autoOpenContainers = false
+                EllesmereUIDB.autoCancelTricksThreat = false
+                EllesmereUIDB.autoCancelMisdirectionThreat = false
                 EllesmereUIDB.autoRepairGuild = false
                 EllesmereUIDB.shifterEnabled = false
                 EllesmereUIDB.shifterPositions = nil
@@ -2341,6 +2373,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyQuickLoot then EllesmereUI._applyQuickLoot() end
             if EllesmereUI._applyInstanceResetAnnounce then EllesmereUI._applyInstanceResetAnnounce() end
             if EllesmereUI._applyAutoOpenContainers then EllesmereUI._applyAutoOpenContainers() end
+            if EllesmereUI._applyThreatTransfer then EllesmereUI._applyThreatTransfer() end
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
             EllesmereUI:InvalidatePageCache()

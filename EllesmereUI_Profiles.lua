@@ -64,6 +64,7 @@ local ADDON_DB_MAP = {
     -- user-visible profile data and listing it produced a misleading
     -- "Not included: Basics" warning on every imported v6.6+ profile.
     { folder = "EllesmereUIQoL",               display = "Quality of Life",     svName = "EllesmereUIQoLDB",               suffix = "QoL"               },
+    { folder = "EllesmereUIPallyPower",        display = "PallyPower",          svName = "EllesmereUIPallyPowerDB",        suffix = "PallyPower"        },
     { folder = "EllesmereUIBags",              display = "Bags",                svName = "EllesmereUIBagsDB",              suffix = "Bags"              },
     { folder = "EllesmereUIFriends",           display = "Friends List",        svName = "EllesmereUIFriendsDB",           suffix = "Friends"           },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Timer",       svName = "EllesmereUIMythicTimerDB",       suffix = "MythicTimer"       },
@@ -1382,6 +1383,11 @@ function EllesmereUI.RefreshAllAddons()
     -- QoL extras (FPS counter + Secondary Stats) -- per-profile, so re-apply on swap
     if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
     if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+    -- PallyPower first: consumers such as AuraBuffReminders must see its new
+    -- profile state before their own refresh pass runs.
+    if EllesmereUI.PallyPower and EllesmereUI.PallyPower.RefreshProfile then
+        EllesmereUI.PallyPower:RefreshProfile()
+    end
     -- AuraBuffReminders (refresh + position)
     if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
     if _G._EABR_ApplyUnlockPos then _G._EABR_ApplyUnlockPos() end
@@ -1422,6 +1428,7 @@ function EllesmereUI.RefreshAllAddons()
     if _G._ECME_RegisterTBBUnlock then _G._ECME_RegisterTBBUnlock() end
     if _G._ERB_RegisterUnlock then _G._ERB_RegisterUnlock() end
     if _G._EABR_RegisterUnlock then _G._EABR_RegisterUnlock() end
+    if _G._EPP_RegisterUnlock then _G._EPP_RegisterUnlock() end
     if _G._ECL_RegisterUnlock then _G._ECL_RegisterUnlock() end
     if _G._EUI_BattleRes_RegisterUnlock then _G._EUI_BattleRes_RegisterUnlock() end
     if _G._EDB_RegisterUnlock then _G._EDB_RegisterUnlock() end

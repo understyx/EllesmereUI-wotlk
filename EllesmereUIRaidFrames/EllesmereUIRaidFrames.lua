@@ -1057,6 +1057,15 @@ do
             handleFrame(PartyFrame)
         end
 
+        -- Wrath and other legacy clients use the standalone
+        -- PartyMemberFrame1-4 set instead of PartyFrame/CompactPartyFrame.
+        -- Include them in every suppression pass so Blizzard cannot show them
+        -- alongside EUI's party header after a roster update or zone change.
+        local MAX_PARTY_MEMBERS = _G.MAX_PARTY_MEMBERS or 4
+        for i = 1, MAX_PARTY_MEMBERS do
+            handleFrame(_G["PartyMemberFrame" .. i])
+        end
+
         -- Compact party frames exist without PartyFrame on some legacy/client
         -- compatibility combinations, so never gate them on the newer parent.
         local compactParty = _G["CompactPartyFrame"]
@@ -4263,7 +4272,8 @@ ns._UpdateRoleIcon = function(d, s, unit)
     local style = s.roleIconStyle or "modern"
     if style == "none" then roleIcon:Hide(); return end
     if s.roleIconHideInCombat and inCombat then roleIcon:Hide(); return end
-    local role = UnitGroupRolesAssigned(unit)
+    local role = EllesmereUI.RoleDetector and EllesmereUI.RoleDetector:GetRole(unit)
+        or UnitGroupRolesAssigned(unit)
     if role and not issecretvalue(role) then
         local showForRole = (role == "TANK" and s.showRoleForTank)
             or (role == "HEALER" and s.showRoleForHealer)
@@ -6315,6 +6325,15 @@ ns._UpdateRoleIcons = function()
     for unit, btn in pairs(unitToButton) do updateRole(unit, btn) end
     for unit, btn in pairs(ns._partyUnitToButton) do updateRole(unit, btn) end
     for unit, btn in pairs(ns._xfUnitToButton) do updateRole(unit, btn) end
+end
+
+-- Talent inspections complete asynchronously, often after the frame's initial
+-- paint. Repaint just the role textures when the shared detector learns or
+-- overrides a role; this is combat-safe and avoids a full button update.
+if EllesmereUI.RoleDetector then
+    EllesmereUI.RoleDetector:RegisterCallback(function()
+        if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
+    end)
 end
 
 -- Lightweight: only refresh leader/assistant icons on each button. Driven by

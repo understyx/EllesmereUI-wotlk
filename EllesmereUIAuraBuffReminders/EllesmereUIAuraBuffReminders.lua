@@ -679,8 +679,9 @@ end
 -- BEFORE the aura read so non-beneficiaries are skipped without scanning their
 -- auras -- a net win over the unfiltered scan. UnitClass's class token is
 -- non-secret for friendly group members.
-local function AnyGroupMemberMissingBuff(spellIDs, benefits)
-    local selfBenefits = not benefits or benefits[GetPlayerClass()]
+local function AnyGroupMemberMissingBuff(spellIDs, benefits, eligible)
+    local selfBenefits = (not benefits or benefits[GetPlayerClass()])
+                         and (not eligible or eligible("player"))
     if not IsInGroup() then return selfBenefits and not _unitHasBuff("player", spellIDs) end
     if selfBenefits and _unitOk("player") and not _unitHasBuff("player", spellIDs) then return true end
     if IsInRaid() then
@@ -688,7 +689,8 @@ local function AnyGroupMemberMissingBuff(spellIDs, benefits)
             local u = "raid"..i
             if _unitOk(u) and UnitIsPlayer(u) and not UnitIsUnit(u, "player") and _unitInRange(u) then
                 local _, class = UnitClass(u)
-                if (not benefits or benefits[class]) and not _unitHasBuff(u, spellIDs) then
+                if (not benefits or benefits[class]) and (not eligible or eligible(u))
+                   and not _unitHasBuff(u, spellIDs) then
                     return true
                 end
             end
@@ -698,7 +700,8 @@ local function AnyGroupMemberMissingBuff(spellIDs, benefits)
             local u = "party"..i
             if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
                 local _, class = UnitClass(u)
-                if (not benefits or benefits[class]) and not _unitHasBuff(u, spellIDs) then
+                if (not benefits or benefits[class]) and (not eligible or eligible(u))
+                   and not _unitHasBuff(u, spellIDs) then
                     return true
                 end
             end
@@ -843,8 +846,8 @@ local RAID_BUFFS = {
     { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=48161,  buffIDs={48161,48162},   check="raid" },
     { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=42995,  buffIDs={42995,43002},   check="raid", benefit="intellect" },
     { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=47436,  buffIDs={47436},   check="raid", benefit="attackPower" },
-    { key="bok",    class="PALADIN", name="Blessing of Kings",      castSpell=25898,  buffIDs={25898,20217},   check="raid" },
-    { key="bom",    class="PALADIN", name="Blessing of Might",      castSpell=48934,  buffIDs={48934,19740},   check="raid", benefit="attackPower" },
+    { key="bok",    class="PALADIN", name="Blessing of Kings",      castSpell=25898,  buffIDs={25898,20217},   check="raid", pallyPowerBlessing=3 },
+    { key="bom",    class="PALADIN", name="Blessing of Might",      castSpell=48934,  buffIDs={48934,19740},   check="raid", benefit="attackPower", pallyPowerBlessing=2 },
 }
 
 -------------------------------------------------------------------------------
@@ -1892,9 +1895,17 @@ local rb = db.profile.raidBuffs
 if inInstance or rb.showNonInstanced then
     local _, iType = IsInInstance()
     local inPvP = (iType == "pvp" or iType == "arena")
+    local pp = playerClass == "PALADIN" and EllesmereUI and EllesmereUI.PallyPower
+    local pallyName = pp and pp.IsReady and pp:IsReady() and UnitName("player")
+    local hasPallyAssignments = pallyName and pp.HasAssignmentsForPaladin
+                                and pp:HasAssignmentsForPaladin(pallyName)
     for _, buff in ipairs(RAID_BUFFS) do
+        local usePallyAssignment = hasPallyAssignments and buff.pallyPowerBlessing
+        local assignedToPlayer = not usePallyAssignment
+                                or (pp.HasBlessingAssignment
+                                    and pp:HasBlessingAssignment(pallyName, buff.pallyPowerBlessing))
         if rb.enabled[buff.key] and (buff.class == playerClass) and Known(buff.castSpell)
-           and not (buff.noPvP and inPvP) then
+           and not (buff.noPvP and inPvP) and assignedToPlayer then
             -- In combat, skip buffs whose IDs are not all whitelisted
             local canCheck = true
             if inCombat then
@@ -1911,7 +1922,14 @@ if inInstance or rb.showNonInstanced then
                 if buff.check == "huntersMark" then
                     isMissing = inCombat and _huntersMarkNeeded
                 elseif rb.showOthersMissing and buff.check == "raid" and (IsInGroup() or IsInRaid()) then
-                    isMissing = AnyGroupMemberMissingBuff(buff.buffIDs, buff.benefit and BUFF_BENEFICIARIES[buff.benefit])
+                    local eligible
+                    if usePallyAssignment and pp.GetAssignedBlessingForUnit then
+                        eligible = function(unit)
+                            return pp:GetAssignedBlessingForUnit(pallyName, unit) == buff.pallyPowerBlessing
+                        end
+                    end
+                    isMissing = AnyGroupMemberMissingBuff(buff.buffIDs,
+                        buff.benefit and BUFF_BENEFICIARIES[buff.benefit], eligible)
                 else
                     isMissing = not PlayerHasAuraByID(buff.buffIDs)
                 end
