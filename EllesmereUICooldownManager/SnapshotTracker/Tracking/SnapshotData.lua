@@ -123,15 +123,18 @@ local critModMetaGems = {
     ["41398"] = 0.03,
 }
 
--- Enemy debuffs that increase crit chance against the target
+-- Enemy debuffs that increase crit chance against the target. Effects in the
+-- same Wrath raid-debuff category do not stack; SnapshotCalc uses the strongest
+-- active value from each category. The spell-crit and all-crit categories do
+-- stack with one another.
 local critChanceEnemyDebuffs = {
-    [17800] = 5, -- Shadow Mastery
-    [22959] = 5, -- Improved Scorch
-    [12579] = 1, -- Winter's Chill
-    [21183] = 1, -- Heart of the Crusader (Rank 1)
-    [54498] = 2, -- Heart of the Crusader (Rank 2)
-    [54499] = 3, -- Heart of the Crusader (Rank 3)
-    [30708] = 3, -- Totem of Wrath
+    [17800] = { value = 5, group = "spellCrit" }, -- Shadow Mastery
+    [22959] = { value = 5, group = "spellCrit" }, -- Improved Scorch
+    [12579] = { value = 1, group = "spellCrit" }, -- Winter's Chill (per stack)
+    [21183] = { value = 1, group = "allCrit" },   -- Heart of the Crusader (Rank 1)
+    [54498] = { value = 2, group = "allCrit" },   -- Heart of the Crusader (Rank 2)
+    [54499] = { value = 3, group = "allCrit" },   -- Heart of the Crusader (Rank 3)
+    [30708] = { value = 3, group = "allCrit" },   -- Totem of Wrath
 }
 
 -- Export section 1 data tables

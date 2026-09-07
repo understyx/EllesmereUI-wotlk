@@ -138,11 +138,47 @@ local function GetCharacterBankTabs()
                 end
             end
         end
-    else
+    elseif #CHARACTER_BANK_BAGS > 0 then
         for i, bagID in ipairs(CHARACTER_BANK_BAGS) do
             local numSlots = C_Container.GetContainerNumSlots(bagID)
             if numSlots > 0 then
                 tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Bank Tab " .. #tabs + 1, icon = GetFallbackIcon(bagID), depositFlags = 0 }
+            end
+        end
+    else
+        -- Wrath bank layout: the 28-slot main bank is container -1 and the
+        -- seven purchased bank bags are containers 5..11.  Enum.BagIndex and
+        -- C_Bank tab metadata do not exist on 3.3.5, so without this branch the
+        -- discovery result is empty and RefreshBank has no slots to render.
+        local mainBank = _G.BANK_CONTAINER or -1
+        local mainSlots = C_Container.GetContainerNumSlots(mainBank) or 0
+        if mainSlots > 0 then
+            tabs[#tabs + 1] = {
+                bagID = mainBank,
+                numSlots = mainSlots,
+                name = BANK or "Bank",
+                icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue",
+                depositFlags = 0,
+                legacy = true,
+            }
+        end
+
+        local firstBankBag = (_G.NUM_BAG_SLOTS or 4) + 1
+        local bankBagCount = _G.NUM_BANKBAGSLOTS or 7
+        for bagID = firstBankBag, firstBankBag + bankBagCount - 1 do
+            local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
+            if numSlots > 0 then
+                local invID = C_Container.ContainerIDToInventoryID and C_Container.ContainerIDToInventoryID(bagID)
+                local icon = invID and GetInventoryItemTexture and GetInventoryItemTexture("player", invID)
+                local name = GetBagName and GetBagName(bagID)
+                tabs[#tabs + 1] = {
+                    bagID = bagID,
+                    numSlots = numSlots,
+                    name = name or ((BANK_BAG or "Bank Bag") .. " " .. (bagID - firstBankBag + 1)),
+                    icon = icon or GetFallbackIcon(bagID),
+                    depositFlags = 0,
+                    legacy = true,
+                }
             end
         end
     end
@@ -1755,7 +1791,9 @@ function BuildBankSidebar()
         btn._count:SetTextColor(0.5, 0.5, 0.5)
         btn._count:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
         btn:SetScript("OnEnter", function(self)
-            local showEditableTabTooltip = EUI.ShowWidgetTooltip and not self._isPurchaseTab and self._viewIdx and self._viewIdx > 0
+            local tabData = self._viewIdx and self._viewIdx > 0 and _allTabs[self._viewIdx]
+            local showEditableTabTooltip = EUI.ShowWidgetTooltip and not self._isPurchaseTab
+                and tabData and not tabData.legacy and C_Bank and C_Bank.UpdateBankTabSettings
 
             if not self._isSelected then self._bg:SetTexture(1, 1, 1, 0.06) end
             if (BP().bankSidebarCollapsed) and EUI.ShowWidgetTooltip then
@@ -1775,7 +1813,7 @@ function BuildBankSidebar()
 
             if button == "RightButton" and self._viewIdx and self._viewIdx > 0 then
                 local tabData = _allTabs[self._viewIdx]
-                if tabData then
+                if tabData and not tabData.legacy and C_Bank and C_Bank.UpdateBankTabSettings then
                     -- The bagID is the tab ID UpdateBankTabSettings expects:
                     -- Enum.BagIndex.CharacterBankTab_1..6 / AccountBankTab_1..5
                     EnsureBankTabConfigFrame()
@@ -2096,7 +2134,11 @@ EUI_Bank:SetScript("OnHide", function()
     if EUI_BankTabConfigFrame then
         EUI_BankTabConfigFrame:Hide()
     end
-    if C_Bank then C_Bank.CloseBankFrame() end
+    if C_Bank and C_Bank.CloseBankFrame then
+        C_Bank.CloseBankFrame()
+    elseif CloseBankFrame then
+        CloseBankFrame()
+    end
 end)
 
 -------------------------------------------------------------------------------

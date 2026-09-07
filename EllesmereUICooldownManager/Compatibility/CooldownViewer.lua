@@ -8,6 +8,159 @@ local addonName, ns = ...
 
 _G.C_CooldownViewer = _G.C_CooldownViewer or {}
 
+-------------------------------------------------------------------------------
+-- CDM-wide event dispatcher
+--
+-- This file loads first in the child addon's TOC, so the dispatcher is created
+-- early enough for the compatibility catalog's login initialization.  The
+-- event-indexed subscriber lists let the compatibility layer, main CDM, and
+-- Snapshot Tracker share one native registration without using the Lite event
+-- API, whose event table currently supports only one handler per event.
+-------------------------------------------------------------------------------
+local eventDispatcher = EllesmereUI.SafeCreateFrame("Frame")
+local eventCallbacks = {}
+local eventSubscribers = {}
+local dispatcherRegistrations = {}
+
+ns.CDMEventDispatcher = eventDispatcher
+ns.CDMEventCallbacks = eventCallbacks
+
+local function ReportCDMEventError(err)
+    local handler = geterrorhandler and geterrorhandler()
+    if handler then pcall(handler, err) end
+end
+
+local function CopyUnitFilter(units)
+    if not units then return nil, nil end
+    local filter, ordered = {}, {}
+    for i = 1, #units do
+        local unit = units[i]
+        if type(unit) ~= "string" then
+            error("CDM unit-event filters must be unit-token strings", 3)
+        end
+        if not filter[unit] then
+            filter[unit] = true
+            ordered[#ordered + 1] = unit
+        end
+    end
+    if #ordered == 0 then
+        error("CDM unit-event filters cannot be empty", 3)
+    end
+    return filter, ordered
+end
+
+local function EnsureDispatcherRegistration(event, units)
+    local registration = dispatcherRegistrations[event]
+    if not registration then
+        if units then
+            local filter, ordered = CopyUnitFilter(units)
+            registration = { unitFiltered = true, units = filter, orderedUnits = ordered }
+            eventDispatcher:RegisterUnitEvent(event, unpack(ordered))
+        else
+            registration = { unitFiltered = false }
+            eventDispatcher:RegisterEvent(event)
+        end
+        dispatcherRegistrations[event] = registration
+        return
+    end
+
+    -- A broad listener upgrades the shared native registration to broad. Each
+    -- unit-filtered subscriber still applies its own filter during fan-out.
+    if not units then
+        if registration.unitFiltered then
+            registration.unitFiltered = false
+            registration.units = nil
+            registration.orderedUnits = nil
+            eventDispatcher:RegisterEvent(event)
+        end
+        return
+    end
+    if not registration.unitFiltered then return end
+
+    -- Merge unit tokens when future subscribers need different filters. Wrath's
+    -- compatibility RegisterUnitEvent accepts two tokens, so fall back to one
+    -- broad native wakeup if the union grows larger; callback filtering below
+    -- still preserves each subscriber's requested units.
+    local changed = false
+    for i = 1, #units do
+        local unit = units[i]
+        if type(unit) ~= "string" then
+            error("CDM unit-event filters must be unit-token strings", 3)
+        end
+        if not registration.units[unit] then
+            registration.units[unit] = true
+            registration.orderedUnits[#registration.orderedUnits + 1] = unit
+            changed = true
+        end
+    end
+    if changed then
+        if #registration.orderedUnits <= 2 then
+            eventDispatcher:RegisterUnitEvent(event, unpack(registration.orderedUnits))
+        else
+            registration.unitFiltered = false
+            registration.units = nil
+            registration.orderedUnits = nil
+            eventDispatcher:RegisterEvent(event)
+        end
+    end
+end
+
+-- Register one logical subscriber for a set of broad and/or unit-filtered
+-- events. The callback is exposed by owner key for diagnostics and late-loaded
+-- CDM integrations, while fan-out remains event-specific on the hot path.
+function ns.RegisterCDMEventCallback(owner, callback, events, unitEvents)
+    if type(owner) ~= "string" or type(callback) ~= "function" then
+        error("Usage: RegisterCDMEventCallback(\"owner\", callback [, events [, unitEvents]])", 2)
+    end
+    if eventCallbacks[owner] then
+        error("CDM event callback already registered for " .. owner, 2)
+    end
+    eventCallbacks[owner] = callback
+
+    local subscribed = {}
+    local function Subscribe(event, units)
+        if type(event) ~= "string" then
+            error("CDM event names must be strings", 3)
+        end
+        if subscribed[event] then
+            error("Duplicate CDM event subscription for " .. owner .. ": " .. event, 3)
+        end
+        subscribed[event] = true
+
+        local unitFilter = CopyUnitFilter(units)
+        EnsureDispatcherRegistration(event, units)
+
+        local listeners = eventSubscribers[event]
+        if not listeners then
+            listeners = {}
+            eventSubscribers[event] = listeners
+        end
+        listeners[#listeners + 1] = { owner = owner, units = unitFilter }
+    end
+
+    for i = 1, #(events or {}) do Subscribe(events[i]) end
+    for event, units in pairs(unitEvents or {}) do Subscribe(event, units) end
+end
+
+eventDispatcher:SetScript("OnEvent", function(self, event, ...)
+    local listeners = eventSubscribers[event]
+    if not listeners then return end
+    local unit = ...
+    for i = 1, #listeners do
+        local subscription = listeners[i]
+        if not subscription.units or subscription.units[unit] then
+            local callback = eventCallbacks[subscription.owner]
+            if callback then
+                -- Separate frames isolated these handlers before consolidation;
+                -- preserve that fault boundary so one subsystem cannot starve
+                -- the remaining subscribers for the same event.
+                local ok, err = pcall(callback, self, event, ...)
+                if not ok then ReportCDMEventError(err) end
+            end
+        end
+    end
+end)
+
 -- Internal Data Models
 local definitions = {}      -- cooldownID -> definition schema
 local availability = {}     -- cooldownID -> { isKnown = boolean, activeSpellID = number, activeAuraSpellID = number }
@@ -45,9 +198,6 @@ local cachedAuraTime = 0
 local playerDebuffsByGUID = {}
 local learnedPlayerDebuffDurations = {}
 local PLAYER_DEBUFF_EXPIRY_SLOP = 0.5
-
--- Event Tracker Frame
-local tracker = CreateFrame("Frame")
 
 local function IsPlayerOrPetGUID(guid)
     if not guid then return false end
@@ -402,8 +552,8 @@ function AdapterMixin:GetCooldownInfo()
 end
 
 -- EllesmereUICdmHooks hooks this method on buff viewer children and queues a
--- re-layout after it runs.  The compatibility tracker calls it whenever an
--- aura-backed adapter changes active state.
+-- re-layout after it runs. The compatibility event callback calls it whenever
+-- an aura-backed adapter changes active state.
 function AdapterMixin:OnActiveStateChanged() end
 
 local function CopyAdapterMethod(frame, method)
@@ -1031,7 +1181,7 @@ end
 
 -- The parent framework's PLAYER_LOGIN frame is created before this child
 -- addon loads.  Once the compatibility layer moved into the child addon, that
--- framework frame could run the CDM's OnEnable before this tracker's own
+-- framework frame could run the CDM's OnEnable before this dispatcher's own
 -- PLAYER_LOGIN callback, leaving the first bar build with an empty availability
 -- map.  Expose an explicit synchronous refresh so CDM initialization and
 -- equipment rebuilds never depend on event-frame dispatch order.
@@ -1111,20 +1261,9 @@ local function IsAuraCombatLogEvent(subEvent)
         or subEvent == "SPELL_AURA_BROKEN_SPELL"
 end
 
--- Event Handling
-tracker:RegisterEvent("PLAYER_LOGIN")
-tracker:RegisterEvent("SPELLS_CHANGED")
-tracker:RegisterEvent("PLAYER_TALENT_UPDATE")
-tracker:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-tracker:RegisterEvent("PLAYER_ENTERING_WORLD")
-tracker:RegisterUnitEvent("UNIT_AURA", "player", "target")
-tracker:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-tracker:RegisterEvent("SPELL_UPDATE_USABLE")
-tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
-tracker:RegisterUnitEvent("UNIT_HEALTH", "target")
-tracker:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-
-tracker:SetScript("OnEvent", function(self, event, ...)
+-- Event Handling. Register first so shared-event callback order remains
+-- compatibility -> main CDM -> Snapshot Tracker, matching TOC initialization.
+local function CooldownViewerCompatibilityOnEvent(self, event, ...)
     if event == "PLAYER_LOGIN" or event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "PLAYER_EQUIPMENT_CHANGED" then
         ns.RefreshCooldownViewerCompatibility()
     elseif event == "PLAYER_ENTERING_WORLD" then
@@ -1183,7 +1322,22 @@ tracker:SetScript("OnEvent", function(self, event, ...)
             end
         end
     end
-end)
+end
+
+ns.RegisterCDMEventCallback("cooldownViewerCompatibility", CooldownViewerCompatibilityOnEvent, {
+    "PLAYER_LOGIN",
+    "SPELLS_CHANGED",
+    "PLAYER_TALENT_UPDATE",
+    "PLAYER_EQUIPMENT_CHANGED",
+    "PLAYER_ENTERING_WORLD",
+    "SPELL_UPDATE_COOLDOWN",
+    "SPELL_UPDATE_USABLE",
+    "PLAYER_TARGET_CHANGED",
+    "COMBAT_LOG_EVENT_UNFILTERED",
+}, {
+    UNIT_AURA = { "player", "target" },
+    UNIT_HEALTH = { "target" },
+})
 
 -- Global Viewer Pools (Mocking Retail UI Frames)
 local function CreateMockPool(categoryID)

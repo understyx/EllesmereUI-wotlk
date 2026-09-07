@@ -1184,6 +1184,11 @@ local flyoutBlacklist = {
     MinimapZoomOut   = true,
     MinimapBackdrop  = true,
     GameTimeFrame    = true,
+    -- Wrath's RDF eye owns the teleport-in/out dropdown.  It is a direct
+    -- Minimap child and otherwise matches the generic addon-button scan, which
+    -- hides it on the map and can cache it as unwanted before the queue starts.
+    MiniMapLFGFrame         = true,
+    MiniMapBattlefieldFrame = true,
     -- Core Blizzard feature button (expansion/landing page); keep it on the
     -- minimap surface instead of sweeping it into the addon-button flyout.
     ExpansionLandingPageMinimapButton = true,
@@ -2301,7 +2306,16 @@ local function BuildCustomIndicators(minimap)
         "UI-HUD-Minimap-Tracking-Up", "UI-HUD-Minimap-Tracking-Mouseover", "UI-HUD-Minimap-Tracking-Down",
         function(self)
             local blizBtn = MinimapCluster and MinimapCluster.Tracking and MinimapCluster.Tracking.Button
-            if not blizBtn or not blizBtn.OpenMenu then return end
+            if not blizBtn then blizBtn = _G.MiniMapTrackingButton end
+
+            -- Wrath uses the old dropdown API rather than Button:OpenMenu().
+            if blizBtn and not blizBtn.OpenMenu then
+                if ToggleDropDownMenu and _G.MiniMapTrackingDropDown then
+                    ToggleDropDownMenu(1, nil, _G.MiniMapTrackingDropDown, _G.MiniMapTracking or self, 0, -5)
+                end
+                return
+            end
+            if not blizBtn then return end
 
             -- Toggle: close if already open
             if blizBtn.menu and blizBtn.menu:IsShown() then
@@ -2424,13 +2438,16 @@ end
 
 -- Hide the Blizzard originals so they never render or intercept clicks
 local function HideBlizzardIndicators()
-    local tracking = MinimapCluster and MinimapCluster.Tracking
+    local tracking = (MinimapCluster and MinimapCluster.Tracking) or _G.MiniMapTracking
     if tracking then tracking:SetAlpha(0); tracking:EnableMouse(false) end
     local gameTime = _G.GameTimeFrame
     if gameTime then gameTime:SetAlpha(0); gameTime:EnableMouse(false) end
     local indicator = MinimapCluster and MinimapCluster.IndicatorFrame
     if indicator then
         if indicator.MailFrame then indicator.MailFrame:SetAlpha(0); indicator.MailFrame:EnableMouse(false) end
+    elseif _G.MiniMapMailFrame then
+        _G.MiniMapMailFrame:SetAlpha(0)
+        _G.MiniMapMailFrame:EnableMouse(false)
     end
 end
 
@@ -2930,13 +2947,16 @@ local function RestoreIndicatorFrames()
         if btn and btn.Hide then btn:Hide() end
     end
     -- Restore Blizzard originals
-    local tracking = MinimapCluster and MinimapCluster.Tracking
+    local tracking = (MinimapCluster and MinimapCluster.Tracking) or _G.MiniMapTracking
     if tracking then tracking:SetAlpha(1); tracking:EnableMouse(true) end
     local gameTime = _G.GameTimeFrame
     if gameTime then gameTime:SetAlpha(1); gameTime:EnableMouse(true) end
     local indicator = MinimapCluster and MinimapCluster.IndicatorFrame
     if indicator then
         if indicator.MailFrame then indicator.MailFrame:SetAlpha(1); indicator.MailFrame:EnableMouse(true) end
+    elseif _G.MiniMapMailFrame then
+        _G.MiniMapMailFrame:SetAlpha(1)
+        _G.MiniMapMailFrame:EnableMouse(true)
     end
     if indicatorBg then indicatorBg:Hide() end
 end
@@ -3576,6 +3596,25 @@ local function ApplyMinimap()
 
     -- Flyout toggle button (bottom-left corner) -- create before hiding children
     CreateFlyoutToggle()
+
+    -- These are Blizzard-owned status controls, not addon launchers.  Keep
+    -- their native event-driven visibility and click handlers on the minimap.
+    -- Marking them owned also makes an already-installed visibility hook stop
+    -- forcing alpha to zero when settings are reapplied in the same session.
+    local lfgButton = _G.MiniMapLFGFrame
+    if lfgButton then
+        flyoutOwnedFrames[lfgButton] = true
+        _addonVisible[lfgButton] = nil
+        lfgButton:SetAlpha(1)
+        lfgButton:EnableMouse(true)
+    end
+    local battlefieldButton = _G.MiniMapBattlefieldFrame
+    if battlefieldButton then
+        flyoutOwnedFrames[battlefieldButton] = true
+        _addonVisible[battlefieldButton] = nil
+        battlefieldButton:SetAlpha(1)
+        battlefieldButton:EnableMouse(true)
+    end
 
     -- Hide ALL minimap child frames from the map surface
     HideAllMinimapButtons()

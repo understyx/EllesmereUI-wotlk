@@ -9286,48 +9286,48 @@ end
 -------------------------------------------------------------------------------
 --  Event-Driven Runtime Maintenance
 --
---  This frame owns the non-tick triggers: login/world transitions, spec swaps,
---  talent changes, roster updates, binding changes, proc-glow signals, and
---  combat/visibility state. Most heavy work is deferred into rebuild helpers
---  rather than performed inline in the event callback.
+--  The CDM-wide dispatcher owns the non-tick triggers: login/world transitions,
+--  spec swaps, talent changes, roster updates, binding changes, proc-glow
+--  signals, and combat/visibility state. Most heavy work is deferred into
+--  rebuild helpers rather than performed inline in the event callback.
 -------------------------------------------------------------------------------
--- Event frame
-local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-eventFrame:RegisterEvent("SPELLS_CHANGED")
-eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-eventFrame:RegisterEvent("PLAYER_LOGOUT")
-eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
-eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
-eventFrame:RegisterEvent("UPDATE_BINDINGS")
-eventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
-eventFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
-eventFrame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
-eventFrame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
-eventFrame:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
--- Hero talent / loadout change events
-eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-eventFrame:RegisterEvent("PLAYER_PVP_TALENT_UPDATE")
-eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
--- Cinematic/cutscene end: Blizzard restores hidden frames, so re-hide ours
-eventFrame:RegisterEvent("CINEMATIC_STOP")
-eventFrame:RegisterEvent("STOP_MOVIE")
--- Equipment changes: trinket/weapon swaps update trinket frames and reanchor
-eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
--- Visibility option events: mounted, target, instance zone changes
-eventFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
-eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
--- Dragonriding visibility modes: capability edge (mount/dismount/zone) plus
--- the airborne edge (takeoff/landing while staying mounted; probed at load
--- in EllesmereUI_Visibility.lua -- absent = the checklist items lock).
-eventFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
+local mainCDMEvents = {
+    "PLAYER_ENTERING_WORLD",
+    "PLAYER_SPECIALIZATION_CHANGED",
+    "SPELLS_CHANGED",
+    "PLAYER_REGEN_DISABLED",
+    "PLAYER_REGEN_ENABLED",
+    "ZONE_CHANGED_NEW_AREA",
+    "GROUP_ROSTER_UPDATE",
+    "PLAYER_LOGOUT",
+    "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW",
+    "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE",
+    "UPDATE_BINDINGS",
+    "ACTIONBAR_SLOT_CHANGED",
+    "ACTIONBAR_PAGE_CHANGED",
+    "UPDATE_BONUS_ACTIONBAR",
+    "UPDATE_OVERRIDE_ACTIONBAR",
+    "UPDATE_VEHICLE_ACTIONBAR",
+    -- Hero talent / loadout change events
+    "TRAIT_CONFIG_UPDATED",
+    "PLAYER_TALENT_UPDATE",
+    "PLAYER_PVP_TALENT_UPDATE",
+    "ACTIVE_TALENT_GROUP_CHANGED",
+    -- Cinematic/cutscene end: Blizzard restores hidden frames, so re-hide ours
+    "CINEMATIC_STOP",
+    "STOP_MOVIE",
+    -- Equipment changes: trinket/weapon swaps update trinket frames and reanchor
+    "PLAYER_EQUIPMENT_CHANGED",
+    -- Visibility option events: mounted, target, instance zone changes
+    "PLAYER_MOUNT_DISPLAY_CHANGED",
+    "PLAYER_TARGET_CHANGED",
+    -- Dragonriding visibility modes: capability edge (mount/dismount/zone) plus
+    -- the airborne edge (takeoff/landing while staying mounted; probed at load
+    -- in EllesmereUI_Visibility.lua -- absent = the checklist items lock).
+    "PLAYER_CAN_GLIDE_CHANGED",
+}
 if EllesmereUI._hasGlidingEvent then
-    eventFrame:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
+    mainCDMEvents[#mainCDMEvents + 1] = "PLAYER_IS_GLIDING_CHANGED"
 end
 -- Druid travel/flight/aquatic form needs an explicit re-check for the
 -- visHideMounted option. PLAYER_MOUNT_DISPLAY_CHANGED only fires for real
@@ -9337,7 +9337,7 @@ end
 -- (Bear/Cat) would otherwise trigger unnecessary visibility recomputes.
 local _, _playerClassCDM = UnitClass("player")
 if _playerClassCDM == "DRUID" then
-    eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+    mainCDMEvents[#mainCDMEvents + 1] = "UPDATE_SHAPESHIFT_FORM"
 end
 
 -- Debounce token for talent-change rebuilds: rapid talent clicks collapse
@@ -9419,13 +9419,10 @@ local function ScheduleRosterRebuild()
     if ns.QueueReanchor then ns.QueueReanchor() end
 end
 
-eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
+function ns.MainCDMOnEvent(_, event, unit, updateInfo, arg3)
     if not ECME.db then return end
     if event == "PLAYER_LOGOUT" then
         ns.SaveCachedBarSizes()
-        return
-    end
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         return
     end
     if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
@@ -9479,11 +9476,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     end
     if event == "PLAYER_EQUIPMENT_CHANGED" then
         if InCombatLockdown() then return end
-        -- Refresh the compatibility catalog before rebuilding.  This also
-        -- makes trinket swaps independent of event-frame dispatch order.
-        if ns.RefreshCooldownViewerCompatibility then
-            ns.RefreshCooldownViewerCompatibility()
-        end
+        -- The compatibility subscriber runs first on the shared dispatcher,
+        -- so its catalog and equipped-trinket availability are already fresh.
         BuildAllCDMBars()
         if ns.QueueReanchor then ns.QueueReanchor() end
         return
@@ -9628,7 +9622,9 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end
     end
     RequestUpdate()
-end)
+end
+
+ns.RegisterCDMEventCallback("main", ns.MainCDMOnEvent, mainCDMEvents)
 
 -------------------------------------------------------------------------------
 --  Slash commands

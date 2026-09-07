@@ -246,13 +246,7 @@ function ns.RefreshSnapshotTracking()
     end
 end
 
-local eventFrame = ns.TakeShell and ns.TakeShell() or CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-eventFrame:RegisterUnitEvent("UNIT_AURA", "player", "target")
-eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-eventFrame:SetScript("OnEvent", function(_, event, ...)
+local function SnapshotTrackerOnEvent(_, event, ...)
     Initialize()
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         Snapshot:HandleCLEU(...)
@@ -271,8 +265,21 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         ns.RescanSnapshotTracking()
         ns.RefreshSnapshotTracking()
     end
-end)
-eventFrame:SetScript("OnUpdate", function(_, elapsed)
+end
+
+ns.RegisterCDMEventCallback("snapshotTracker", SnapshotTrackerOnEvent, {
+    "PLAYER_LOGIN",
+    "PLAYER_ENTERING_WORLD",
+    "PLAYER_TARGET_CHANGED",
+    "COMBAT_LOG_EVENT_UNFILTERED",
+}, {
+    UNIT_AURA = { "player", "target" },
+})
+
+-- Snapshot text still needs its periodic display/rescan loop, but event
+-- ownership belongs exclusively to the shared CDM dispatcher above.
+local updateFrame = ns.TakeShell and ns.TakeShell() or CreateFrame("Frame")
+updateFrame:SetScript("OnUpdate", function(_, elapsed)
     elapsedSinceRescan = elapsedSinceRescan + elapsed
     if elapsedSinceRescan >= RESCAN_INTERVAL then
         elapsedSinceRescan = 0

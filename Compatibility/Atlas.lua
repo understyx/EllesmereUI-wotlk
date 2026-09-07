@@ -20,4 +20,28 @@ _G.EUI_AtlasMap = {
     ["common-icon-sound"] = "Interface\\OptionsFrame\\VoiceChat-Play",
     ["common-icon-sound-pressed"] = "Interface\\OptionsFrame\\VoiceChat-Down",
     ["Interface\\AnimaChannelingDevice\\AnimaChannelingDeviceLineVerticalMask"] = "Interface\\AddOns\\EllesmereUI\\media\\textures\\soft-line",
+
+    -- Minimap replacements use retail atlas names.  Wrath has no atlas API,
+    -- so point those names at artwork that is present in the 3.3.5 client
+    -- instead of letting GetAtlasPath fall back to INV_Misc_QuestionMark.
+    ["Map-Filter-Button"] = "Interface\\WorldMap\\UI-World-Icon",
+    ["Map-Filter-Button-down"] = "Interface\\WorldMap\\UI-World-Icon",
+    ["AdventureMap-combatally-ring"] = "Interface\\Buttons\\UI-Quickslot2",
+    ["wowlabs_minimapvoid-ring-single"] = "Interface\\AddOns\\EllesmereUI\\media\\basics\\ring_normal.tga",
+    ["UI-HUD-Minimap-Tracking-Up"] = "Interface\\Icons\\Ability_Tracking",
+    ["UI-HUD-Minimap-Tracking-Mouseover"] = "Interface\\Icons\\Ability_Tracking",
+    ["UI-HUD-Minimap-Tracking-Down"] = "Interface\\Icons\\Ability_Tracking",
+    ["UI-HUD-Minimap-Mail-Up"] = "Interface\\Icons\\INV_Letter_15",
+    ["UI-HUD-Minimap-Mail-Mouseover"] = "Interface\\Icons\\INV_Letter_15",
+    ["housefinder_neighborhood-friends-icon"] = "Interface\\Icons\\INV_Misc_GroupLooking",
 }
+
+-- The retail calendar publishes one atlas per day and button state.  The
+-- legacy calendar uses a single texture, which is still preferable to thirty
+-- one question-mark icons and preserves the custom button's click behavior.
+for day = 1, 31 do
+    local prefix = "UI-HUD-Calendar-" .. day
+    _G.EUI_AtlasMap[prefix .. "-Up"] = "Interface\\Calendar\\UI-Calendar-Button"
+    _G.EUI_AtlasMap[prefix .. "-Mouseover"] = "Interface\\Calendar\\UI-Calendar-Button"
+    _G.EUI_AtlasMap[prefix .. "-Down"] = "Interface\\Calendar\\UI-Calendar-Button"
+end

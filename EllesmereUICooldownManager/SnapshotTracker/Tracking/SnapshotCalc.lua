@@ -86,19 +86,29 @@ function SnapshotCalc.CalcCritChance(playerClass)
     end
     local critSuppression = playerLevel - targetLevel
 
-    -- Enemy debuffs that increase crit chance
-    local critDebuff = 0
+    -- Enemy debuffs that increase crit chance. Equivalent raid debuffs do not
+    -- stack in Wrath, so retain only the strongest effect in each category.
+    -- Separate categories (spell crit and all crit) still stack normally.
+    local critDebuffGroups = {}
     for i = 1, 40 do
         local name, _, _, count, _, _, _, source, _, _, spellId =
             UnitAura(TARGET_UNIT, i, "HARMFUL")
         if not name then break end
 
-        local debuffVal = critChanceEnemyDebuffs[spellId]
-        if debuffVal then
+        local debuff = critChanceEnemyDebuffs[spellId]
+        if debuff then
             local stacks = count or 0
             if stacks == 0 then stacks = 1 end
-            critDebuff = critDebuff + debuffVal * stacks
+            local value = debuff.value * stacks
+            local group = debuff.group
+            if value > (critDebuffGroups[group] or 0) then
+                critDebuffGroups[group] = value
+            end
         end
+    end
+    local critDebuff = 0
+    for _, value in pairs(critDebuffGroups) do
+        critDebuff = critDebuff + value
     end
 
     -- Set-bonus crit
