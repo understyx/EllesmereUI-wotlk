@@ -1,0 +1,15 @@
+## Interface: 30300
+## Title: |cff0cd29fEllesmereUI|r Raid Cooldowns
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Configurable raid cooldown groups, announcements, and requests.
+## Author: Ellesmere
+## Version: 8.6.4-wotlk.20260908
+## Dependencies: EllesmereUI
+## OptionalDependencies: EllesmereUICooldownManager
+## SavedVariables: EllesmereUIRaidCooldownsDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+EllesmereUIRaidCooldowns_Data.lua
+EllesmereUIRaidCooldowns.lua
+EllesmereUIRaidCooldowns_Options.lua

@@ -16,3 +16,6 @@ MIDNIGHT_MERGE_PLAN.md
 
 # Developer scripts
 *.ps1
+
+# Local reference addon used while building Raid Cooldowns (never ship/commit)
+/CooldownTrackerOrig/

@@ -64,6 +64,7 @@ local ADDON_DB_MAP = {
     -- user-visible profile data and listing it produced a misleading
     -- "Not included: Basics" warning on every imported v6.6+ profile.
     { folder = "EllesmereUIQoL",               display = "Quality of Life",     svName = "EllesmereUIQoLDB",               suffix = "QoL"               },
+    { folder = "EllesmereUIRaidCooldowns",     display = "Raid Cooldowns",      svName = "EllesmereUIRaidCooldownsDB",     suffix = "RaidCooldowns"     },
     { folder = "EllesmereUIPallyPower",        display = "PallyPower",          svName = "EllesmereUIPallyPowerDB",        suffix = "PallyPower"        },
     { folder = "EllesmereUIBags",              display = "Bags",                svName = "EllesmereUIBagsDB",              suffix = "Bags"              },
     { folder = "EllesmereUIFriends",           display = "Friends List",        svName = "EllesmereUIFriendsDB",           suffix = "Friends"           },
@@ -190,6 +191,7 @@ local KEY_PREFIX_FOLDER = {
     ["RF_"]    = "EllesmereUIRaidFrames",
     ["ECL_"]   = "EllesmereUIQoL",
     ["EUI_"]   = "EllesmereUIQoL",
+    ["ERCD_"]  = "EllesmereUIRaidCooldowns",
 }
 -- Bare-word (un-prefixed) keys, by owning module. These appear as anchor TARGETS
 -- (e.g. a castbar anchored to "player", a bar anchored to "Bar4") even when the
