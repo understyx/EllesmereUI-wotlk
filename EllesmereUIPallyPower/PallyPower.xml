@@ -419,28 +419,6 @@ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 		  </Anchor>
 	  </Anchors>
 	  <Frames>
-		  <Button name="PallyPowerAnchor" enableMouse="true" frameStrata="MEDIUM" inherits="SecureHandlerStateTemplate,SecureHandlerEnterLeaveTemplate">
-			  <Scripts>
-				  <OnLoad>
-					  self:RegisterForClicks("LeftButtonUp", "RightButtonUp");
-				  </OnLoad>
-				  <OnClick>
-					  PallyPower:ClickEdgeTab(self, arg1);
-				  </OnClick>
-				  <OnEnter>
-					  PallyPower:EdgeTabEnter(self);
-				  </OnEnter>
-				  <OnLeave>
-					  PallyPower:EdgeTabLeave(self);
-				  </OnLeave>
-			  </Scripts>
-			  <Size>
-				  <AbsDimension x="42" y="22" />
-			  </Size>
-			  <Anchors>
-				  <Anchor point="CENTER" relativeTo="$parent" relativePoint="CENTER"/>
-			  </Anchors>
-		  </Button>
 		  <Frame name="PallyPowerHeader" toplevel="true" movable="false" enableMouse="true" resizable="false" frameStrata="LOW" inherits="SecureHandlerStateTemplate">
 			  <Size x="1" y="1"/>
 			  <Anchors>

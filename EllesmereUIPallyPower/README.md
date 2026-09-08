@@ -5,22 +5,17 @@ enabled like the other EllesmereUI child modules, appears in the **QoL Addons**
 group, and stores its settings, assignments, and presets in the active
 EllesmereUI profile under `EllesmereUIPallyPower`.
 
-## Edge flyout
+## Bar layout
 
-The original movable drag handle is replaced by a compact `PP` tab docked to
-the left, right, top, or bottom screen edge. Hovering the tab securely opens
-all assigned class controls at once, including during combat. Individual-player
-controls remain available from their class button. Left-click pins or unpins
-the flyout; right-click opens the native EllesmereUI Assignments page. Edge,
-position, and pinned state are configured on the module's Display page.
-
-The tab is also exposed as a PallyPower mover in EllesmereUI Unlock Mode.
-Dragging moves the complete flyout origin; saving docks it to the nearest
-screen edge, while discarding restores the previous edge and position.
+PallyPower is exposed directly as a mover in EllesmereUI Unlock Mode. Dragging
+moves the complete bar freely and saves its exact position; it is not docked or
+snapped back to a screen edge. The Display page can arrange all primary and
+class controls as a vertical or horizontal bar. Individual-player controls
+remain available from their class button.
 
 ## EllesmereUI styling
 
-The tab and blessing controls use EllesmereUI's active accent, pixel borders,
+The blessing controls use EllesmereUI's active accent, pixel borders,
 global or per-module font and outline, and the shared EUI bar-texture catalogue.
 SharedMedia status-bar textures are appended to the same Display dropdown.
 
@@ -31,7 +26,7 @@ Detected Paladins are rows and classes are columns. Scroll a cell to cycle its
 blessing, or hold Shift while scrolling to change the entire Paladin row.
 Assignments can be changed for your own row, for every row while you are group
 leader/assistant, or for a Paladin who enabled Free Assignment. Changes use
-PallyPower's synchronization rules and update the flyout immediately. Both
+PallyPower's synchronization rules and update the bar immediately. Both
 `/pp` and `/epp` open this native page.
 
 ## Shared API

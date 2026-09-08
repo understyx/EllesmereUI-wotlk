@@ -26,9 +26,7 @@ PALLYPOWER_DEFAULT_VALUES = {
 		waitforpeople = false,
 	},
 	display = {
-		flyoutEdge = "RIGHT",
-		flyoutPosition = 50,
-		flyoutPinned = false,
+		orientation = "VERTICAL",
 		barTexture = "melli",
 		-- buttons
 		rows = (PallyPower.IsVanilla and 9) or (PallyPower.IsTBC and 10) or 11,
@@ -47,7 +45,7 @@ PALLYPOWER_DEFAULT_VALUES = {
         HideCountText = false,
 		HideTimerText = false,
 	},
-	hideClassButtons = true,
+	hideClassButtons = false,
 	classColor = false,
 	nameClassColor = false,
 	flashBuffAutoButtons = true,

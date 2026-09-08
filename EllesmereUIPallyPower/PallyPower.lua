@@ -1681,8 +1681,8 @@ function PallyPower:CreateLayout()
 	self:Debug("Create Layout -- begin")
 
 	local p = _G["PallyPowerFrame"]
-	-- Keep the secure casting controls on their own one-pixel origin. The EUI
-	-- edge tab uses PallyPowerFrame as its full-size movable Unlock Mode anchor.
+	-- Keep the secure casting controls on a child origin while PallyPowerFrame
+	-- provides the full-size movable anchor used by EllesmereUI Unlock Mode.
 	self.Header = _G["PallyPowerHeader"] or p
 
     self.autoButton = CreateFrame("Button", "PallyPowerAuto", self.Header, "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerStateTemplate, SecureActionButtonTemplate, PallyPowerAutoButtonTemplate")
@@ -1791,7 +1791,7 @@ function PallyPower:CreateLayout()
 		end
 	end
 
-	if self.CreateEdgeFlyout then self:CreateEdgeFlyout() end
+	if self.RegisterPallyPowerUnlock then self:RegisterPallyPowerUnlock() end
 
 	self:UpdateLayout()
 	self:Debug("Create Layout -- end")
@@ -1814,7 +1814,7 @@ function PallyPower:UpdateLayout()
 
 	PallyPowerFrame:SetScale(self.opt.buffscale)
 
-	if self.opt.display.flyoutEdge then
+	if self.opt.display.orientation then
 
 		local rows = self.opt.display.rows
 		local columns = self.opt.display.columns
@@ -1831,9 +1831,9 @@ function PallyPower:UpdateLayout()
 		local displayedColumns = math.min(displayedButtons, columns)
 		local displayedRows = math.floor((displayedButtons - 1) / columns) + 1
 
-		local classAlignment = self.GetEdgeFlyoutAlignment and self:GetEdgeFlyoutAlignment()
+		local classAlignment = self.GetEUILayoutAlignment and self:GetEUILayoutAlignment()
 		                       or self.opt.display.alignClassButtons
-		local playerAlignment = self.GetEdgeFlyoutPlayerAlignment and self:GetEdgeFlyoutPlayerAlignment()
+		local playerAlignment = self.GetEUIPlayerAlignment and self:GetEUIPlayerAlignment()
 		                        or self.opt.display.alignPlayerButtons
 		if (classAlignment == "Top Right") then
 			point = "BOTTOMLEFT"

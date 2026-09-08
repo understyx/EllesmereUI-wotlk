@@ -405,8 +405,8 @@ local function BuildDisplayPage(parent, yOffset)
             return addon and addon.EUIBarTextures and addon.EUIBarTextures[key]
         end,
     }
-    local edgeValues = { LEFT="Left", RIGHT="Right", TOP="Top", BOTTOM="Bottom" }
-    local edgeOrder = { "LEFT", "RIGHT", "TOP", "BOTTOM" }
+    local orientationValues = { VERTICAL="Vertical", HORIZONTAL="Horizontal" }
+    local orientationOrder = { "VERTICAL", "HORIZONTAL" }
 
     _, h = W:Spacer(parent, y, 20); y = y - h
     _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
@@ -415,10 +415,10 @@ local function BuildDisplayPage(parent, yOffset)
           tooltip="Uses EllesmereUI's bar textures, including textures provided through SharedMedia.",
           getValue=function() return Get("display", "barTexture", "melli") end,
           setValue=function(v) Set("display", "barTexture", v, true) end },
-        { type="dropdown", text="Flyout Edge", values=edgeValues, order=edgeOrder,
-          tooltip="Anchors the PallyPower tab to this edge of the screen. The controls open toward the center.",
-          getValue=function() return Get("display", "flyoutEdge", "RIGHT") end,
-          setValue=function(v) Set("display", "flyoutEdge", v, true) end }
+        { type="dropdown", text="Orientation", values=orientationValues, order=orientationOrder,
+          tooltip="Arranges the complete PallyPower bar vertically or horizontally.",
+          getValue=function() return Get("display", "orientation", "VERTICAL") end,
+          setValue=function(v) Set("display", "orientation", v, true) end }
     ); y = y - h
 
     _, h = W:DualRow(parent, y,
@@ -426,26 +426,6 @@ local function BuildDisplayPage(parent, yOffset)
           getValue=function() return Get("buffscale", nil, 0.75) end,
           setValue=function(v) Set("buffscale", nil, v, true) end },
         nil
-    ); y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type="slider", text="Rows", min=1, max=11, step=1,
-          getValue=function() return Get("display", "rows", 11) end,
-          setValue=function(v) Set("display", "rows", v, true) end },
-        { type="slider", text="Columns", min=1, max=11, step=1,
-          getValue=function() return Get("display", "columns", 1) end,
-          setValue=function(v) Set("display", "columns", v, true) end }
-    ); y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type="slider", text="Edge Position", min=0, max=100, step=1,
-          tooltip="Positions the flyout tab along the selected screen edge. You can also drag the PallyPower mover in Unlock Mode.",
-          getValue=function() return Get("display", "flyoutPosition", 50) end,
-          setValue=function(v) Set("display", "flyoutPosition", v, true) end },
-        { type="toggle", text="Keep Flyout Open",
-          tooltip="Keeps the blessing controls visible instead of opening them on hover.",
-          getValue=function() return Get("display", "flyoutPinned", false) end,
-          setValue=function(v) Set("display", "flyoutPinned", v, true) end }
     ); y = y - h
 
     _, h = W:Spacer(parent, y, 16); y = y - h

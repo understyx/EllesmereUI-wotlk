@@ -159,27 +159,6 @@ function PallyPower:ApplyEUIStyle()
 	for _, fontString in ipairs(self._euiFontStrings) do
 		StyleFont(fontString, fontPath, outline, useShadow)
 	end
-
-	local tab = self.edgeTab or _G.PallyPowerAnchor
-	if tab then
-		tab:SetBackdrop({ bgFile = WHITE, tile = false })
-		tab:SetBackdropColor(0.025, 0.035, 0.045, 0.96)
-		if pixel then
-			if not pixel.GetBorders(tab) then
-				pixel.CreateBorder(tab, accent.r, accent.g, accent.b, 0.95, 1, "OVERLAY", 7)
-			else
-				pixel.UpdateBorder(tab, 1, accent.r, accent.g, accent.b, 0.95)
-				pixel.ShowBorder(tab)
-			end
-		end
-		local highlight = tab:GetHighlightTexture()
-		if highlight then highlight:SetVertexColor(accent.r, accent.g, accent.b, 0.22) end
-		if tab.label then
-			if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(tab.label, useShadow) end
-			tab.label:SetFont(fontPath, 11, outline)
-			tab.label:SetTextColor(accent.r, accent.g, accent.b, 1)
-		end
-	end
 end
 
 _G._EPP_ApplyStyle = function()

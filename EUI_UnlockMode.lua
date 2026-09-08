@@ -9208,6 +9208,22 @@ local function CreateMover(barKey)
     return mover
 end
 
+-- Refresh one live mover after an element changes effective scale. SetScale()
+-- does not fire OnSizeChanged, so the normal registered-element resize hook
+-- cannot keep the overlay footprint in sync by itself.
+function EllesmereUI.RefreshUnlockElement(key)
+    if not isUnlocked then return end
+    local mover = movers[key]
+    if not mover or not mover.Sync then return end
+
+    mover:Sync()
+    C_Timer.After(0, function()
+        if isUnlocked and movers[key] == mover and mover.Sync then
+            mover:Sync()
+        end
+    end)
+end
+
 -- Override RegisterUnlockElements so that late-registering addons (e.g. CDM
 -- registering after a 0.5s timer) get movers spawned immediately if unlock
 -- mode is already open when they call in.

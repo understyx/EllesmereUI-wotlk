@@ -6,7 +6,7 @@ This module is derived from [PallyPower Improved for WoW 3.3.5a](https://github.
 - Imported commit: `d8f7a78de637e73d7d3e44a67721623f1d3fcd07`
 - Imported commit date: 2026-08-06
 - Local integration: EllesmereUI module identity, central profile storage,
-  shared module API, native settings pages, Unlock Mode movement, edge flyout,
+  shared module API, native settings pages, direct Unlock Mode movement,
   and EllesmereUI fonts, textures, accent, and borders
 
 The embedded Ace2 and Dewdrop libraries retain the license notices contained
