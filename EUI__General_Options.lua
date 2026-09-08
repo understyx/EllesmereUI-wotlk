@@ -4042,6 +4042,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIRaidFrames        = "Incredibly light performance, modern raid frames with endless flexibility.",
                 EllesmereUIAuraBuffReminders = "Simple raid buff, auras, consumables and talent reminders.",
                 EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
+                EllesmereUIRaidCooldowns     = "Configurable raid cooldown groups, announcements, and requests.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
                 EllesmereUIFriends           = "A modern friends list with built-in organization tools.",
@@ -6446,6 +6447,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIRaidFrames        = "Incredibly light performance, modern raid frames with endless flexibility.",
                 EllesmereUIAuraBuffReminders = "Simple raid buff, auras, consumables and talent reminders.",
                 EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
+                EllesmereUIRaidCooldowns     = "Configurable raid cooldown groups, announcements, and requests.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
                 EllesmereUIFriends           = "A modern friends list with built-in organization tools.",

@@ -289,6 +289,7 @@ local ADDON_ROSTER = {
     -- the per-module addons below. The Basics folder still exists as a shim
     -- addon purely so the v6.6 split-migration can read its enable state.
     { folder = "EllesmereUIQoL",               display = "Quality of Life",      search_name = "EllesmereUI Quality of Life"         },
+    { folder = "EllesmereUIRaidCooldowns",     display = "Raid Cooldowns",       search_name = "EllesmereUI Raid Cooldowns"          },
     { folder = "EllesmereUIPallyPower",        display = "PallyPower",           search_name = "EllesmereUI PallyPower Blessings"    },
     { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced"       },
     { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
@@ -331,6 +332,7 @@ EllesmereUI.ADDON_GROUPS = {
         label   = "QoL Addons",
         members = {
             "EllesmereUIQoL",
+            "EllesmereUIRaidCooldowns",
             "EllesmereUIPallyPower",
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
@@ -916,6 +918,11 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIQoL", {
     "fpsPos",
     "cursor.gcd.pos",
     "cursor.castCircle.pos",
+})
+
+-- Active remote cooldowns are session state, not profile configuration.
+EllesmereUI.RegisterSyncExclusions("EllesmereUIRaidCooldowns", {
+    "savedState",
 })
 
 -- Minimap settings nest under profile.minimap.
@@ -3871,6 +3878,7 @@ EllesmereUI._addonKeyToFolder = {
     resourceBars = "EllesmereUIResourceBars",
     auraBuff     = "EllesmereUIAuraBuffReminders",
     extras       = "EllesmereUIQoL",
+    raidCooldowns = "EllesmereUIRaidCooldowns",
     friends      = "EllesmereUIFriends",
     minimap      = "EllesmereUIMinimap",
     chat         = "EllesmereUIChat",
@@ -10030,6 +10038,7 @@ function EllesmereUI:RegisterModule(folderName, config)
 
         -- v6.6 split
         EllesmereUIQoL = true,
+        EllesmereUIRaidCooldowns = true,
         EllesmereUIBlizzardSkin = true,
         EllesmereUIQuestTracker = true,
         EllesmereUIMinimap = true,

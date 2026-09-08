@@ -142,6 +142,33 @@ function ns.RegisterCDMEventCallback(owner, callback, events, unitEvents)
     for event, units in pairs(unitEvents or {}) do Subscribe(event, units) end
 end
 
+-- Dynamic consumers (such as Raid Cooldowns) can leave the shared bus
+-- completely when disabled. Static CDM subscribers never call this path.
+function ns.UnregisterCDMEventCallback(owner)
+    if type(owner) ~= "string" or not eventCallbacks[owner] then return end
+    eventCallbacks[owner] = nil
+    local emptyEvents = {}
+    for event, listeners in pairs(eventSubscribers) do
+        for i = #listeners, 1, -1 do
+            if listeners[i].owner == owner then table.remove(listeners, i) end
+        end
+        if #listeners == 0 then
+            emptyEvents[#emptyEvents + 1] = event
+        end
+    end
+    for i = 1, #emptyEvents do
+        local event = emptyEvents[i]
+        eventSubscribers[event] = nil
+        dispatcherRegistrations[event] = nil
+        eventDispatcher:UnregisterEvent(event)
+    end
+end
+
+-- Cross-module facade. Keeping the dispatcher itself private prevents callers
+-- from bypassing its filtering and fault isolation.
+EllesmereUI.RegisterCDMEventCallback = ns.RegisterCDMEventCallback
+EllesmereUI.UnregisterCDMEventCallback = ns.UnregisterCDMEventCallback
+
 eventDispatcher:SetScript("OnEvent", function(self, event, ...)
     local listeners = eventSubscribers[event]
     if not listeners then return end
@@ -166,6 +193,15 @@ local definitions = {}      -- cooldownID -> definition schema
 local availability = {}     -- cooldownID -> { isKnown = boolean, activeSpellID = number, activeAuraSpellID = number }
 local runtimeState = {}     -- cooldownID -> cooldown state plus matched aura identity/duration/stacks
 local categories = {}       -- categoryID -> array of cooldownIDs
+
+-- Raid Cooldowns is a separate optional addon and usually loads after CDM.
+-- Let its catalog merge the definitions that were already registered here.
+function EllesmereUI.MergeCDMRaidCooldownCatalog(catalog)
+    if not catalog or not catalog.MergeCDMDefinition then return end
+    for _, def in pairs(definitions) do
+        catalog:MergeCDMDefinition(def)
+    end
+end
 local adapters = {}         -- cooldownID -> native adapter frame
 local internalCooldownIDsByAura = {} -- proc aura spellID -> array of cooldownIDs
 local auraTagsBySpellID = {} -- aura spellID -> normalized tag set
@@ -787,6 +823,11 @@ function C_CooldownViewer.RegisterDefinition(def)
         return
     end
 
+    local raidCatalog = EllesmereUI and EllesmereUI.RaidCooldownCatalog
+    if raidCatalog and raidCatalog.MergeCDMDefinition then
+        raidCatalog:MergeCDMDefinition(def)
+    end
+
     definitions[def.cooldownID] = def
     IndexDefinitionAuraTags(def)
 
@@ -872,6 +913,7 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         auraTags = def.auraTags,
         isDefensive = def.auraTags and def.auraTags.defensive == true or false,
         isExternal = def.auraTags and def.auraTags.external == true or false,
+        raidCooldown = def.raidCooldown,
 
         -- Runtime state fields expected by EllesmereUI adapters
         cooldownStart = state and state.cooldownStart or 0,

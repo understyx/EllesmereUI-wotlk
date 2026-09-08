@@ -15,6 +15,7 @@ move-folders:
   EllesmereUI/EllesmereUIMinimap: EllesmereUIMinimap
   EllesmereUI/EllesmereUINameplates: EllesmereUINameplates
   EllesmereUI/EllesmereUIQoL: EllesmereUIQoL
+  EllesmereUI/EllesmereUIRaidCooldowns: EllesmereUIRaidCooldowns
   EllesmereUI/EllesmereUIQuestTracker: EllesmereUIQuestTracker
   EllesmereUI/EllesmereUIRaidFrames: EllesmereUIRaidFrames
   EllesmereUI/EllesmereUIResourceBars: EllesmereUIResourceBars
@@ -49,3 +50,4 @@ ignore:
   - Locales/_keys.txt
   - README.md
   - CHANGELOG.md
+  - CooldownTrackerOrig
