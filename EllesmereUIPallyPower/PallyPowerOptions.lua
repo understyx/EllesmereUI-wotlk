@@ -446,8 +446,7 @@ end
 
 function PallyPower:ToggleFA(value)
 	if type(value) == "nil" then return self.opt.freeassign end
-	self.opt.freeassign = value
-	PallyPower:UpdateLayout()
+	self:SetFreeAssignment(value)
 end
 
 function PallyPower:ToggleShowParty(value)

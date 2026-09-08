@@ -27,9 +27,12 @@ SharedMedia status-bar textures are appended to the same Display dropdown.
 ## Assignments
 
 Blessing assignments are edited directly on the module's **Assignments** page.
-Each detected Paladin gets one dropdown per class. Changes use PallyPower's
-normal permission and synchronization rules and update the flyout immediately.
-Both `/pp` and `/epp` open this native page.
+Detected Paladins are rows and classes are columns. Scroll a cell to cycle its
+blessing, or hold Shift while scrolling to change the entire Paladin row.
+Assignments can be changed for your own row, for every row while you are group
+leader/assistant, or for a Paladin who enabled Free Assignment. Changes use
+PallyPower's synchronization rules and update the flyout immediately. Both
+`/pp` and `/epp` open this native page.
 
 ## Shared API
 
@@ -47,6 +50,7 @@ The public integration methods are:
 - `HasAssignmentsForPaladin(paladinName)`
 - `HasBlessingAssignment(paladinName, blessingID)`
 - `SetClassAssignment(paladinName, classIDOrToken, blessingID)`
+- `SetFreeAssignment(enabled)`
 - `GetAuraAssignment(paladinName)`
 - `RequestRefresh()`
 - `RefreshProfile()` and `ResetProfile()`

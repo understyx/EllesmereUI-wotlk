@@ -1549,12 +1549,7 @@ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 			  </Anchors>
 			  <Scripts>
 				  <OnClick>
-					  PallyPower.opt.freeassign = self:GetChecked();
-					  if PallyPower.opt.freeassign then
-						  PallyPower:SendMessage("FREEASSIGN YES")
-					  else
-						  PallyPower:SendMessage("FREEASSIGN NO")
-					  end
+					  PallyPower:SetFreeAssignment(self:GetChecked());
 				  </OnClick>
 			  </Scripts>
 		  </CheckButton>

@@ -1302,6 +1302,24 @@ function PallyPower:CanControl(name)
 	return (IsPartyLeader() or IsRaidLeader() or IsRaidOfficer() or (name==self.player) or (AllPallys[name] and AllPallys[name].freeassign == true))
 end
 
+-- Validate a remote assignment against the player who owns the row. Raid and
+-- party leaders may edit everyone; otherwise a Paladin may edit their own row,
+-- or any sender may edit a row whose owner enabled Free Assignment.
+function PallyPower:CanSenderControl(sender, name)
+	if sender == name or self:CheckRaidLeader(sender) then return true end
+	if name == self.player then return self.opt.freeassign == true end
+	return AllPallys[name] and AllPallys[name].freeassign == true
+end
+
+function PallyPower:SetFreeAssignment(value)
+	value = value and true or false
+	self.opt.freeassign = value
+	if AllPallys[self.player] then AllPallys[self.player].freeassign = value end
+	self:SendMessage(value and "FREEASSIGN YES" or "FREEASSIGN NO")
+	self:UpdateLayout()
+	if self.RefreshAssignmentOptions then self:RefreshAssignmentOptions(false) end
+end
+
 function PallyPower:CheckRaidLeader(nick)
 	--local unit = RL:GetUnitObjectFromName(nick)
 	--return unit and unit.rank >= 1
@@ -1393,7 +1411,7 @@ function PallyPower:ParseMessage(sender, msg)
 
 	if sfind(msg, "^ASSIGN") then
 		_, _, name, class, skill = sfind(msg, "^ASSIGN (.*) (.*) (.*)")
-		if name ~= sender and not (leader or PallyPower.opt.freeassign) then return false end
+		if not self:CanSenderControl(sender, name) then return false end
 		if not PallyPower.assignments[flavor][name] then PallyPower.assignments[flavor][name] = {} end
 		class = class + 0
 		skill = skill + 0
@@ -1402,7 +1420,7 @@ function PallyPower:ParseMessage(sender, msg)
 
 	if sfind(msg, "^NASSIGN") then
 		for pname, class, tname, skill in string.gmatch(ssub(msg, 9), "([^@]*) ([^@]*) ([^@]*) ([^@]*)") do
-			if pname ~= sender and not (leader or PallyPower.opt.freeassign) then return end
+			if not self:CanSenderControl(sender, pname) then return end
 			if not PallyPower.normalAssignments[flavor][pname] then PallyPower.normalAssignments[flavor][pname] = {} end
 			class = class + 0
 			if not PallyPower.normalAssignments[flavor][pname][class] then PallyPower.normalAssignments[flavor][pname][class] = {} end
@@ -1414,7 +1432,7 @@ function PallyPower:ParseMessage(sender, msg)
 
 	if sfind(msg, "^MASSIGN") then
 		_, _, name, skill = sfind(msg, "^MASSIGN (.*) (.*)")
-		if name ~= sender and not (leader or PallyPower.opt.freeassign) then return false end
+		if not self:CanSenderControl(sender, name) then return false end
 		if not PallyPower.assignments[flavor][name] then PallyPower.assignments[flavor][name] = {} end
 		skill = skill + 0
 		for i = 1, PALLYPOWER_MAXCLASSES do
@@ -1467,7 +1485,7 @@ function PallyPower:ParseMessage(sender, msg)
 
 	if sfind(msg, "^AASSIGN") then
 		_, _, name, aura = sfind(msg, "^AASSIGN (.*) (.*)")
-		if name ~= sender and not (leader or PallyPower.opt.freeassign) then return false end
+		if not self:CanSenderControl(sender, name) then return false end
 		if not PallyPower.auraAssignments[flavor][name] then PallyPower.auraAssignments[flavor][name] = {} end
 		aura = aura + 0
 		PallyPower.auraAssignments[flavor][name] = aura
