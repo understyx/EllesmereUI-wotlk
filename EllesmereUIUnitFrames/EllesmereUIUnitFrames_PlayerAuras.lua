@@ -1,7 +1,8 @@
 -------------------------------------------------------------------------------
 --  EllesmereUIUnitFrames_PlayerAuras.lua
---  Simple reskin of Blizzard's standalone BuffFrame / DebuffFrame icons.
---  No reparenting, no repositioning -- Blizzard controls layout via Edit Mode.
+--  Reskin and Unlock Mode positioning for Blizzard's standalone
+--  BuffFrame / DebuffFrame icons. Blizzard still controls their aura layout;
+--  EUI only owns the parent frame position after the user moves one.
 -------------------------------------------------------------------------------
 local addon, ns = ...
 
@@ -327,6 +328,279 @@ local function ApplyScale()
     ApplyExpandButtonSetting()
 end
 ns.ApplyPlayerAuraScale = ApplyScale
+
+-------------------------------------------------------------------------------
+--  Unlock Mode positioning
+--
+--  BuffFrame and DebuffFrame are Blizzard Edit Mode systems, so layout changes
+--  may reapply their system anchors. Once the user saves an EUI position we
+--  restore it after those passes. All writes from Blizzard hooks are deferred
+--  out of Blizzard's call stack, and protected frames wait for combat to end.
+-------------------------------------------------------------------------------
+local AURA_UNLOCK = {
+    buffs = {
+        key = "EUF_PlayerBuffs",
+        label = "Buffs",
+        posKey = "buffUnlockPos",
+        fallbackW = 240,
+        fallbackH = 72,
+        frame = function() return _G.BuffFrame end,
+    },
+    debuffs = {
+        key = "EUF_PlayerDebuffs",
+        label = "Debuffs",
+        posKey = "debuffUnlockPos",
+        fallbackW = 200,
+        fallbackH = 40,
+        frame = function() return _G.DebuffFrame end,
+    },
+}
+
+local auraDefaultPoints = {}
+local auraDefaultFrames = {}
+local auraHookedFrames = setmetatable({}, { __mode = "k" })
+local auraPositionApplying = {}
+local auraPositionQueued = {}
+local auraCombatPending = {}
+local auraCombatFrame
+
+local function AuraSavedPosition(def)
+    local cfg = PA()
+    return cfg and cfg[def.posKey]
+end
+
+local function CaptureAuraDefault(kind, force)
+    local def = AURA_UNLOCK[kind]
+    local frame = def and def.frame()
+    if not frame then return end
+    if not force and auraDefaultFrames[kind] == frame and auraDefaultPoints[kind] then return end
+
+    local points = {}
+    local count = frame:GetNumPoints() or 0
+    for i = 1, count do
+        local point, relativeTo, relativePoint, x, y = frame:GetPoint(i)
+        if point then
+            points[#points + 1] = {
+                point = point,
+                relativeTo = relativeTo,
+                relativePoint = relativePoint or point,
+                x = x or 0,
+                y = y or 0,
+            }
+        end
+    end
+    if #points > 0 then
+        auraDefaultFrames[kind] = frame
+        auraDefaultPoints[kind] = points
+    end
+end
+
+local function RestoreAuraDefault(kind)
+    local def = AURA_UNLOCK[kind]
+    local frame = def and def.frame()
+    local points = auraDefaultPoints[kind]
+    if not (frame and points and #points > 0) then return end
+    if InCombatLockdown() and frame:IsProtected() then
+        auraCombatPending[kind] = "restore"
+        if auraCombatFrame then auraCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED") end
+        return
+    end
+
+    auraPositionApplying[kind] = true
+    pcall(function()
+        frame:ClearAllPoints()
+        for _, pos in ipairs(points) do
+            frame:SetPoint(pos.point, pos.relativeTo, pos.relativePoint, pos.x, pos.y)
+        end
+    end)
+    auraPositionApplying[kind] = nil
+end
+
+local function ApplyAuraPosition(kind)
+    local def = AURA_UNLOCK[kind]
+    local frame = def and def.frame()
+    local pos = def and AuraSavedPosition(def)
+    if not (frame and pos and pos.point) then return end
+    if InCombatLockdown() and frame:IsProtected() then
+        auraCombatPending[kind] = "apply"
+        if auraCombatFrame then auraCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED") end
+        return
+    end
+
+    auraPositionApplying[kind] = true
+    pcall(function()
+        frame:ClearAllPoints()
+        frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    end)
+    auraPositionApplying[kind] = nil
+end
+
+local function QueueAuraPosition(kind)
+    if auraPositionQueued[kind] then return end
+    auraPositionQueued[kind] = true
+    C_Timer.After(0, function()
+        auraPositionQueued[kind] = nil
+        if AuraSavedPosition(AURA_UNLOCK[kind]) then ApplyAuraPosition(kind) end
+    end)
+end
+
+local function LiveAuraCenter(def)
+    local frame = def.frame()
+    if not frame then return nil end
+    local left, right = frame:GetLeft(), frame:GetRight()
+    local top, bottom = frame:GetTop(), frame:GetBottom()
+    if not (left and right and top and bottom) then return nil end
+    local scale = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    return {
+        point = "CENTER",
+        relPoint = "CENTER",
+        x = (left + right) * 0.5 * scale - UIParent:GetWidth() * 0.5,
+        y = (top + bottom) * 0.5 * scale - UIParent:GetHeight() * 0.5,
+    }
+end
+
+local function LiveAuraTopRight(def, centerX, centerY)
+    local frame = def.frame()
+    if frame then
+        local right, top = frame:GetRight(), frame:GetTop()
+        if right and top then
+            local scale = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            return {
+                point = "TOPRIGHT",
+                relPoint = "CENTER",
+                x = right * scale - UIParent:GetWidth() * 0.5,
+                y = top * scale - UIParent:GetHeight() * 0.5,
+            }
+        end
+    end
+
+    -- Bounds can be unavailable for a hidden, not-yet-laid-out frame. The
+    -- unlock system has already converted the drop to center coordinates, so
+    -- derive the same fixed corner from the authoritative fallback footprint.
+    return {
+        point = "TOPRIGHT",
+        relPoint = "CENTER",
+        x = (centerX or 0) + def.fallbackW * 0.5,
+        y = (centerY or 0) + def.fallbackH * 0.5,
+    }
+end
+
+local function EnsureAuraPositionHooks(kind)
+    local def = AURA_UNLOCK[kind]
+    local frame = def and def.frame()
+    if not frame then return end
+    CaptureAuraDefault(kind)
+    if auraHookedFrames[frame] then return end
+    auraHookedFrames[frame] = true
+
+    local function BlizzardMovedAuraFrame()
+        if auraPositionApplying[kind] or EllesmereUI._unlockActive then return end
+        if AuraSavedPosition(def) then QueueAuraPosition(kind) end
+    end
+    hooksecurefunc(frame, "SetPoint", BlizzardMovedAuraFrame)
+    hooksecurefunc(frame, "ClearAllPoints", BlizzardMovedAuraFrame)
+end
+
+local function RegisterPlayerAuraUnlockElements()
+    if not (EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
+    local MK = EllesmereUI.MakeUnlockElement
+    local elements = {}
+
+    for auraKind, auraDef in pairs(AURA_UNLOCK) do
+        -- Lua 5.1 closures capture loop variables by reference. Give every
+        -- registration its own stable pair so Buffs can never call Debuffs'
+        -- persistence callbacks (or vice versa).
+        local kind, def = auraKind, auraDef
+        EnsureAuraPositionHooks(kind)
+        elements[#elements + 1] = MK({
+            key = def.key,
+            label = def.label,
+            group = "Unit Frames",
+            order = (kind == "buffs") and 440 or 441,
+            noResize = true,
+            -- Aura-frame bounds change as effects appear. Keeping them out of
+            -- anchor and size-match graphs prevents dependent UI from shifting.
+            noAnchorTarget = true,
+            noAnchorTo = true,
+            noSizeMatchTarget = true,
+            getFrame = def.frame,
+            getSize = function()
+                local frame = def.frame()
+                local w = frame and frame:GetWidth() or 0
+                local h = frame and frame:GetHeight() or 0
+                if not w or w < 10 then w = def.fallbackW end
+                if not h or h < 10 then h = def.fallbackH end
+                return w, h
+            end,
+            isHidden = function() return def.frame() == nil end,
+            savePos = function(_, point, _relPoint, x, y)
+                if not point then return end
+                local cfg = PA()
+                if not cfg then return end
+                -- Pin the top-right corner. Aura-frame bounds can change as
+                -- effects appear, and a saved center would make the whole row
+                -- slide whenever its width or height changed.
+                cfg[def.posKey] = LiveAuraTopRight(def, x, y)
+                ApplyAuraPosition(kind)
+            end,
+            loadPos = function()
+                local pos = AuraSavedPosition(def)
+                if pos then
+                    return {
+                        point = pos.point,
+                        relPoint = pos.relPoint or pos.point,
+                        x = pos.x or 0,
+                        y = pos.y or 0,
+                    }
+                end
+                -- Unlock Mode needs a normalized snapshot so Discard can put an
+                -- untouched Blizzard-owned frame back exactly where it started.
+                if EllesmereUI._unlockActive then return LiveAuraCenter(def) end
+                return nil
+            end,
+            clearPos = function()
+                local cfg = PA()
+                if cfg then cfg[def.posKey] = nil end
+                RestoreAuraDefault(kind)
+            end,
+            applyPos = function()
+                if AuraSavedPosition(def) then
+                    ApplyAuraPosition(kind)
+                else
+                    RestoreAuraDefault(kind)
+                end
+            end,
+        })
+    end
+
+    EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
+    for kind in pairs(AURA_UNLOCK) do ApplyAuraPosition(kind) end
+end
+
+auraCombatFrame = EllesmereUI.SafeCreateFrame("Frame")
+auraCombatFrame:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    for kind, action in pairs(auraCombatPending) do
+        auraCombatPending[kind] = nil
+        if action == "restore" then RestoreAuraDefault(kind) else ApplyAuraPosition(kind) end
+    end
+end)
+
+local auraPositionEvents = EllesmereUI.SafeCreateFrame("Frame")
+auraPositionEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+if C_EditMode then auraPositionEvents:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED") end
+auraPositionEvents:SetScript("OnEvent", function(_, event)
+    C_Timer.After(0, function()
+        for kind, def in pairs(AURA_UNLOCK) do
+            EnsureAuraPositionHooks(kind)
+            if AuraSavedPosition(def) then
+                ApplyAuraPosition(kind)
+            elseif event == "EDIT_MODE_LAYOUTS_UPDATED" then
+                CaptureAuraDefault(kind, true)
+            end
+        end
+    end)
+end)
 
 
 -------------------------------------------------------------------------------
@@ -728,6 +1002,11 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
 
         -- Delay to let UF db initialize
         C_Timer.After(1, function()
+            -- Positioning is available even when the optional EUI aura skin is
+            -- disabled; Unlock Mode owns placement, while this setting only
+            -- controls the icon styling below.
+            RegisterPlayerAuraUnlockElements()
+
             local cfg = PA()
             if not cfg or not cfg.enabled then return end
 

@@ -7,8 +7,8 @@ local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI or not PallyPower then return end
 
 -- Keep the original registration key so existing Unlock Mode metadata does not
--- leave behind a second, stale PallyPower entry. Position storage is now owned
--- directly by the PallyPower profile and is no longer converted to a screen edge.
+-- leave behind a second, stale PallyPower entry. Position storage is owned
+-- directly by the PallyPower profile and pins the bar's top-left growth edge.
 local UNLOCK_KEY = "EPP_Flyout"
 
 local function Orientation(addon)
@@ -27,18 +27,33 @@ local function ApplySavedPosition(addon)
 		return
 	end
 
+	local frameScale = frame:GetEffectiveScale()
+	local parentScale = UIParent:GetEffectiveScale()
+	local toLocal = frameScale > 0 and parentScale / frameScale or 1
+	local toUI = parentScale > 0 and frameScale / parentScale or 1
 	local pos = display.position
-	if pos and (pos.point or "CENTER") == "CENTER"
-		and (pos.relPoint or pos.point or "CENTER") == "CENTER" then
-		-- Unlock Mode stores the visual center in UIParent space. PallyPower
-		-- scales its root frame directly, so SetPoint offsets must be converted
-		-- back into that frame's local space or the saved offset is scaled twice.
-		local frameScale = frame:GetEffectiveScale()
-		local parentScale = UIParent:GetEffectiveScale()
-		local ratio = frameScale > 0 and parentScale / frameScale or 1
+
+	-- PallyPower always fills from its top-left corner: horizontal bars grow
+	-- right and vertical bars grow down. Convert legacy CENTER positions once
+	-- so future roster/button-count changes preserve that corner instead of
+	-- expanding equally on both sides of the saved center.
+	if not pos or ((pos.point or "CENTER") == "CENTER"
+		and (pos.relPoint or pos.point or "CENTER") == "CENTER") then
+		local cx = pos and (pos.x or 0) or 0
+		local cy = pos and (pos.y or 0) or 0
+		pos = {
+			point = "TOPLEFT",
+			relPoint = "CENTER",
+			x = cx - (frame:GetWidth() or 0) * toUI / 2,
+			y = cy + (frame:GetHeight() or 0) * toUI / 2,
+		}
+		display.position = pos
+	end
+
+	if pos.point == "TOPLEFT" and pos.relPoint == "CENTER" then
 		frame:ClearAllPoints()
-		frame:SetPoint("CENTER", UIParent, "CENTER",
-			(pos.x or 0) * ratio, (pos.y or 0) * ratio)
+		frame:SetPoint("TOPLEFT", UIParent, "CENTER",
+			(pos.x or 0) * toLocal, (pos.y or 0) * toLocal)
 		return
 	end
 
@@ -195,11 +210,15 @@ function PallyPower:RegisterPallyPowerUnlock()
 			savePos = function(_, point, relPoint, x, y)
 				local display = addon.opt and addon.opt.display
 				if not display then return end
+				local frame = _G.PallyPowerFrame
+				local frameScale = frame and frame:GetEffectiveScale() or 1
+				local parentScale = UIParent:GetEffectiveScale()
+				local toUI = parentScale > 0 and frameScale / parentScale or 1
 				display.position = {
-					point = point or "CENTER",
-					relPoint = relPoint or point or "CENTER",
-					x = x or 0,
-					y = y or 0,
+					point = "TOPLEFT",
+					relPoint = "CENTER",
+					x = (x or 0) - (frame and frame:GetWidth() or 0) * toUI / 2,
+					y = (y or 0) + (frame and frame:GetHeight() or 0) * toUI / 2,
 				}
 			end,
 			clearPos = function()

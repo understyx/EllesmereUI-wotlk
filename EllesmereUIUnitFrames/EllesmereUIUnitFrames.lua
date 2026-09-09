@@ -217,6 +217,8 @@ local defaults = {
             buffIconZoom   = 0.055,
             debuffIconZoom = 0.055,
             durationFormat = "blizzard",
+            buffUnlockPos   = nil,
+            debuffUnlockPos = nil,
         },
         externalDefensives = {
             enabled       = false,
