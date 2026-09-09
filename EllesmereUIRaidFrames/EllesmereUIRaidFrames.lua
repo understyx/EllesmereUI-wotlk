@@ -16217,6 +16217,12 @@ function ERF:OnEnable()
     -- Initialize click-cast engine (before CreateHeaders so ClickCastFrames hook is active)
     if ns.CC_Init then ns.CC_Init() end
 
+    -- Build the Buff Manager lookup before raid buttons are created. Styling and
+    -- the initial ReloadFrames pass both scan existing auras; doing this later
+    -- leaves buffs already present at login invisible until another UNIT_AURA
+    -- event happens to refresh that specific unit.
+    if ns.BM_RebuildLookup then ns.BM_RebuildLookup(db) end
+
     -- Create headers and style all buttons
     CreateHeaders()
 
@@ -16246,9 +16252,6 @@ function ERF:OnEnable()
 
     -- Initial full reload (sets _activeSizeW/H from group size + tier overrides)
     ReloadFrames()
-
-    -- Build buff manager spell lookup from saved assignments
-    if ns.BM_RebuildLookup then ns.BM_RebuildLookup(db) end
 
     -- Create party header + style buttons (after CC_Init so click-cast registers)
     ns._CreatePartyHeader()
