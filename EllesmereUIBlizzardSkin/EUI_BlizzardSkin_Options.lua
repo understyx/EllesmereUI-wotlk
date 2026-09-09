@@ -1630,9 +1630,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         {
             key   = "loot",
-            title = "Loot Window",
-            desc  = "The loot window: item rows with squared icons, kept item quality colors.",
-            reloadMsg = "Changing the Loot Window reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            title = "Loot & Roll Windows",
+            desc  = "The loot window and need/greed roll panels, with squared icons and preserved item quality colors.",
+            reloadMsg = "Changing the Loot & Roll Windows reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinLoot = v

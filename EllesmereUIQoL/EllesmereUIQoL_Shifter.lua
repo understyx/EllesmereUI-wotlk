@@ -749,11 +749,11 @@ end
 -------------------------------------------------------------------------------
 --  Loot windows via Unlock Mode movers
 --
---  The Bonus Roll window and the group loot roll container cannot be made
+--  The Bonus Roll window and the group loot roll stack cannot be made
 --  drag-movable: their top-level frames take no mouse input, and Blizzard
---  re-anchors them on every show through the GroupLootContainer docking and
---  the UIParent managed-frame-position system. Instead each gets a mover in
---  Unlock Mode. The mover drags a proxy frame we own; the saved position is
+--  re-anchors them on every show. Retail docks rolls through GroupLootContainer;
+--  the 3.3.5 client anchors the whole stack from GroupLootFrame1. Each gets a
+--  mover in Unlock Mode. The mover drags a proxy frame we own; the saved position is
 --  pushed onto the Blizzard window with plain ClearAllPoints/SetPoint (the
 --  windows are unprotected) and re-applied whenever Blizzard repositions
 --  them. ignoreFramePositionManager is the sanctioned per-frame opt-out from
@@ -767,8 +767,14 @@ end
 -------------------------------------------------------------------------------
 local LOOT_WINDOWS = {
     { name = "BonusRollFrame",     key = "EUI_BonusRoll",   label = "Bonus Roll",   order = 640, defW = 330, defH = 120, defY = 240 },
-    { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Group Loot",   order = 641, defW = 300, defH = 80,  defY = 340 },
+    { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Loot Rolls",   order = 641, defW = 365, defH = 28,  defY = 340 },
     { name = "AlertFrame",         key = "EUI_AlertToasts", label = "Alert Toasts", order = 642, defW = 300, defH = 100, defY = 160, fixedSize = true },
+}
+
+-- Keep the saved-position key compatible with Retail and existing profiles,
+-- while resolving it to the real stack anchor on Wrath.
+local LOOT_FRAME_FALLBACKS = {
+    GroupLootContainer = "GroupLootFrame1",
 }
 
 local lootProxies = {}
@@ -795,7 +801,7 @@ end
 
 -- Returns the live Blizzard frame only when it is safe to reposition.
 local function LootFrame(name)
-    local frame = _G[name]
+    local frame = _G[name] or _G[LOOT_FRAME_FALLBACKS[name]]
     if not frame or not frame.HookScript then return nil end
     if frame.IsForbidden and frame:IsForbidden() then return nil end
     if frame:IsProtected() then return nil end
@@ -880,7 +886,7 @@ local function RegisterLootUnlockElements()
             moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
             subtitle = "Disable Loot unlock mode overlays in Shifter once done positioning",
             isHidden = function()
-                if not LootEnabled() or not _G[info.name] then return true end
+                if not LootEnabled() or not LootFrame(info.name) then return true end
                 -- "Hide Unlock Mode Overlays": the movers stay out of unlock
                 -- mode but saved positions keep applying (the SetPoint/OnShow
                 -- enforcement never depends on the movers existing).
@@ -891,7 +897,7 @@ local function RegisterLootUnlockElements()
             end,
             getSize = function()
                 if info.fixedSize then return info.defW, info.defH end
-                local frame = _G[info.name]
+                local frame = LootFrame(info.name)
                 local w = frame and frame.GetWidth and frame:GetWidth() or 0
                 local h = frame and frame.GetHeight and frame:GetHeight() or 0
                 if not w or w < 20 then w = info.defW end

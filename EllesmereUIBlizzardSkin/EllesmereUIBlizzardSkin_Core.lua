@@ -60,6 +60,7 @@ local SKIN_TO_WINDOW_KEY = {
 	Skin_Talent    = "playerspells",
 	Skin_WorldMap  = "worldmap",
 	Skin_Merchant  = "merchant",
+	Skin_Loot      = "loot",
 	Skin_Gossip    = "gossip",
 	Skin_Quest     = "quest",
 }

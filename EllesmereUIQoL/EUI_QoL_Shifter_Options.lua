@@ -158,7 +158,7 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Move Loot Windows in Unlock Mode",
-          tooltip = "Adds Bonus Roll, Group Loot, and Alert Toast movers to Unlock Mode.",
+          tooltip = "Adds Bonus Roll, Loot Rolls, and Alert Toast movers to Unlock Mode.",
           getValue = function()
               return EllesmereUIDB and EllesmereUIDB.shifterLootUnlock or false
           end,

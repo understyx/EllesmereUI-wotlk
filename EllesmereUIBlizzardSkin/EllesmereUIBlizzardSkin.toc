@@ -27,6 +27,7 @@ Skins\Character.lua
 Skins\Spellbook.lua
 Skins\Gossip.lua
 Skins\Merchant.lua
+Skins\Loot.lua
 Skins\Quest.lua
 Skins\Talent.lua
 Skins\Worldmap.lua
