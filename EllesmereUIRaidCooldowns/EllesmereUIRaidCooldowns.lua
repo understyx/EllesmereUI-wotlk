@@ -491,9 +491,25 @@ local function ApplyGroupPosition(id)
     local pos = group.position
     frame:ClearAllPoints()
     if pos and pos.point then
-        frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+        -- Rows are laid out from TOPLEFT, so retain a width-independent top
+        -- edge instead of letting a CENTER anchor split height changes across
+        -- both the top and bottom. Populate this lazily for existing profiles.
+        if pos.point == "CENTER" and (pos.relPoint or pos.point) == "CENTER" then
+            if not pos.growEdge then
+                pos.growEdge = {
+                    anchor = "TOP",
+                    x = pos.x or 0,
+                    y = (pos.y or 0) + (frame:GetHeight() or 0) / 2,
+                }
+            end
+            local edge = pos.growEdge
+            frame:SetPoint(edge.anchor or "TOP", UIParent, "CENTER",
+                edge.x or pos.x or 0, edge.y or pos.y or 0)
+        else
+            frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+        end
     else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        frame:SetPoint("TOP", UIParent, "CENTER", 0, (frame:GetHeight() or 0) / 2)
     end
 end
 
@@ -721,6 +737,7 @@ function RCD:RegisterGroupUnlock(id)
         group = "Raid Cooldowns",
         order = 730 + (tonumber(id) or 0),
         noResize = true,
+        getGrowDirection = function() return "DOWN" end,
         isHidden = function()
             local db = DB(); local group = db and db.groups[id]
             return not db or not db.enabled or not group or not group.enabled
@@ -734,7 +751,18 @@ function RCD:RegisterGroupUnlock(id)
         end,
         savePos = function(_, point, relPoint, x, y)
             local db = DB(); local group = db and db.groups[id]
-            if group and point then group.position = { point = point, relPoint = relPoint, x = x, y = y } end
+            if group and point then
+                local frame = RCD.groupFrames[id]
+                local height = frame and frame:GetHeight() or HEADER_H + 4
+                group.position = {
+                    point = point, relPoint = relPoint, x = x, y = y,
+                    growEdge = {
+                        anchor = "TOP",
+                        x = x or 0,
+                        y = (y or 0) + height / 2,
+                    },
+                }
+            end
             if not EUI._unlockActive then ApplyGroupPosition(id) end
         end,
         loadPos = function()

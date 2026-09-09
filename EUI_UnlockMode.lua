@@ -192,8 +192,14 @@ if not EllesmereUI.NotifyElementResized then
 
         -- Read grow direction from the bar's per-profile settings
         local growDir
-        if key == "EQT_Tracker" then growDir = "DOWN"
-        elseif key:sub(1, 4) == "CDM_" then
+        local elems = EllesmereUI._unlockRegisteredElements
+        local registered = elems and elems[key]
+        if registered and registered.getGrowDirection then
+            local ok, value = pcall(registered.getGrowDirection, key)
+            if ok and value then growDir = value:upper() end
+        end
+        if not growDir and key == "EQT_Tracker" then growDir = "DOWN"
+        elseif not growDir and key:sub(1, 4) == "CDM_" then
             local rawKey = key:sub(5)
             local cdm = EllesmereUI.Lite and EllesmereUI.Lite.GetAddon and EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
             local cdmBars = cdm and cdm.GetActiveCDMConfig and cdm:GetActiveCDMConfig()
@@ -206,7 +212,7 @@ if not EllesmereUI.NotifyElementResized then
                     end
                 end
             end
-        else
+        elseif not growDir then
             local eab = EllesmereUI.Lite and EllesmereUI.Lite.GetAddon and EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s = eab and eab.db and eab.db.profile and eab.db.profile.bars and eab.db.profile.bars[key]
             if s then
@@ -217,7 +223,6 @@ if not EllesmereUI.NotifyElementResized then
         if not growDir or growDir == "CENTER" then return end
 
         -- Find the frame via registered elements
-        local elems = EllesmereUI._unlockRegisteredElements
         local elem = elems and elems[key]
         local frame = elem and elem.getFrame and elem.getFrame(key)
         if not frame or not frame:GetCenter() then return end
@@ -240,7 +245,10 @@ if not EllesmereUI.NotifyElementResized then
         -- with integer + 0.5 center coords reverse exactly to integer pixel
         -- edges. floor() loses the .5 and causes a 1px drift on save & exit.
         local anchor, adjX, adjY
-        if growDir == "RIGHT" then
+        local ge = pos.growEdge
+        if ge and ge.anchor and ge.x ~= nil and ge.y ~= nil then
+            anchor, adjX, adjY = ge.anchor, ge.x, ge.y
+        elseif growDir == "RIGHT" then
             anchor = "LEFT"; adjX = cx - fw / 2; adjY = cy
         elseif growDir == "LEFT" then
             anchor = "RIGHT"; adjX = cx + fw / 2; adjY = cy
@@ -688,6 +696,11 @@ local GetPositionDB
 --  Used for position calculations where we need the true anchor edge.
 -------------------------------------------------------------------------------
 local function GetBarGrowDirActual(barKey)
+    local elem = registeredElements[barKey]
+    if elem and elem.getGrowDirection then
+        local ok, value = pcall(elem.getGrowDirection, barKey)
+        if ok and value then return value:upper() end
+    end
     if barKey == "EQT_Tracker" then return "DOWN" end
     -- Through the owning module's resolver, so the menu and the layout can never
     -- disagree about which direction is in effect (it clamps to the current
@@ -2948,15 +2961,16 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
         end
     end
 
-    -- For CDM/AB bars with a non-CENTER growth direction, use edge-based
-    -- SetPoint so SetSize grows naturally from the fixed edge.
+    -- For growth-aware elements, use edge-based SetPoint so SetSize grows
+    -- naturally from the fixed edge.
     -- Edge preservation (overriding cx/cy with saved/live edge) only applies
     -- to UNANCHORED bars whose own size changed. Anchored bars always use
     -- the target-computed cx/cy -- the target's bounds + offsets are
     -- authoritative and saved-edge data may be stale.
     local cdmEdgeAnchor
-    local isCdmOrAB = childKey:sub(1, 4) == "CDM_"
+    local isGrowAware = childKey:sub(1, 4) == "CDM_"
         or (EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey])
+        or (cElem and cElem.getGrowDirection ~= nil)
     local isCDM = childKey:sub(1, 4) == "CDM_"
 
     -- Unified growth-edge pin (anchored custom-growth bars): the bar's fixed
@@ -2970,7 +2984,7 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- bounds the legacy pin below still applies, so early-login frames
     -- degrade gracefully.
     local growPinned = false
-    if isCdmOrAB and ai and ai.target and ai.offsetX ~= nil and ai.offsetY ~= nil then
+    if isGrowAware and ai and ai.target and ai.offsetX ~= nil and ai.offsetY ~= nil then
         local gd = GetBarGrowDirActual(childKey)
         if gd and gd ~= "CENTER" then
             -- Lazy capture ONLY at provable quiescence: the settle pass (the
@@ -3009,7 +3023,7 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- fixed growth edge -- without this, those bars paint centered for the whole
     -- unlock session. The flag is set only around that one reapply, so manual
     -- drag/drop positioning is unaffected.
-    if not growPinned and isCdmOrAB
+    if not growPinned and isGrowAware
        and (not isUnlocked or EllesmereUI._reapplyForceEdgePreserve)
        and (isCDM or childKey == "StanceBar" or not EllesmereUI._applyingSavedPositions) then
         local growDir = GetBarGrowDirActual(childKey)
@@ -3489,12 +3503,12 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- Store in pending positions only during unlock mode (skip at login
     -- so anchor-computed positions don't pollute saved positions)
     if not noMove and EllesmereUI._unlockActive then
-        -- CDM/AB bars with growth direction store edge-format positions.
+        -- Growth-aware bars store edge-format positions.
         -- Writing CENTER coords here would overwrite the correct edge
         -- data on Save & Exit. Mark as anchored so CommitPositions uses
         -- snapshot/loadPos (which returns the correct edge format).
         local growSkip = false
-        if isCdmOrAB then
+        if isGrowAware then
             local gd = GetBarGrowDirActual(childKey)
             if gd and gd ~= "CENTER" then growSkip = true end
         end
@@ -5655,8 +5669,13 @@ local BLIZZ_OWNED_OVERLAY_DEFS = {
     { label = "Micro Menu",    frame = function() return _G.MicroMenuContainer end },
     { label = "Bags",          frame = function() return _G.BagsBar end },
     { label = "Encounter Bar", frame = function() return _G.PlayerPowerBarAlt end, showAlways = true, fallbackW = 240, fallbackH = 36, yOffset = 44 },
-    { label = "Buffs",         frame = function() return _G.BuffFrame end },
-    { label = "Debuffs",       frame = function() return _G.DebuffFrame end },
+    -- The Unit Frames module replaces these read-only overlays with real
+    -- draggable movers. Keep the Edit Mode handoff as a fallback when that
+    -- module is not loaded.
+    { label = "Buffs",         frame = function() return _G.BuffFrame end,
+      unlockKey = "EUF_PlayerBuffs" },
+    { label = "Debuffs",       frame = function() return _G.DebuffFrame end,
+      unlockKey = "EUF_PlayerDebuffs" },
     -- Blizzard Edit Mode's default tooltip anchor. EUI permanently owns the
     -- default tooltip position (see the fixed anchor in EllesmereUIBlizzardSkin,
     -- which registers a real draggable mover), and Anchor to Cursor pins it to
@@ -5785,9 +5804,12 @@ end
 
 local function ShowBlizzOwnedOverlays(parent)
     for _, def in ipairs(BLIZZ_OWNED_OVERLAY_DEFS) do
-        local anchorFrame = def.frame()
+        local hasMover = def.unlockKey
+            and EllesmereUI._unlockRegisteredElements
+            and EllesmereUI._unlockRegisteredElements[def.unlockKey]
+        local anchorFrame = not hasMover and def.frame()
         if not anchorFrame then
-            -- frame doesn't exist at all, skip
+            -- Frame doesn't exist, or a real unlock mover owns it: skip.
         elseif anchorFrame:IsShown() and anchorFrame:GetWidth() > 1 then
             -- Visible frame: anchor directly
             local ov = _blizzOwnedOverlays[def.label]

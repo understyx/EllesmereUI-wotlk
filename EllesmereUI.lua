@@ -5342,6 +5342,7 @@ EllesmereUI._rowCounters     = rowCounters
 --    loadPos    (function(key)) -> { point, relPoint, x, y } or nil
 --    clearPos   (function(key))  remove saved position
 --    applyPos   (function(key))  apply saved position to the live frame
+--    getGrowDirection (function(key)) -> LEFT|RIGHT|UP|DOWN for fixed-edge growth
 --
 --  Optional fields:
 --    setWidth   (function(key, w))  set element width and rebuild
@@ -5364,6 +5365,11 @@ function EllesmereUI.MakeUnlockElement(opts)
         loadPosition  = opts.loadPos,
         clearPosition = opts.clearPos,
         applyPosition = opts.applyPos,
+        -- Optional fixed-edge growth direction used by Unlock Mode's
+        -- centralized positioning ("LEFT", "RIGHT", "UP", or "DOWN").
+        -- Dynamic registered elements can provide this without masquerading
+        -- as an action bar or CDM bar.
+        getGrowDirection = opts.getGrowDirection,
         setWidth      = opts.setWidth,
         setHeight     = opts.setHeight,
         isHidden      = opts.isHidden,
