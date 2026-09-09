@@ -316,9 +316,10 @@ local function SkinRaidGroupButton(btn)
     end)
 end
 
-local function SkinRaidInfoFrame()
-    -- Intentionally left unstyled (Blizzard default)
-end
+-- Defined with the other legacy-social helpers below.  Keep the declaration
+-- here because SkinRaidTab is intentionally kept beside the protected raid
+-- frame code.
+local SkinRaidInfoFrame
 
 local function SkinRaidTab()
 
@@ -351,6 +352,19 @@ local function SkinRaidTab()
     end
     local raidFrame = _G.RaidFrame
     if raidFrame then
+        local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+        for i = 1, select("#", raidFrame:GetRegions()) do
+            local region = select(i, raidFrame:GetRegions())
+            if region and region:IsObjectType("FontString") then
+                region:SetFont(fontPath, 11, "")
+                local r, g, b = region:GetTextColor()
+                if r > 0.7 and g > 0.55 and b < 0.4 then
+                    region:SetTextColor(EG.r, EG.g, EG.b, 0.9)
+                else
+                    region:SetTextColor(1, 1, 1, 0.78)
+                end
+            end
+        end
         for i = 1, select("#", raidFrame:GetChildren()) do
             local child = select(i, raidFrame:GetChildren())
             if child then
@@ -393,21 +407,27 @@ local function SkinRaidTab()
     local raidInfoBtn = _G.RaidFrameRaidInfoButton
     local raidBrowserBtn = _G.RaidFrameNotInRaidRaidBrowserButton
     if raidFrame and (convertBtn or raidInfoBtn or raidBrowserBtn) then
-        local btnW = math.floor((raidFrame:GetWidth() - 6) / 2)
-        if convertBtn then
-            convertBtn:ClearAllPoints()
-            convertBtn:SetSize(btnW, 22)
-            convertBtn:SetPoint("BOTTOMLEFT", raidFrame, "BOTTOMLEFT", 0, 0)
-        end
-        if raidInfoBtn then
-            raidInfoBtn:ClearAllPoints()
-            raidInfoBtn:SetSize(btnW, 22)
-            raidInfoBtn:SetPoint("BOTTOMRIGHT", raidFrame, "BOTTOMRIGHT", 0, 0)
-        end
-        if raidBrowserBtn then
-            raidBrowserBtn:ClearAllPoints()
-            raidBrowserBtn:SetSize(raidFrame:GetWidth(), 22)
-            raidBrowserBtn:SetPoint("BOTTOM", raidFrame, "BOTTOM", 0, 0)
+        -- All three buttons can remain visible on Wrath (two disabled and one
+        -- enabled while solo).  Giving Raid Browser the full width placed it
+        -- directly on top of Convert and Raid Info, producing the single
+        -- three-label button seen in game.  Keep one stable three-column row;
+        -- Blizzard still owns visibility and enabled state for each action.
+        local gap = 3
+        local btnW = math.floor((raidFrame:GetWidth() - gap * 2) / 3)
+        local buttons = { convertBtn, raidBrowserBtn, raidInfoBtn }
+        local previous
+        for i = 1, 3 do
+            local button = buttons[i]
+            if button then
+                button:ClearAllPoints()
+                button:SetSize(btnW, 22)
+                if previous then
+                    button:SetPoint("LEFT", previous, "RIGHT", gap, 0)
+                else
+                    button:SetPoint("BOTTOMLEFT", raidFrame, "BOTTOMLEFT", 0, 0)
+                end
+                previous = button
+            end
         end
     end
 
@@ -1371,25 +1391,30 @@ local function SkinLegacyColumnHeader(header)
     if not header or GetFFD(header).euiHeader then return end
     GetFFD(header).euiHeader = true
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
-    StripTextures(header)
+    if header.GetRegions then StripTextures(header) end
 
-    local bg = header:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetTexture(1, 1, 1, 0.035)
-    local divider = header:CreateTexture(nil, "OVERLAY")
-    divider:SetTexture(1, 1, 1, 0.08)
-    divider:SetWidth(PP.mult or 1)
-    divider:SetPoint("TOPRIGHT", header, "TOPRIGHT", 0, 0)
-    divider:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+    if header.CreateTexture then
+        local bg = header:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetTexture(1, 1, 1, 0.035)
+        local divider = header:CreateTexture(nil, "OVERLAY")
+        divider:SetTexture(1, 1, 1, 0.08)
+        divider:SetWidth(PP.mult or 1)
+        divider:SetPoint("TOPRIGHT", header, "TOPRIGHT", 0, 0)
+        divider:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+    end
 
-    local text = header:GetFontString()
+    local text = header.GetFontString and header:GetFontString()
+    if not text and header.IsObjectType and header:IsObjectType("FontString") then text = header end
     if text then
         text:SetFont(fontPath, 9, "")
         text:SetTextColor(1, 1, 1, 0.55)
-        text:ClearAllPoints()
-        text:SetPoint("LEFT", header, "LEFT", 6, 0)
+        if text ~= header then
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", header, "LEFT", 6, 0)
+        end
     end
-    local hl = header:GetHighlightTexture()
+    local hl = header.GetHighlightTexture and header:GetHighlightTexture()
     if hl then
         hl:SetTexture(1, 1, 1, 0.04)
         hl:SetAllPoints()
@@ -1430,9 +1455,233 @@ local function AddLegacyPane(frame, key, left, top, right, bottom)
     GetFFD(frame)[key] = pane
 end
 
+local function SkinLegacyEditBox(editBox)
+    if not editBox or GetFFD(editBox).euiEditBox then return end
+    GetFFD(editBox).euiEditBox = true
+    StripTextures(editBox)
+    ApplyNativeBackdrop(editBox, true, 0.18)
+    if editBox.SetBackdropColor then editBox:SetBackdropColor(0.015, 0.02, 0.025, 0.96) end
+    if editBox.SetTextColor then editBox:SetTextColor(1, 1, 1, 0.82) end
+end
+
+local function SkinLegacyCloseButton(button)
+    if not button or GetFFD(button).euiClose then return end
+    GetFFD(button).euiClose = true
+    StripTextures(button)
+    if button.SetNormalTexture then button:SetNormalTexture("") end
+    if button.SetPushedTexture then button:SetPushedTexture("") end
+    if button.SetHighlightTexture then button:SetHighlightTexture("") end
+    if button.SetDisabledTexture then button:SetDisabledTexture("") end
+
+    local icon = button:CreateTexture(nil, "OVERLAY")
+    icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+    icon:SetSize(13, 13)
+    icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+    icon:SetVertexColor(1, 1, 1, 0.65)
+    GetFFD(button).closeIcon = icon
+    button:HookScript("OnEnter", function() icon:SetVertexColor(1, 1, 1, 1) end)
+    button:HookScript("OnLeave", function() icon:SetVertexColor(1, 1, 1, 0.65) end)
+end
+
+local function SkinLegacyDropdown(dropdown)
+    if not dropdown or GetFFD(dropdown).euiDropdown then return end
+    GetFFD(dropdown).euiDropdown = true
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    StripTextures(dropdown)
+    ApplyNativeBackdrop(dropdown, true, 0.18)
+    if dropdown.SetBackdropColor then dropdown:SetBackdropColor(0.015, 0.02, 0.025, 0.96) end
+
+    local name = dropdown.GetName and dropdown:GetName()
+    local text = name and _G[name .. "Text"]
+    if text then
+        text:SetFont(fontPath, 9, "")
+        text:SetTextColor(1, 1, 1, 0.78)
+    end
+    local button = name and _G[name .. "Button"]
+    if button then
+        StripTextures(button)
+        local arrow = button:CreateTexture(nil, "OVERLAY")
+        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga")
+        arrow:SetSize(10, 10)
+        arrow:SetPoint("CENTER", button, "CENTER", 0, 0)
+        arrow:SetVertexColor(1, 1, 1, 0.65)
+    end
+end
+
+local function SkinLegacyPopup(frame)
+    if not frame or GetFFD(frame).euiPopup then return end
+    GetFFD(frame).euiPopup = true
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    StripTextures(frame)
+    ApplyNativeBackdrop(frame, true, 0.18)
+    if frame.SetBackdropColor then frame:SetBackdropColor(0.03, 0.045, 0.05, 0.98) end
+    frame:SetFrameStrata("DIALOG")
+    for i = 1, select("#", frame:GetRegions()) do
+        local region = select(i, frame:GetRegions())
+        if region and region:IsObjectType("FontString") then
+            region:SetFont(fontPath, 10, "")
+            region:SetTextColor(1, 1, 1, 0.72)
+        end
+    end
+end
+
+local function PrimeGuildControlRank()
+    local popup = _G.GuildControlPopupFrame
+    local dropdown = _G.GuildControlPopupFrameDropDown
+    if not popup or not dropdown then return false end
+
+    local selected = UIDropDownMenu_GetSelectedID and UIDropDownMenu_GetSelectedID(dropdown)
+    if selected and selected > 0 and popup.rank then return true end
+
+    -- Even if roster data has not arrived yet, a numeric selected ID prevents
+    -- the native updater from forwarding nil to GuildControlGetRankName.
+    selected = (selected and selected > 0) and selected or 1
+    if UIDropDownMenu_SetSelectedID then UIDropDownMenu_SetSelectedID(dropdown, selected) end
+
+    local rank
+    if GuildControlGetRankName then
+        local ok, value = pcall(GuildControlGetRankName, selected)
+        if ok then rank = value end
+    end
+    if not rank or rank == "" then return true end
+
+    popup.rank = rank
+    if UIDropDownMenu_SetText then UIDropDownMenu_SetText(dropdown, rank) end
+    return true
+end
+
+local function SkinLegacyGuildDialogs()
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+
+    local control = _G.GuildControlPopupFrame
+    if control and not GetFFD(control).euiSocialSkinned then
+        GetFFD(control).euiSocialSkinned = true
+
+        -- FrameXML assumes the rank dropdown already owns a selected index.
+        -- Opening this window before GUILD_ROSTER_UPDATE leaves that index nil
+        -- and GuildControlGetRankName(nil) throws.  Seed rank one before the
+        -- native OnShow handler runs, while leaving all subsequent updates to
+        -- Blizzard.
+        local nativeOnShow = control:GetScript("OnShow")
+        control:SetScript("OnShow", function(self)
+            PrimeGuildControlRank()
+            if nativeOnShow then nativeOnShow(self) end
+        end)
+
+        SkinLegacyPopup(control)
+        SkinLegacyDropdown(_G.GuildControlPopupFrameDropDown)
+        SkinLegacyEditBox(_G.GuildControlPopupFrameEditBox)
+        SkinLegacyEditBox(_G.GuildControlWithdrawGoldEditBox)
+        SkinLegacyEditBox(_G.GuildControlWithdrawItemsEditBox)
+        SkinLegacyCheckbox(_G.GuildControlTabPermissionsViewTab)
+        SkinLegacyCheckbox(_G.GuildControlTabPermissionsDepositItems)
+        SkinLegacyCheckbox(_G.GuildControlTabPermissionsUpdateText)
+        for i = 1, 20 do
+            SkinLegacyCheckbox(_G["GuildControlPopupFrameCheckbox" .. i])
+        end
+
+        local permissions = _G.GuildControlPopupFrameTabPermissions
+        if permissions then
+            StripTextures(permissions)
+            ApplyNativeBackdrop(permissions, true, 0.12)
+            if permissions.SetBackdropColor then permissions:SetBackdropColor(0, 0, 0, 0.18) end
+        end
+
+        local maxTabs = _G.MAX_GUILDBANK_TABS or 6
+        for i = 1, maxTabs do
+            local tab = _G["GuildBankTabPermissionsTab" .. i]
+            if tab then
+                StripTextures(tab)
+                ApplyNativeBackdrop(tab, true, 0.16)
+                local label = tab:GetFontString()
+                if label then
+                    label:SetFont(fontPath, 9, "")
+                    label:SetTextColor(1, 1, 1, 0.7)
+                end
+            end
+        end
+
+        for _, button in ipairs({
+            _G.GuildControlPopupFrameAddRankButton,
+            _G.GuildControlPopupFrameRemoveRankButton,
+            _G.GuildControlPopupAcceptButton,
+            _G.GuildControlPopupFrameCancelButton,
+        }) do
+            SkinBottomButton(button)
+        end
+    end
+
+    local info = _G.GuildInfoFrame
+    if info and not GetFFD(info).euiSocialSkinned then
+        GetFFD(info).euiSocialSkinned = true
+        SkinLegacyPopup(info)
+        SkinLegacyCloseButton(_G.GuildInfoCloseButton)
+        SkinLegacyEditBox(_G.GuildInfoEditBox)
+        SkinLegacyScrollFrame(_G.GuildInfoFrameScrollFrame)
+        local textBackground = _G.GuildInfoTextBackground
+        if textBackground then
+            StripTextures(textBackground)
+            ApplyNativeBackdrop(textBackground, true, 0.12)
+            if textBackground.SetBackdropColor then textBackground:SetBackdropColor(0, 0, 0, 0.2) end
+        end
+        for _, button in ipairs({
+            _G.GuildInfoSaveButton,
+            _G.GuildInfoCancelButton,
+            _G.GuildInfoGuildEventButton,
+        }) do
+            SkinBottomButton(button)
+        end
+    end
+
+    -- The Add Member window is a standalone legacy dialog rather than a
+    -- StaticPopup on the 3.3.5 client used by this module.
+    local invite = _G.GuildInviteFrame
+    if invite and not GetFFD(invite).euiSocialSkinned then
+        GetFFD(invite).euiSocialSkinned = true
+        SkinLegacyPopup(invite)
+        SkinLegacyCloseButton(_G.GuildInviteFrameCloseButton)
+        SkinLegacyEditBox(_G.GuildInviteFrameEditBox or _G.GuildInviteFrameNameEditBox)
+        for _, button in pairs({
+            _G.GuildInviteFrameInviteButton,
+            _G.GuildInviteFrameAcceptButton,
+            _G.GuildInviteFrameCancelButton,
+        }) do
+            SkinBottomButton(button)
+        end
+    end
+end
+
+SkinRaidInfoFrame = function()
+    local frame = _G.RaidInfoFrame
+    if not frame or GetFFD(frame).euiSocialSkinned then return end
+    GetFFD(frame).euiSocialSkinned = true
+    SkinLegacyPopup(frame)
+    SkinLegacyCloseButton(_G.RaidInfoCloseButton)
+    SkinLegacyColumnHeader(_G.RaidInfoInstanceLabel)
+    SkinLegacyColumnHeader(_G.RaidInfoIDLabel)
+    SkinLegacyScrollFrame(_G.RaidInfoScrollFrame)
+    SkinBottomButton(_G.RaidInfoExtendButton)
+    SkinBottomButton(_G.RaidInfoCancelButton)
+
+    local scrollFrame = _G.RaidInfoScrollFrame
+    if scrollFrame then
+        StripTextures(scrollFrame)
+        ApplyNativeBackdrop(scrollFrame, true, 0.1)
+        if scrollFrame.SetBackdropColor then scrollFrame:SetBackdropColor(0, 0, 0, 0.2) end
+        local buttons = scrollFrame.buttons
+        if buttons then
+            for _, row in ipairs(buttons) do
+                SkinLegacyListRow(row)
+            end
+        end
+    end
+end
+
 local function SkinLegacyGuildTab(hostFrame)
     local guild = _G.GuildFrame
-    if not guild or GetFFD(guild).euiSkinned then return end
+    if not guild then return end
+    SkinLegacyGuildDialogs()
+    if GetFFD(guild).euiSkinned then return end
     GetFFD(guild).euiSkinned = true
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
 
@@ -1612,20 +1861,26 @@ local function SkinLegacyChannelTab(hostFrame)
     SkinLegacyScrollFrame(_G.ChannelRosterScrollFrame)
 
     local displayChannels = _G.MAX_DISPLAY_CHANNEL_BUTTONS or 20
-    for i = 1, displayChannels do
-        local button = _G["ChannelButton" .. i]
-        if button then
-            StripTextures(button)
-            SkinLegacyListRow(button)
+    local function RefreshChannelRows()
+        -- ChannelList_Update/ChannelList_SetScroll can restore the native
+        -- stone textures after the first skin pass.  Strip them after every
+        -- list refresh so category and channel rows stay flat.
+        for i = 1, displayChannels do
+            local button = _G["ChannelButton" .. i]
+            if button then
+                StripTextures(button)
+                SkinLegacyListRow(button)
+            end
+            local text = _G["ChannelButton" .. i .. "Text"]
+            if text and text.SetFont then
+                text:SetFont(fontPath, 9, "")
+                text:SetTextColor(1, 1, 1, 0.72)
+            end
+            local collapsed = _G["ChannelButton" .. i .. "Collapsed"]
+            if collapsed and collapsed.SetTextColor then collapsed:SetTextColor(1, 1, 1, 0.72) end
         end
-        local text = _G["ChannelButton" .. i .. "Text"]
-        if text and text.SetFont then
-            text:SetFont(fontPath, 9, "")
-            text:SetTextColor(1, 1, 1, 0.72)
-        end
-        local collapsed = _G["ChannelButton" .. i .. "Collapsed"]
-        if collapsed and collapsed.SetTextColor then collapsed:SetTextColor(1, 1, 1, 0.72) end
     end
+    RefreshChannelRows()
     for i = 1, 22 do
         local button = _G["ChannelMemberButton" .. i]
         if button then SkinLegacyListRow(button) end
@@ -1684,6 +1939,7 @@ local function SkinLegacyChannelTab(hostFrame)
         GetFFD(daughter).euiSkinned = true
         StripTextures(daughter)
         ApplyNativeBackdrop(daughter, true, 0.18)
+        SkinLegacyCloseButton(_G.ChannelFrameDaughterFrameDetailCloseButton)
         for _, editBox in ipairs({
             _G.ChannelFrameDaughterFrameChannelName,
             _G.ChannelFrameDaughterFrameChannelPassword,
@@ -1697,6 +1953,12 @@ local function SkinLegacyChannelTab(hostFrame)
         SkinBottomButton(_G.ChannelFrameDaughterFrameOkayButton)
         SkinBottomButton(_G.ChannelFrameDaughterFrameCancelButton)
     end
+
+    channel:HookScript("OnShow", function()
+        C_Timer.After(0, RefreshChannelRows)
+    end)
+    if _G.ChannelList_SetScroll then hooksecurefunc("ChannelList_SetScroll", RefreshChannelRows) end
+    if _G.ChannelList_Update then hooksecurefunc("ChannelList_Update", RefreshChannelRows) end
 end
 
 -- Skin known buttons by name
@@ -1781,7 +2043,9 @@ local function SkinFriendsFrame()
     -- lookups above therefore miss exactly the chrome used by the legacy
     -- client.  Strip those direct regions before creating our background; the
     -- actual Friends/Who controls are child frames and remain functional.
-    local isLegacyFriends = not frame.NineSlice and _G.WhoListScrollFrame ~= nil
+    local interfaceVersion = select(4, GetBuildInfo()) or 0
+    local isLegacyFriends = (interfaceVersion > 0 and interfaceVersion < 40000)
+        or (_G.WhoListScrollFrame and _G.GuildFrame and _G.ChannelFrame)
     if isLegacyFriends then
         StripTextures(frame)
         for _, legacyChrome in ipairs({
@@ -2048,6 +2312,103 @@ local function SkinFriendsFrame()
             customTabs[#customTabs + 1] = tab
             if hasWrathMainTabs then tab:Show() end
         end
+    end
+
+    -- FrameXML repeatedly hides tabs three through five after its own update,
+    -- even though Guild, Chat, and Raid remain valid Wrath pages.  A dedicated
+    -- visual bar keeps all five destinations present while forwarding clicks
+    -- to the untouched native tab handlers.  The native buttons remain alive
+    -- (and therefore keep all Blizzard behavior) but no longer draw or receive
+    -- mouse input themselves.
+    if hasWrathMainTabs then
+        local visualTabs = {}
+        local totalWidth = frame:GetWidth() or 420
+        local tabWidth = math.floor(totalWidth / nativeTabCount)
+        local previous
+        for i = 1, nativeTabCount do
+            local nativeTab = _G["FriendsFrameTab" .. i]
+            if nativeTab then
+                nativeTab:SetAlpha(0)
+                nativeTab:EnableMouse(false)
+
+                local tab = EllesmereUI.SafeCreateFrame("Button", nil, frame)
+                tab:SetFrameLevel(frame:GetFrameLevel() + 5)
+                tab:SetHeight(25)
+                if previous then
+                    tab:SetPoint("TOPLEFT", previous, "TOPRIGHT", 0, 0)
+                else
+                    tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 2)
+                end
+                if i == nativeTabCount then
+                    tab:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", 0, 2)
+                else
+                    tab:SetWidth(tabWidth)
+                end
+
+                local tfd = GetFFD(tab)
+                tfd.nativeTabIndex = i
+                tfd.nativeTab = nativeTab
+
+                tfd.bg = tab:CreateTexture(nil, "BACKGROUND")
+                tfd.bg:SetAllPoints()
+                tfd.bg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B, 1)
+
+                tfd.activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
+                tfd.activeHL:SetAllPoints()
+                tfd.activeHL:SetTexture(1, 1, 1, 0.05)
+                tfd.activeHL:SetBlendMode("ADD")
+                tfd.activeHL:Hide()
+
+                local nativeLabel = GetFFD(nativeTab).label
+                local label = tab:CreateFontString(nil, "OVERLAY")
+                label:SetFont(fontPath, 9, "")
+                label:SetPoint("CENTER", tab, "CENTER", 0, 0)
+                label:SetJustifyH("CENTER")
+                label:SetText((nativeLabel and nativeLabel:GetText()) or ("Tab " .. i))
+                tfd.label = label
+
+                local underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
+                PP.DisablePixelSnap(underline)
+                underline:SetHeight(PP.mult or 1)
+                underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
+                underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+                underline:SetTexture(EG.r, EG.g, EG.b, 1)
+                EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
+                underline:Hide()
+                tfd.underline = underline
+
+                tab:SetScript("OnClick", function()
+                    local handler = nativeTab:GetScript("OnClick")
+                    if handler then
+                        handler(nativeTab, "LeftButton")
+                    else
+                        nativeTab:Click()
+                    end
+                end)
+                tab:SetScript("OnEnter", function()
+                    if tfd.label then tfd.label:SetTextColor(1, 1, 1, 0.86) end
+                end)
+                tab:SetScript("OnLeave", function()
+                    local selected = PanelTemplates_GetSelectedTab(frame) or 1
+                    if tfd.label then
+                        tfd.label:SetTextColor(1, 1, 1,
+                            selected == tfd.nativeTabIndex and 1 or 0.5)
+                    end
+                end)
+
+                visualTabs[#visualTabs + 1] = tab
+                previous = tab
+            end
+        end
+        customTabs = visualTabs
+        if GetFFD(frame).tabBarBg and visualTabs[1] then
+            local tabBarBg = GetFFD(frame).tabBarBg
+            tabBarBg:ClearAllPoints()
+            tabBarBg:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 2)
+            tabBarBg:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", 0, 2)
+            tabBarBg:SetPoint("BOTTOM", visualTabs[1], "BOTTOM", 0, 0)
+        end
+        GetFFD(frame).legacyVisualTabs = visualTabs
     end
 
     local _activeSubTab = 1
@@ -2355,7 +2716,7 @@ local function SkinFriendsFrame()
     GetFFD(frame).titleDiv:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -30)
 
     -- BattleNet ID bar reskin
-    local statusDD = _G.FriendsFrameStatusDropdown
+    local statusDD = _G.FriendsFrameStatusDropdown or _G.FriendsFrameStatusDropDown
     if statusDD then
         statusDD:SetAlpha(0)
         statusDD:EnableMouse(false)
@@ -2408,17 +2769,31 @@ local function SkinFriendsFrame()
         local tabHeader = _G.FriendsTabHeader
         if not tabHeader then return end
         local tabSystem = tabHeader.TabSystem
-        if not tabSystem then return end
 
         local blizSubTabs = {}
-        for i = 1, select("#", tabSystem:GetChildren()) do
-            local st = select(i, tabSystem:GetChildren())
-            if st and st:IsObjectType("Button") then
-                local text = st:GetFontString()
-                local name = text and text:GetText() or ("Tab " .. i)
-                blizSubTabs[#blizSubTabs + 1] = { blizTab = st, name = name }
+        if tabSystem then
+            for i = 1, select("#", tabSystem:GetChildren()) do
+                local st = select(i, tabSystem:GetChildren())
+                if st and st:IsObjectType("Button") then
+                    local text = st:GetFontString()
+                    local name = text and text:GetText() or ("Tab " .. i)
+                    blizSubTabs[#blizSubTabs + 1] = { blizTab = st, name = name }
+                end
+            end
+        else
+            -- Wrath exposes the Friends/Ignore controls as named legacy tabs
+            -- rather than a TabSystem.  Treat them as the same data source so
+            -- the custom flat labels replace their stone button artwork.
+            for i = 1, 4 do
+                local st = _G["FriendsTabHeaderTab" .. i]
+                if st then
+                    local text = st:GetFontString()
+                    local name = text and text:GetText() or ("Tab " .. i)
+                    blizSubTabs[#blizSubTabs + 1] = { blizTab = st, name = name }
+                end
             end
         end
+        if #blizSubTabs == 0 then return end
 
         for _, info in ipairs(blizSubTabs) do
             info.blizTab:SetAlpha(0)
@@ -2539,8 +2914,14 @@ local function SkinFriendsFrame()
             customSubTabs[i] = ct
         end
 
-        -- Extra sub-tab: "Ignored"
-        do
+        -- Retail clients need an addon-owned Ignored destination; Wrath
+        -- already supplies Ignore as its second native sub-tab.
+        local hasNativeIgnore = isLegacyFriends and blizSubTabs[2] ~= nil
+        for _, info in ipairs(blizSubTabs) do
+            local name = info.name and info.name:lower() or ""
+            if name:find("ignore", 1, true) then hasNativeIgnore = true; break end
+        end
+        if not hasNativeIgnore then
             local idx = #customSubTabs + 1
             local ct = EllesmereUI.SafeCreateFrame("Button", nil, frame)
             ct:SetFrameLevel(frame:GetFrameLevel() + 5)
@@ -2581,7 +2962,8 @@ local function SkinFriendsFrame()
             orbBtn:SetPoint("RIGHT", FriendsListFrame, "TOPRIGHT", -10, -80)
             local orbTex = orbBtn:CreateTexture(nil, "ARTWORK", nil, 2)
             orbTex:SetAllPoints()
-            local orbInfo2 = C_Texture.GetAtlasInfo("lootroll-animreveal-a")
+            local orbInfo2 = C_Texture and C_Texture.GetAtlasInfo
+                and C_Texture.GetAtlasInfo("lootroll-animreveal-a")
             if orbInfo2 then
                 orbTex:SetTexture(orbInfo2.file)
                 local aL = orbInfo2.leftTexCoord or 0
@@ -2590,6 +2972,9 @@ local function SkinFriendsFrame()
                 local aB = orbInfo2.bottomTexCoord or 1
                 local aW, aH = aR - aL, aB - aT
                 orbTex:SetTexCoord(aL, aL + aW/6, aT, aT + aH/2)
+            else
+                orbTex:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online")
+                orbTex:SetTexCoord(0, 1, 0, 1)
             end
 
             local function UpdatePlayerOrb()
@@ -2643,7 +3028,13 @@ local function SkinFriendsFrame()
             bcBtn:SetPoint("RIGHT", orbBtn, "LEFT", -2, 0)
             local bcIcon = bcBtn:CreateTexture(nil, "ARTWORK")
             bcIcon:SetAllPoints()
-            bcIcon:SetAtlas("voicechat-icon-textchat-silenced")
+            if bcIcon.SetAtlas and C_Texture and C_Texture.GetAtlasInfo
+                and C_Texture.GetAtlasInfo("voicechat-icon-textchat-silenced") then
+                bcIcon:SetAtlas("voicechat-icon-textchat-silenced")
+            else
+                bcIcon:SetTexture("Interface\\Buttons\\UI-GuildButton-PublicNote-Up")
+                bcIcon:SetTexCoord(0, 1, 0, 1)
+            end
             bcIcon:SetDesaturated(true)
             bcIcon:SetVertexColor(1, 1, 1)
             bcBtn:SetAlpha(0.6)
@@ -2722,6 +3113,9 @@ local function SkinFriendsFrame()
                 thumb:HookScript("OnLeave", function() bar:SetAlpha(0.6) end)
             end
         end
+        local legacyScroll = _G.FriendsFrameFriendsScrollFrame
+            or _G.FriendsListFrameScrollFrame
+        if legacyScroll then SkinLegacyScrollFrame(legacyScroll) end
     end
 
 

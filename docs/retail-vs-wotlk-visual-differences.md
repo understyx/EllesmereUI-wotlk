@@ -4,7 +4,7 @@
 
 This document records visible differences between the Retail/Midnight reference UI and the current WotLK 3.3.5 implementation of EllesmereUI. It also identifies changes that can make the WotLK version feel substantially closer to Retail without pretending that both clients expose the same systems or data.
 
-**Status:** Active implementation and design reference. The first Phase 0 code pass attempts the Who layout/chrome and Inspect Talent presentation work, but remains incomplete: the Friends pass still references Retail-only elements that are unavailable on WotLK, and Inspect Talent icons still do not render in game. Phase 1 is now underway with shared WotLK-safe page-title, geometry, typography, surface, accordion/list-row, icon, scroll-bar, button, and tab primitives in the Blizzard skin toolkit. Character sub-pages plus the Character and Inspect footer tabs are the first adopters. The Phase 0 defects remain known follow-up items, and the Phase 1 changes still require in-game visual verification.
+**Status:** Active implementation and design reference. The first Phase 0 code pass attempts the Who layout/chrome and Inspect Talent presentation work, but remains incomplete: the Friends pass still references Retail-only elements that are unavailable on WotLK, and Inspect Talent icons still do not render in game. Phase 1 is now underway with shared WotLK-safe page-title, geometry, typography, surface, accordion/list-row, icon, scroll-bar, button, and tab primitives in the Blizzard skin toolkit. Character sub-pages plus the Character and Inspect footer tabs are the first adopters. A first WotLK social-frame pass now reaches Guild, Chat, and Raid, but the supplied follow-up captures exposed navigation, child-dialog, and native-update defects documented below. The Phase 0 defects and the social-frame corrections still require in-game visual verification.
 
 For brevity, **Retail** below means the Midnight-era Retail reference shown in the supplied screenshots.
 
@@ -21,6 +21,9 @@ The observations currently cover:
 - Achievements
 - Friends/Contacts
 - Who
+- Guild roster and administration dialogs
+- Chat Channels
+- Raid and Raid Information
 
 The screenshots were captured at different window sizes and UI scales. Their raw pixel dimensions should therefore **not** be treated as exact measurements. The useful reference is the relative spacing, hierarchy, alignment, and visual weight within each window.
 
@@ -544,6 +547,35 @@ Keep WotLK semantics:
 - Retail Battle.net presence details may not all exist in the WotLK API; show only status and metadata that can be determined reliably.
 
 Likely implementation area: `EllesmereUIFriends/EllesmereUIFriends.lua`.
+
+### WotLK Guild, Chat, and Raid: first-pass defects
+
+The supplied follow-up captures show that the shared shell and primary content surfaces now reach these pages, but the first implementation pass is not complete:
+
+- The footer displays only Friends and Who while Guild, Chat, or Raid is active. The corresponding destinations disappear after the native social-frame update, leaving no visible way to return to those pages.
+- Guild roster geometry and surfaces are substantially closer to the shared style, but Guild Information and Guild Control retain their native metal/red artwork.
+- Opening Guild Control before its rank dropdown has a valid selected index produces `GuildControlGetRankName(index)` with a nil index. The rank field remains blank and the native Lua error window opens.
+- Chat uses the shared shell and two-pane geometry, but category/channel rows regain their native stone textures after the channel list refreshes.
+- Raid uses the shared shell, but Convert To Raid, Open Raid Browser, and Raid Info overlap in one bordered action area when all three native buttons remain visible.
+- Raid Information remains entirely native, including its metal shell, red close/action buttons, framed scroll bar, and column chrome.
+- The Friends page still exposes native WotLK sub-tab, status-dropdown, and legacy scroll-button artwork when the Retail-only tab/scroll objects are unavailable.
+
+Correction checkpoint (2026-09-09), pending in-game validation:
+
+1. A stable five-destination visual footer forwards to the native Friends, Who, Guild, Chat, and Raid handlers without depending on FrameXML to keep every native tab visible.
+2. The legacy Friends/Ignore tabs, status control, and friends-list scroll bar now have explicit WotLK paths.
+3. Guild Control receives a numeric first-rank selection before its native `OnShow` update, preventing the nil-index call while preserving Blizzard's permission workflow.
+4. Guild Control, Guild Information, Add Guild Member, Channel setup, and Raid Information use the shared dark popup, field, checkbox, scroll-bar, close-control, and action-button treatments.
+5. Channel rows are repainted after native list updates, and the three Raid actions occupy separate columns instead of overlapping.
+
+Required validation:
+
+- Open the social window on each of the five pages, close it, reopen it, and switch through every footer destination in both directions.
+- Open Guild Control before and after a guild roster refresh; change ranks and bank tabs; verify permissions, Accept, and Cancel without a Lua error.
+- Open, edit, accept, and cancel Guild Information and Add Guild Member.
+- Expand and collapse each Chat category, scroll the channel list, select a channel, and open the channel setup dialog.
+- Check Raid while solo, in a party, and in a raid; verify enabled/disabled actions, Raid Browser, Raid Info, saved-instance scrolling, Extend Raid Lock, and Close.
+- Confirm that no social-page repaint changes protected raid behavior or produces taint during combat, arena, or battleground use.
 
 ## Recommended implementation order
 
