@@ -402,6 +402,7 @@ end
 -- Forward declarations for tables used by fingerprinting and scanner
 local spellToIndicators = {}   -- [spellID] = { ind1, ind2, ... }
 local trackedSpellIDs   = {}   -- set of all tracked spell IDs (including secret)
+local trackedSpellNames = {}   -- Wrath: localized aura name -> configured spell ID
 local allActiveIndicators = {} -- flat list of all enabled indicators
 
 -- Simple Setup mode: the active spec's FULL tracked whitelist (every non-hidden
@@ -409,6 +410,7 @@ local allActiveIndicators = {} -- flat list of all enabled indicators
 -- its own set so the simple grid and the custom indicator system never share
 -- tracking state and can't cross-contaminate.
 local simpleTrackedSpellIDs = {}
+local simpleTrackedSpellNames = {} -- Wrath rank/trigger aura fallback
 
 -- Alternate aura spell IDs that resolve to a primary tracked ID. Some buffs
 -- land under a different spell ID than the one indicators reference:
@@ -420,6 +422,21 @@ local PRIMARY_BY_ALT = {
     [383648] = 974,     -- Earth Shield
     [395296] = 395152,  -- Ebon Might (caster self-buff)
 }
+
+-- A Wrath cast and the buff it applies do not always share a spell ID, and each
+-- rank has another ID again (Prayer of Mending 48113 -> aura 48111,
+-- Earthliving 51945 -> aura 52000, Sacred Shield 53601 -> proc 58597). Resolve
+-- exact IDs first, then use the localized spell name on the legacy client. The
+-- name comes from the client for both sides, so this remains locale-safe
+-- and covers every rank/trigger variant without a brittle list of numeric IDs.
+local function ResolveTrackedSpellID(auraData, spellIDs, spellNames)
+    local sid = auraData and auraData.spellId
+    if not sid or issecretvalue(sid) then return nil end
+    local primary = PRIMARY_BY_ALT[sid] or sid
+    if spellIDs[primary] then return primary end
+    if IS_WRATH and auraData.name then return spellNames[auraData.name] end
+    return nil
+end
 
 -------------------------------------------------------------------------------
 --  Secret aura fingerprinting (4-filter signature method)
@@ -872,7 +889,9 @@ end
 local function RebuildLookup(db)
     wipe(spellToIndicators)
     wipe(trackedSpellIDs)
+    wipe(trackedSpellNames)
     wipe(allActiveIndicators)
+    wipe(simpleTrackedSpellNames)
     if not db or not db.profile then return end
 
     -- Ensure defaults are populated for all specs (triggers on first load)
@@ -926,6 +945,15 @@ local function RebuildLookup(db)
             trackedSpellIDs[alt] = true
         end
     end
+    if IS_WRATH then
+        for sid in pairs(trackedSpellIDs) do
+            local primary = PRIMARY_BY_ALT[sid] or sid
+            local name = C_Spell.GetSpellName(sid)
+            if name and not trackedSpellNames[name] then
+                trackedSpellNames[name] = primary
+            end
+        end
+    end
 
     -- Simple Setup whitelist: every non-hidden spell of the active spec,
     -- regardless of indicators (hidden entries are alternate IDs resolved via
@@ -951,6 +979,15 @@ local function RebuildLookup(db)
     for alt, primary in pairs(PRIMARY_BY_ALT) do
         if simpleTrackedSpellIDs[primary] then
             simpleTrackedSpellIDs[alt] = true
+        end
+    end
+    if IS_WRATH then
+        for sid in pairs(simpleTrackedSpellIDs) do
+            local primary = PRIMARY_BY_ALT[sid] or sid
+            local name = C_Spell.GetSpellName(sid)
+            if name and not simpleTrackedSpellNames[name] then
+                simpleTrackedSpellNames[name] = primary
+            end
         end
     end
 
@@ -2186,7 +2223,10 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
             for _, ad in ipairs(updateInfo.addedAuras) do
                 local sid = ad.spellId
                 if sid and not issecretvalue(sid) then
-                    if simpleTrackedSpellIDs[PRIMARY_BY_ALT[sid] or sid] then needScan = true; break end
+                    if ResolveTrackedSpellID(ad, simpleTrackedSpellIDs, simpleTrackedSpellNames) then
+                        needScan = true
+                        break
+                    end
                 elseif sid then
                     needScan = true; break
                 end
@@ -2237,7 +2277,8 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
         local matched = false
         if sid and iid then
             if not issecretvalue(sid) then
-                local psid = PRIMARY_BY_ALT[sid] or sid
+                local psid = ResolveTrackedSpellID(
+                    auraData, simpleTrackedSpellIDs, simpleTrackedSpellNames)
                 if simpleTrackedSpellIDs[psid] and not seen[psid] then
                     -- Own Only: same PLAYER filter the custom path uses; secret
                     -- auras below are always player-cast so they skip this check.
@@ -2453,7 +2494,10 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 -- spell IDs won't match tracked buff IDs anyway)
                 local sid = ad.spellId
                 if sid and not issecretvalue(sid) then
-                    if trackedSpellIDs[sid] then needScan = true; break end
+                    if ResolveTrackedSpellID(ad, trackedSpellIDs, trackedSpellNames) then
+                        needScan = true
+                        break
+                    end
                 elseif sid then
                     -- Secret spellId: could be a tracked secret buff
                     needScan = true; break
@@ -2504,9 +2548,11 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
             if not issecretvalue(sid) then
                 -- Normal path: direct spell ID check. Resolve alternate aura IDs
                 -- (e.g. Earth Shield 383648, Ebon Might self-buff 395296) to the
-                -- primary ID the indicators reference, then key by the primary.
-                local psid = PRIMARY_BY_ALT[sid] or sid
-                if trackedSpellIDs[psid] and not activeSpells[psid] then
+                -- primary ID the indicators reference. Wrath additionally falls
+                -- back to the localized name for rank/trigger aura variants.
+                local psid = ResolveTrackedSpellID(
+                    auraData, trackedSpellIDs, trackedSpellNames)
+                if psid and not activeSpells[psid] then
                     activeSpells[psid] = auraData
                     if auraData.auraInstanceID then
                         d.bmActiveInstanceIDs[auraData.auraInstanceID] = true
