@@ -128,6 +128,13 @@ local function SetBorderSize(border, size)
     border[4]:SetWidth(size)
 end
 
+local function PlateNameMatchesUnit(state, unit)
+    if not UnitExists(unit) then return false end
+    local plateName = state.nameSource and state.nameSource:GetText()
+    local unitName = UnitName(unit)
+    return plateName and plateName ~= "" and plateName == unitName or false
+end
+
 -- Anonymous Wrath nameplates do not have unit tokens.  We can still attach
 -- accurate aura data whenever the plate represents a targetable unit token
 -- (target/focus/mouseover, plus arena opponents), then age that verified
@@ -135,9 +142,7 @@ end
 -- prevents one mob's debuffs being copied onto every same-named mob nearby.
 local function PlateMatchesUnit(state, unit)
     if not UnitExists(unit) or not UnitCanAttack("player", unit) then return false end
-    local plateName = state.nameSource and state.nameSource:GetText()
-    local unitName = UnitName(unit)
-    if not plateName or plateName == "" or plateName ~= unitName then return false end
+    if not PlateNameMatchesUnit(state, unit) then return false end
 
     local _, plateMax = state.health:GetMinMaxValues()
     local plateValue = state.health:GetValue()
@@ -158,10 +163,7 @@ end
 -- state; the native target alpha and mouseover highlight break the remaining
 -- ambiguity for those two special units.
 local function PlateIdentityMatchesUnit(state, unit)
-    if not UnitExists(unit) then return false end
-    local plateName = state.nameSource and state.nameSource:GetText()
-    local unitName = UnitName(unit)
-    if not plateName or plateName == "" or plateName ~= unitName then return false end
+    if not PlateNameMatchesUnit(state, unit) then return false end
 
     local _, plateMax = state.health:GetMinMaxValues()
     local plateValue = state.health:GetValue()
@@ -176,29 +178,78 @@ local function PlateIdentityMatchesUnit(state, unit)
     return true
 end
 
+local function SpecialOwnerForUnit(unit)
+    if unit == "target" then return targetOwner, true end
+    if unit == "focus" then return focusOwner, true end
+    if unit == "mouseover" then return mouseoverOwner, true end
+    return nil, false
+end
+
+-- Drop only the live unit-token association when a special token moves to a
+-- different anonymous plate. The old plate keeps its expiration-based visual
+-- snapshot, but can no longer read the new target/focus/mouseover's auras.
+local function ReleaseStaleSpecialAuraOwner(unit, owner)
+    local previous = auraUnitOwners[unit]
+    if not previous or previous == owner then return end
+    auraUnitOwners[unit] = nil
+    if previous.auraUnit == unit then previous.auraUnit = nil end
+end
+
+-- Once a native target/mouseover signal identifies a physical plate, attach
+-- the real unit GUID to that plate. Name and health are useful discovery hints
+-- on Wrath, but they are not identities: several NPCs can share both values.
+local function BindPlateGUID(state, unit)
+    if not state or not UnitGUID then return state ~= nil end
+    local guid = UnitGUID(unit)
+    if not guid then return false end
+    -- A visible plate's established GUID is immutable. During target changes,
+    -- UnitGUID("target") can advance one frame before the stock alpha marker;
+    -- replacing here would erase the old plate's valid aura snapshot. Actual
+    -- frame recycling goes through OnHide, which clears the binding safely.
+    if state.guid and state.guid ~= guid then return false end
+    state.guid = guid
+    return true
+end
+
+local function AuraIdentityMatches(state, unit)
+    if state.guid and UnitGUID then
+        local guid = UnitGUID(unit)
+        if guid then return state.guid == guid end
+    end
+    return PlateMatchesUnit(state, unit)
+end
+
 local function ResolveAuraUnit(state)
-    if state.auraUnit and PlateMatchesUnit(state, state.auraUnit) then
-        return state.auraUnit
+    if state.auraUnit then
+        local specialOwner, isSpecial = SpecialOwnerForUnit(state.auraUnit)
+        if (not isSpecial or specialOwner == state)
+            and AuraIdentityMatches(state, state.auraUnit) then
+            return state.auraUnit
+        end
     end
     if state.auraUnit and auraUnitOwners[state.auraUnit] == state then
         auraUnitOwners[state.auraUnit] = nil
     end
     state.auraUnit = nil
     for _, unit in ipairs(AURA_UNITS) do
-        local owned = auraUnitOwners[unit]
-        local sameUnitOwned = false
-        if not owned and UnitIsUnit then
-            for ownedUnit, owner in pairs(auraUnitOwners) do
-                if owner ~= state and UnitExists(ownedUnit) and UnitIsUnit(unit, ownedUnit) then
-                    sameUnitOwned = true
-                    break
+        local specialOwner, isSpecial = SpecialOwnerForUnit(unit)
+        if not isSpecial or specialOwner == state then
+            local owned = auraUnitOwners[unit]
+            local sameUnitOwned = false
+            if not owned and UnitIsUnit then
+                for ownedUnit, owner in pairs(auraUnitOwners) do
+                    if owner ~= state and UnitExists(ownedUnit) and UnitIsUnit(unit, ownedUnit) then
+                        sameUnitOwned = true
+                        break
+                    end
                 end
             end
-        end
-        if not owned and not sameUnitOwned and PlateMatchesUnit(state, unit) then
-            state.auraUnit = unit
-            auraUnitOwners[unit] = state
-            return unit
+            if not owned and not sameUnitOwned and AuraIdentityMatches(state, unit)
+                and BindPlateGUID(state, unit) then
+                state.auraUnit = unit
+                auraUnitOwners[unit] = state
+                return unit
+            end
         end
     end
 end
@@ -331,6 +382,18 @@ local function LayoutDebuffSlots(state, count)
     end
 end
 
+local function ResetDebuffSlot(slot)
+    slot.expirationTime = nil
+    slot.duration = nil
+    slot.auraIcon = nil
+    slot.auraCount = nil
+    slot.remaining = nil
+    slot.durationText:SetText("")
+    slot.countText:SetText("")
+    slot.cooldown:Hide()
+    slot:Hide()
+end
+
 local function ClearDebuffs(state)
     if not state.auraUnit and (state.debuffCount or 0) == 0 then return end
     if state.auraUnit and auraUnitOwners[state.auraUnit] == state then
@@ -339,16 +402,7 @@ local function ClearDebuffs(state)
     state.auraUnit = nil
     state.debuffCount = 0
     if not state.debuffs then return end
-    for _, slot in ipairs(state.debuffs) do
-        slot.expirationTime = nil
-        slot.auraIcon = nil
-        slot.auraCount = nil
-        slot.remaining = nil
-        slot.durationText:SetText("")
-        slot.countText:SetText("")
-        slot.cooldown:Hide()
-        slot:Hide()
-    end
+    for _, slot in ipairs(state.debuffs) do ResetDebuffSlot(slot) end
 end
 
 -- Keep the last authoritative snapshot on its specific plate after the player
@@ -359,24 +413,28 @@ end
 local function RefreshCachedDebuffs(state, now)
     local count = state.debuffCount or 0
     if count == 0 then return end
-    for i = 1, count do
+    local changed = false
+    for i = count, 1, -1 do
         local slot = state.debuffs[i]
-        if not slot.expirationTime then
-            ClearDebuffs(state)
-            return
+        if slot.expirationTime then
+            local remaining = ceil(slot.expirationTime - now)
+            if remaining <= 0 then
+                -- Expire only this aura. Moving its frame to the unused tail
+                -- compacts the visible slots without copying widget state.
+                table.remove(state.debuffs, i)
+                table.insert(state.debuffs, slot)
+                ResetDebuffSlot(slot)
+                count = count - 1
+                changed = true
+            elseif slot.remaining ~= remaining then
+                slot.durationText:SetText(remaining)
+                slot.remaining = remaining
+            end
         end
-        local remaining = ceil(slot.expirationTime - now)
-        if remaining <= 0 then
-            -- Re-resolving the remaining slots without a unit token would be
-            -- guesswork.  Clear the snapshot; it will rebuild authoritatively
-            -- as soon as this unit is targeted/focused/moused over again.
-            ClearDebuffs(state)
-            return
-        end
-        if slot.remaining ~= remaining then
-            slot.durationText:SetText(remaining)
-            slot.remaining = remaining
-        end
+    end
+    if changed then
+        state.debuffCount = count
+        LayoutDebuffSlots(state, count)
     end
 end
 
@@ -444,6 +502,7 @@ local function RefreshDebuffs(state, now)
         end
     end
     local oldShown = state.debuffCount or 0
+    for index = shown + 1, oldShown do ResetDebuffSlot(state.debuffs[index]) end
     state.debuffCount = shown
     if oldShown ~= shown then LayoutDebuffSlots(state, shown) end
 end
@@ -487,7 +546,8 @@ local function ScanFrameRegions(frame, hiddenArt, raidIconRef, nativeSignals, de
                     -- uses the same region's IsShown state for this purpose.
                     if path and nativeSignals and not nativeSignals.highlight
                         and (find(path, "nameplate-highlight", 1, true)
-                            or find(path, "nameplate-selected", 1, true)) then
+                            or find(path, "nameplate-selected", 1, true)
+                            or find(path, "nameplate-glow", 1, true)) then
                         nativeSignals.highlight = region
                     end
                     -- Suppress everything else: border, glow, highlight, castbar chrome,
@@ -523,6 +583,14 @@ local function FindParts(frame)
     local hiddenArt = {}
     local raidIconRef = {}  -- single-element table so ScanFrameRegions can write it
     local nativeSignals = {}
+    -- The unmodified 3.3.5 nameplate's sixth region is its mouseover
+    -- highlight. Texture names vary between clients, so preserve the native
+    -- region-order signal first and use texture paths only as a fallback.
+    local stockHighlight = select(6, frame:GetRegions())
+    if stockHighlight and stockHighlight.GetObjectType
+        and stockHighlight:GetObjectType() == "Texture" then
+        nativeSignals.highlight = stockHighlight
+    end
     for i = 1, RegionCount(frame) do
         local region = select(i, frame:GetRegions())
         if region and region.GetObjectType then
@@ -821,56 +889,92 @@ local function ApplyTargetScale(state)
 end
 
 local function ResolveSpecialOwners()
-    local oldTarget, oldFocus, oldMouseover = targetOwner, focusOwner, mouseoverOwner
     local targetFallback, focusFallback, mouseoverFallback
-    local newTarget, newMouseover
+    local alphaTarget, nativeMouseover
+    local targetMatches, alphaTargetMatches = 0, 0
+    local focusMatches, mouseoverMatches, nativeMouseoverMatches = 0, 0, 0
     local hasTarget = UnitExists("target")
     local hasFocus = UnitExists("focus")
     local hasMouseover = UnitExists("mouseover")
 
     for _, state in pairs(plates) do
         if state.frame:IsShown() then
-            if hasTarget and PlateIdentityMatchesUnit(state, "target") then
-                targetFallback = targetFallback or state
+            if hasTarget then
                 local alpha = state.frame:GetAlpha()
-                if alpha and alpha >= .99 and (not newTarget or state == oldTarget) then
-                    newTarget = state
+                -- RefinedBlizzPlates and LibNameplates both use the stock root
+                -- alpha as the authoritative legacy target marker.
+                if alpha and alpha >= .999 then
+                    alphaTargetMatches = alphaTargetMatches + 1
+                    alphaTarget = state
+                end
+                if PlateIdentityMatchesUnit(state, "target") then
+                    targetMatches = targetMatches + 1
+                    targetFallback = targetFallback or state
                 end
             end
             if hasFocus and PlateIdentityMatchesUnit(state, "focus") then
+                focusMatches = focusMatches + 1
                 focusFallback = focusFallback or state
             end
             if hasMouseover then
-                if state.nativeHighlight and state.nativeHighlight:IsShown() then
-                    newMouseover = state
-                elseif PlateIdentityMatchesUnit(state, "mouseover") then
-                    if state == oldMouseover then
-                        mouseoverFallback = state
-                    else
-                        mouseoverFallback = mouseoverFallback or state
-                    end
+                local nameMatch = PlateNameMatchesUnit(state, "mouseover")
+                local identityMatch = PlateIdentityMatchesUnit(state, "mouseover")
+                if nameMatch and state.nativeHighlight and state.nativeHighlight:IsShown() then
+                    nativeMouseoverMatches = nativeMouseoverMatches + 1
+                    nativeMouseover = state
+                elseif identityMatch then
+                    mouseoverMatches = mouseoverMatches + 1
+                    mouseoverFallback = mouseoverFallback or state
                 end
             end
         end
     end
 
-    if not newTarget and oldTarget and oldTarget.frame:IsShown()
-        and PlateIdentityMatchesUnit(oldTarget, "target") then
-        newTarget = oldTarget
+    if hasMouseover and nativeMouseoverMatches == 1 then
+        mouseoverOwner = nativeMouseover
+    elseif hasMouseover and nativeMouseoverMatches == 0 and mouseoverMatches == 1 then
+        mouseoverOwner = mouseoverFallback
+    else
+        mouseoverOwner = nil
     end
-    targetOwner = hasTarget and (newTarget or targetFallback) or nil
-    mouseoverOwner = hasMouseover and (newMouseover or mouseoverFallback) or nil
+    -- Target changes can briefly leave both old and new plates at alpha 1.
+    -- Treat that transition as ambiguous instead of letting a single bad scan
+    -- replace the old plate's cached debuffs with the new target's auras.
+    if hasTarget and UnitIsUnit and mouseoverOwner and UnitIsUnit("target", "mouseover") then
+        targetOwner = mouseoverOwner
+    elseif hasTarget and alphaTargetMatches == 1 then
+        targetOwner = alphaTarget
+    elseif hasTarget and alphaTargetMatches == 0 and targetMatches == 1 then
+        targetOwner = targetFallback
+    else
+        targetOwner = nil
+    end
 
     if hasFocus and UnitIsUnit and targetOwner and UnitIsUnit("focus", "target") then
         focusOwner = targetOwner
     elseif hasFocus and UnitIsUnit and mouseoverOwner and UnitIsUnit("focus", "mouseover") then
         focusOwner = mouseoverOwner
-    elseif hasFocus and oldFocus and oldFocus.frame:IsShown()
-        and PlateIdentityMatchesUnit(oldFocus, "focus") then
-        focusOwner = oldFocus
+    elseif hasFocus and focusMatches == 1 then
+        focusOwner = focusFallback
     else
-        focusOwner = hasFocus and focusFallback or nil
+        focusOwner = nil
     end
+
+    -- Every special-unit signal must agree with an established GUID. This also
+    -- ignores a one-frame target-token/alpha transition without clearing the
+    -- old plate's still-valid cached auras.
+    if targetOwner and not BindPlateGUID(targetOwner, "target") then targetOwner = nil end
+    if mouseoverOwner and not BindPlateGUID(mouseoverOwner, "mouseover") then
+        mouseoverOwner = nil
+    end
+    if focusOwner and not BindPlateGUID(focusOwner, "focus") then focusOwner = nil end
+
+    -- Rebind these tokens before the per-plate aura pass below. Without this,
+    -- either the first matching same-name plate or a previous owner can keep
+    -- satisfying the name/health heuristic and receive another unit's debuffs.
+    ReleaseStaleSpecialAuraOwner("target", targetOwner)
+    ReleaseStaleSpecialAuraOwner("focus", focusOwner)
+    ReleaseStaleSpecialAuraOwner("mouseover", mouseoverOwner)
 end
 
 local function UpdateEmphasis(state, force)
@@ -1202,6 +1306,7 @@ local function Skin(frame)
         state.nativeR, state.nativeG, state.nativeB = nil, nil, nil
         state.isTarget, state.isFocus, state.isMouseover = false, false, false
         ClearDebuffs(state)
+        state.guid = nil
     end)
 
     RefreshAppearance(state)
