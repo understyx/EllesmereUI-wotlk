@@ -1,14 +1,13 @@
 -------------------------------------------------------------------------------
 --  EUI_QoL_Options.lua
---  Registers the Quality of Life sidebar addon with its two tabs:
---    * Quality of Life -- general QoL features (built by parent general options)
---    * Cursor          -- cursor skin (built by EUI_QoL_Cursor_Options.lua)
+--  Registers the Quality of Life sidebar addon and its feature pages.
 -------------------------------------------------------------------------------
 local PAGE_QOL      = "Quality of Life"
 local PAGE_CURSOR   = "Cursor"
 
 local PAGE_SHIFTER  = "Shifter"
 local PAGE_MOVEMENT = "Movement Alerts"
+local PAGE_PALADIN  = "Paladin Auras"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2284,8 +2283,8 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "tricks", "tricks of the trade", "misdirection", "threat transfer" },
+        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_PALADIN },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "tricks", "tricks of the trade", "misdirection", "threat transfer", "paladin", "paladin auras", "devotion aura", "retribution aura", "concentration aura", "resistance aura", "crusader aura" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2299,6 +2298,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_MOVEMENT and _G._EUI_BuildMovementAlertPage then
                 return _G._EUI_BuildMovementAlertPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_PALADIN and _G._EUI_BuildPaladinAurasPage then
+                return _G._EUI_BuildPaladinAurasPage(pageName, parent, yOffset)
             end
         end,
         onReset = function()
@@ -2376,6 +2378,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyThreatTransfer then EllesmereUI._applyThreatTransfer() end
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
+            if _G._EUI_PaladinAuras_Reset then _G._EUI_PaladinAuras_Reset() end
             EllesmereUI:InvalidatePageCache()
         end,
     })

@@ -1382,9 +1382,10 @@ function EllesmereUI.RefreshAllAddons()
     if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
     -- Crosshair
     if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
-    -- QoL extras (FPS counter + Secondary Stats) -- per-profile, so re-apply on swap
+    -- Profile-backed QoL displays -- re-apply appearance, data and position on swap.
     if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
     if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+    if _G._EUI_PaladinAuras_Apply then _G._EUI_PaladinAuras_Apply() end
     -- PallyPower first: consumers such as AuraBuffReminders must see its new
     -- profile state before their own refresh pass runs.
     if EllesmereUI.PallyPower and EllesmereUI.PallyPower.RefreshProfile then
