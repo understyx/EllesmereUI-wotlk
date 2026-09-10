@@ -206,7 +206,12 @@ end
         if isEmbedded or tt.IsEmbedded then return end
         if _isSecret and _isSecret(tt:GetWidth()) then return end
         if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
+        -- Retail draws the stock tooltip chrome through NineSlice, while Wrath's
+        -- GameTooltipTemplate draws it through the frame backdrop.  Hiding only
+        -- NineSlice leaves the legacy blue background and gold border sitting on
+        -- top of our texture, which makes every Wrath tooltip look unskinned.
         if tt.NineSlice then tt.NineSlice:SetAlpha(0) end
+        if tt.SetBackdrop then tt:SetBackdrop(nil) end
         if not GetFFD(tt).bg then
             GetFFD(tt).bg = tt:CreateTexture(nil, "BACKGROUND", nil, -8)
             GetFFD(tt).bg:SetAllPoints()
@@ -699,17 +704,20 @@ end
     -- Visual reskin: the dark bg/border (via _ttHook -> _ttSkin), EUI fonts, and
     -- the restyled tooltip status bar. Gated on "Reskin Tooltip" (customTooltips).
     local function _ttInitVisual()
-        for _, tt in ipairs({
-            _GameTooltip, ShoppingTooltip1, ShoppingTooltip2,
-            ItemRefTooltip, ItemRefShoppingTooltip1, ItemRefShoppingTooltip2,
-            FriendsTooltip, EmbeddedItemTooltip, GameSmallHeaderTooltip, QuickKeybindTooltip,
-            _G.WarCampaignTooltip, _G.ReputationParagonTooltip,
-            _G.LibDBIconTooltip, _G.SettingsTooltip,
-            QuestScrollFrame and QuestScrollFrame.StoryTooltip,
-            QuestScrollFrame and QuestScrollFrame.CampaignTooltip,
+        -- Resolve by name so a nil Retail-only tooltip cannot terminate ipairs
+        -- before the later Wrath globals are reached.  The World Map comparison
+        -- tooltips are separate GameTooltipTemplate instances on 3.3.5.
+        for _, name in ipairs({
+            "GameTooltip", "ShoppingTooltip1", "ShoppingTooltip2",
+            "ItemRefTooltip", "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2",
+            "FriendsTooltip", "EmbeddedItemTooltip", "GameSmallHeaderTooltip", "QuickKeybindTooltip",
+            "WarCampaignTooltip", "ReputationParagonTooltip", "LibDBIconTooltip", "SettingsTooltip",
+            "WorldMapTooltip", "WorldMapCompareTooltip1", "WorldMapCompareTooltip2",
         }) do
-            _ttHook(tt)
+            _ttHook(_G[name])
         end
+        _ttHook(QuestScrollFrame and QuestScrollFrame.StoryTooltip)
+        _ttHook(QuestScrollFrame and QuestScrollFrame.CampaignTooltip)
         if SharedTooltip_SetBackdropStyle then
             -- Deferred: SharedTooltip_SetBackdropStyle can fire from
             -- secure Blizzard code (casting bar, combat UI). Running
