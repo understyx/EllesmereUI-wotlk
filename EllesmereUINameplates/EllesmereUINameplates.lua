@@ -494,14 +494,6 @@ local defaults = {
     customBorderColor = { r = 0.067, g = 0.067, b = 0.067 },
     customBorderAlpha = 1,
     customBorderBehind = false,
-    pandemicGlow = false,
-    pandemicGlowStyle = 1,
-    pandemicGlowColor = { r = 1.0, g = 0.800, b = 0.329 },
-    pandemicGlowLines = 8,
-    pandemicGlowThickness = 1,
-    pandemicGlowSpeed = 4,
-    pandemicGlowBackground = false,
-    pandemicGlowBackgroundColor = { r = 0, g = 0, b = 0 },
     -- Execute Pulse Glow (Extras): red glow around plates below 30% health
     lowHpGlow = false,
     dispelGlow = false,
@@ -840,63 +832,18 @@ local function GetDebuffTextColor()
     return c.r, c.g, c.b, 1
 end
 ns.GetDebuffTextColor = GetDebuffTextColor
-local function GetPandemicGlow()
-    return (p and p.pandemicGlow) or defaults.pandemicGlow
-end
 
--- Pandemic glow style definitions (replaces LibCustomGlow)
--- 1 = Pixel Glow (procedural ants), 2 = Action Button Glow (animated ants texture),
--- 3 = Auto-Cast Shine (orbiting sparkles), 4 = GCD (FlipBook atlas),
--- 5 = Modern WoW Glow (FlipBook atlas), 6 = Classic WoW Glow (FlipBook texture)
-local PANDEMIC_GLOW_STYLES = {
+-- Glow styles shared by the remaining aura-highlight features.
+local GLOW_STYLES = {
     { name = "Pixel Glow",           procedural = true },
     { name = "Action Button Glow",   buttonGlow = true, scale = 1.36, previewScale = 1.28 },
     { name = "Auto-Cast Shine",      autocast = true },
-    { name = "GCD",                  atlas = "RotationHelper_Ants_Flipbook",  scale = 1.47, previewScale = 1.47 },
-    { name = "Modern WoW Glow",      atlas = "UI-HUD-ActionBar-Proc-Loop-Flipbook",  scale = 1.34, previewScale = 1.34 },
+    { name = "GCD",                  atlas = "RotationHelper_Ants_Flipbook", scale = 1.47, previewScale = 1.47 },
+    { name = "Modern WoW Glow",      atlas = "UI-HUD-ActionBar-Proc-Loop-Flipbook", scale = 1.34, previewScale = 1.34 },
     { name = "Classic WoW Glow",     texture = "Interface\\SpellActivationOverlay\\IconAlertAnts",
       rows = 5, columns = 5, frames = 25, duration = 0.3, frameW = 48, frameH = 48, scale = 1.47, previewScale = 1.47 },
 }
-ns.PANDEMIC_GLOW_STYLES = PANDEMIC_GLOW_STYLES
--- Expose the nameplate glow-style list cross-addon so other modules (e.g. the
--- CDM "Apply Pandemic Glow to all" sync) can translate a style by NAME instead
--- of copying a raw index. Nameplates order their styles differently from CDM
--- (their list omits "Custom Shape Glow"), so a raw index means a different
--- style on each side.
-if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYLES end
-
-local function GetPandemicGlowStyle()
-    local raw = p and p.pandemicGlowStyle
-    if raw == nil then return defaults.pandemicGlowStyle end
-    if type(raw) == "number" then return raw end
-    return 1
-end
-ns.GetPandemicGlowStyle = GetPandemicGlowStyle
-local function GetPandemicGlowColor()
-    local c = (p and p.pandemicGlowColor) or defaults.pandemicGlowColor
-    return c.r, c.g, c.b
-end
-local function GetPandemicGlowLines()
-    return (p and p.pandemicGlowLines) or defaults.pandemicGlowLines
-end
-ns.GetPandemicGlowLines = GetPandemicGlowLines
-local function GetPandemicGlowThickness()
-    return (p and p.pandemicGlowThickness) or defaults.pandemicGlowThickness
-end
-ns.GetPandemicGlowThickness = GetPandemicGlowThickness
-local function GetPandemicGlowSpeed()
-    return (p and p.pandemicGlowSpeed) or defaults.pandemicGlowSpeed
-end
-ns.GetPandemicGlowSpeed = GetPandemicGlowSpeed
--- Namespaced (not file-scope locals) to stay under this file's Lua 5.1 200-local
--- cap; both still close over the p / defaults upvalues.
-function ns.GetPandemicGlowBackground()
-    return p and p.pandemicGlowBackground == true
-end
-function ns.GetPandemicGlowBackgroundColor()
-    local c = (p and p.pandemicGlowBackgroundColor) or defaults.pandemicGlowBackgroundColor
-    return c.r or 0, c.g or 0, c.b or 0
-end
+ns.GLOW_STYLES = GLOW_STYLES
 
 -- Dispellable buff glow: taint-safe detection via GetAuraDispelTypeColor
 do
@@ -1572,24 +1519,12 @@ function ns.ApplySlotStrata(plate)
     end
 end
 
--- Pandemic glow engine: procedural ants, button glow, autocast shine, FlipBook
--- Wrapped in do...end to keep all internal locals out of the main chunk's 200-local budget.
--- Externally-needed items are stored on ns.
+-- Aura glow engine helpers. Wrapped to keep internal locals out of the main
+-- chunk's Lua 5.1 local-variable budget.
 do
--- Pandemic curve: step function returns 1 when remaining% <= 30% (pandemic window), 0 otherwise
--- Secret values from duration objects are passed ONLY to Blizzard widget APIs (SetAlpha) never compared in Lua
-local pandemicCurve
-if C_CurveUtil and C_CurveUtil.CreateCurve then
-    pandemicCurve = C_CurveUtil.CreateCurve()
-    pandemicCurve:SetType(Enum.LuaCurveType.Step)
-    pandemicCurve:AddPoint(0, 1)
-    pandemicCurve:AddPoint(0.3, 0)
-end
-ns.pandemicCurve = pandemicCurve
-
 -------------------------------------------------------------------------------
 --  Glow Engines provided by shared EllesmereUI_Glows.lua
---  Local aliases for the pandemic glow wrapper below.
+--  Local aliases for aura glow wrappers below.
 -------------------------------------------------------------------------------
 local _G_Glows = EllesmereUI.Glows
 local StartProceduralAnts = _G_Glows.StartProceduralAnts
@@ -1605,152 +1540,6 @@ ns.StopButtonGlow      = StopButtonGlow
 ns.StartAutoCastShine  = StartAutoCastShine
 ns.StopAutoCastShine   = StopAutoCastShine
 
--- Set of debuff slots with active pandemic glows; only these get alpha-ticked
-local activePandemicSlots = {}
-ns.activePandemicSlots = activePandemicSlots
-
-local function StopPandemicGlow(slot)
-    activePandemicSlots[slot] = nil
-    local pg = slot.pandemicGlow
-    if not pg or not pg.active then return end
-    if pg.animGroup then pg.animGroup:Stop() end
-    if pg.flipTex then pg.flipTex:Hide() end
-    StopProceduralAnts(pg.wrapper)
-    StopButtonGlow(pg.wrapper)
-    StopAutoCastShine(pg.wrapper)
-    pg.wrapper:Hide()
-    pg.active = false
-end
-
-local function StartPandemicGlow(slot, slotSize)
-    local pg = slot.pandemicGlow
-    local styleIdx = GetPandemicGlowStyle()
-    if styleIdx < 1 or styleIdx > #PANDEMIC_GLOW_STYLES then styleIdx = 1 end
-    local entry = PANDEMIC_GLOW_STYLES[styleIdx]
-    local sz = slotSize or 26
-
-    if not pg then
-        local wrapper = EllesmereUI.SafeCreateFrame("Frame", nil, slot)
-        wrapper:SetAllPoints()
-        -- Sit ABOVE the cooldown frame (slot.cd at +2) so the duration swipe
-        -- can't render on top of the pandemic border and dim it. Matches the
-        -- dispel glow (slot+5); the glow is an edge border, so it doesn't
-        -- meaningfully obscure the corner countdown / stack numbers. (At the old
-        -- slot+1 the swipe drew over the glow, making it hard to see.)
-        wrapper:SetFrameLevel(slot:GetFrameLevel() + 5)
-        local flipTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
-        flipTex:SetPoint("CENTER")
-        local animGroup = flipTex:CreateAnimationGroup()
-        animGroup:SetLooping("REPEAT")
-        local flipAnim = animGroup:CreateAnimation("FlipBook")
-        wrapper:Show()
-        wrapper:SetAlpha(0)
-        pg = { wrapper = wrapper, flipTex = flipTex, animGroup = animGroup, flipAnim = flipAnim, active = false }
-        slot.pandemicGlow = pg
-    end
-
-    -- Only restart glow if style changed or not active
-    if pg.active and pg.styleIdx == styleIdx then
-        pg.wrapper:Show()
-        return
-    end
-    -- Stop previous style if switching
-    if pg.active and pg.styleIdx ~= styleIdx then
-        StopPandemicGlow(slot)
-    end
-
-    local cr, cg, cb = GetPandemicGlowColor()
-
-    if entry.procedural then
-        -- Pixel Glow: procedural ants mode
-        pg.flipTex:Hide()
-        pg.animGroup:Stop()
-        StopButtonGlow(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
-        local N = GetPandemicGlowLines()
-        local th = GetPandemicGlowThickness()
-        local speed = GetPandemicGlowSpeed()
-        local period = speed  -- speed IS the period in seconds per full orbit
-        local lineLen = math.floor((sz + sz) * (2 / N - 0.1))
-        lineLen = min(lineLen, sz)
-        if lineLen < 1 then lineLen = 1 end
-        local br, bg, bb = ns.GetPandemicGlowBackgroundColor()
-        StartProceduralAnts(pg.wrapper, N, th, period, lineLen, cr, cg, cb, sz, nil,
-            ns.GetPandemicGlowBackground() and br or nil, bg, bb)
-    elseif entry.buttonGlow then
-        -- Action Button Glow: animated ants texture
-        pg.flipTex:Hide()
-        pg.animGroup:Stop()
-        StopProceduralAnts(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
-        StartButtonGlow(pg.wrapper, sz, cr, cg, cb, entry.scale or 1.36)
-    elseif entry.autocast then
-        -- Auto-Cast Shine: orbiting sparkle dots
-        pg.flipTex:Hide()
-        pg.animGroup:Stop()
-        StopProceduralAnts(pg.wrapper)
-        StopButtonGlow(pg.wrapper)
-        StartAutoCastShine(pg.wrapper, sz, cr, cg, cb)
-    else
-        -- FlipBook mode: GCD, Modern WoW Glow, Classic WoW Glow
-        StopProceduralAnts(pg.wrapper)
-        StopButtonGlow(pg.wrapper)
-        StopAutoCastShine(pg.wrapper)
-        local texSz = sz * (entry.scale or 1)
-        pg.flipTex:SetSize(texSz, texSz)
-        if entry.atlas then
-            pg.flipTex:SetAtlas(entry.atlas)
-        elseif entry.texture then
-            pg.flipTex:SetTexture(entry.texture)
-        end
-        pg.flipAnim:SetFlipBookRows(entry.rows or 6)
-        pg.flipAnim:SetFlipBookColumns(entry.columns or 5)
-        pg.flipAnim:SetFlipBookFrames(entry.frames or 30)
-        pg.flipAnim:SetDuration(entry.duration or 1.0)
-        pg.flipAnim:SetFlipBookFrameWidth(entry.frameW or 0)
-        pg.flipAnim:SetFlipBookFrameHeight(entry.frameH or 0)
-
-        -- Always apply color tint (fixes default FFEB96 showing as blue)
-        pg.flipTex:SetDesaturated(true)
-        pg.flipTex:SetVertexColor(cr, cg, cb)
-
-        pg.flipTex:Show()
-        pg.animGroup:Play()
-    end
-
-    pg.wrapper:Show()
-    pg.active = true
-    pg.styleIdx = styleIdx
-end
-
--- Applies pandemic glow using the duration object's secret-safe methods.
--- Secret values from IsZero/EvaluateRemainingPercent go ONLY into Blizzard widget APIs (SetAlpha),
--- never into Lua comparisons. This is the standard secret-safe pattern.
--- Active pandemic slots register themselves for a lightweight alpha-only tick
--- instead of polling every plate globally.
--- The onset ticker frame lives on ns._pandemicTickFrame. It is created
--- AFTER this do/end block closes, so a block-local forward declaration
--- here can never see it -- that exact bug shipped the ticker dead: the
--- creation site assigned a global while ApplyPandemicGlow's captured
--- block-local stayed nil forever, so the ticker was never shown and
--- glow onset silently rode the (since-fixed) full-rebuild storm instead.
-local function ApplyPandemicGlow(slot)
-    local durObj = slot._durationObj
-    if not durObj or not pandemicCurve then
-        StopPandemicGlow(slot)
-        return
-    end
-    StartPandemicGlow(slot, GetDebuffIconSize())
-    -- Secret boolean/number EvaluateColorValueFromBoolean SetAlpha (all Blizzard APIs, no Lua comparisons)
-    slot.pandemicGlow.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(pandemicCurve)))
-    -- Register for alpha-only tick updates
-    activePandemicSlots[slot] = true
-    if ns._pandemicTickFrame then ns._pandemicTickFrame:Show() end
-end
-ns.StopPandemicGlow = StopPandemicGlow
-ns.ApplyPandemicGlow = ApplyPandemicGlow
-
--------------------------------------------------------------------------------
 --  Dispellable buff glow — highlights enemy buffs the player can purge/soothe
 -------------------------------------------------------------------------------
 local function StopDispelGlow(slot)
@@ -1768,7 +1557,7 @@ end
 local function StartDispelGlow(slot, slotSize, typeColor)
     local dg = slot.dispelGlow
     local styleIdx = ns.GetDispelGlowStyle()
-    local styles = PANDEMIC_GLOW_STYLES
+    local styles = GLOW_STYLES
     if styleIdx < 1 or styleIdx > #styles then styleIdx = 2 end
     local entry = styles[styleIdx]
     local sz = slotSize or 26
@@ -1824,7 +1613,7 @@ local function StartDispelGlow(slot, slotSize, typeColor)
         StopButtonGlow(dg.wrapper)
         StartAutoCastShine(dg.wrapper, sz, cr, cg, cb)
     else
-        -- FlipBook-based glow (GCD, Modern, Classic) — matches pandemic glow pattern
+        -- FlipBook-based glow (GCD, Modern, Classic)
         StopProceduralAnts(dg.wrapper)
         StopButtonGlow(dg.wrapper)
         StopAutoCastShine(dg.wrapper)
@@ -2042,7 +1831,6 @@ end
 local function ClearAuraSlot(slot)
     slot:Hide()
     RawSetTex(slot.icon, nil)
-    if slot.pandemicGlow and slot.pandemicGlow.active then ns.StopPandemicGlow(slot) end
     if slot.dispelGlow and slot.dispelGlow.active then ns.StopDispelGlow(slot) end
     slot._durationObj = nil
     slot._auraId = nil
@@ -5765,31 +5553,6 @@ castFallbackFrame:SetScript("OnUpdate", function(self, elapsed)
 end)
 castFallbackFrame:Hide()
 
--- Pandemic glow alpha-only tick: only iterates slots with active pandemic
--- glows. Lives on ns (NOT a local): the registrar (ApplyPandemicGlow) is
--- inside the glow-engine do/end block and cannot see file locals declared
--- out here -- a block-local forward declaration shipped this ticker dead.
-ns._pandemicTickFrame = EllesmereUI.SafeCreateFrame("Frame")
-local pandemicTickAccum = 0
-ns._pandemicTickFrame:SetScript("OnUpdate", function(self, elapsed)
-    pandemicTickAccum = pandemicTickAccum + elapsed
-    if pandemicTickAccum < 0.2 then return end
-    pandemicTickAccum = 0
-    if not GetPandemicGlow() then self:Hide(); return end
-    local anyActive = false
-    for slot in pairs(ns.activePandemicSlots) do
-        anyActive = true
-        local durObj = slot._durationObj
-        if durObj and slot.pandemicGlow and slot.pandemicGlow.active then
-            slot.pandemicGlow.wrapper:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(durObj:IsZero(), 0, durObj:EvaluateRemainingPercent(ns.pandemicCurve)))
-        else
-            ns.StopPandemicGlow(slot)
-        end
-    end
-    if not anyActive then self:Hide() end
-end)
-ns._pandemicTickFrame:Hide()  -- start hidden; shown when pandemic glows activate
-
 -- Shared cast-bar text anchoring. The cast bar text line holds three elements --
 -- spell name, spell target, cast timer -- each assigned to a side ("left" |
 -- "right" | "center"). The cast timer reserves a fixed slot of width on its side;
@@ -6490,7 +6253,6 @@ function NameplateFrame:ClearUnit()
         end
         RawSetTex(dSlot.icon, nil)
         dSlot:Hide()
-        ns.StopPandemicGlow(dSlot)
         dSlot._durationObj = nil
         dSlot._auraId = nil
     end
@@ -7708,7 +7470,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
         -- Displayed set unchanged: skip clear/texture/position/glow
         -- restarts. Re-arm durations + stacks on every shown slot
         -- (idempotent secret-safe sinks, none PP-hooked; keeps
-        -- slot._durationObj fresh for the pandemic tick and heals any
+        -- slot._durationObj fresh for duration consumers and heals any
         -- stale pending). Updated ids also refresh their texture for
         -- parity with a full repaint.
         local updated = updateInfo.updatedAuraInstanceIDs
@@ -7784,12 +7546,6 @@ function NameplateFrame:UpdateAuras(updateInfo)
                 ns.ApplyAuraSlotCrop(self.debuffs[i], cropped, debuffSz)
             end
             PositionAuraSlot(self.debuffs, debuffCount, debuffSlotVal, self, debuffSz, debuffH, spacing, GetAuraSlotOffsets("debuffSlot"))
-        end
-        -- Pandemic glow registration for shown debuffs (zero work when off)
-        if GetPandemicGlow() then
-            for i = 1, debuffCount do
-                ns.ApplyPandemicGlow(self.debuffs[i])
-            end
         end
     end
     end -- rebuildD

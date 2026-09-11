@@ -10,13 +10,9 @@
 --    * Pure event driven detection + a 0.5s text ticker that runs only while
 --      the icon is actually shown.
 --
---  Appearance proxy-reads through to the BattleRes icon: any appearance key the
---  user has NOT overridden on the Bloodlust Tracker uses the BattleRes value,
---  so the tracker "starts identical" to Brez and only diverges once a setting
---  is changed here (the same model used for raid/party frames). Only the Enable
---  dropdown and on-screen position are stored independently per icon. Both icons
---  live side by side in EllesmereUIQoLDB.profile (battleRes + bloodlust), so
---  existing BattleRes data is never touched.
+--  Settings live in EllesmereUIQoLDB.profile.bloodlust. Legacy BattleRes
+--  appearance values remain a fallback for existing profiles, but this module
+--  owns the shared database now that the BattleRes feature is no longer loaded.
 -------------------------------------------------------------------------------
 
 -- The active lust BUFF id, used purely as the default/preview icon texture.
@@ -56,8 +52,7 @@ local SHAPE_BORDERS = {
 local BORDER_PX = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
 
 -------------------------------------------------------------------------------
---  DB access. We reuse the BattleRes DB handle (same SavedVariable) so we do
---  not create a second NewDB on the shared table.
+--  DB access
 -------------------------------------------------------------------------------
 local db
 local function P()  -- our own profile slice
@@ -305,19 +300,10 @@ local function ApplyShape()
 end
 
 -------------------------------------------------------------------------------
---  Position. Default starting position sits just to the LEFT of the BattleRes
---  icon, so the first time the tracker is enabled it appears next to Brez.
+--  Position. The tracker starts above screen center.
 -------------------------------------------------------------------------------
-local function _defaultLeftOfBrezCenter()
-    local br = BR()
-    local brCX, brCY = 0, 200
-    if br and br.pos and br.pos.centerX and br.pos.centerY then
-        brCX, brCY = br.pos.centerX, br.pos.centerY
-    end
-    local brSize = (br and br.iconSize) or 40
-    local myW = EP("iconSize") or 40
-    local gap = 6
-    return brCX - (brSize * 0.5 + gap + myW * 0.5), brCY
+local function _defaultBloodlustCenter()
+    return 0, 200
 end
 
 local function ApplyPosition()
@@ -328,7 +314,7 @@ local function ApplyPosition()
     if p.pos and p.pos.centerX and p.pos.centerY then
         frame:SetPoint("CENTER", UIParent, "CENTER", p.pos.centerX, p.pos.centerY)
     else
-        local cx, cy = _defaultLeftOfBrezCenter()
+        local cx, cy = _defaultBloodlustCenter()
         frame:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
     end
 end
@@ -343,12 +329,12 @@ local function SavePosition()
     local p = P(); if p then p.pos = { centerX = cx, centerY = cy } end
 end
 
--- Seed a concrete starting position (left of Brez) the first time the tracker
+-- Seed a concrete starting position the first time the tracker
 -- is switched away from "Never". Does nothing if a position already exists.
 local function SeedDefaultPos()
     local p = P(); if not p then return end
     if p.pos then return end
-    local cx, cy = _defaultLeftOfBrezCenter()
+    local cx, cy = _defaultBloodlustCenter()
     p.pos = { centerX = cx, centerY = cy }
     ApplyPosition()
 end
@@ -860,27 +846,28 @@ end
 _G._EUI_Bloodlust_RegisterUnlock = RegisterUnlock
 
 -------------------------------------------------------------------------------
---  Init. We reuse the BattleRes DB handle, so we wait until it exists (the
---  BattleRes runtime loads first via the TOC; the retry guard covers any
---  ordering surprise).
+--  Init
 -------------------------------------------------------------------------------
+local defaults = {
+    profile = {
+        bloodlust = {
+            enabled    = true,
+            visibility = "NEVER",
+            pos        = nil,
+        },
+    },
+}
+
 local boot = EllesmereUI.SafeCreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
-    local function init()
-        if not (EllesmereUI and EllesmereUI.Lite) then return end
-        local getDB = _G._EUI_BattleRes_DB
-        local d = getDB and getDB()
-        if not d then
-            C_Timer.After(0.2, init)  -- BattleRes DB not ready yet
-            return
-        end
-        db = d
-        _G._EUI_Bloodlust_DB = function() return db end
-        CreateBloodlustFrame()
-        Apply()
-        RegisterUnlock()
+    if not EllesmereUI or not EllesmereUI.Lite or not EllesmereUI.Lite.NewDB then
+        return
     end
-    init()
+    db = EllesmereUI.Lite.NewDB("EllesmereUIQoLDB", defaults, true)
+    _G._EUI_Bloodlust_DB = function() return db end
+    CreateBloodlustFrame()
+    Apply()
+    RegisterUnlock()
 end)

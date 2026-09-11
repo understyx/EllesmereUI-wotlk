@@ -852,7 +852,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             {
                 module = "Aura Reminders & Cooldown Manager",
                 title  = "Glow Class Color",
-                desc   = "Reminder glows and CDM Pandemic Glow can now follow your class color",
+                desc   = "Reminder glows can now follow your class color",
                 nav    = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "DISPLAY", highlight = "Glow Type" },
             },
             {
@@ -943,7 +943,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Nameplates", text = "Fixed the name raid marker erroring and landing in the wrong spot beside names; it now sits cleanly at the name's edge." },
             { module = "Profiles & Presets", text = "Export and import can now carry your Blizzard window and tooltip skins." },
             { module = "Quality of Life", text = "Fixed Target Distance Text triggering blocked-action errors on friendly targets in combat; the readout now pauses for friendlies in restricted situations instead." },
-            { module = "Quality of Life", text = "The Keys, Logs & Brez tab merged into the bottom of the main Quality of Life page; the Battle Res and Bloodlust settings live there now." },
+            { module = "Quality of Life", text = "Logging and Bloodlust settings now live at the bottom of the main Quality of Life page." },
             { module = "Raid Frames", text = "Fixed an error that could spam when a dispellable debuff appeared while the dispel overlay was enabled." },
             { module = "Raid Frames", text = "Fixed party power bars freezing mid-combat when the Power Bar section was unsynced with power off for raid but on for party." },
             { module = "Resource Bars", text = "Fixed Anchor to Cursor turning itself off on reload; the bar now keeps following the cursor across sessions." },
@@ -2061,7 +2061,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local qolKeys = {
                             "autoOpenContainers", "autoSellJunk", "autoRepair",
                             "autoRepairGuild", "hideScreenshotStatus", "autoUnwrapCollections",
-                            "trainAllButton", "ahCurrentExpansion", "quickLoot",
+                            "trainAllButton", "quickLoot",
                             "autoFillDelete", "skipCinematics", "skipCinematicsAuto",
                             "autoInsertKeystone", "quickSignup",
                             "persistSignupNote", "hideBlizzardPartyFrame",

@@ -1,24 +1,11 @@
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_MovementAlert.lua
---  Three independent on-screen trackers for class mobility abilities:
---    1. Movement Cooldown Alert -- shows the current spec's mobility spell(s)
+--  On-screen Movement Cooldown Alert for class mobility abilities. It shows
+--  the current spec's mobility spell(s)
 --       counting down on cooldown (text / icon / bar), so you always know
 --       exactly when your gap-closer/escape is back up.
---    2. Time Spiral -- flashes a "FREE MOVEMENT" banner whenever a tracked
---       mobility spell's cooldown is proc-reset (Blizzard's generic
---       "spell activation overlay glow" on a spell we're tracking). A second,
---       CDM-bar based implementation of the same proc also exists as the
---       "timespiral" Tracked Buff Bar preset in
---       EllesmereUICooldownManager\EllesmereUICdmBuffBars.lua (~line 3590,
---       TIME_SPIRAL_TRIGGERS/TIME_SPIRAL_GLOW_FILTERS) for users who run CDM
---       bars. The two are intentionally independent (this one needs no CDM
---       bar at all), but they track the same spell/talent-filter lists --
---       keep both in sync if either list changes.
---    3. Gateway Shard -- Warlock only. Alerts when the Gateway Control Shard
---       item is usable.
 --  Sits under EllesmereUIQoLDB.profile.movementAlert, an additive sibling of
---  battleRes/bloodlust/cursor (see EllesmereUIQoL_BattleRes.lua). Zero cost
---  when idle: no combat/spell events are registered until a tracker's master
+--  bloodlust/cursor. Zero cost when idle: no combat/spell events are registered until the master
 --  toggle is on.
 -------------------------------------------------------------------------------
 
@@ -41,18 +28,11 @@ local inCombat = false
 --  IDs and WILL drift as talents/expansions change -- validate against the
 --  live client before shipping and keep an eye on the in-options "Tracked
 --  Spells" add/override list, which lets users self-correct gaps without an
---  addon update. The `filter` sub-table (Time Spiral cast filtering) mirrors
---  EllesmereUICdmBuffBars.lua's TIME_SPIRAL_GLOW_FILTERS -- keep both in sync.
+--  addon update.
 -------------------------------------------------------------------------------
 local MOVEMENT_ABILITIES = {
     DEATHKNIGHT = {[250] = {48265, 212552}, [251] = {48265, 212552}, [252] = {48265, 444010, 444347, 212552}},
-    DEMONHUNTER = {
-        [577] = {195072}, [581] = {189110}, [1480] = {1234796},
-        filter = {
-            [427640] = {198793, 370965, 195072},
-            [427794] = {195072},
-        },
-    },
+    DEMONHUNTER = {[577] = {195072}, [581] = {189110}, [1480] = {1234796}},
     DRUID = {[102] = {102401, 252216, 1850, 102417}, [103] = {102401, 252216, 1850, 102417}, [104] = {102401, 252216, 106898, 1850, 102417}, [105] = {102401, 252216, 1850, 102417}},
     EVOKER = {[1467] = {358267}, [1468] = {358267}, [1473] = {358267}},
     HUNTER = {[253] = {186257, 781}, [254] = {186257, 781}, [255] = {186257, 781}},
@@ -62,10 +42,7 @@ local MOVEMENT_ABILITIES = {
     PRIEST = {[256] = {121536, 73325}, [257] = {121536, 73325}, [258] = {121536, 73325}},
     ROGUE = {[259] = {36554, 2983}, [260] = {195457, 2983}, [261] = {36554, 2983}},
     SHAMAN = {[262] = {79206, 90328, 192063, 58875}, [263] = {90328, 192063, 58875}, [264] = {79206, 90328, 192063, 58875}},
-    WARLOCK = {
-        [265] = {48020, 111400}, [266] = {48020, 111400}, [267] = {48020, 111400},
-        filter = {[385899] = {385899}},
-    },
+    WARLOCK = {[265] = {48020, 111400}, [266] = {48020, 111400}, [267] = {48020, 111400}},
     WARRIOR = {[71] = {6544}, [72] = {6544}, [73] = {6544}},
 }
 
@@ -182,28 +159,6 @@ local defaults = {
             maTtsVoiceID     = 0,
             maTtsVolume      = 100,
 
-            tsEnabled        = false,
-            tsTextFormat     = "FREE MOVEMENT\\n%.1f",
-            tsColorR         = 0.53, tsColorG = 1, tsColorB = 0,
-            tsColorUseClass  = false,
-            tsSoundKey       = "none",   -- EllesmereUI._groupDeathSoundPaths key
-            tsTtsEnabled     = false,   -- takes priority over tsSoundKey when on
-            tsTtsVoiceID     = 0,
-            tsTtsMessage     = "Free movement",
-            tsTtsVolume      = 100,
-            tsPos            = nil,
-
-            gwEnabled        = false,
-            gwCombatOnly     = false,
-            gwText           = "GATEWAY READY",
-            gwColorR         = 0.7, gwColorG = 0, gwColorB = 1,
-            gwColorUseClass  = false,
-            gwSoundKey       = "none",   -- EllesmereUI._groupDeathSoundPaths key
-            gwTtsEnabled     = false,   -- takes priority over gwSoundKey when on
-            gwTtsVoiceID     = 0,
-            gwTtsMessage     = "Gateway ready",
-            gwTtsVolume      = 100,
-            gwPos            = nil,
         },
     },
 }
@@ -225,18 +180,10 @@ end
 _G._EUI_MovementAlert_DB = function() return db end
 EllesmereUI._ResetMovementAlert = function()
     db:ResetProfile()
-    if EllesmereUI._RebuildMovementSpellLookup then EllesmereUI._RebuildMovementSpellLookup() end
     if EllesmereUI._CacheMovementSpells then EllesmereUI._CacheMovementSpells(true) end
     if EllesmereUI._UpdateMovementAlertEvents then EllesmereUI._UpdateMovementAlertEvents() end
     if EllesmereUI._applyMovementAlert then EllesmereUI._applyMovementAlert() end
-    if EllesmereUI._applyTimeSpiral then EllesmereUI._applyTimeSpiral() end
-    if EllesmereUI._applyGateway then EllesmereUI._applyGateway() end
-    -- Explicit self-correct: ApplyMovementFrame/CheckGatewayUsable only hide
-    -- an actively-displayed frame when their own tracker is enabled, which
-    -- ResetProfile() just turned off -- without these, a frame that was
-    -- showing at reset-time stays frozen on screen.
     if EllesmereUI._CheckMovementCooldown then EllesmereUI._CheckMovementCooldown() end
-    if EllesmereUI._CheckGatewayUsable then EllesmereUI._CheckGatewayUsable() end
 end
 
 -------------------------------------------------------------------------------
@@ -1281,249 +1228,14 @@ EllesmereUI._MovementAlertPreview = function(on)
 end
 
 -------------------------------------------------------------------------------
---  Time Spiral -- flashes when a tracked mobility spell's cooldown is
---  proc-reset (generic spell-activation-overlay glow on a tracked spell).
---  A second, CDM-bar based implementation of this same proc exists in
---  EllesmereUICooldownManager\EllesmereUICdmBuffBars.lua's "timespiral"
---  Tracked Buff Bar preset (~line 3590). The two are independent (this one
---  works without any CDM bar) but share the same spell/talent-filter lists --
---  keep MOVEMENT_ABILITIES[...].filter above in sync with that file's
---  TIME_SPIRAL_GLOW_FILTERS if either changes. Enabling both trackers at
---  once will fire both alerts off the same glow event -- harmless, just a
---  possible double-notification if a user turns both on.
--------------------------------------------------------------------------------
-local timeSpiralFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_TimeSpiralFrame", UIParent)
-timeSpiralFrame:SetSize(200, 40)
-timeSpiralFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 100)
-timeSpiralFrame:Hide()
-local timeSpiralText = timeSpiralFrame:CreateFontString(nil, "OVERLAY")
-timeSpiralText:SetPoint("CENTER")
-
-local timeSpiralActiveTime = nil
-local timeSpiralActiveSpells = {}
-local timeSpiralCountdownTimer = nil
-local glowCooldown = 0
-local procDebounce = 0
-local castFilters = {}
-
-local function RefreshCastFilters()
-    wipe(castFilters)
-    local classData = MOVEMENT_ABILITIES[select(2, UnitClass("player"))]
-    if not classData or not classData.filter then return end
-    for talentId, spells in pairs(classData.filter) do
-        if C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(talentId) then
-            for _, id in ipairs(spells) do castFilters[id] = true end
-        end
-    end
-end
-
-local function OnSpellCast(spellId)
-    if castFilters[spellId] then glowCooldown = GetTime() + 1.5 end
-end
-
-local allMobilitySpells = {}
-local function RebuildMobilitySpellLookup()
-    wipe(allMobilitySpells)
-    for _, classData in pairs(MOVEMENT_ABILITIES) do
-        for key, value in pairs(classData) do
-            if type(key) == "number" and type(value) == "table" then
-                for _, spellId in ipairs(value) do
-                    if not BUFF_ACTIVE_SPELLS[spellId] then allMobilitySpells[spellId] = true end
-                end
-            end
-        end
-    end
-    local overrides = MA().spellOverrides
-    if overrides then
-        for spellId, override in pairs(overrides) do
-            if override.enabled ~= false and not BUFF_ACTIVE_SPELLS[spellId] then allMobilitySpells[spellId] = true end
-        end
-    end
-end
-EllesmereUI._RebuildMovementSpellLookup = RebuildMobilitySpellLookup
-
-local function IsValidTimeSpiralProc(spellId)
-    local now = GetTime()
-    if BUFF_ACTIVE_SPELLS[spellId] then return false end
-    local class = select(2, UnitClass("player"))
-    local specId = ResolvePlayerSpecId()
-    local classData = MOVEMENT_ABILITIES[class]
-    local specSpells = classData and specId and classData[specId]
-    local matched = false
-    if specSpells then
-        for _, id in ipairs(specSpells) do
-            if id == spellId then matched = true; break end
-            if C_Spell.GetOverrideSpell then
-                local okOvr, oid = pcall(C_Spell.GetOverrideSpell, id)
-                if okOvr and oid and oid == spellId then matched = true; break end
-            end
-        end
-    end
-    if not matched and allMobilitySpells[spellId] then matched = true end
-    if not matched then return false end
-    if now < glowCooldown then return false end
-    if (now - procDebounce) < 0.12 then return false end
-    return true
-end
-
-local function CancelTimeSpiralCountdown()
-    if timeSpiralCountdownTimer then timeSpiralCountdownTimer:Cancel(); timeSpiralCountdownTimer = nil end
-end
-
-local function UpdateTimeSpiralCountdown()
-    local ma = MA()
-    if not ma.tsEnabled or not timeSpiralActiveTime then
-        timeSpiralFrame:Hide()
-        CancelTimeSpiralCountdown()
-        return
-    end
-    local remaining = 10 - (GetTime() - timeSpiralActiveTime)
-    if remaining > 0 then
-        local fmtStr = (ma.tsTextFormat or "FREE MOVEMENT\\n%.1f"):gsub("\\n", "\n")
-        timeSpiralText:SetFormattedText(fmtStr, remaining)
-        timeSpiralFrame:Show()
-        timeSpiralCountdownTimer = C_Timer.NewTimer(0.1, UpdateTimeSpiralCountdown)
-    else
-        timeSpiralActiveTime = nil
-        timeSpiralFrame:Hide()
-        CancelTimeSpiralCountdown()
-    end
-end
-
-local function ApplyTimeSpiralFrame()
-    local ma = MA()
-    if not ma then return end
-    -- Self-correct: if this got turned off while the banner was actively
-    -- showing/counting down, the disable path only cancels the countdown
-    -- timer (the one thing that would otherwise hide it) -- explicitly hide
-    -- here so it can't get stuck on screen.
-    if not ma.tsEnabled then
-        timeSpiralActiveTime = nil
-        CancelTimeSpiralCountdown()
-        timeSpiralFrame:Hide()
-        return
-    end
-    timeSpiralFrame:ClearAllPoints()
-    local pos = ma.tsPos
-    if pos and pos.point then
-        timeSpiralFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-        timeSpiralFrame:SetSize(pos.width or 200, pos.height or 40)
-    else
-        timeSpiralFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 100)
-        timeSpiralFrame:SetSize(200, 40)
-    end
-    local fontPath, outline = AlertFontPath(), AlertFontOutline()
-    local fontSize = math.max(10, math.min(72, math.floor(timeSpiralFrame:GetHeight() * 0.55)))
-    if not timeSpiralText:SetFont(fontPath, fontSize, outline) then timeSpiralText:SetFont(FALLBACK_FONT, fontSize, outline) end
-    local r, g, b = ResolveAlertColor("tsColor", "tsColorUseClass")
-    timeSpiralText:SetTextColor(r, g, b)
-end
-EllesmereUI._applyTimeSpiral = ApplyTimeSpiralFrame
-
--------------------------------------------------------------------------------
---  Gateway Shard -- Warlock's Demonic Gateway control item
--------------------------------------------------------------------------------
-local GATEWAY_SHARD_ITEM_ID = 188152
-local gatewayFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_GatewayShardFrame", UIParent)
-gatewayFrame:SetSize(200, 40)
-gatewayFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
-gatewayFrame:Hide()
-local gatewayText = gatewayFrame:CreateFontString(nil, "OVERLAY")
-gatewayText:SetPoint("CENTER")
-
-local lastGatewayUsable = false
-local gatewayPollTicker = nil
-
-local function StopGatewayPolling()
-    if gatewayPollTicker then gatewayPollTicker:Cancel(); gatewayPollTicker = nil end
-end
-
-local function CheckGatewayUsable()
-    local ma = MA()
-    if not ma.gwEnabled then gatewayFrame:Hide(); StopGatewayPolling(); return end
-
-    local ok, itemCount = pcall(C_Item.GetItemCount, GATEWAY_SHARD_ITEM_ID)
-    itemCount = ok and itemCount or 0
-    if itemCount == 0 then gatewayFrame:Hide(); lastGatewayUsable = false; return end
-
-    -- Combat Only + out of combat: the result can't change until the next
-    -- combat transition (PLAYER_REGEN_DISABLED resumes polling), so pause
-    -- the ticker instead of continuing to poll the item API 10x/second for
-    -- nothing.
-    if ma.gwCombatOnly and not inCombat then
-        gatewayFrame:Hide(); lastGatewayUsable = false
-        StopGatewayPolling()
-        return
-    end
-
-    local isUsable = not not C_Item.IsUsableItem(GATEWAY_SHARD_ITEM_ID)
-    if isUsable and not lastGatewayUsable then FireTrackerAlert("gw") end
-    lastGatewayUsable = isUsable
-
-    if isUsable then
-        gatewayText:SetText(ma.gwText or "GATEWAY READY")
-        gatewayFrame:Show()
-    else
-        gatewayFrame:Hide()
-    end
-end
-EllesmereUI._CheckGatewayUsable = CheckGatewayUsable
-
-local function StartGatewayPolling()
-    StopGatewayPolling()
-    local ma = MA()
-    if not ma.gwEnabled then return end
-    CheckGatewayUsable()
-    -- CheckGatewayUsable already self-pauses (via StopGatewayPolling) when
-    -- Combat Only is on and we're out of combat -- don't immediately
-    -- recreate the ticker it just stopped. PLAYER_REGEN_DISABLED calls
-    -- StartGatewayPolling() again on combat entry to resume it.
-    if ma.gwCombatOnly and not inCombat then return end
-    gatewayPollTicker = C_Timer.NewTicker(0.1, CheckGatewayUsable)
-end
-
-local function ApplyGatewayFrame()
-    local ma = MA()
-    if not ma then return end
-    gatewayFrame:ClearAllPoints()
-    local pos = ma.gwPos
-    if pos and pos.point then
-        gatewayFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-        gatewayFrame:SetSize(pos.width or 200, pos.height or 40)
-    else
-        gatewayFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
-        gatewayFrame:SetSize(200, 40)
-    end
-    local fontPath, outline = AlertFontPath(), AlertFontOutline()
-    local fontSize = math.max(10, math.min(72, math.floor(gatewayFrame:GetHeight() * 0.55)))
-    if not gatewayText:SetFont(fontPath, fontSize, outline) then gatewayText:SetFont(FALLBACK_FONT, fontSize, outline) end
-    local r, g, b = ResolveAlertColor("gwColor", "gwColorUseClass")
-    gatewayText:SetTextColor(r, g, b)
-    if not ma.gwEnabled then
-        StopGatewayPolling()
-        gatewayFrame:Hide()
-    elseif EllesmereUI._unlockActive then
-        -- Pause the poll ticker while Unlock Mode is active: CheckGatewayUsable
-        -- can Hide() this frame the instant the item isn't currently usable
-        -- (the common case), fighting the user mid-drag. Force it visible
-        -- instead so it can be repositioned regardless of current item state.
-        StopGatewayPolling()
-        gatewayFrame:Show()
-    else
-        StartGatewayPolling()
-    end
-end
-EllesmereUI._applyGateway = ApplyGatewayFrame
-
--------------------------------------------------------------------------------
 --  Event registration
 -------------------------------------------------------------------------------
 local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 
 -- Baseline events (spec/talent/combat/world transitions) drive the shared
--- caches all three trackers read. They are registered only while at least
--- one tracker is enabled, so a user with the whole page off pays for
+-- caches the tracker reads. They are registered only while the tracker is
+-- enabled, so a user with the whole page off pays for
 -- nothing: no events fire and no spellbook cache work ever runs.
 local BASELINE_EVENTS = {
     "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED",
@@ -1533,14 +1245,13 @@ local BASELINE_EVENTS = {
 
 local baselineEventsRegistered = false
 local movementEventsRegistered = false
-local timeSpiralEventsRegistered = false
 
 local function UpdateEventRegistration()
     local ma = MA()
     if not ma then return end
 
     local moveOn = MovementEnabled()
-    local anyEnabled = moveOn or ma.tsEnabled or ma.gwEnabled
+    local anyEnabled = moveOn
     if anyEnabled and not baselineEventsRegistered then
         for _, ev in ipairs(BASELINE_EVENTS) do loader:RegisterEvent(ev) end
         baselineEventsRegistered = true
@@ -1548,7 +1259,6 @@ local function UpdateEventRegistration()
         -- off, so the first enable must build them (and pick up the real
         -- combat state) before any tracker logic runs.
         inCombat = UnitAffectingCombat("player")
-        RebuildMobilitySpellLookup()
         CacheMovementSpells(true)
         -- Register the bar-texture tables with SharedMedia (idempotent; also
         -- installs the session-long late-registration callback), matching the
@@ -1585,21 +1295,6 @@ local function UpdateEventRegistration()
         CancelMovementCountdown()
     end
 
-    if ma.tsEnabled and not timeSpiralEventsRegistered then
-        loader:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
-        loader:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
-        loader:RegisterEvent("UNIT_SPELLCAST_SENT")
-        timeSpiralEventsRegistered = true
-        RefreshCastFilters()
-    elseif not ma.tsEnabled and timeSpiralEventsRegistered then
-        loader:UnregisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
-        loader:UnregisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
-        loader:UnregisterEvent("UNIT_SPELLCAST_SENT")
-        timeSpiralEventsRegistered = false
-        CancelTimeSpiralCountdown()
-    end
-
-    if ma.gwEnabled then StartGatewayPolling() else StopGatewayPolling(); if not ma.gwEnabled then gatewayFrame:Hide() end end
 end
 EllesmereUI._UpdateMovementAlertEvents = UpdateEventRegistration
 
@@ -1614,8 +1309,8 @@ loader:SetScript("OnEvent", function(self, event, ...)
         -- runs for a user with the whole page disabled except the cheap
         -- unlock-mover registration.
         UpdateEventRegistration()
-        if MovementEnabled() or ma.tsEnabled or ma.gwEnabled then
-            ApplyMovementFrame(); ApplyTimeSpiralFrame(); ApplyGatewayFrame()
+        if MovementEnabled() then
+            ApplyMovementFrame()
             CheckMovementCooldown()
             C_Timer.After(0.5, function()
                 if ResolvePlayerSpecId() then CacheMovementSpells(true); CheckMovementCooldown() end
@@ -1678,8 +1373,6 @@ loader:SetScript("OnEvent", function(self, event, ...)
 
             EllesmereUI:RegisterUnlockElements({
                 MakeMoverEntry("EUI_MovementAlert", "Movement Alerts", 750, MovementEnabled, function() return movementFrame end, ApplyMovementFrame, "pos"),
-                MakeMoverEntry("EUI_TimeSpiralAlert", "Movement Alerts - Time Spiral", 751, "tsEnabled", function() return timeSpiralFrame end, ApplyTimeSpiralFrame, "tsPos"),
-                MakeMoverEntry("EUI_GatewayShardAlert", "Movement Alerts - Gateway Shard", 752, "gwEnabled", function() return gatewayFrame end, ApplyGatewayFrame, "gwPos"),
             })
         end
         return
@@ -1689,28 +1382,19 @@ loader:SetScript("OnEvent", function(self, event, ...)
         if not InCombatLockdown() then
             CacheMovementSpells(true)
             CheckMovementCooldown()
-            RefreshCastFilters()
         end
     elseif event == "UPDATE_SHAPESHIFT_FORM" then
         CacheMovementSpells()
         CheckMovementCooldown()
     elseif event == "PLAYER_ENTERING_WORLD" then
         inCombat = UnitAffectingCombat("player")
-        wipe(timeSpiralActiveSpells)
-        timeSpiralActiveTime = nil
         CacheMovementSpells(true)
         if inCombat then SyncBuffActiveOnCombatStart() end
         CheckMovementCooldown()
-        CheckGatewayUsable()
     elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat = true
         SyncBuffActiveOnCombatStart()
         CheckMovementCooldown()
-        -- Combat Only paused the ticker on the last out-of-combat check;
-        -- StartGatewayPolling() resumes it now that inCombat is true.
-        -- (No-op beyond a single CheckGatewayUsable call when Combat Only
-        -- isn't set, since the ticker was never stopped in that case.)
-        if ma.gwEnabled then StartGatewayPolling() else CheckGatewayUsable() end
     elseif event == "PLAYER_REGEN_ENABLED" then
         inCombat = false
         CancelAllRechargeTimers()
@@ -1726,7 +1410,6 @@ loader:SetScript("OnEvent", function(self, event, ...)
         end
         CacheMovementSpells()
         CheckMovementCooldown()
-        CheckGatewayUsable()
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" or event == "SPELL_UPDATE_CHARGES" then
         UpdateCachedCharges()
         CheckMovementCooldown()
@@ -1778,26 +1461,5 @@ loader:SetScript("OnEvent", function(self, event, ...)
         end
         OnTrackedSpellCast(spellId)
         CheckMovementCooldown()
-    elseif event == "UNIT_SPELLCAST_SENT" then
-        local _, _, _, spellId = ...
-        OnSpellCast(spellId)
-    elseif event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
-        local spellId = ...
-        if ma.tsEnabled and IsValidTimeSpiralProc(spellId) then
-            procDebounce = GetTime()
-            timeSpiralActiveSpells[spellId] = true
-            timeSpiralActiveTime = GetTime()
-            FireTrackerAlert("ts")
-            CancelTimeSpiralCountdown()
-            UpdateTimeSpiralCountdown()
-        end
-    elseif event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
-        local spellId = ...
-        if spellId then timeSpiralActiveSpells[spellId] = nil end
-        if not next(timeSpiralActiveSpells) then
-            timeSpiralActiveTime = nil
-            CancelTimeSpiralCountdown()
-            timeSpiralFrame:Hide()
-        end
     end
 end)

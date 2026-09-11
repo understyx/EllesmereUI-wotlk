@@ -4,7 +4,7 @@
 --
 --  Synced entries are the spec-independent ones: trinket slots (-13/-14), item
 --  presets (negative item IDs from the Potions & Healthstone flyout), the player's
---  racial ability, and built-in BUFF-BAR PRESETS (Bloodlust/Heroism, Time Spiral,
+--  racial ability, and built-in BUFF-BAR PRESETS (Bloodlust/Heroism,
 --  Light's Potential, the buff potions). RPT ids copy bar placement + per-icon
 --  settings; buff presets are additive-only. No ongoing relationship is stored,
 --  so every later edit remains isolated to its own spec container.
@@ -128,7 +128,7 @@ local function IsRPTId(id)
 end
 ns.IsRPTSyncId = IsRPTId
 
--- Buff-bar PRESET ids (Bloodlust/Heroism, Time Spiral, Light's Potential, the buff
+-- Buff-bar PRESET ids (Bloodlust/Heroism, Light's Potential, the buff
 -- potions), derived from ns.BUFF_BAR_PRESETS. Built lazily so it picks up the
 -- faction-resolved Bloodlust/Heroism id. Custom-typed buff IDs and Blizzard-tracked
 -- buffs are NOT in this set, so only the built-in presets are ever synced.

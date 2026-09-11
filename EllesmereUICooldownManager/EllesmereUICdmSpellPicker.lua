@@ -1687,7 +1687,7 @@ function ns.AddPresetToBar(barKey, preset)
 
     if isCustomBuff then
         if preset.glowBased then
-            -- Glow-based presets removed (Time Spiral etc.)
+            -- Glow-based presets are excluded.
             return false
         else
             -- Check ALL preset members against existing spells so partial
@@ -2067,11 +2067,6 @@ function ns.AddCDMBar(barType, name, numRows)
         stackCountR = 1, stackCountG = 1, stackCountB = 1,
         -- Custom bars use a spell list instead of mirroring Blizzard
         outOfRangeOverlay = false,
-        pandemicGlow = true,
-        pandemicGlowStyle = -1,
-        pandemicGlowLines = 8,
-        pandemicGlowThickness = 2,
-        pandemicGlowSpeed = 4,
     }
     -- Initialize spell data in the global store for this custom bar
     local sd = ns.GetBarSpellData(key)

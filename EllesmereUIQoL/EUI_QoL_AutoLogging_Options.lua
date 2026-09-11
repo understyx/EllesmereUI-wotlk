@@ -5,24 +5,16 @@
 
 -- Must match TRIGGER_DEFAULTS in the runtime.
 local TRIGGER_DEFAULTS = {
-    logMythic   = true,
     logHeroic   = true,
     logNormal   = true,
-    logLFR      = true,
-    log5pp      = true,
     logArena    = true,
-    logScenario = false,
     delaystop   = true,
 }
 
 local TRIGGER_ITEMS = {
-    { key = "logMythic",   label = "Mythic Raid" },
     { key = "logHeroic",   label = "Heroic Raid" },
     { key = "logNormal",   label = "Normal Raid" },
-    { key = "logLFR",      label = "LFR" },
-    { key = "log5pp",      label = "Mythic+ Dungeons" },
     { key = "logArena",    label = "Arena" },
-    { key = "logScenario", label = "Scenarios" },
 }
 
 local function Cfg()
@@ -189,14 +181,6 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     end   -- close Auto Logging hidden-while-disabled gate
 
     _, h = W:Spacer(parent, y, 20); y = y - h
-
-    ---------------------------------------------------------------------------
-    --  BATTLE RES
-    ---------------------------------------------------------------------------
-    if _G._EUI_BuildBattleResSection then
-        local brezH = _G._EUI_BuildBattleResSection(parent, y, W, EllesmereUI.PP)
-        y = y - brezH
-    end
 
     ---------------------------------------------------------------------------
     --  BLOODLUST TRACKER

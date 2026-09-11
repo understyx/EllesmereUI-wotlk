@@ -1433,7 +1433,6 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EABR_RegisterUnlock then _G._EABR_RegisterUnlock() end
     if _G._EPP_RegisterUnlock then _G._EPP_RegisterUnlock() end
     if _G._ECL_RegisterUnlock then _G._ECL_RegisterUnlock() end
-    if _G._EUI_BattleRes_RegisterUnlock then _G._EUI_BattleRes_RegisterUnlock() end
     if _G._EDB_RegisterUnlock then _G._EDB_RegisterUnlock() end
     -- After all addons have rebuilt and positioned their frames from
     -- db.profile.positions, re-apply centralized grow-direction positioning

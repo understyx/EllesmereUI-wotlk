@@ -76,7 +76,7 @@ The per-module `## SavedVariables: EllesmereUI...DB` declarations remain in the 
 | Resource Bars | `profiles[name].addons.EllesmereUIResourceBars` | `OnInitialize` | Standard central profile plus shared override/layout stores. |
 | Raid Frames | `profiles[name].addons.EllesmereUIRaidFrames` | `OnInitialize` | Buff Manager spec/condition layout forks live at the profile root in `specBmOverrides` / `condBmOverrides`. `_capturedOnce_RF` is account-wide. |
 | AuraBuff Reminders | `profiles[name].addons.EllesmereUIAuraBuffReminders` | `OnInitialize` | Standard central profile behavior. |
-| Quality of Life | `profiles[name].addons.EllesmereUIQoL` for selected slices | Mixed: file scope, `OnInitialize`, lazy, and `PLAYER_LOGIN` | Cursor, Battle Res/Bloodlust, Movement Alert, Secondary Stats, and FPS use the shared module blob. Many other QoL settings are top-level account-wide keys and do not switch with profiles. See the dedicated section below. |
+| Quality of Life | `profiles[name].addons.EllesmereUIQoL` for selected slices | Mixed: file scope, `OnInitialize`, lazy, and `PLAYER_LOGIN` | Cursor, Bloodlust, Movement Alert, Secondary Stats, and FPS use the shared module blob. Many other QoL settings are top-level account-wide keys and do not switch with profiles. See the dedicated section below. |
 | PallyPower | `profiles[name].addons.EllesmereUIPallyPower` | `OnInitialize` | `settings`, flavor-specific assignments, normal/aura assignments, and saved presets all live in this module blob. Runtime aliases are refreshed by `ActivateProfile()`. |
 | Bags | `profiles[name].addons.EllesmereUIBags` | File scope in the options file | Category presentation and most bag settings are profiled. Item-to-category assignments, pins, seeding/warning state, and some caches remain account-wide. Bags is automatically placed in a sync group when the second profile is created. |
 | Friends | `profiles[name].addons.EllesmereUIFriends` | `OnInitialize` | Standard central profile behavior. |
@@ -163,7 +163,7 @@ The QoL addon is not one uniform profile database.
 Profile-scoped slices currently share `profiles[name].addons.EllesmereUIQoL`, including:
 
 - `cursor`
-- `battleRes` and `bloodlust`
+- `bloodlust` (plus retained legacy `battleRes` appearance data)
 - `movementAlert`
 - Secondary Stats/FPS-related fields handled by `QoLExtrasGet/Set`
 
@@ -257,7 +257,7 @@ The full-account path includes almost all top-level `EllesmereUIDB` state plus t
 
 `EllesmereUIQoL_MovementAlert.lua` creates a `NewDB` handle whose `profile` is the whole `EllesmereUIQoL` module table. Its reset calls the generic `db:ResetProfile()` ([`EllesmereUIQoL_MovementAlert.lua:226`](../EllesmereUIQoL/EllesmereUIQoL_MovementAlert.lua#L226)). Generic reset wipes the entire `db.profile`, then merges only that handle's Movement Alert defaults.
 
-That means resetting Movement Alert can remove Cursor, Battle Res/Bloodlust, and QoL Extras data from the active profile. Cursor already avoids this pattern by exposing a narrowed dynamic view and implementing a slice-only reset ([`EllesmereUIQoL_Cursor.lua:1187`](../EllesmereUIQoL/EllesmereUIQoL_Cursor.lua#L1187)).
+That means resetting Movement Alert can remove Cursor, Bloodlust, and QoL Extras data from the active profile. Cursor already avoids this pattern by exposing a narrowed dynamic view and implementing a slice-only reset ([`EllesmereUIQoL_Cursor.lua:1187`](../EllesmereUIQoL/EllesmereUIQoL_Cursor.lua#L1187)).
 
 ### 2. Multiple QoL DB handles make default restoration order-dependent
 

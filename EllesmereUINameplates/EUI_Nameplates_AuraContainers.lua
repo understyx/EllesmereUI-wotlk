@@ -12,7 +12,7 @@
 -- { nameplateShowPersonal = true } candidate filter. "Show All Debuffs"
 -- clears the candidate filter live and switches the sort to Default.
 --
--- V1 deferred (documented): purge/dispel glow on buffs, pandemic glow
+-- V1 deferred (documented): purge/dispel glow on buffs
 -- (engine has no duration-driven texture alpha -- wishlist), cast-lockout
 -- offset interplay with the CC row (lockout renders independently), target
 -- arrows relative to aura rows, per-slot Raise Strata on containers.

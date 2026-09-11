@@ -1436,8 +1436,7 @@ local function BuildTileDetail(frame, fontPath, t)
         { type = "label", text = (t.type == "bar") and "" or "Color" }); sy = sy - hh
     BuildTileFiltersDD(catRow._leftRegion, t, DmTable() or {})
     if t.type == "glow" then
-        -- Trio swatch (default / custom / class) -- the CDM pandemic-glow
-        -- color pattern.
+        -- Trio swatch (default / custom / class).
         local rgn = catRow._rightRegion
         local PPl = EllesmereUI.PP or EllesmereUI.PanelPP
         local customSwatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
@@ -4012,7 +4011,6 @@ function ns.BMP_BuildPageV2(pageName, parent, yOffset)
 
     return 0
 end
-
 
 
 

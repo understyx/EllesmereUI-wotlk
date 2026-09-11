@@ -2254,11 +2254,6 @@ local function DecorateFrame(frame, barData)
 
     fd.tooltipShown = false
 
-    -- Pandemic hooks are deliberately NOT installed here: they install
-    -- lazily from the buff tick, per icon, only when the icon's bar uses a
-    -- custom pandemic style. Zero cost unless enabled, and the closures are
-    -- CDM-billed (file-scope bodies), never the parent.
-
     local fc = FC(frame)
     if not fc.tooltipHooked then
         fc.tooltipHooked = true
@@ -4649,55 +4644,6 @@ function ns.AnyCustomAuraLust()
             if sd and sd.assignedSpells then
                 for _, sid in ipairs(sd.assignedSpells) do
                     if LUST_PRESET_SPELLS[sid] then return true end
-                end
-            end
-        end
-    end
-    return false
-end
-
--- Time Spiral "Free Move" preset: same emulated-cast trick as Bloodlust. The
--- glow-armed rising edge (CdmBuffBars _ensureTimeSpiralListener) calls this to
--- mark spell 374968 as "just cast" so the existing self-timed-icon path renders
--- a 10s Custom Auras (icon) display. A no-op for any bar not tracking it.
-function ns.SignalTimeSpiralCast()
-    _pendingCastIDs[374968] = true
-    QueueCustomBuffUpdate()
-end
-
--- Called from the Time Spiral glow-HIDE edge (proc consumed): expire any active
--- 374968 Custom Auras (icon) window now so the icon disappears with the glow
--- instead of riding out the full 10s. Clears every "barKey:374968" timer (the
--- suffix uniquely identifies the spell on any bar), then queues a refresh:
--- custom_buff bars hide their own-frame on the update, buff bars drop the
--- injected frame on the reanchor.
-function ns.SignalTimeSpiralEnd()
-    local suffix = ":374968"
-    local n = #suffix
-    local any = false
-    for k in pairs(_customAuraTimers) do
-        if type(k) == "string" and k:sub(-n) == suffix then
-            _customAuraTimers[k] = nil
-            any = true
-        end
-    end
-    if any then
-        QueueCustomBuffUpdate()
-        if ns.QueueReanchor then ns.QueueReanchor() end
-    end
-end
-
--- True if any enabled Custom Auras (custom_buff) / buff bar tracks Time Spiral,
--- so the shared glow listener stays armed even with no Tracking Bar present.
-function ns.AnyCustomAuraTimeSpiral()
-    local p = ECME and ECME.db and ECME.db.profile
-    if not (p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars) then return false end
-    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
-        if bd.enabled and (bd.barType == "custom_buff" or bd.barType == "buffs") then
-            local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
-            if sd and sd.assignedSpells then
-                for _, sid in ipairs(sd.assignedSpells) do
-                    if sid == 374968 then return true end
                 end
             end
         end
@@ -7346,7 +7292,7 @@ function ns.SetupViewerHooks()
     C_Timer.After(3, DelayedFullRefresh)
     C_Timer.After(6, DelayedFullRefresh)
 
-    -- 5. Buff ticker: staleness check + buff/pandemic glow (0.1s)
+    -- 5. Buff ticker: staleness check + buff glow (0.1s)
     do
         local cdmBuffTickFrame = ns.TakeShell()
         local _, _cachedClassToken = UnitClass("player")
@@ -7359,7 +7305,7 @@ function ns.SetupViewerHooks()
             -- Two-tier dirty gate (timed: the full body ran 0.26ms per fire
             -- at 10 Hz = nearly all of CDM's combat CPU). The body runs only
             -- when something CAN have changed -- player aura/totem flip,
-            -- viewer pool churn, pandemic edge, preset-cooldown dirt -- or on
+            -- viewer pool churn, aura edge, preset-cooldown dirt -- or on
             -- a 0.5s staleness net (the poll's original no-event mandate,
             -- e.g. secret procs; in practice those arrive as pool churn, so
             -- the net is insurance). A clean fire costs three reads.
@@ -7393,7 +7339,6 @@ function ns.SetupViewerHooks()
                 if bd.enabled then
                     local isBuff = (bd.barType == "buffs" or bd.key == "buffs" or bd.barType == "custom_buff")
                     local buffGlowType = isBuff and (bd.buffGlowType or 0) or 0
-                    local pandemicOn = bd.pandemicGlow
                     local icons = cdmBarIcons[bd.key]
                     if icons then
                         for fi = 1, #icons do
@@ -7512,64 +7457,6 @@ function ns.SetupViewerHooks()
                                 elseif fd and fd.buffGlowActive and fd.buffGlowOverlay then
                                     ns.StopNativeGlow(fd.buffGlowOverlay)
                                     fd.buffGlowActive = false
-                                end
-
-                                -- Pandemic glow: Blizzard's ShowPandemicStateFrame
-                                -- hook sets _pandemicState. User must configure
-                                -- pandemic alerts in Blizzard CDM settings.
-                                if pandemicOn and fd then
-                                    -- Blizzard Default (-1): no custom glow and no
-                                    -- hooks -- Blizzard's native PandemicIcon does
-                                    -- the whole job, so the default config costs
-                                    -- zero. For custom styles the hooks install
-                                    -- lazily HERE on first need; this tick runs on
-                                    -- a CDM shell, so even install-time work bills
-                                    -- CooldownManager.
-                                    local pStyle = bd.pandemicGlowStyle or 1
-                                    local inPandemic = false
-                                    if pStyle ~= -1 then
-                                        if ns._pandemicHooked and not ns._pandemicHooked[frame]
-                                           and ns.HookPandemicState then
-                                            ns.HookPandemicState(frame)
-                                        end
-                                        inPandemic = ns._pandemicState and ns._pandemicState[frame]
-                                    end
-                                    if inPandemic then
-                                        if not fd.pandemicOverlay then
-                                            local ov = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-                                            ov:SetAllPoints()
-                                            ov:EnableMouse(false)
-                                            fd.pandemicOverlay = ov
-                                        end
-                                        -- Same base-level tracking as the buff glow, one
-                                        -- level higher so pandemic sits above buff glow.
-                                        fd.pandemicOverlay:SetFrameLevel((type(frame.GetFrameLevel) == "function" and frame:GetFrameLevel() or 1) + 17)
-                                        if not fd.pandemicGlowActive then
-                                            local c
-                                            if bd.pandemicGlowMode == "class" then
-                                                c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
-                                            elseif bd.pandemicGlowMode == "custom" then
-                                                c = bd.pandemicGlowColor
-                                            end
-                                            local style = bd.pandemicGlowStyle or 1
-                                            local glowOpts = (style == 1) and {
-                                                N      = bd.pandemicGlowLines or 8,
-                                                th     = bd.pandemicGlowThickness or 2,
-                                                period = bd.pandemicGlowSpeed or 4,
-                                                bg     = bd.pandemicGlowBackground and {
-                                                    r = (bd.pandemicGlowBackgroundColor and bd.pandemicGlowBackgroundColor.r) or 0,
-                                                    g = (bd.pandemicGlowBackgroundColor and bd.pandemicGlowBackgroundColor.g) or 0,
-                                                    b = (bd.pandemicGlowBackgroundColor and bd.pandemicGlowBackgroundColor.b) or 0,
-                                                } or nil,
-                                            } or nil
-                                            fd.pandemicOverlay:SetAlpha(1)
-                                            ns.StartNativeGlow(fd.pandemicOverlay, style, c and c.r, c and c.g, c and c.b, glowOpts)
-                                            fd.pandemicGlowActive = true
-                                        end
-                                    elseif fd.pandemicGlowActive and fd.pandemicOverlay then
-                                        ns.StopNativeGlow(fd.pandemicOverlay)
-                                        fd.pandemicGlowActive = false
-                                    end
                                 end
 
                                 -- Active State Glow integrity, BOTH edges. The

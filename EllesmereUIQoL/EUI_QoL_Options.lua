@@ -480,28 +480,7 @@ initFrame:SetScript("OnEvent", function(self)
             if repairOff() then repCogBlock:Show() else repCogBlock:Hide() end
         end
 
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="AH Current Expansion Only",
-              tooltip="Automatically enables the 'Current Expansion Only' filter whenever you open the Auction House.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.ahCurrentExpansion or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.ahCurrentExpansion = v
-              end },
-            { type="toggle", text="Hide Talking Head",
-              tooltip="Hides the large NPC dialogue popup that appears during quests and dungeons.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.hideTalkingHead or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.hideTalkingHead = v
-              end }
-        );  y = y - h
-
-        -- Row 5: Show Coordinates on Map (left, with cog) | Suppress Lua Errors
+        -- Show Coordinates on Map (left, with cog) | Suppress Lua Errors
         -- (Suppress Lua Errors is a front-end duplicate of the toggle in
         -- Global Settings > Developer; same EllesmereUIDB.suppressErrors key and
         -- scriptErrors CVar, applied on login by the parent General module.)
@@ -2269,7 +2248,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Keys, Logs & Brez sections live at the bottom of this page (the
+        -- Logging and Bloodlust sections live at the bottom of this page (the
         -- separate tab was retired to keep the tab bar at five pages).
         if _G._EUI_BuildAutoLoggingPage then
             _, h = W:Spacer(parent, y, 16);  y = y - h
@@ -2284,7 +2263,7 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
         pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_PALADIN },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "tricks", "tricks of the trade", "misdirection", "threat transfer", "paladin", "paladin auras", "devotion aura", "retribution aura", "concentration aura", "resistance aura", "crusader aura" },
+        searchTerms = { "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "tricks", "tricks of the trade", "misdirection", "threat transfer", "paladin", "paladin auras", "devotion aura", "retribution aura", "concentration aura", "resistance aura", "crusader aura" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2316,7 +2295,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
                 EllesmereUIDB.persistSignupNote = false
-                EllesmereUIDB.ahCurrentExpansion = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1
                 EllesmereUIDB.healthMacroPrio2 = 2

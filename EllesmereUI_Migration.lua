@@ -33,27 +33,6 @@ end
 --  that needs to run reliably across upgrades, multiple characters, multiple
 --  profiles, and multiple specs.
 --
---  USAGE:
---    EllesmereUI.RegisterMigration({
---        id          = "cdm_pandemic_glow_color_table",
---        scope       = "profile",  -- "global" | "profile" | "specProfile"
---        description = "Migrate flat pandemicR/G/B keys to pandemicGlowColor table",
---        body        = function(ctx)
---            -- ctx fields depend on scope:
---            --   global       -> ctx.db (= EllesmereUIDB)
---            --   profile      -> ctx.profile, ctx.profileName
---            --   specProfile  -> ctx.specProfile, ctx.specKey
---            local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
---            local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
---            if not bars then return end
---            for _, b in ipairs(bars) do
---                if b.pandemicR and not b.pandemicGlowColor then
---                    b.pandemicGlowColor = { r = b.pandemicR, g = b.pandemicG, b = b.pandemicB }
---                end
---            end
---        end,
---    })
---
 --  GUARANTEES:
 --    - Migration body wraps in pcall: a buggy body cannot break the runner.
 --    - Flag is stamped only on success: a failed body retries next session.
@@ -1118,36 +1097,6 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
-    id          = "cdm_pandemic_glow_color_table",
-    scope       = "profile",
-    description = "Migrate CDM bar flat pandemicR/G/B keys into a pandemicGlowColor table, plus default pandemicGlowStyle.",
-    body = function(ctx)
-        -- No legacy flag to bridge: original inline migration was self-gated
-        -- by the `pandemicR and not pandemicGlowColor` predicate. Body is
-        -- naturally idempotent (only fires when the legacy flat keys exist
-        -- AND the new table is missing) so the runner's per-profile flag
-        -- stops further runs after the first successful pass.
-        local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
-        local cdmBars = cdm and cdm.cdmBars
-        local bars = cdmBars and cdmBars.bars
-        if type(bars) ~= "table" then return end
-
-        for _, barData in ipairs(bars) do
-            if type(barData) == "table"
-               and barData.pandemicR
-               and not barData.pandemicGlowColor then
-                barData.pandemicGlowColor = {
-                    r = barData.pandemicR or 1,
-                    g = barData.pandemicG or 1,
-                    b = barData.pandemicB or 0,
-                }
-                barData.pandemicGlowStyle = barData.pandemicGlowStyle or 1
-            end
-        end
-    end,
-})
-
-EllesmereUI.RegisterMigration({
     id          = "cdm_repair_bar_keys_v1",
     scope       = "profile",
     description = "Repair CDM bars that lost their `key` field via Lite DB delta-strip. Assigns missing core keys (cooldowns, utility, buffs) in order.",
@@ -1638,7 +1587,7 @@ EllesmereUI.RegisterMigration({
 EllesmereUI.RegisterMigration({
     id          = "cdm_remove_discontinued_presets",
     scope       = "specProfile",
-    description = "Remove preset versions of discontinued spells (Bloodlust + variants, Time Spiral, warlock pets) from CDM bars and TBB bars. These presets were removed from the picker because they can't be tracked via cooldown detection.",
+    description = "Remove discontinued cooldown-incompatible presets from CDM bars and tracking bars.",
     body = function(ctx)
         -- Naturally idempotent: after the first run the IDs and TBB bars
         -- are gone, and re-running finds nothing. The runner's per-spec-
@@ -1662,7 +1611,7 @@ EllesmereUI.RegisterMigration({
             [264667] = true, [390386] = true, [381301] = true, [444062] = true, [444257] = true, -- Bloodlust variants
             [104316] = true, [265187] = true, [264119] = true, [111898] = true, -- Warlock pets
         }
-        local removedPopularKeys = { bloodlust = true, time_spiral = true,
+        local removedPopularKeys = { bloodlust = true,
             call_dreadstalkers = true, demonic_tyrant = true,
             summon_vilefiend = true, grimoire_felguard = true }
 

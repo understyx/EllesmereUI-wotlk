@@ -1,11 +1,9 @@
 -------------------------------------------------------------------------------
 --  EUI_QoL_MovementAlert_Options.lua
 --  Options page for Movement Alert (registered as a page under the
---  EllesmereUIQoL module by EUI_QoL_Options.lua). Builds four sections:
---    MOVEMENT COOLDOWN ALERT, TRACKED SPELLS, TIME SPIRAL, GATEWAY SHARD.
---  Position/size for all three on-screen trackers is controlled entirely
+--  EllesmereUIQoL module by EUI_QoL_Options.lua). Position and size are controlled entirely
 --  through EUI's Unlock Mode (registered in EllesmereUIQoL_MovementAlert.lua)
---  rather than in-page sliders, matching how Combat Alert/BattleRes work.
+--  rather than in-page sliders.
 -------------------------------------------------------------------------------
 
 local function DB()
@@ -20,11 +18,8 @@ end
 
 local function Refresh()
     if EllesmereUI._applyMovementAlert then EllesmereUI._applyMovementAlert() end
-    if EllesmereUI._applyTimeSpiral then EllesmereUI._applyTimeSpiral() end
-    if EllesmereUI._applyGateway then EllesmereUI._applyGateway() end
     if EllesmereUI._UpdateMovementAlertEvents then EllesmereUI._UpdateMovementAlertEvents() end
     if EllesmereUI._CheckMovementCooldown then EllesmereUI._CheckMovementCooldown() end
-    if EllesmereUI._CheckGatewayUsable then EllesmereUI._CheckGatewayUsable() end
 end
 
 -- The legacy stored "text" value displays and renders as text_dn (its old
@@ -530,7 +525,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     end
     -- Movement's voice dropdown doubles as the TTS enable: prepend "None"
     -- (the default) to this section's copy of the voice list and skip the
-    -- preview icon for it. (Time Spiral/Gateway build their own copies.)
+    -- preview icon for it.
     ttsValues.NONE = "None"
     table.insert(ttsOrder, 1, "NONE")
     do
@@ -830,7 +825,6 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         if not ma.spellOverrides then ma.spellOverrides = {} end
 
         local function GridChanged()
-            if EllesmereUI._RebuildMovementSpellLookup then EllesmereUI._RebuildMovementSpellLookup() end
             if EllesmereUI._CacheMovementSpells then EllesmereUI._CacheMovementSpells() end
             Refresh()
         end
@@ -1089,190 +1083,6 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     end
 
     _, h = W:Spacer(parent, y, 16);  y = y - h
-
-    -------------------------------------------------------------------------
-    --  EXTRA TRACKING
-    -------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "EXTRA TRACKING", y);  y = y - h
-
-    -- The two sibling trackers' master toggles, each carrying its full
-    -- settings cog.
-    local function tsOff() return not ma.tsEnabled end
-    local function gwOff() return not ma.gwEnabled end
-
-    local extraRow
-    extraRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Enable Time Spiral Tracker",
-          tooltip="Flashes a banner whenever a tracked mobility spell's cooldown is proc-reset. Use Unlock Mode to reposition/resize.",
-          getValue=function() return ma.tsEnabled == true end,
-          setValue=function(v)
-              ma.tsEnabled = v
-              if EllesmereUI._UpdateMovementAlertEvents then EllesmereUI._UpdateMovementAlertEvents() end
-              Refresh()
-              EllesmereUI:RefreshPage()
-          end },
-        { type="toggle", text="Enable Gateway Shard Alert",
-          tooltip="Warlock only. Alerts when your Gateway Control Shard is usable. Use Unlock Mode to reposition/resize.",
-          getValue=function() return ma.gwEnabled == true end,
-          setValue=function(v)
-              ma.gwEnabled = v
-              if EllesmereUI._UpdateMovementAlertEvents then EllesmereUI._UpdateMovementAlertEvents() end
-              Refresh()
-              EllesmereUI:RefreshPage()
-          end }
-    );  y = y - h
-
-    -- Time Spiral settings cog (left slot)
-    do
-        local leftRgn = extraRow._leftRegion
-        local sndValues2, sndOrder2 = SoundDropdownValues()
-        local ttsValues2, ttsOrder2 = TTSVoiceDropdownValues()
-        local _, cogShow = EllesmereUI.BuildCogPopup({
-            title = "Time Spiral Settings",
-            minWidth = 300,
-            rows = {
-                { type="input", label="Text Format",
-                  get=function() return ma.tsTextFormat or "FREE MOVEMENT\\n%.1f" end,
-                  set=function(v) ma.tsTextFormat = v; Refresh() end },
-                { type="colorpicker", label="Color",
-                  disabled=function() return ma.tsColorUseClass end,
-                  disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                  get=function() return ma.tsColorR or 0.53, ma.tsColorG or 1, ma.tsColorB or 0 end,
-                  set=function(r, g, b) ma.tsColorR, ma.tsColorG, ma.tsColorB = r, g, b; Refresh() end },
-                { type="toggle", label="Use Class Color",
-                  get=function() return ma.tsColorUseClass == true end,
-                  set=function(v) ma.tsColorUseClass = v; Refresh() end },
-                { type="dropdown", label="Sound", values=sndValues2, order=sndOrder2,
-                  disabled=function() return ma.tsTtsEnabled == true end,
-                  disabledTooltip="Text-to-Speech is enabled below and takes priority over Sound.", rawTooltip=true,
-                  get=function() return ma.tsSoundKey or "none" end,
-                  set=function(v) ma.tsSoundKey = v end },
-                { type="toggle", label="Use Text-to-Speech",
-                  get=function() return ma.tsTtsEnabled == true end,
-                  set=function(v) ma.tsTtsEnabled = v end },
-                { type="dropdown", label="TTS Voice", values=ttsValues2, order=ttsOrder2,
-                  disabled=function() return not ma.tsTtsEnabled end,
-                  disabledTooltip="Enable Text-to-Speech first", rawTooltip=true,
-                  get=function() return ma.tsTtsVoiceID or 0 end,
-                  set=function(v) ma.tsTtsVoiceID = v end },
-                { type="input", label="TTS Message",
-                  disabled=function() return not ma.tsTtsEnabled end,
-                  disabledTooltip="Enable Text-to-Speech first", rawTooltip=true,
-                  get=function() return ma.tsTtsMessage or "Free movement" end,
-                  set=function(v) ma.tsTtsMessage = v end },
-                { type="slider", label="TTS Volume", min=0, max=100, step=5,
-                  disabled=function() return not ma.tsTtsEnabled end,
-                  get=function() return ma.tsTtsVolume or 100 end,
-                  set=function(v) ma.tsTtsVolume = v end },
-            },
-            footer = { unlockKey = "EUI_TimeSpiralAlert" },
-        })
-        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-        leftRgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(tsOff() and 0.15 or 0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(tsOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-
-        local cogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Time Spiral Tracker"))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = tsOff()
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then cogBlock:Show() else cogBlock:Hide() end
-        end)
-        if tsOff() then cogBlock:Show() else cogBlock:Hide() end
-    end
-
-    -- Gateway Shard settings cog (right slot); Combat Only lives in here.
-    do
-        local rgn = extraRow._rightRegion
-        local sndValues2, sndOrder2 = SoundDropdownValues()
-        local ttsValues2, ttsOrder2 = TTSVoiceDropdownValues()
-        local _, cogShow = EllesmereUI.BuildCogPopup({
-            title = "Gateway Shard Settings",
-            minWidth = 300,
-            rows = {
-                { type="toggle", label="Combat Only",
-                  tooltip="Only show the alert while in combat.",
-                  get=function() return ma.gwCombatOnly == true end,
-                  set=function(v) ma.gwCombatOnly = v; Refresh() end },
-                { type="input", label="Text",
-                  get=function() return ma.gwText or "GATEWAY READY" end,
-                  set=function(v) ma.gwText = v; Refresh() end },
-                { type="colorpicker", label="Color",
-                  disabled=function() return ma.gwColorUseClass end,
-                  disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                  get=function() return ma.gwColorR or 0.7, ma.gwColorG or 0, ma.gwColorB or 1 end,
-                  set=function(r, g, b) ma.gwColorR, ma.gwColorG, ma.gwColorB = r, g, b; Refresh() end },
-                { type="toggle", label="Use Class Color",
-                  get=function() return ma.gwColorUseClass == true end,
-                  set=function(v) ma.gwColorUseClass = v; Refresh() end },
-                { type="dropdown", label="Sound", values=sndValues2, order=sndOrder2,
-                  disabled=function() return ma.gwTtsEnabled == true end,
-                  disabledTooltip="Text-to-Speech is enabled below and takes priority over Sound.", rawTooltip=true,
-                  get=function() return ma.gwSoundKey or "none" end,
-                  set=function(v) ma.gwSoundKey = v end },
-                { type="toggle", label="Use Text-to-Speech",
-                  get=function() return ma.gwTtsEnabled == true end,
-                  set=function(v) ma.gwTtsEnabled = v end },
-                { type="dropdown", label="TTS Voice", values=ttsValues2, order=ttsOrder2,
-                  disabled=function() return not ma.gwTtsEnabled end,
-                  disabledTooltip="Enable Text-to-Speech first", rawTooltip=true,
-                  get=function() return ma.gwTtsVoiceID or 0 end,
-                  set=function(v) ma.gwTtsVoiceID = v end },
-                { type="input", label="TTS Message",
-                  disabled=function() return not ma.gwTtsEnabled end,
-                  disabledTooltip="Enable Text-to-Speech first", rawTooltip=true,
-                  get=function() return ma.gwTtsMessage or "Gateway ready" end,
-                  set=function(v) ma.gwTtsMessage = v end },
-                { type="slider", label="TTS Volume", min=0, max=100, step=5,
-                  disabled=function() return not ma.gwTtsEnabled end,
-                  get=function() return ma.gwTtsVolume or 100 end,
-                  set=function(v) ma.gwTtsVolume = v end },
-            },
-            footer = { unlockKey = "EUI_GatewayShardAlert" },
-        })
-        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(gwOff() and 0.15 or 0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(gwOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-
-        local cogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Gateway Shard Alert"))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = gwOff()
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then cogBlock:Show() else cogBlock:Hide() end
-        end)
-        if gwOff() then cogBlock:Show() else cogBlock:Hide() end
-    end
-
-    _, h = W:Spacer(parent, y, 20);  y = y - h
 
     return math.abs(y)
 end

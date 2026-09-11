@@ -92,7 +92,7 @@ local critChanceSetBonuses = {
 -- Talents that enable periodic crit damage bonus. Key = tab*100+index, value = bonus per rank.
 local critModDamageBonusTalents = {
     WARLOCK = {
-        [128] = 2, -- Pandemic
+        [128] = 2, -- Affliction periodic-crit talent
     },
 }
 

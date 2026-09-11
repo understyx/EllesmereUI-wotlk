@@ -19,13 +19,8 @@ local min     = math.min
 local ECME
 
 -- Feature-gating flags (rebuilt in BuildTrackedBuffBars, read in tick)
-local _anyPandemic  = false
 local _anyThreshold = false
 local _anyStacks    = false
-
--- Glow helpers (from main CDM file)
-local function StartGlow(...) if ns.StartNativeGlow then return ns.StartNativeGlow(...) end end
-local function StopGlow(...)  if ns.StopNativeGlow  then return ns.StopNativeGlow(...)  end end
 
 -- External weak-keyed lookup for Blizzard bar FontString refs.
 -- Avoids writing custom properties onto Blizzard StatusBar frames.
@@ -124,113 +119,6 @@ local function SetFont(fs, size)
 end
 
 -------------------------------------------------------------------------------
---  Pandemic state via Blizzard hooks
--------------------------------------------------------------------------------
-local _pandemicState  = {}   -- frame -> true when in pandemic
-local _pandemicHooked = {}   -- frame -> true once hooks are installed
-ns._pandemicState = _pandemicState
-ns._pandemicHooked = _pandemicHooked
-
--- Hook bodies live at FILE SCOPE on purpose: hooksecurefunc callbacks bill
--- the addon whose execution context CREATED the closure (bisect-verified
--- 2026-07-27; the same dynamic stamping rule as frames -- login-installed
--- inline closures billed the PARENT ~0.05% for every pandemic repaint).
--- Bodies born in this file's main chunk bill CooldownManager no matter
--- which code path later installs the hook.
-local function _PandemicShow(self)
-    _pandemicState[self] = true
-    ns._btDirty = true
-    -- Hide Blizzard's PandemicIcon unless "Blizzard Default" (-1).
-    -- Custom glow styles (>0) replace it; None (0/false) suppresses it.
-    local fc = ns._ecmeFC and ns._ecmeFC[self]
-    local bk = fc and fc.barKey
-    if bk then
-        local bd = ns.barDataByKey and ns.barDataByKey[bk]
-        local style = bd and bd.pandemicGlow and bd.pandemicGlowStyle
-        if not style or style ~= -1 then
-            if self.PandemicIcon then self.PandemicIcon:Hide() end
-        end
-    end
-end
-
-local function _PandemicHide(self)
-    _pandemicState[self] = nil
-    ns._btDirty = true
-end
-
--- Installed LAZILY from the buff tick, per icon, only when that icon's bar
--- uses a custom pandemic style (style ~= -1). With the default config
--- ("Blizzard Default") nothing is ever hooked: Blizzard's native
--- PandemicIcon does the whole job and pandemic costs zero. Idempotent.
-function ns.HookPandemicState(frame)
-    if not frame or _pandemicHooked[frame] then return end
-    if not frame.ShowPandemicStateFrame then return end
-    _pandemicHooked[frame] = true
-    hooksecurefunc(frame, "ShowPandemicStateFrame", _PandemicShow)
-    if frame.HidePandemicStateFrame then
-        hooksecurefunc(frame, "HidePandemicStateFrame", _PandemicHide)
-    end
-end
-
-local PANDEMIC_THRESHOLD = 0.3
-local LIFEBLOOM_SPELL_ID = 33763
-local _lbName               -- cached Lifebloom spell name (resolved lazily once)
-local _scanLast, _scanResult = 0, false
--- Pandemic fallback for auras Blizzard never flags (currently only Lifebloom).
--- bar._isLifebloom is resolved once and cached on our own frame: the call site
--- skips this call entirely once a bar is known not to be Lifebloom, so
--- non-Lifebloom pandemic-glow bars cost nothing per frame. Only the Lifebloom
--- bar reaches the throttled unit scan below.
-local function LifebloomPandemic(bar, blzChild)
-    -- Resolve "is this the Lifebloom bar" once and cache it. Spell data can be
-    -- late-loading, so leave the flag nil (retry next frame) until both names
-    -- resolve.
-    if bar._isLifebloom == nil then
-        if not _lbName then _lbName = C_Spell.GetSpellName(LIFEBLOOM_SPELL_ID) end
-        local sid = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(blzChild)
-        local sName = sid and C_Spell.GetSpellName(sid)
-        if not (_lbName and sName) then return false end
-        bar._isLifebloom = (_lbName == sName)
-    end
-    if not bar._isLifebloom then return false end
-
-    -- Throttle the unit scan to 10/sec; return the cached result if throttled.
-    local now = GetTime()
-    if (now - _scanLast) < 0.1 then return _scanResult end
-
-    local result = false
-    local function check(unit)
-        if not UnitExists(unit) then return end
-        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, unit, _lbName, "HELPFUL|PLAYER")
-        if not ok or not aura then return end
-        local dur, exp = aura.duration, aura.expirationTime
-        if not dur or not exp then return end
-        local isSec = issecretvalue
-        if isSec and (isSec(dur) or isSec(exp)) then return end -- shouldn't be secret, for safety
-        if dur <= 0 then return end
-        if (exp - now) <= dur * PANDEMIC_THRESHOLD then result = true end
-    end
-
-    -- Player first, then the group; stop as soon as one Lifebloom is in pandemic.
-    check("player")
-    if not result then
-        if IsInRaid() then
-            for i = 1, GetNumGroupMembers() do
-                check("raid" .. i)
-                if result then break end
-            end
-        elseif IsInGroup() then
-            for i = 1, GetNumGroupMembers() do
-                check("party" .. i)
-                if result then break end
-            end
-        end
-    end
-    _scanLast, _scanResult = now, result
-    return result
-end
-
--------------------------------------------------------------------------------
 --  Popular Buffs (derived from BUFF_BAR_PRESETS, with compat alias)
 -------------------------------------------------------------------------------
 local TBB_POPULAR_BUFFS = {}
@@ -309,11 +197,6 @@ local TBB_DEFAULT_BAR = {
     stackThresholdTickR = 1, stackThresholdTickG = 1,
     stackThresholdTickB = 1, stackThresholdTickA = 1,
     stackBasedBar = false,
-    pandemicGlow = true,
-    pandemicGlowStyle = -1,
-    pandemicGlowLines = 8,
-    pandemicGlowThickness = 2,
-    pandemicGlowSpeed = 4,
 }
 ns.TBB_DEFAULT_BAR = TBB_DEFAULT_BAR
 
@@ -359,20 +242,6 @@ function ns.GetTrackedBuffBars()
             end
         end
         tbb._iconTotalMigrated = true
-    end
-    -- Live migration: pandemicGlowMode replaced pandemicGlowColor always being set
-    if not tbb._pandemicModeMigrated then
-        for _, b in ipairs(tbb.bars or {}) do
-            if not b.pandemicGlowMode then
-                local c = b.pandemicGlowColor
-                if c and not (c.r == 1 and c.g == 1 and c.b == 0) then
-                    b.pandemicGlowMode = "custom"
-                else
-                    b.pandemicGlowMode = "default"
-                end
-            end
-        end
-        tbb._pandemicModeMigrated = true
     end
     return tbb
 end
@@ -1384,8 +1253,6 @@ local TBB_STYLE_KEYS = {
     "borderSize", "borderTexture", "borderR", "borderG", "borderB",
     "borderTextureOffset", "borderTextureOffsetY",
     "borderTextureShiftX", "borderTextureShiftY", "borderBehind",
-    "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
-    "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
 }
 ns.TBB_STYLE_KEYS = TBB_STYLE_KEYS
 
@@ -1742,7 +1609,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     -- to another strata (cfg.strata, applied in ApplyTrackedBuffBarSettings).
     -- Level 100 keeps the bar above the buff-icon displays (MEDIUM, low
     -- levels) when the two elements overlap. Internal ordering stays
-    -- level-based within the wrap (strips +6 < pandemic glow +7 < text +8).
+    -- level-based within the wrap.
     wrapFrame:SetFrameStrata("MEDIUM")
     wrapFrame:SetFrameLevel(100)
 
@@ -1786,10 +1653,9 @@ local function CreateTrackedBuffBarFrame(parent, idx)
 
     -- Text overlay: parented to wrapFrame (not bar) so bar's SetClipsChildren
     -- doesn't chop text when font size exceeds bar height. Level sits ABOVE the
-    -- border (bar +5 in ApplySettings, whose PP strips draw at +6) AND the
-    -- pandemic glow overlay (wrapFrame +7 = bar +6) so the timer/name/stacks
-    -- text renders on top of both. Keyed off bar (like the border) so the two
-    -- track together.
+    -- border (bar +5 in ApplySettings, whose PP strips draw at +6), so the
+    -- timer/name/stacks text renders on top. Keyed off bar (like the border)
+    -- so the two track together.
     local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, wrapFrame)
     textOverlay:SetAllPoints(bar)
     textOverlay:SetFrameLevel(bar:GetFrameLevel() + 7)
@@ -1835,16 +1701,6 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     bdrContainer:SetFrameLevel(wrapFrame:GetFrameLevel() + 5)
     bdrContainer:Hide()
     wrapFrame._barBorder = bdrContainer
-
-    -- Pandemic glow overlay. Sits above the border, whose PP strips draw at +6
-    -- (border frame +5, plus the +1 the strip container adds), so a thick border
-    -- can't bury the edge-hugging glow.
-    local panGlow = EllesmereUI.SafeCreateFrame("Frame", nil, wrapFrame)
-    panGlow:SetAllPoints(wrapFrame)
-    panGlow:SetFrameLevel(wrapFrame:GetFrameLevel() + 7)
-    panGlow:SetAlpha(0)
-    panGlow:EnableMouse(false)
-    wrapFrame._pandemicGlowOverlay = panGlow
 
     wrapFrame:Hide()
     return wrapFrame
@@ -2272,7 +2128,6 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         -- charge hash lines tie it and win via later creation, as they always
         -- have.
         if bar._barBorder then bar._barBorder:SetFrameLevel(base + 6) end
-        if bar._pandemicGlowOverlay then bar._pandemicGlowOverlay:SetFrameLevel(base + 7) end
         if bar._textOverlay then bar._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 7) end
     end
 
@@ -3183,60 +3038,6 @@ local function UpdateStacks(bar, blzChild, cfg)
 end
 
 -------------------------------------------------------------------------------
---  Pandemic Glow Helpers
--------------------------------------------------------------------------------
-local function ClearPandemic(bar)
-    if bar._pandemicGlowTarget then StopGlow(bar._pandemicGlowTarget) end
-    bar._pandemicGlowActive   = false
-    bar._pandemicGlowStyleIdx = nil
-    bar._pandemicGlowTarget   = nil
-end
-
---- Start or update the pandemic glow effect on a bar.
---- Called when the bar is in the pandemic window (caller checks the threshold).
---- Alpha is driven by the caller from the tick (smooth fade based on remaining%).
-local function UpdatePandemic(bar, cfg)
-    -- Glow always wraps the whole bar. The overlay covers the entire wrapFrame
-    -- footprint, so an enabled icon is included rather than glowed on its own.
-    local glowTarget = bar._pandemicGlowOverlay
-
-    local style = cfg.pandemicGlowStyle or 1
-    -- Only pixel glow (1) and autocast (4) render on the bar rectangle
-    if style ~= 1 and style ~= 4 then style = 1 end
-
-    -- Start/restart glow on style or target change
-    if not bar._pandemicGlowActive or bar._pandemicGlowStyleIdx ~= style
-       or bar._pandemicGlowTarget ~= glowTarget then
-        if bar._pandemicGlowActive and bar._pandemicGlowTarget
-           and bar._pandemicGlowTarget ~= glowTarget then
-            StopGlow(bar._pandemicGlowTarget)
-        end
-        local c
-        if cfg.pandemicGlowMode == "class" then
-            c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
-        elseif cfg.pandemicGlowMode == "custom" then
-            c = cfg.pandemicGlowColor
-        end
-        local glowOpts = (style == 1) and {
-            N      = cfg.pandemicGlowLines or 8,
-            th     = cfg.pandemicGlowThickness or 2,
-            period = cfg.pandemicGlowSpeed or 4,
-            bg     = cfg.pandemicGlowBackground and {
-                r = (cfg.pandemicGlowBackgroundColor and cfg.pandemicGlowBackgroundColor.r) or 0,
-                g = (cfg.pandemicGlowBackgroundColor and cfg.pandemicGlowBackgroundColor.g) or 0,
-                b = (cfg.pandemicGlowBackgroundColor and cfg.pandemicGlowBackgroundColor.b) or 0,
-            } or nil,
-        } or nil
-        StartGlow(glowTarget, style, c and c.r, c and c.g, c and c.b, glowOpts)
-        bar._pandemicGlowActive   = true
-        bar._pandemicGlowStyleIdx = style
-        bar._pandemicGlowTarget   = glowTarget
-    end
-
-    -- Alpha is set by the caller (tick function) for smooth fade
-end
-
--------------------------------------------------------------------------------
 --  Blizzard Bar FontString Discovery
 --  Finds the name and timer FontStrings on a Blizzard Bar StatusBar.
 --  Caches references on the frame for subsequent ticks (zero alloc after first).
@@ -3442,22 +3243,20 @@ function ns.UpdateLustListener()
     end
     if not any and ns.AnyCustomAuraLust then any = ns.AnyCustomAuraLust() end
     _ensureLustListener(any)
-    -- Sibling preset listeners, refreshed from the same buff/TBB change sites
-    -- (every add/remove/rebuild path already calls UpdateLustListener).
-    if ns.UpdateTimeSpiralListener then ns.UpdateTimeSpiralListener() end
+    -- Sibling preset listeners, refreshed from the same buff/TBB change sites.
     if ns.UpdatePotionCastListener then ns.UpdatePotionCastListener() end
     if ns.UpdateCooldownCastListener then ns.UpdateCooldownCastListener() end
 end
 
 -- Profile-wide smooth-fill switches (Bar Layout > Smooth Bars), resolved
 -- ONCE per tick by UpdateTrackedBuffBarTimers for every fill site below.
--- buffs = buff mirrors + self-timed presets (lust/time spiral/potions);
+-- buffs = buff mirrors + self-timed presets (lust/potions);
 -- cooldowns = trackType == "cooldown" bars. Off = values snap (no easing).
 -- Defaults: buffs ON, cooldowns OFF (absent keys read that way).
 local _smoothBuffs, _smoothCooldowns = true, false
 
--- Self-driven display for an event-armed, self-timed preset bar (Bloodlust 40s,
--- Time Spiral 10s): fill + timer come from our own countdown, not a Blizzard
+-- Self-driven display for an event-armed, self-timed preset bar: fill + timer
+-- come from our own countdown, not a Blizzard
 -- frame. Name/icon are set in BuildTrackedBuffBars. `expiry` is the GetTime()
 -- the window ends at; `duration` is the full window length (the bar's max).
 local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
@@ -3500,132 +3299,13 @@ local function UpdateLustBar(bar, cfg)
 end
 
 -------------------------------------------------------------------------------
---  Time Spiral "Free Move" preset (popularKey == "timespiral")
---  Mirrors Bloodlust, but armed off Blizzard's spell-activation glow on the
---  player's class movement ability -- the Time Spiral free-cast proc -- instead
---  of an aura. A whitelisted glow-SHOW starts a self-timed 10s window. Like
---  Bloodlust there is NO login/reload reconstruction: only a fresh glow arms it.
---  Talent-aware suppression drops glows that fire on a movement ability for
---  unrelated reasons (DH Inertia / Dash of Chaos, Warlock Soulburn).
--------------------------------------------------------------------------------
-local TIME_SPIRAL_DURATION = 10
--- Per-class movement abilities that glow when Time Spiral grants a free cast.
-local TIME_SPIRAL_TRIGGERS = {
-    [48265] = true,   -- Death's Advance
-    [195072] = true,  -- Fel Rush
-    [189110] = true,  -- Infernal Strike
-    [1850] = true,    -- Dash
-    [252216] = true,  -- Tiger Dash
-    [358267] = true,  -- Hover
-    [186257] = true,  -- Aspect of the Cheetah
-    [1953] = true,    -- Blink
-    [212653] = true,  -- Shimmer
-    [361138] = true,  -- Roll
-    [119085] = true,  -- Chi Torpedo
-    [190784] = true,  -- Divine Steed
-    [73325] = true,   -- Leap of Faith
-    [2983] = true,    -- Sprint
-    [192063] = true,  -- Gust of Wind
-    [58875] = true,   -- Spirit Walk
-    [79206] = true,   -- Spiritwalker's Grace
-    [48020] = true,   -- Demonic Circle: Teleport
-    [6544] = true,    -- Heroic Leap
-}
--- Talent-gated abilities that ALSO glow a movement ability for reasons unrelated
--- to the Time Spiral proc. While the talent is known, a cast of one suppresses
--- the glow that follows for a short window.
-local TIME_SPIRAL_GLOW_FILTERS = {
-    { talent = 427640, spells = { 198793, 370965, 195072 } },  -- DH Inertia
-    { talent = 427794, spells = { 195072 } },                  -- DH Dash of Chaos
-    { talent = 385899, spells = { 385899 } },                  -- Warlock Soulburn
-}
--- State grouped in one table to stay clear of the file's local budget.
-local _ts = { expiry = 0, suppressUntil = 0, suppress = {}, active = false, frame = nil }
-
-local function _rebuildTimeSpiralSuppress()
-    wipe(_ts.suppress)
-    local known = C_SpellBook and C_SpellBook.IsSpellKnown
-    if not known then return end
-    for _, e in ipairs(TIME_SPIRAL_GLOW_FILTERS) do
-        if known(e.talent) then
-            for _, sid in ipairs(e.spells) do _ts.suppress[sid] = true end
-        end
-    end
-end
-
--- Toggle the glow listener. Registered only while an enabled Time Spiral bar or
--- Custom Auras (icon) display exists. Glow-event spellIDs are clean (not secret).
-local function _ensureTimeSpiralListener(enable)
-    if enable then
-        if not _ts.frame then
-            _ts.frame = ns.TakeShell()
-            _ts.frame:SetScript("OnEvent", function(_, event, ...)
-                if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
-                    local sid = ...
-                    if not TIME_SPIRAL_TRIGGERS[sid] then return end
-                    if GetTime() < _ts.suppressUntil then return end
-                    _ts.expiry = GetTime() + TIME_SPIRAL_DURATION  -- free move just granted
-                    -- Drive any Custom Auras (icon) display sharing this edge.
-                    if ns.SignalTimeSpiralCast then ns.SignalTimeSpiralCast() end
-                elseif event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
-                    local sid = ...
-                    if not TIME_SPIRAL_TRIGGERS[sid] then return end
-                    -- Proc consumed (you used the free move) or the buff expired:
-                    -- end the window now so the bar / icon disappear with the glow
-                    -- instead of riding out the full 10s. Guarded on an active
-                    -- window so an unrelated trigger's hide can't spuriously fire.
-                    if _ts.expiry > GetTime() then
-                        _ts.expiry = 0
-                        if ns.SignalTimeSpiralEnd then ns.SignalTimeSpiralEnd() end
-                    end
-                elseif event == "UNIT_SPELLCAST_SENT" then
-                    -- (unit, target, castGUID, spellID); arg4 is the spellID.
-                    local _, _, _, sid = ...
-                    if sid and _ts.suppress[sid] then
-                        _ts.suppressUntil = GetTime() + 1.5
-                    end
-                elseif event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_ENTERING_WORLD" then
-                    _rebuildTimeSpiralSuppress()
-                end
-            end)
-        end
-        if not _ts.active then
-            _rebuildTimeSpiralSuppress()
-            _ts.frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
-            _ts.frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
-            _ts.frame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
-            _ts.frame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-            _ts.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-            _ts.active = true
-        end
-    elseif _ts.frame and _ts.active then
-        _ts.frame:UnregisterAllEvents()
-        _ts.active = false
-    end
-end
-
--- Arm the glow listener if EITHER a Time Spiral Tracking Bar OR a Custom Auras
--- (icon) Time Spiral display is enabled. Authoritative (scans the DB).
-function ns.UpdateTimeSpiralListener()
-    local any = false
-    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
-    if tbb and tbb.bars then
-        for _, cfg in ipairs(tbb.bars) do
-            if cfg.enabled ~= false and cfg.popularKey == "timespiral" then any = true; break end
-        end
-    end
-    if not any and ns.AnyCustomAuraTimeSpiral then any = ns.AnyCustomAuraTimeSpiral() end
-    _ensureTimeSpiralListener(any)
-end
-
--------------------------------------------------------------------------------
 --  Self-cast potion presets (Light's Potential, Potion of Recklessness,
 --  Invisibility Potion). NO aura tracking: a hardcoded window starts the moment
 --  the potion's spell is cast, exactly like the CDM buff-bar / Fake-Active
---  potions. Mirrors the Bloodlust/Time Spiral self-timed model -- only a fresh
+--  potions. Mirrors the Bloodlust self-timed model -- only a fresh
 --  cast arms it, so a reload mid-buff shows nothing until the next use.
 --  Built from BUFF_BAR_PRESETS: every preset that is NOT a tbbOnly special
---  (bloodlust/timespiral are event-driven and handled above) is cast-timed.
+--  (bloodlust is event-driven and handled above) is cast-timed.
 -------------------------------------------------------------------------------
 local _potionDur = {}       -- [popularKey] = hardcoded window seconds
 local _potionTrigger = {}   -- [castSpellID] = popularKey
@@ -4383,10 +4063,6 @@ local function _UpdateCooldownBar(bar, cfg)
         ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     end
 
-    -- No pandemic concept for cooldowns; clear any stale glow from a
-    -- re-purposed bar frame.
-    if bar._pandemicGlowActive then ClearPandemic(bar) end
-
     if not onCooldown and cfg.hideWhenInactive ~= false then
         -- Ready = inactive: hide, matching the buff inactive branch.
         _restoreTBBNormalFill(bar, cfg)
@@ -4568,9 +4244,6 @@ function ns.UpdateTrackedBuffBarTimers()
         elseif cfg.popularKey == "bloodlust" then
             -- Self-driven 40s lust bar; no Blizzard frame to mirror.
             UpdateLustBar(bar, cfg)
-        elseif cfg.popularKey == "timespiral" then
-            -- Self-driven 10s Time Spiral "Free Move" bar; glow-armed, no frame.
-            _UpdateSelfTimedBar(bar, cfg, _ts.expiry, TIME_SPIRAL_DURATION)
         elseif cfg.popularKey and _potionDur[cfg.popularKey] then
             -- Self-cast potion preset: hardcoded window off the spell-cast edge,
             -- no aura tracking / no Blizzard frame to mirror.
@@ -4581,8 +4254,6 @@ function ns.UpdateTrackedBuffBarTimers()
             _UpdateCooldownBar(bar, cfg)
         else
             local blzChild = assignment[cfg]
-            if blzChild then ns.HookPandemicState(blzChild) end
-
             -- Active state must come from the CooldownViewer item's IsActive()
             -- (real aura state: expirationTime > now, or infinite auras), NOT
             -- IsShown(). A buff-bar item stays SHOWN even while inactive unless
@@ -4791,37 +4462,12 @@ function ns.UpdateTrackedBuffBarTimers()
                         end
                     end
 
-                    -- Pandemic glow: Blizzard's ShowPandemicStateFrame
-                    -- hook sets _pandemicState. User must configure
-                    -- pandemic alerts in Blizzard CDM settings.
-                    if _anyPandemic and cfg.pandemicGlow then
-                        local inPandemic = blzChild and _pandemicState[blzChild]
-                        -- Fallback for auras Blizzard never pandemic-flags
-                        -- (currently only Lifebloom). bar._isLifebloom is cached
-                        -- after the first resolve, so once a bar is known not to
-                        -- be Lifebloom this is a single table read and skips.
-                        if not inPandemic and blzChild and bar._isLifebloom ~= false then
-                            inPandemic = LifebloomPandemic(bar, blzChild)
-                        end
-                        -- TBBs always show our glow (including Blizzard Default)
-                        -- because Blizzard's native PandemicIcon is on the
-                        -- hidden blzChild frame, not our visible TBB bar.
-                        if inPandemic then
-                            if not bar._pandemicGlowActive then UpdatePandemic(bar, cfg) end
-                            if bar._pandemicGlowTarget then bar._pandemicGlowTarget:SetAlpha(1) end
-                        elseif bar._pandemicGlowActive then
-                            ClearPandemic(bar)
-                        end
-                    elseif bar._pandemicGlowActive then
-                        ClearPandemic(bar)
-                    end
                 else
                     -- Active aura but no Blizzard bar data: show full bar
                     sb:SetMinMaxValues(0, 1)
                     sb:SetValue(1)
                     if bar._timerText then bar._timerText:Hide() end
                     if bar._spark then bar._spark:Hide() end
-                    if bar._pandemicGlowActive then ClearPandemic(bar) end
                 end
 
                 -- Threshold feed (gated)
@@ -4950,13 +4596,12 @@ function ns.UpdateTrackedBuffBarTimers()
                     bar._nameSet = true
                 end
                 -- Keep the extras quiet in fallback mode: no Blizzard child to
-                -- read stacks/pandemic state from. Skipped when the stack fill
+                -- read stacks from. Skipped when the stack fill
                 -- drove them above.
                 if not (sb and fbStackFill) then
                     if bar._stacksText then bar._stacksText:Hide() end
                     bar._stackCount = 0
                 end
-                if bar._pandemicGlowActive then ClearPandemic(bar) end
             else
                 -- Inactive: clear transient state
                 bar._cachedBlizzFillTex = nil
@@ -4964,7 +4609,6 @@ function ns.UpdateTrackedBuffBarTimers()
                 bar._cachedBlizzIconTex = nil
                 bar._cachedBlizzIconOwner = nil
                 bar._lastIconSID = nil
-                if _anyPandemic and bar._pandemicGlowActive then ClearPandemic(bar) end
                 if bar._stacksText then bar._stacksText:Hide() end
                 bar._stackCount = 0
                 if cfg.hideWhenInactive == false then
@@ -5092,7 +4736,6 @@ function ns.BuildTrackedBuffBars()
     end
 
     -- Reset feature-gating flags
-    _anyPandemic  = false
     _anyThreshold = false
     _anyStacks    = false
 
@@ -5101,7 +4744,6 @@ function ns.BuildTrackedBuffBars()
     local lastBarByGroup = {}  -- gid -> previous enabled member frame (chain tail)
     for i, cfg in ipairs(bars) do
         -- Update gating flags
-        if cfg.pandemicGlow                             then _anyPandemic  = true end
         if cfg.stackThresholdEnabled                    then _anyThreshold = true; _anyStacks = true end
         if (cfg.stacksPosition or "center") ~= "none"  then _anyStacks    = true end
         if cfg.stackBasedBar and cfg.trackType ~= "cooldown"

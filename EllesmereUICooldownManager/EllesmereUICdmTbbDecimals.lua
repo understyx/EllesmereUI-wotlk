@@ -191,7 +191,7 @@ local function ReleaseCurrent()
 end
 
 -- Desired slot set: one entry per enabled, aura-driven bar with Decimals on.
--- Self-timed presets (lust/potions/Time Spiral) are excluded -- they already
+-- Self-timed presets (lust/potions) are excluded -- they already
 -- render tenths from their own clean, never-secret countdown.
 --
 -- Two passes. Pass 1 collects each bar's SAVED identity (stored ids +
