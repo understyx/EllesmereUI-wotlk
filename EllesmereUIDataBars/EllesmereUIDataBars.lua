@@ -13,7 +13,7 @@
 --   * unlock-mode registration (one element per bar, key "EDB_<id>")
 --   * the bar/block CRUD API on `ns` consumed by the options file
 --
--- Block factories (clock, fps, ms, location, coords, gold, xprep, spec,
+-- Block factories (clock, fps, ms, location, coords, gold, xprep,
 -- profession, travel, micromenu, currency, spacer) live in
 -- EllesmereUIDataBars_Blocks.lua and attach themselves to ns.BlockFactories.
 --
@@ -181,7 +181,6 @@ ns.BLOCK_TYPES = {
     { key = "gold",       label = "Gold" },
     { key = "durability", label = "Durability" },
     { key = "xprep",      label = "XP / Reputation Bar" },
-    { key = "spec",       label = "Spec & Loot Spec" },
     { key = "profession", label = "Professions" },
     { key = "profession2", label = "Secondary Professions" },
     { key = "travel",     label = "Travel Cooldowns" },
@@ -203,13 +202,12 @@ ns.BLOCK_DEFAULTS = {
     gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false },
     durability = { showIcon = true },
     xprep      = { mode = "auto" },
-    spec       = { showLoadout = true, useUppercase = false },
     profession = {},
     profession2 = {},
     travel     = { randomizeHs = true },
     micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, charStatsTooltip = false, socialTooltip = false, mainMenuSpacing = 4, iconSpacing = 2,
                    menu = true, guild = true, social = true, char = true, spell = true, ach = true, quest = true, lfg = true,
-                   pvp = true, journal = true, pet = true, shop = true, help = true },
+                   pvp = true, journal = false, pet = false, shop = false, help = true },
     currency   = { currencyId = nil, showIcon = true },
     audio      = { channel = "master" },
     spacer     = {},
@@ -2746,7 +2744,6 @@ local TEMPLATES = {
             { type = "micromenu", textYOff = 8, contentGapR = 40,
               settings = { help = false } },
             { type = "xprep", contentGapL = 40, contentGapR = 40 },
-            { type = "spec", contentGapL = 40, contentGapR = 40 },
             { type = "durability", contentGapL = 40, contentGapR = 40,
               useIconDefaultColor = true,
               iconColor = { r = 1, g = 0.62, b = 0.25 } },
@@ -3075,8 +3072,34 @@ end
 -------------------------------------------------------------------------------
 --  Lifecycle
 -------------------------------------------------------------------------------
+local function RemoveRetiredBlocks(profile)
+    if not (profile and profile.bars) then return end
+    for i = 1, #profile.bars do
+        local bar = profile.bars[i]
+        for j = #bar.blocks, 1, -1 do
+            local block = bar.blocks[j]
+            if block.type == "spec" then
+                if bar.fillBlockId == block.id then bar.fillBlockId = nil end
+                if bar.centerBlockId == block.id then bar.centerBlockId = nil end
+                tremove(bar.blocks, j)
+            elseif block.type == "micromenu" then
+                local settings = block.settings or {}
+                block.settings = settings
+                settings.journal = false
+                settings.pet = false
+                settings.shop = false
+            end
+        end
+        ns.EnsureFillBlock(bar)
+    end
+end
+
 function WB:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIDataBarsDB", defaults)
+    -- Specialization and loot-specialization switching are Retail concepts in
+    -- this block.  Drop it from imported/older WotLK profiles as well as the
+    -- picker and fresh templates.
+    RemoveRetiredBlocks(self.db.profile)
     -- The cross-character gold ledger used to live in the profile, which put
     -- every character's name, realm and balance into shared export strings and
     -- gave each profile its own separate ledger. It is account data now
@@ -3130,6 +3153,7 @@ end
 -------------------------------------------------------------------------------
 _G._EDB_Apply = function()
     if not (WB.db and WB.db.profile) then return end
+    RemoveRetiredBlocks(WB.db.profile)
     if ns.WipeFitCache then ns.WipeFitCache() end
     for id in pairs(live) do
         ns.ApplyBar(id)

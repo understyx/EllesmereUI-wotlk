@@ -5,8 +5,9 @@
 -- we only skin it, drive its visibility, and layer on the auto-accept /
 -- auto-turn-in / quest-item hotkey / SplashFrame QoL features.
 --
--- The three feature modules are wired up on PLAYER_LOGIN after
--- Blizzard_ObjectiveTracker has loaded.
+-- The three feature modules are wired up on PLAYER_LOGIN after the native
+-- tracker exists. Retail uses ObjectiveTrackerFrame; Wrath 3.3.5 exposes the
+-- equivalent tracker as WatchFrame directly from FrameXML.
 -------------------------------------------------------------------------------
 local addonName, ns = ...
 
@@ -120,12 +121,15 @@ local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")
 
--- Blizzard_ObjectiveTracker is part of the base Midnight UI and is loaded
--- before our addon, so ADDON_LOADED for it never fires. Seed _sawOT from
--- IsAddOnLoaded (or the frame's existence) so init still triggers.
+-- Blizzard_ObjectiveTracker is load-on-demand on modern clients. Wrath's
+-- WatchFrame is part of FrameXML and is already present before addons load.
+-- Seed _sawOT from either native implementation so the Wrath loader does not
+-- wait forever for an addon and frame that do not exist there.
 local _sawSelf, _sawOT, _loggedIn = false, false, false
 local _isLoaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
-if (_isLoaded and _isLoaded("Blizzard_ObjectiveTracker")) or _G.ObjectiveTrackerFrame then
+if (_isLoaded and _isLoaded("Blizzard_ObjectiveTracker"))
+    or _G.ObjectiveTrackerFrame
+    or _G.WatchFrame then
     _sawOT = true
 end
 

@@ -73,7 +73,11 @@ initFrame:SetScript("OnEvent", function(self)
             infoLabel:SetTextColor(1, 1, 1, 0.75)
             infoLabel:SetPoint("CENTER")
             infoLabel:SetJustifyH("CENTER")
-            infoLabel:SetText(EllesmereUI.L("Reposition this element within Blizzard Edit Mode"))
+            if _G.WatchFrame and not _G.ObjectiveTrackerFrame then
+                infoLabel:SetText(EllesmereUI.L("Reposition this element within EllesmereUI Unlock Mode"))
+            else
+                infoLabel:SetText(EllesmereUI.L("Reposition this element within Blizzard Edit Mode"))
+            end
 
             -- Accent toggle beneath the label. "Force Quest Tracker on Screen"
             -- keeps the tracker clamped to the screen; clicking again ("Allow
@@ -102,7 +106,11 @@ initFrame:SetScript("OnEvent", function(self)
                 Set("forceOnScreen", not (Cfg("forceOnScreen") == true))
                 if EQT.ApplyForceOnScreen then EQT.ApplyForceOnScreen() end
                 UpdateForceOnScreenLabel()
-                if EditModeManagerFrame then ShowUIPanel(EditModeManagerFrame) end
+                if EditModeManagerFrame then
+                    ShowUIPanel(EditModeManagerFrame)
+                elseif EllesmereUI.ToggleUnlockMode then
+                    EllesmereUI:ToggleUnlockMode()
+                end
             end)
             y = y - 68
         end

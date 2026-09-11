@@ -21,6 +21,10 @@
 local _, ns = ...
 local EQT = ns.EQT
 
+-- Wrath has a different native tracker and line-pool API. Its implementation
+-- is loaded from EllesmereUIQuestTracker_Wrath.lua.
+if _G.WatchFrame and not _G.ObjectiveTrackerFrame then return end
+
 -- External weak-keyed table for block skin state (never write custom keys
 -- onto Blizzard pool frames -- causes taint).
 local _skinned = setmetatable({}, { __mode = "k" })

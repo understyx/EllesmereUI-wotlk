@@ -14,6 +14,11 @@
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EQT = ns.EQT
+
+-- Wrath uses legacy gossip, quest-log, and WatchFrame APIs. Its implementation
+-- is loaded from EllesmereUIQuestTracker_Wrath.lua.
+if _G.WatchFrame and not _G.ObjectiveTrackerFrame then return end
+
 local function Cfg(k) return EQT.Cfg(k) end
 
 -------------------------------------------------------------------------------

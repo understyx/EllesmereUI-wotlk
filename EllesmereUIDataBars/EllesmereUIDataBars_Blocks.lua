@@ -457,56 +457,23 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     eventText:SetPoint("CENTER", clockText, "TOP", 0, 6)
     eventText:Hide()
 
-    -- Resting indicator: Blizzard's PlayerFrame rest flipbook, replicated
-    -- verbatim from Blizzard_UnitFrame/PlayerFrame.xml. The texture MUST
-    -- be set via the ATLAS (the sheet is a sub-rect of the file; a raw
-    -- SetTexture makes the FlipBook slice the padding too), it renders
-    -- 1.5x the frame size center-anchored (the art has transparent
-    -- margins), and the grid is 6 columns x 7 rows, 42 frames, 1.5s
-    -- REPEAT with setToFinalAlpha. No OnUpdate: the animation only runs
-    -- while the frame is shown.
+    -- Wrath has no texture-atlas API.  Use client-native icons rather than
+    -- letting the compatibility SetAtlas fallback render question marks.
     local restFrame = EllesmereUI.SafeCreateFrame("Frame", nil, content)
     restFrame:SetSize(16, 21)
     restFrame:Hide()
     local restIcon = restFrame:CreateTexture(nil, "OVERLAY")
     restIcon:SetDrawLayer("OVERLAY", 7)
-    -- Nudged 5px up from the frame center (user-tuned), desaturated so the
-    -- gold Blizzard art reads white.
     restIcon:SetPoint("CENTER", restFrame, "CENTER", 0, 5)
-    restIcon:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook")
+    restIcon:SetTexture("Interface\\Icons\\Spell_Nature_Sleep")
     restIcon:SetDesaturated(true)
     restIcon:SetVertexColor(1, 1, 1, 1)
-    do
-        -- Own the group on the texture so it is the animation's implicit
-        -- target.  SetTarget is unavailable on older clients.
-        local anim = restIcon:CreateAnimationGroup()
-        local flip = anim:CreateAnimation("FlipBook")
-        -- Some compatibility clients can create a FlipBook object but do
-        -- not expose the FlipBook configuration API.  Keep the atlas as a
-        -- static resting icon there instead of raising an error.
-        if flip and flip.SetFlipBookRows and flip.SetFlipBookColumns
-            and flip.SetFlipBookFrames then
-            anim:SetLooping("REPEAT")
-            if anim.SetToFinalAlpha then anim:SetToFinalAlpha(true) end
-            -- 80% of Blizzard's 1.5s pace (user-tuned).
-            flip:SetDuration(1.875)
-            flip:SetOrder(1)
-            if flip.SetSmoothing then flip:SetSmoothing("NONE") end
-            flip:SetFlipBookRows(7)
-            flip:SetFlipBookColumns(6)
-            flip:SetFlipBookFrames(42)
-            if flip.SetFlipBookFrameWidth then flip:SetFlipBookFrameWidth(0) end
-            if flip.SetFlipBookFrameHeight then flip:SetFlipBookFrameHeight(0) end
-            restFrame:SetScript("OnShow", function() anim:Play() end)
-            restFrame:SetScript("OnHide", function() anim:Stop() end)
-        end
-    end
 
     -- Mail indicator: shown LEFT of the clock while unread mail waits
     -- (replaced the old "You've got mail!" rotating text line). Gated by
     -- the same Mail Alert (showMail) setting.
     local mailIcon = clockTextFrame:CreateTexture(nil, "OVERLAY")
-    mailIcon:SetAtlas("Crosshair_mail_64")
+    mailIcon:SetTexture("Interface\\Icons\\INV_Letter_15")
     mailIcon:Hide()
 
     -- One color authority for the clock: text and resting icon follow the
@@ -1128,6 +1095,16 @@ end
 -- the tooltip only (GetLatColor).
 local LAT_ICON = { home = MEDIA .. "home_latency.tga", world = MEDIA .. "world_latency.tga" }
 
+local function ReadNetStats()
+    local inKB, outKB, home, world = GetNetStats()
+    inKB = tonumber(inKB) or 0
+    outKB = tonumber(outKB) or 0
+    home = tonumber(home) or 0
+    -- Some 3.3.5 servers expose only the legacy home latency value.
+    world = tonumber(world) or home
+    return inKB, outKB, floor(home), floor(world)
+end
+
 -- home | world | both. Reads the old useWorldLatency boolean as a fallback so
 -- an existing block keeps its link. Shared by the block and its options row,
 -- which must agree on what "selected" means.
@@ -1162,8 +1139,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
 
     local function MsTooltip()
         ns.Tip_Begin(content)
-        local inKB, outKB, home, world = GetNetStats()
-        home = floor(home); world = floor(world)
+        local inKB, outKB, home, world = ReadNetStats()
         -- The colours the bar deliberately does not carry, plus the bandwidth
         -- that is on no bar at all: the tooltip is the full quality read.
         local hr, hg, hb = GetLatColor(home)
@@ -1191,8 +1167,8 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
         local n = #links
         local iconSz = showIcon and (fontSize + 2) or 0
 
-        local _, _, home, world = GetNetStats()
-        local vals = { home = floor(home), world = floor(world) }
+        local _, _, home, world = ReadNetStats()
+        local vals = { home = home, world = world }
         local suffix = ns.GetMSSuffix()
 
         local tr, tg, tb, ir, ig, ib
@@ -1270,8 +1246,8 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
     -- Latency only moves every ~30s (GetNetStats is cached), so re-lay-out only
     -- when the shown value, mode or icon state actually changes.
     local function Tick()
-        local _, _, home, world = GetNetStats()
-        local sig = ns.LatencyMode(D()) .. (D().showIcon and "I" or "") .. floor(home) .. "/" .. floor(world)
+        local _, _, home, world = ReadNetStats()
+        local sig = ns.LatencyMode(D()) .. (D().showIcon and "I" or "") .. home .. "/" .. world
         if sig == lastSig then return end
         lastSig = sig
         inst:Refresh()
@@ -2240,7 +2216,7 @@ end
 ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
-    inst.events = { "PLAYER_XP_UPDATE", "UPDATE_FACTION", "PLAYER_ENTERING_WORLD" }
+    inst.events = { "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "PLAYER_ENTERING_WORLD" }
 
     local _dbFitBuf = { "" }
     local mode = "rep"
@@ -2530,13 +2506,17 @@ local TRAVEL_EXTRAS = {
     556,     -- Astral Recall (a spell, hence the per-entry kind probe below)
 }
 
+-- Retail supplies this from the seasonal dungeon table.  Wrath has no
+-- Mythic+ teleports, so an empty list is the correct compatibility value.
+local SEASON_TELEPORTS = rawget(_G, "SEASON_TELEPORTS") or {}
+
 -- Hearthstones share one cooldown, so polling a single owned one suffices.
 -- Engine-level cache: the underlying cooldown is shared game-wide.
 local travelPrimaryHearthId
 
 local function TravelIsUsable(id)
     if not id then return false end
-    if PlayerHasToy(id) then return true end
+    if PlayerHasToy and PlayerHasToy(id) then return true end
     if IsPlayerSpell(id) then return true end
     return (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(id) or 0) > 0
 end
@@ -2578,7 +2558,7 @@ local function TravelGetAvailableHearthstones()
 end
 
 local function TravelBuildMacro(id)
-    if PlayerHasToy(id) then return "/use item:" .. id end
+    if PlayerHasToy and PlayerHasToy(id) then return "/use item:" .. id end
     if IsPlayerSpell(id) then
         local info = C_Spell.GetSpellInfo(id)
         if info and info.name then return "/cast " .. info.name end
@@ -2688,7 +2668,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         -- Name lookups can be nil on a cold cache -- the row just appears on
         -- the next tooltip refresh.
         for _, entryId in ipairs(TRAVEL_EXTRAS) do
-            local isToy   = PlayerHasToy(entryId)
+            local isToy   = PlayerHasToy and PlayerHasToy(entryId)
             local isSpell = not isToy and IsPlayerSpell(entryId)
             if isToy or isSpell then
                 local entryName
@@ -3720,6 +3700,58 @@ local profIcons = {
     [356] = "prof-fishing",
 }
 
+-- Wrath exposes professions as skill lines rather than GetProfessions()
+-- handles.  The base spell names are localized by GetSpellInfo, which makes
+-- them safe keys against the localized skill-line names.
+local wrathProfessionDefs = {
+    { id = 164, spellID = 2018 },  -- Blacksmithing
+    { id = 165, spellID = 2108 },  -- Leatherworking
+    { id = 171, spellID = 2259 },  -- Alchemy
+    { id = 182, spellID = 2366 },  -- Herbalism
+    { id = 186, spellID = 2575, openSpellID = 2656 }, -- Mining / Smelting
+    { id = 202, spellID = 4036 },  -- Engineering
+    { id = 333, spellID = 7411 },  -- Enchanting
+    { id = 755, spellID = 25229 }, -- Jewelcrafting
+    { id = 773, spellID = 45357 }, -- Inscription
+    { id = 197, spellID = 3908 },  -- Tailoring
+    { id = 393, spellID = 8613 },  -- Skinning
+    { id = 185, spellID = 2550, secondary = true }, -- Cooking
+    { id = 129, spellID = 3273, secondary = true }, -- First Aid
+    { id = 356, spellID = 7620, secondary = true }, -- Fishing
+}
+
+local function GetWrathProfessionData(wantSecondary)
+    local found = {}
+    if not (GetNumSkillLines and GetSkillLineInfo and GetSpellInfo) then return found end
+    local byName = {}
+    for i = 1, #wrathProfessionDefs do
+        local def = wrathProfessionDefs[i]
+        local name, _, icon = GetSpellInfo(def.spellID)
+        if name then
+            def.name = name
+            def.icon = icon
+            byName[name] = def
+        end
+    end
+    for index = 1, (GetNumSkillLines() or 0) do
+        local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(index)
+        local def = not isHeader and name and byName[name]
+        if def and (def.secondary == true) == wantSecondary then
+            found[#found + 1] = {
+                idx = index,
+                name = name,
+                nameUpper = name:upper(),
+                icon = def.icon,
+                rank = tonumber(rank) or 0,
+                maxRank = tonumber(maxRank) or 0,
+                id = def.id,
+                spellID = def.openSpellID or def.spellID,
+            }
+        end
+    end
+    return found
+end
+
 -- Shared builder for both profession blocks. secondary = false shows the
 -- two primary professions (right-click = profession book); secondary =
 -- true shows Cooking + Fishing (right-click = Basic Campfire, a secure
@@ -3728,18 +3760,24 @@ local CAMPFIRE_SPELL = 818   -- Basic Campfire
 local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
-    inst.events = { "TRADE_SKILL_DETAILS_UPDATE", "SPELLS_CHANGED" }
+    inst.events = { "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "SPELLS_CHANGED", "PLAYER_ENTERING_WORLD" }
 
     local MEDIA_PROF = MEDIA .. "profession\\"
-    local prof1, prof2 = {}, {}
+    local prof1, prof2, prof3 = {}, {}, {}
 
     local function BC() return barCtx.cfg end
 
     local built = false
     local prof1Frame, prof1Icon, prof1Text, prof1Bar, prof1BarBg
     local prof2Frame, prof2Icon, prof2Text, prof2Bar, prof2BarBg
+    local prof3Frame, prof3Icon, prof3Text, prof3Bar, prof3BarBg
 
     local function UpdateProfValues()
+        if not (GetProfessions and GetProfessionInfo) then
+            local list = GetWrathProfessionData(secondary)
+            prof1, prof2, prof3 = list[1] or {}, list[2] or {}, list[3] or {}
+            return
+        end
         local p1, p2
         if secondary then
             local _, _, _, fishing, cooking = GetProfessions()
@@ -3747,7 +3785,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
         else
             p1, p2 = GetProfessions()
         end
-        prof1 = {}; prof2 = {}
+        prof1 = {}; prof2 = {}; prof3 = {}
         if p1 then
             local name, icon, rank, maxRank, _, _, id = GetProfessionInfo(p1)
             name = name or ""
@@ -3879,8 +3917,11 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
         local currInfo = C_TradeSkillUI and C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
         if currInfo and currInfo.professionID == prof.id and _G.ProfessionsFrame and _G.ProfessionsFrame:IsShown() then
             C_TradeSkillUI.CloseTradeSkill()
-        elseif prof.id then
+        elseif C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill then
             C_TradeSkillUI.OpenTradeSkill(prof.id)
+        elseif prof.spellID and CastSpellByName then
+            local spellName = GetSpellInfo(prof.spellID)
+            if spellName then CastSpellByName(spellName) end
         end
     end
 
@@ -3895,10 +3936,13 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
             if secondary then
                 -- Right-click = Basic Campfire, cast securely.
                 f:SetAttribute("*type2", "spell")
-                f:SetAttribute("*spell2", CAMPFIRE_SPELL)
+                f:SetAttribute("*spell2", (GetSpellInfo and GetSpellInfo(CAMPFIRE_SPELL)) or CAMPFIRE_SPELL)
             elseif _G.ProfessionMicroButton then
                 f:SetAttribute("*type2", "click")
                 f:SetAttribute("*clickbutton2", _G.ProfessionMicroButton)
+            elseif _G.SpellbookMicroButton then
+                f:SetAttribute("*type2", "click")
+                f:SetAttribute("*clickbutton2", _G.SpellbookMicroButton)
             end
             local icon = f:CreateTexture(nil, "OVERLAY")
             local text = f:CreateFontString(nil, "OVERLAY")
@@ -3909,24 +3953,27 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
 
         prof1Frame, prof1Icon, prof1Text, prof1Bar, prof1BarBg = MakeProfFrame("EllesmereUIDataBarsProf1_" .. inst.key)
         prof2Frame, prof2Icon, prof2Text, prof2Bar, prof2BarBg = MakeProfFrame("EllesmereUIDataBarsProf2_" .. inst.key)
+        prof3Frame, prof3Icon, prof3Text, prof3Bar, prof3BarBg = MakeProfFrame("EllesmereUIDataBarsProf3_" .. inst.key)
         AttachTextOffset(inst, prof1Text)
         AttachTextOffset(inst, prof2Text)
+        AttachTextOffset(inst, prof3Text)
 
-        local frames = { prof1Frame, prof2Frame }
-        for i = 1, 2 do
+        local frames = { prof1Frame, prof2Frame, prof3Frame }
+        for i = 1, 3 do
             local frame = frames[i]
-            local isFirst = (i == 1)
+            local profIndex = i
             -- HookScript, NOT SetScript: SetScript("OnClick") would overwrite
             -- SecureActionButton_OnClick and kill the secure *clickbutton2
             -- passthrough to ProfessionMicroButton (right-click).
             frame:HookScript("OnClick", function(_, button)
                 if button == "LeftButton" then
-                    if isFirst then OpenProf(prof1) else OpenProf(prof2) end
+                    local prof = profIndex == 1 and prof1 or (profIndex == 2 and prof2 or prof3)
+                    OpenProf(prof)
                 end
             end)
             frame:SetScript("OnEnter", function(f)
-                local txt, ic = prof2Text, prof2Icon
-                if isFirst then txt, ic = prof1Text, prof1Icon end
+                local txt = profIndex == 1 and prof1Text or (profIndex == 2 and prof2Text or prof3Text)
+                local ic = profIndex == 1 and prof1Icon or (profIndex == 2 and prof2Icon or prof3Icon)
                 local ar, ag, ab = ns.GetAccent()
                 txt:SetTextColor(ar, ag, ab, 1)
                 if ic then ic:SetVertexColor(ar, ag, ab, 1) end
@@ -3945,6 +3992,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 end
                 if prof1.idx then AddLine(prof1) end
                 if prof2.idx then AddLine(prof2) end
+                if prof3.idx then AddLine(prof3) end
                 ns.Tip_AddLine(" ")
                 local rightLabel = L["OPEN_PROFESSION_BOOK"]
                 if secondary then rightLabel = L["START_CAMPFIRE"] end
@@ -3953,8 +4001,8 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 ns.Tip_Show()
             end)
             frame:SetScript("OnLeave", function(f)
-                local txt, ic = prof2Text, prof2Icon
-                if isFirst then txt, ic = prof1Text, prof1Icon end
+                local txt = profIndex == 1 and prof1Text or (profIndex == 2 and prof2Text or prof3Text)
+                local ic = profIndex == 1 and prof1Icon or (profIndex == 2 and prof2Icon or prof3Icon)
                 local br, bgr, bb = BlockColorOf(blockCfg)
                 txt:SetTextColor(br, bgr, bb, 1)
                 -- Icon restores through ICON color (accent by default for
@@ -3987,46 +4035,30 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
 
         StyleProfFrame(prof1, prof1Frame, prof1Icon, prof1Text, prof1Bar, prof1BarBg)
         StyleProfFrame(prof2, prof2Frame, prof2Icon, prof2Text, prof2Bar, prof2BarBg)
+        StyleProfFrame(prof3, prof3Frame, prof3Icon, prof3Text, prof3Bar, prof3BarBg)
 
-        if isSide then
-            local slotW = VSlotW(inst)
-            local totalH = 0
-            if prof1.idx and prof1Frame:IsShown() then
-                prof1Frame:ClearAllPoints()
-                prof1Frame:SetPoint("TOP", content, "TOP", 0, 0)
-                totalH = totalH + prof1Frame:GetHeight()
-            end
-            if prof2.idx and prof2Frame:IsShown() then
-                prof2Frame:ClearAllPoints()
-                if prof1.idx and prof1Frame:IsShown() then
-                    prof2Frame:SetPoint("TOP", prof1Frame, "BOTTOM", 0, -4)
-                    totalH = totalH + 4
+        local data = { prof1, prof2, prof3 }
+        local frames = { prof1Frame, prof2Frame, prof3Frame }
+        local previous, total = nil, 0
+        for i = 1, 3 do
+            local frame = frames[i]
+            if data[i].idx and frame:IsShown() then
+                frame:ClearAllPoints()
+                if isSide then
+                    if previous then frame:SetPoint("TOP", previous, "BOTTOM", 0, -4); total = total + 4
+                    else frame:SetPoint("TOP", content, "TOP", 0, 0) end
+                    total = total + frame:GetHeight()
                 else
-                    prof2Frame:SetPoint("TOP", content, "TOP", 0, 0)
+                    if previous then frame:SetPoint("LEFT", previous, "RIGHT", gap, 0); total = total + gap
+                    else frame:SetPoint("LEFT", content, "LEFT", 0, 0) end
+                    total = total + frame:GetWidth()
                 end
-                totalH = totalH + prof2Frame:GetHeight()
+                previous = frame
             end
-            content:SetSize(slotW, max(totalH, 1))
-        else
-            content:SetHeight(barH)
-            if prof1.idx and prof1Frame:IsShown() then
-                prof1Frame:ClearAllPoints(); prof1Frame:SetPoint("LEFT", content, "LEFT", 0, 0)
-            end
-            if prof2.idx and prof2Frame:IsShown() then
-                prof2Frame:ClearAllPoints()
-                if prof1.idx and prof1Frame:IsShown() then
-                    prof2Frame:SetPoint("LEFT", prof1Frame, "RIGHT", gap, 0)
-                else
-                    prof2Frame:SetPoint("LEFT", content, "LEFT", 0, 0)
-                end
-            end
-
-            local totalW = 0
-            if prof1.idx and prof1Frame:IsShown() then totalW = totalW + prof1Frame:GetWidth() end
-            if prof2.idx and prof2Frame:IsShown() then totalW = totalW + gap + prof2Frame:GetWidth() end
-            content:SetWidth(max(totalW, 1))
         end
-        if not prof1.idx and not prof2.idx then content:Hide() else content:Show() end
+        if isSide then content:SetSize(VSlotW(inst), max(total, 1))
+        else content:SetSize(max(total, 1), barH) end
+        if not previous then content:Hide() else content:Show() end
         MaybeRelayout(inst)
     end
 
@@ -4048,12 +4080,12 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
         if not built then return 40 end
         if barCtx.IsVertical() then
             local barH = barCtx.GetThickness()
-            local p1H, p2H = 0, 0
+            local p1H, p2H, p3H = 0, 0, 0
             if prof1Frame and prof1Frame:IsShown() then p1H = prof1Frame:GetHeight() or 0 end
             if prof2Frame and prof2Frame:IsShown() then p2H = prof2Frame:GetHeight() or 0 end
-            local gap = 0
-            if p1H > 0 and p2H > 0 then gap = 5 end
-            return max(p1H + gap + p2H, barH, 50)
+            if prof3Frame and prof3Frame:IsShown() then p3H = prof3Frame:GetHeight() or 0 end
+            local count = (p1H > 0 and 1 or 0) + (p2H > 0 and 1 or 0) + (p3H > 0 and 1 or 0)
+            return max(p1H + p2H + p3H + max(0, count - 1) * 5, barH, 50)
         end
         return max(content:GetWidth() or 80, 30)
     end
@@ -4062,6 +4094,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
         self._dead = true
         if prof1Frame then ParkSecureFrame(prof1Frame, self.key .. "_prof1") end
         if prof2Frame then ParkSecureFrame(prof2Frame, self.key .. "_prof2") end
+        if prof3Frame then ParkSecureFrame(prof3Frame, self.key .. "_prof3") end
         content:Hide()
     end
 
@@ -4137,7 +4170,7 @@ end
 -- Blizzard_SpellBookItem. Candidate lists: first existing global wins.
 local MM_MICRO_BUTTON_NAMES = {
     guild   = "GuildMicroButton",
-    social  = "QuickJoinToastButton",
+    social  = { "QuickJoinToastButton", "SocialsMicroButton" },
     char    = "CharacterMicroButton",
     spell   = { "PlayerSpellsMicroButton", "SpellbookMicroButton" },
     journal = { "EJMicroButton" },
@@ -4158,6 +4191,16 @@ mmClickFunctions.menu = function(_, button)
     elseif button == "RightButton" then
         if IsShiftKeyDown() then C_UI.Reload()
         elseif not InCombatLockdown() then ToggleFrame(AddonList) end
+    end
+end
+mmClickFunctions.guild = function(_, button)
+    if button == "LeftButton" and not InCombatLockdown() and ToggleFriendsFrame then
+        ToggleFriendsFrame(3)
+    end
+end
+mmClickFunctions.social = function(_, button)
+    if button == "LeftButton" and not InCombatLockdown() and ToggleFriendsFrame then
+        ToggleFriendsFrame(1)
     end
 end
 local function MMBlockedInCombat(button)
@@ -4392,7 +4435,8 @@ local mmLastTipRoster = 0
 
 local function MMBuildSocialTip()
     local ar, ag, ab = ns.GetAccent()
-    local totalBN = BNGetNumFriends()
+    local totalBN = 0
+    if BNGetNumFriends then totalBN = BNGetNumFriends() or 0 end
     local totalWoW = C_FriendList.GetNumOnlineFriends()
     local playerFaction = UnitFactionGroup("player")
 
@@ -4779,7 +4823,11 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
     local function UpdateFriendText()
         local mm = D()
         if mm.hideSocialText or not mm.social or not textFS.social then return end
-        local _, bnOnline = BNGetNumFriends()
+        local bnOnline = 0
+        if BNGetNumFriends then
+            local _, online = BNGetNumFriends()
+            bnOnline = online or 0
+        end
         local total = (bnOnline or 0) + C_FriendList.GetNumOnlineFriends()
         ns.SetFont(textFS.social, SocialFontSize(), BC())
         -- Keep the hover tint if a roster event repaints mid-hover.
@@ -5224,7 +5272,9 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
         local left = volTrack:GetLeft()
         local w = volTrack:GetWidth()
         if not left or not w or w <= 0 then return end
-        local scale = volTrack:GetEffectiveScale()
+        -- Texture regions do not expose GetEffectiveScale on the 3.3.5
+        -- client; their owning frame does.
+        local scale = audioButton:GetEffectiveScale()
         if not scale or scale == 0 then scale = 1 end
         local cx = GetCursorPosition() / scale
         local frac = (cx - left) / w

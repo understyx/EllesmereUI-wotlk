@@ -51,6 +51,140 @@ if not C_FriendList.GetFriendInfoByIndex then
     end
 end
 
+-- Small namespace shims used by the Retail-authored utility modules.  The
+-- underlying operations already exist in Wrath; only their C_* homes are
+-- newer.
+C_GuildInfo = C_GuildInfo or {}
+C_GuildInfo.GuildRoster = C_GuildInfo.GuildRoster or GuildRoster or function() end
+
+C_PartyInfo = C_PartyInfo or {}
+C_PartyInfo.InviteUnit = C_PartyInfo.InviteUnit or InviteUnit or function() end
+
+C_UI = C_UI or {}
+C_UI.Reload = C_UI.Reload or ReloadUI or function() end
+
+-- The modern currency namespace wraps the legacy TokenFrame list.  Wrath's
+-- final GetCurrencyListInfo return is the token item ID; use that as the
+-- stable picker ID.  Honor/Arena are special rows without item IDs, so give
+-- them two private negative IDs that cannot collide with item IDs.
+do
+    local LegacyGetCurrencyListSize = _G.GetCurrencyListSize
+    local LegacyGetCurrencyListInfo = _G.GetCurrencyListInfo
+    local LegacyExpandCurrencyList = _G.ExpandCurrencyList
+    local LegacyToggleCharacter = _G.ToggleCharacter
+
+    C_CurrencyInfo = C_CurrencyInfo or {}
+
+    local function CurrencyRowID(extraCurrencyType, itemID)
+        if itemID then return tonumber(itemID) end
+        if extraCurrencyType == 1 then return -1 end -- Arena Points
+        if extraCurrencyType == 2 then return -2 end -- Honor Points
+        return nil
+    end
+
+    if not C_CurrencyInfo.GetCurrencyListSize and LegacyGetCurrencyListSize then
+        C_CurrencyInfo.GetCurrencyListSize = function()
+            return LegacyGetCurrencyListSize() or 0
+        end
+    end
+
+    if not C_CurrencyInfo.GetCurrencyListInfo and LegacyGetCurrencyListInfo then
+        C_CurrencyInfo.GetCurrencyListInfo = function(index)
+            local name, isHeader, isExpanded, isUnused, isWatched, quantity,
+                  extraCurrencyType, icon, itemID = LegacyGetCurrencyListInfo(index)
+            if not name then return nil end
+            if not icon and extraCurrencyType == 1 then
+                icon = "Interface\\PVPFrame\\PVP-ArenaPoints-Icon"
+            elseif not icon and extraCurrencyType == 2 then
+                local faction = UnitFactionGroup and UnitFactionGroup("player")
+                if faction then icon = "Interface\\TargetingFrame\\UI-PVP-" .. faction end
+            end
+            return {
+                name = name,
+                isHeader = isHeader == true or isHeader == 1,
+                isHeaderExpanded = isExpanded == true or isExpanded == 1,
+                isUnused = isUnused == true or isUnused == 1,
+                isShowInBackpack = isWatched == true or isWatched == 1,
+                quantity = tonumber(quantity) or 0,
+                iconFileID = icon,
+                currencyID = CurrencyRowID(extraCurrencyType, itemID),
+                extraCurrencyType = extraCurrencyType,
+            }
+        end
+    end
+
+    if not C_CurrencyInfo.ExpandCurrencyList and LegacyExpandCurrencyList then
+        C_CurrencyInfo.ExpandCurrencyList = function(index, expand)
+            LegacyExpandCurrencyList(index, expand and 1 or 0)
+        end
+    end
+
+    local function FindCurrencyRow(currencyID)
+        if not (C_CurrencyInfo.GetCurrencyListSize and C_CurrencyInfo.GetCurrencyListInfo) then return nil end
+        currencyID = tonumber(currencyID)
+        local collapsed = {}
+        local index = 1
+        while index <= C_CurrencyInfo.GetCurrencyListSize() do
+            local row = C_CurrencyInfo.GetCurrencyListInfo(index)
+            if row and row.isHeader and not row.isHeaderExpanded and C_CurrencyInfo.ExpandCurrencyList then
+                collapsed[#collapsed + 1] = index
+                C_CurrencyInfo.ExpandCurrencyList(index, true)
+            elseif row and not row.isHeader and row.currencyID == currencyID then
+                for i = #collapsed, 1, -1 do C_CurrencyInfo.ExpandCurrencyList(collapsed[i], false) end
+                return row
+            end
+            index = index + 1
+        end
+        for i = #collapsed, 1, -1 do C_CurrencyInfo.ExpandCurrencyList(collapsed[i], false) end
+        return nil
+    end
+
+    if not C_CurrencyInfo.GetCurrencyListLink then
+        C_CurrencyInfo.GetCurrencyListLink = function(index)
+            local row = C_CurrencyInfo.GetCurrencyListInfo and C_CurrencyInfo.GetCurrencyListInfo(index)
+            if not (row and not row.isHeader and row.currencyID) then return nil end
+            return "|Hcurrency:" .. row.currencyID .. "|h[" .. (row.name or "Currency") .. "]|h"
+        end
+    end
+
+    if not C_CurrencyInfo.GetCurrencyIDFromLink then
+        C_CurrencyInfo.GetCurrencyIDFromLink = function(link)
+            if type(link) ~= "string" then return nil end
+            return tonumber(link:match("|Hcurrency:([%-]?%d+)") or link:match("currency:([%-]?%d+)"))
+        end
+    end
+
+    if not C_CurrencyInfo.GetCurrencyInfo and LegacyGetCurrencyListInfo then
+        C_CurrencyInfo.GetCurrencyInfo = function(currencyID)
+            local row = FindCurrencyRow(currencyID)
+            if not row then return nil end
+            return {
+                name = row.name,
+                quantity = row.quantity or 0,
+                iconFileID = row.iconFileID,
+                discovered = true,
+                maxQuantity = 0,
+                description = "",
+                quality = 1,
+            }
+        end
+    end
+
+    if not C_CurrencyInfo.OpenCurrencyPanel then
+        C_CurrencyInfo.OpenCurrencyPanel = function()
+            if LegacyToggleCharacter then LegacyToggleCharacter("TokenFrame") end
+        end
+    end
+end
+
+if not IsPlayerAtEffectiveMaxLevel then
+    function IsPlayerAtEffectiveMaxLevel()
+        local level = UnitLevel and UnitLevel("player") or 0
+        local levelCap = tonumber(_G.MAX_PLAYER_LEVEL) or 80
+        return level >= levelCap
+    end
+end
+
 -- IsEncounterInProgress was added after Wrath. Boss unit presence plus combat
 -- is the closest legacy equivalent and is sufficient for visibility rules.
 if not IsEncounterInProgress then
@@ -1487,6 +1621,7 @@ end
 -- C_Container
 if not C_Container then
     C_Container = {}
+    local containerSearchText = ""
 
     C_Container.GetContainerNumSlots = function(bag)
         return GetContainerNumSlots(bag)
@@ -1496,6 +1631,16 @@ if not C_Container then
         local texture, itemCount, locked, quality, readable, lootable, itemLink = GetContainerItemInfo(bag, slot)
         if texture then
             local itemID = itemLink and tonumber(itemLink:match("item:(%d+)"))
+            local isFiltered = false
+            if containerSearchText ~= "" then
+                local itemName = itemLink and GetItemInfo(itemLink)
+                -- Keep uncached items visible until GET_ITEM_INFO_RECEIVED causes
+                -- the bags to refresh; hiding them would make valid matches flash
+                -- out of existence while the client populates its item cache.
+                if itemName then
+                    isFiltered = not itemName:lower():find(containerSearchText, 1, true)
+                end
+            end
             return {
                 iconFileID = texture,
                 stackCount = itemCount,
@@ -1504,7 +1649,7 @@ if not C_Container then
                 isReadable = readable == 1 or readable == true,
                 itemLink = itemLink,
                 itemID = itemID,
-                isFiltered = false,
+                isFiltered = isFiltered,
                 hasNoValue = false,
                 isBound = IsItemBound(bag, slot)
             }
@@ -1533,7 +1678,7 @@ if not C_Container then
     end
 
     C_Container.SetItemSearch = function(text)
-        -- No-op fallback
+        containerSearchText = tostring(text or ""):lower()
     end
 
     C_Container.SortBags = function()

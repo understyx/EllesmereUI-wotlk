@@ -13,6 +13,10 @@
 local _, ns = ...
 local EQT = ns.EQT
 
+-- Wrath has a different native tracker and line-pool API. Its implementation
+-- is loaded from EllesmereUIQuestTracker_Wrath.lua.
+if _G.WatchFrame and not _G.ObjectiveTrackerFrame then return end
+
 -- Hidden reparent target -- NEVER recursed into.
 local hiddenFrame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIQTHiddenParent", UIParent)
 hiddenFrame:Hide()

@@ -1177,7 +1177,7 @@ initFrame:SetScript("OnEvent", function(self)
             segMenu = nil
             local ROW_H2 = 24
             local menu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
-            menu:SetFrameStrata("FULLSCREEN_DIALOG")
+            menu:SetFrameStrata("TOOLTIP")
             menu:SetFrameLevel(300)
             menu:SetClampedToScreen(true)
             menu:SetWidth(150)
@@ -1189,6 +1189,10 @@ initFrame:SetScript("OnEvent", function(self)
             local rowY = -3
             local function AddRow(text, onClick)
                 local row = EllesmereUI.SafeCreateFrame("Button", nil, menu)
+                -- MakeBorder owns a child frame one level above its parent.
+                -- Keep the context-menu row and its text above that frame on
+                -- Wrath, whose equal-level creation ordering is inconsistent.
+                row:SetFrameLevel(menu:GetFrameLevel() + 2)
                 row:SetHeight(ROW_H2)
                 row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, rowY)
                 row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, rowY)
@@ -3111,9 +3115,6 @@ initFrame:SetScript("OnEvent", function(self)
                     { key = "quest",   label = "Quests" },
                     { key = "lfg",     label = "Group Finder" },
                     { key = "pvp",     label = "PvP" },
-                    { key = "journal", label = "Adventure Journal" },
-                    { key = "pet",     label = "Collections" },
-                    { key = "shop",    label = "Shop" },
                     { key = "help",    label = "Help" },
                 }
                 local mmRow

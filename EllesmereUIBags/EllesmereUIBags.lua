@@ -837,7 +837,7 @@ local function CreateHeader()
         local function ConsolidateStacks(onDone)
             local function DoOnePass()
                 local stacks = {}  -- itemID -> { {bag,slot,count}, ... }
-                for bag = 0, 5 do
+                for bag = 0, (_G.NUM_BAG_SLOTS or 4) do
                     local numSlots = C_Container.GetContainerNumSlots(bag)
                     for slot = 1, numSlots do
                         local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -932,6 +932,7 @@ local function CreateHeader()
             local sBag, sSlot, sKey, sID = {}, {}, {}, {}
 
             local items = {}
+            local itemDataReady = true
             for bag = bagMin, bagMax do
                 local numSlots = C_Container.GetContainerNumSlots(bag)
                 for slot = 1, numSlots do
@@ -941,18 +942,24 @@ local function CreateHeader()
                     local info = C_Container.GetContainerItemInfo(bag, slot)
                     if info then
                         local link = C_Container.GetContainerItemLink(bag, slot)
-                        local key = link .. "\0" .. (info.stackCount or 0)
-                        sKey[total] = key
-                        sID[total] = info.itemID
-                        items[#items + 1] = {
-                            pos = total, bag = bag, slot = slot,
-                            info = info, itemLink = link, key = key,
-                        }
+                        if link and info.itemID then
+                            local key = link .. "\0" .. (info.stackCount or 0)
+                            sKey[total] = key
+                            sID[total] = info.itemID
+                            items[#items + 1] = {
+                                pos = total, bag = bag, slot = slot,
+                                info = info, itemLink = link, key = key,
+                            }
+                        else
+                            itemDataReady = false
+                        end
                     end
                 end
             end
 
-            if #items == 0 then return false end
+            -- Never treat an occupied slot with uncached metadata as empty: that
+            -- could move another item onto it and produce an unintended swap.
+            if not itemDataReady or #items == 0 then return false end
 
             EUI_CategoryManager:ClassifyAll(items)
             local cats = EUI_CategoryManager:GetCategories()
@@ -1052,13 +1059,7 @@ local function CreateHeader()
         end
 
         local function RunSort()
-            RunRetryLoop(0, 4, function()
-                if C_Container.GetContainerNumSlots(5) > 0 then
-                    RunRetryLoop(5, 5, FinishSort)
-                else
-                    FinishSort()
-                end
-            end)
+            RunRetryLoop(0, (_G.NUM_BAG_SLOTS or 4), FinishSort)
         end  -- end RunSort
 
         -- Consolidate partial stacks first, then sort
@@ -1069,7 +1070,7 @@ local function CreateHeader()
         -- Sort items per category and save the order
         local cats = EUI_CategoryManager:GetCategories()
         local tempItems = {}
-        for bag = 0, 5 do
+        for bag = 0, (_G.NUM_BAG_SLOTS or 4) do
             local numSlots = C_Container.GetContainerNumSlots(bag)
             for slot = 1, numSlots do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -1131,12 +1132,10 @@ local function CreateHeader()
         C_Timer.After(3, UnlockSort)
     end
 
-    -- MultiBag sort: defer to Blizzard's native bag sort. Insecure-callable, no
-    -- taint; the resulting BAG_UPDATE storm drives the module's normal refresh.
+    -- Wrath has no native SortBags API. MultiBag uses the same physical sorter
+    -- as OneBag; only the presentation differs after the BAG_UPDATE refresh.
     local function DoBlizzardSort()
-        LockSort()
-        C_Container.SortBags()
-        C_Timer.After(3, UnlockSort)
+        DoPhysicalSort()
     end
 
     sort:SetScript("OnClick", function()
@@ -1166,7 +1165,7 @@ local function CreateHeader()
             else
                 EUI:ShowConfirmPopup({
                     title       = "MultiBag Sort",
-                    message     = "MultiBag uses Blizzard's built-in sorting system, which reorganizes the items in your default Blizzard bags. The changes persist even if you disable EllesmereUI Bags.",
+                    message     = "MultiBag sorting will physically reorganize items in your bags. The changes persist even if you disable EllesmereUI Bags.",
                     confirmText = "Sort",
                     cancelText  = "Cancel",
                     checkbox    = "Don't show me again",
@@ -4907,13 +4906,13 @@ function EUI_Bags:RefreshInventory()
 
     if C_NewItems and C_NewItems.ClearAll then C_NewItems.ClearAll() end
 
-    -- 1. Gather items from all bags (0-4 + reagent bag 5)
+    -- 1. Gather items from the backpack and equipped bags (0-4 on Wrath).
     local _t0Scan = ProfBegin("BagScan")
     ReleaseAllSlotTables()
     local tempItems = {}
     local emptySlots = {}
 
-    for bag = 0, 5 do
+    for bag = 0, (_G.NUM_BAG_SLOTS or 4) do
         local numSlots = C_Container.GetContainerNumSlots(bag)
         for slot = 1, numSlots do
             local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -5158,7 +5157,7 @@ function EUI_Bags:RefreshInventory()
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
             S = 0
-            for bag = 0, 5 do if C_Container.GetContainerNumSlots(bag) > 0 then S = S + 1 end end
+            for bag = 0, (_G.NUM_BAG_SLOTS or 4) do if C_Container.GetContainerNumSlots(bag) > 0 then S = S + 1 end end
             if S < 1 then S = 1 end
         else
             -- OneBag / group view: a few sections (pinned/recent/main/reagent)
@@ -6218,7 +6217,7 @@ function EUI_BagsReagent:RefreshInventory()
     -- GetOrCreateReagentSlot refuses. Mark pending so combat-end tops up.
     if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true end
     local tempItems = {}
-    local numSlots = C_Container.GetContainerNumSlots(5)
+    local numSlots = 0 -- Wrath has no reagent bag; container 5 is a bank bag.
     if numSlots > 0 then
         for slot = 1, numSlots do
             local info = C_Container.GetContainerItemInfo(5, slot)
@@ -6298,8 +6297,8 @@ function EUI_BagsWindow:RefreshBags()
     if not EUI_BagsWindow:IsVisible() then return end
     for _, btn in pairs(bagSlots) do btn:GetParent():Hide() end
     local startX, startY = 10, -10
-    local BAG_COLUMNS = 6
-    for i = 0, 5 do
+    local BAG_COLUMNS = (_G.NUM_BAG_SLOTS or 4) + 1
+    for i = 0, (_G.NUM_BAG_SLOTS or 4) do
         local displayIdx = i + 1
         local btn = GetOrCreateBagSlot(displayIdx)
         local parent = btn:GetParent()
@@ -6678,7 +6677,7 @@ local function StartAddon()
     end
 
     local function SnapshotKnownIDs()
-        for bag = 0, 5 do
+        for bag = 0, (_G.NUM_BAG_SLOTS or 4) do
             ScanBagState(bag, false)
         end
         _snapshotReady = true
@@ -6719,7 +6718,7 @@ local function StartAddon()
 
     local function GetCachedItemTotal(itemID)
         local total = 0
-        for bag = 0, 5 do
+        for bag = 0, (_G.NUM_BAG_SLOTS or 4) do
             local state = _bagState[bag]
             if state then
                 for slot = 1, state.numSlots do
@@ -6774,7 +6773,7 @@ local function StartAddon()
     -- one in combat -- it only positions/shows already-clean buttons.
     do
         local total = 0
-        for bag = 0, 5 do
+        for bag = 0, (_G.NUM_BAG_SLOTS or 4) do
             total = total + (C_Container.GetContainerNumSlots(bag) or 0)
         end
         for i = 1, total do
@@ -6782,7 +6781,7 @@ local function StartAddon()
             if b and b:GetParent() then b:GetParent():Hide() end
         end
         -- Reagent bag (bag 5) has its own secure-button pool; pre-warm it too.
-        local reagentSlotsN = C_Container.GetContainerNumSlots(5) or 0
+        local reagentSlotsN = 0 -- Wrath has no reagent bag; container 5 is a bank bag.
         for i = 1, reagentSlotsN do
             local b = GetOrCreateReagentSlot(i)
             if b and b:GetParent() then b:GetParent():Hide() end
@@ -6881,7 +6880,7 @@ local function StartAddon()
                 if type(bagID) == "number" and bagID >= 0 and bagID <= 5 then
                     _dirtyBags[bagID] = true
                 else
-                    for bag = 0, 5 do _dirtyBags[bag] = true end
+                    for bag = 0, (_G.NUM_BAG_SLOTS or 4) do _dirtyBags[bag] = true end
                 end
                 return
             end
