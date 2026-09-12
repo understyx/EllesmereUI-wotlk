@@ -477,7 +477,9 @@ local DEFAULTS = {
             hideBuffsWhenInactive = true,
             showInactiveBuffIcons = false,
             desaturateInactiveBuffs = true,
-            -- The 3 default bars (match Blizzard CDM)
+            -- A single default bar. Cooldown bars can host spells from every
+            -- CDM family, so separate Utility/Buff/Debuff defaults only add
+            -- layout and configuration overhead.
             bars = {
                 {
                     key = "cooldowns", name = "Cooldowns", enabled = true,
@@ -488,70 +490,6 @@ local DEFAULTS = {
                     bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
                     iconZoom = 0.08, iconShape = "none",
                     verticalOrientation = false, barBgEnabled = false,                    barBgR = 0, barBgG = 0, barBgB = 0,
-                    borderThickness = "thin",
-                    anchorTo = "none", anchorPosition = "left",
-                    anchorOffsetX = 0, anchorOffsetY = 0,
-                    barVisibility = "always", visOnlyInstances = false,
-                    visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
-                    showCooldownText = true, cooldownTextPosition = "center",
-                    showItemCount = true, showTooltip = false, showKeybind = false,
-                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
-                    keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
-                },
-                {
-                    key = "utility", name = "Utility", enabled = true,
-                    barType = "utility",
-                    iconSize = 36, numRows = 1, spacing = 2,
-                    borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-                    borderClassColor = false, borderTexture = "solid",
-                    bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
-                    iconZoom = 0.08, iconShape = "none",
-                    verticalOrientation = false, barBgEnabled = false,                    barBgR = 0, barBgG = 0, barBgB = 0,
-                    borderThickness = "thin",
-                    anchorTo = "none", anchorPosition = "left",
-                    anchorOffsetX = 0, anchorOffsetY = 0,
-                    barVisibility = "always", visOnlyInstances = false,
-                    visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
-                    showCooldownText = true, cooldownTextPosition = "center",
-                    showItemCount = true, showTooltip = false, showKeybind = false,
-                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
-                    keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
-                },
-                {
-                    key = "buffs", name = "Buffs", enabled = true,
-                    barType = "buffs",
-                    -- Always Show Buffs (per-bar): show a greyed placeholder icon
-                    -- for each inactive tracked buff. desaturateInactiveBuffs is
-                    -- the inline cog. Off by default for new installs; the
-                    -- migration turns it on for users who had the old global on.
-                    showInactiveBuffIcons = false, desaturateInactiveBuffs = true,
-                    hidePlaceholderIcon = false,
-                    iconSize = 32, numRows = 1, spacing = 2,
-                    borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-                    borderClassColor = false, borderTexture = "solid",
-                    bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
-                    iconZoom = 0.08, iconShape = "none",
-                    verticalOrientation = false, barBgEnabled = false,                    barBgR = 0, barBgG = 0, barBgB = 0,
-                    borderThickness = "thin",
-                    anchorTo = "none", anchorPosition = "left",
-                    anchorOffsetX = 0, anchorOffsetY = 0,
-                    barVisibility = "always", visOnlyInstances = false,
-                    visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
-                    showCooldownText = true, cooldownTextPosition = "center",
-                    showItemCount = true, showTooltip = false, showKeybind = false,
-                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
-                    keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
-                },
-                {
-                    key = "debuffs", name = "Debuffs", enabled = true,
-                    barType = "debuffs",
-                    iconSize = 32, numRows = 1, spacing = 2,
-                    borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-                    borderClassColor = false, borderTexture = "solid",
-                    bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
-                    iconZoom = 0.08, iconShape = "none",
-                    verticalOrientation = false, barBgEnabled = false,
-                    barBgR = 0, barBgG = 0, barBgB = 0,
                     borderThickness = "thin",
                     anchorTo = "none", anchorPosition = "left",
                     anchorOffsetX = 0, anchorOffsetY = 0,
@@ -6827,47 +6765,9 @@ end
 ns.EnsureFocusReminderProxy = EnsureFocusReminderProxy
 
 
--- Ghost bars: ensure both buff and CD ghost bars exist in the bars array.
+-- Ghost bars: ensure the hidden CD routing sink exists in the bars array.
 -- Called from BuildAllCDMBars before iterating bars.
 ns.GHOST_CD_BAR_KEY = GHOST_CD_BAR_KEY
-function ns.EnsureDefaultDebuffBar()
-    local cfg = ns.GetActiveCDMConfig(true)
-    local bars = cfg and cfg.bars
-    if not bars then return end
-    for _, b in ipairs(bars) do
-        if b.key == "debuffs" then return end
-    end
-    local debuffs = {
-        key = "debuffs", name = "Debuffs", barType = "debuffs", enabled = true,
-        iconSize = 32, numRows = 1, spacing = 2,
-        borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-        borderClassColor = false, borderTexture = "solid", borderThickness = "thin",
-        bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
-        iconZoom = 0.08, iconShape = "none",
-        verticalOrientation = false, barBgEnabled = false,
-        barBgR = 0, barBgG = 0, barBgB = 0,
-        anchorTo = "none", anchorPosition = "left",
-        anchorOffsetX = 0, anchorOffsetY = 0,
-        barVisibility = "always", visOnlyInstances = false,
-        visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
-        showCooldownText = true, cooldownTextPosition = "center",
-        showItemCount = true, showTooltip = false, showKeybind = false,
-        keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
-        keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
-    }
-    local insertAt = #bars + 1
-    for i, b in ipairs(bars) do
-        if b.key == "buffs" then
-            insertAt = i + 1
-            break
-        elseif b.isGhostBar then
-            insertAt = i
-            break
-        end
-    end
-    table.insert(bars, insertAt, debuffs)
-end
-
 local function EnsureGhostBars()
     local p = ECME.db and ECME.db.profile
     if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return end
@@ -7141,9 +7041,9 @@ _CDMApplyVisibility = function()
                             anyVisible = true; break
                         end
                         -- Custom bars: check which viewer they route from.
-                        -- CD/utility custom bars route from Essential or
-                        -- Utility viewer based on their assigned spells.
-                        -- Custom buffs bars route from the BuffIcon viewer.
+                        -- Cooldown bars use Essential/Utility and may also
+                        -- host explicitly selected Buff/Debuff viewer icons.
+                        -- Legacy buff bars route from the BuffIcon viewer.
                         -- custom_buff (aura timer) bars use own frames, not viewers.
                         local bt = barData.barType
                         if bt ~= "custom_buff" then
@@ -7151,6 +7051,14 @@ _CDMApplyVisibility = function()
                                 anyVisible = true; break
                             elseif bt == "debuffs" and viewerBarKey == "debuffs" then
                                 anyVisible = true; break
+                            elseif bt ~= "buffs" and bt ~= "debuffs"
+                               and (viewerBarKey == "buffs" or viewerBarKey == "debuffs") then
+                                local sd = ns.GetBarSpellData(barData.key)
+                                local hostsViewer = viewerBarKey == "buffs"
+                                    and sd and sd.hostedBuffSpellIDs ~= nil
+                                    or viewerBarKey == "debuffs"
+                                    and sd and sd.hostedDebuffSpellIDs ~= nil
+                                if hostsViewer then anyVisible = true; break end
                             elseif bt ~= "buffs" and bt ~= "debuffs"
                                and (viewerBarKey == "cooldowns" or viewerBarKey == "utility") then
                                 anyVisible = true; break
@@ -7452,8 +7360,7 @@ BuildAllCDMBars = function()
     -- fires the authoritative ApplyAllWidthHeightMatches pass.
     if EllesmereUI then EllesmereUI._cdmRebuilding = true end
 
-    -- Ensure built-in and ghost bars exist before iterating bars
-    ns.EnsureDefaultDebuffBar()
+    -- Ensure internal/special-purpose bars exist before iterating bars.
     EnsureGhostBars()
     EnsureFocusKickBar()
     ns.RescanMaxStacksGlowFlag()  -- set the Max Stacks Glow gate (once) before refresh

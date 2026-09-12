@@ -16469,16 +16469,11 @@ initFrame:SetScript("OnEvent", function(self)
                 div:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH - 4)
                 mH = mH + 9
 
-                -- "Add New ..." items (disabled if at cap)
+                -- Cooldown bars can host utility spells, buffs, and debuffs,
+                -- so one add action serves every CDM item family.
                 local atCap = customCount >= (ns.MAX_CUSTOM_BARS or 6)
-                -- Custom Aura ("custom_buff") bars were merged into Buff bars: a
-                -- Buff bar now hosts Blizzard-tracked buffs AND injected preset/
-                -- custom buffs, so there's no separate Aura bar type to create.
                 local addBarTypes = {
-                    { type = "cooldowns",   label = EllesmereUI.L("+ Add New Cooldowns Bar") },
-                    { type = "utility",     label = EllesmereUI.L("+ Add New Utility Bar") },
-                    { type = "buffs",       label = EllesmereUI.L("+ Add New Buff Bar") },
-                    { type = "debuffs",     label = EllesmereUI.L("+ Add New Debuff Bar") },
+                    { type = "cooldowns", label = EllesmereUI.L("+ Add New Cooldown Bar") },
                 }
                 for _, entry in ipairs(addBarTypes) do
                     local addItem = EllesmereUI.SafeCreateFrame("Button", nil, menu)

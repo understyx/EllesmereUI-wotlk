@@ -847,8 +847,19 @@ local function CdidIDReadable(id)
     return id > 0
 end
 
+-- New profiles have one default visible bar. Essential and Utility remain
+-- separate Blizzard viewer pools, but an unclaimed Utility frame falls back
+-- to the unified Cooldowns bar when no legacy Utility bar exists.
+local function ViewerFallbackBar(viewerDefaultBar)
+    if barDataByKey[viewerDefaultBar] then return viewerDefaultBar end
+    if viewerDefaultBar == "utility" and barDataByKey.cooldowns then
+        return "cooldowns"
+    end
+    return viewerDefaultBar
+end
+
 local function ResolveCDIDToBar(cdID, viewerDefaultBar)
-    if not cdID then return viewerDefaultBar end
+    if not cdID then return ViewerFallbackBar(viewerDefaultBar) end
     local cached = _cdidRouteMap[cdID]
     if cached then return cached end
 
@@ -870,8 +881,9 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     local RVV = ns.ResolveVariantValue
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not RVV or not gci then
-        _cdidRouteMap[cdID] = viewerDefaultBar
-        return viewerDefaultBar
+        local fallbackBar = ViewerFallbackBar(viewerDefaultBar)
+        _cdidRouteMap[cdID] = fallbackBar
+        return fallbackBar
     end
 
     local divertMap = viewerDefaultBar == "buffs" and _divertedSpellsBuff
@@ -886,7 +898,7 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
         -- fallback here would pin a ghosted/custom spell to its default bar
         -- until the next rebuild. Leaving it uncached lets a later pass (once
         -- info is ready) resolve the real bar.
-        return viewerDefaultBar
+        return ViewerFallbackBar(viewerDefaultBar)
     end
     local routedBar = nil
     do
@@ -921,11 +933,11 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
             end
         end
         if not sawReadable then
-            return viewerDefaultBar
+            return ViewerFallbackBar(viewerDefaultBar)
         end
     end
 
-    routedBar = routedBar or viewerDefaultBar
+    routedBar = routedBar or ViewerFallbackBar(viewerDefaultBar)
     _cdidRouteMap[cdID] = routedBar
     return routedBar
 end
@@ -3280,7 +3292,7 @@ local function CategorizeFrame(frame, viewerBarKey)
         -- rule this can't happen via picker claims, but legacy data could trigger
         -- it. Fall through to the viewer's default bar so the frame still renders.
     end
-    return viewerBarKey, displaySID, baseSID
+    return ViewerFallbackBar(viewerBarKey), displaySID, baseSID
 end
 
 -------------------------------------------------------------------------------
