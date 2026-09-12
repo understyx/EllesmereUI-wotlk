@@ -397,6 +397,8 @@ Register({
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+    auraUnit = "smartGroup",
+    auraOwnOnly = true,
     resolvers = {
         requirements = function()
             return HasLearnedTalent(3, 14) -- Resto: Earth Shield
