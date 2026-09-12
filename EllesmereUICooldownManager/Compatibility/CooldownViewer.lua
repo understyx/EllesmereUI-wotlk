@@ -193,6 +193,7 @@ local definitions = {}      -- cooldownID -> definition schema
 local availability = {}     -- cooldownID -> { isKnown = boolean, activeSpellID = number, activeAuraSpellID = number }
 local runtimeState = {}     -- cooldownID -> cooldown state plus matched aura identity/duration/stacks
 local categories = {}       -- categoryID -> array of cooldownIDs
+local executeCooldownIDs = {} -- compact list for health/resource-only visual refreshes
 
 -- Raid Cooldowns is a separate optional addon and usually loads after CDM.
 -- Let its catalog merge the definitions that were already registered here.
@@ -224,6 +225,26 @@ local cachedTargetDebuffs = {}
 local cachedTargetDebuffsAnySource = {}
 local cachedTargetDebuffsAnySourceByName = {}
 local cachedAuraTime = 0
+
+-- Retail accepts a spell ID through C_Spell.IsSpellUsable. On legacy clients,
+-- the equivalent IsUsableSpell call is safest with the learned spell name:
+-- some 3.3.5 implementations interpret a numeric argument as a spellbook slot,
+-- which makes execute abilities answer unusable forever. Normalize the legacy
+-- 1/nil results to booleans while preserving nil when no usability API exists.
+local function QuerySpellUsable(spellID)
+    if C_Spell and C_Spell.IsSpellUsable then
+        local usable = C_Spell.IsSpellUsable(spellID)
+        return usable == true or usable == 1
+    end
+    if not IsUsableSpell then return nil end
+
+    local query = spellID
+    if type(spellID) == "number" and GetSpellInfo then
+        query = GetSpellInfo(spellID) or spellID
+    end
+    local usable = IsUsableSpell(query)
+    return usable == true or usable == 1
+end
 
 -- Some 3.3.5 cores intermittently lose UnitAura's caster token (and may also
 -- return an empty HARMFUL|PLAYER view), notably after the player is
@@ -692,11 +713,19 @@ local function RefreshAdapterVisual(frame)
         end
     end
 
-    -- IsUsableSpell includes both the normal execute threshold and proc-based
-    -- exceptions such as Sudden Death, so do not duplicate those rules here.
-    if frame.Icon and def.execute and spellID and IsUsableSpell then
-        local usable = IsUsableSpell(spellID)
-        frame.Icon:SetDesaturated(not usable)
+    -- Usability includes the normal execute threshold and proc-based exceptions
+    -- such as Sudden Death. A real cooldown always wins, while a GCD-only state
+    -- does not grey the icon. This runs only from coalesced state/execute events,
+    -- never from a permanent ticker.
+    if frame.Icon and def.execute and spellID then
+        local now = GetTime()
+        local start = state and state.cooldownStart or 0
+        local duration = state and state.cooldownDuration or 0
+        local onRealCooldown = start > 0 and duration > 1.6
+            and now < start + duration
+        local usable
+        if not onRealCooldown then usable = QuerySpellUsable(spellID) end
+        frame.Icon:SetDesaturated(onRealCooldown or usable == false)
     end
 
     local isKnown = avail and avail.isKnown or false
@@ -773,6 +802,20 @@ local function SafeRefreshAdapter(frame, scope)
     return ok
 end
 
+-- Target health and player power can change execute usability without changing
+-- any cooldown/aura state. Refresh only the small class-scoped execute set for
+-- those edges instead of walking and repainting the complete CDM catalog.
+local function RefreshExecuteAdapters()
+    for i = 1, #executeCooldownIDs do
+        local cdID = executeCooldownIDs[i]
+        local avail = availability[cdID]
+        local frame = adapters[cdID]
+        if frame and avail and avail.isKnown then
+            SafeRefreshAdapter(frame, "ExecuteRefresh:" .. tostring(cdID))
+        end
+    end
+end
+
 local function IsInternalCooldownActive(state, now)
     return state
         and state.internalCooldownExpiration
@@ -829,6 +872,9 @@ function C_CooldownViewer.RegisterDefinition(def)
     end
 
     definitions[def.cooldownID] = def
+    if def.execute then
+        executeCooldownIDs[#executeCooldownIDs + 1] = def.cooldownID
+    end
     IndexDefinitionAuraTags(def)
 
     if (def.internalCooldown or 0) > 0 then
@@ -1246,28 +1292,36 @@ end
 -- without adding a permanent polling ticker.
 local auraRefreshQueued = false
 local stateRefreshQueued = false
+local executeRefreshQueued = false
 local auraRefreshRetryAt = 0
 local auraRefreshFailureCount = 0
 local auraRefreshFrame = CreateFrame("Frame")
 auraRefreshFrame:Hide()
 auraRefreshFrame:SetScript("OnUpdate", function(self)
-    if not stateRefreshQueued then self:Hide(); return end
+    if not stateRefreshQueued and not executeRefreshQueued then self:Hide(); return end
     local now = GetTime()
     if now < auraRefreshRetryAt then return end
     -- Consume the generation before work starts so a callback raised during
     -- the refresh can mark a newer generation dirty without being overwritten
     -- by the successful completion of this one.
     local refreshAuras = auraRefreshQueued
+    local refreshAllState = stateRefreshQueued
+    local refreshExecuteOnly = executeRefreshQueued and not refreshAllState
     auraRefreshQueued = false
     stateRefreshQueued = false
+    executeRefreshQueued = false
     local ok, err = xpcall(function()
-        if refreshAuras then UpdateAuraCache() end
-        ReevaluateState()
+        if refreshExecuteOnly then
+            RefreshExecuteAdapters()
+        else
+            if refreshAuras then UpdateAuraCache() end
+            ReevaluateState()
+        end
     end, CompatibilityTraceback)
     if ok then
         auraRefreshFailureCount = 0
         auraRefreshRetryAt = 0
-        if not stateRefreshQueued then self:Hide() end
+        if not stateRefreshQueued and not executeRefreshQueued then self:Hide() end
     else
         -- Keep the request armed. Exponential backoff prevents a persistent bad
         -- payload from becoming a refresh/error storm while still self-healing.
@@ -1276,9 +1330,11 @@ auraRefreshFrame:SetScript("OnUpdate", function(self)
         -- Preserve both the failed generation and any newer aura request
         -- raised synchronously while ReevaluateState was running.
         auraRefreshQueued = auraRefreshQueued or refreshAuras
-        stateRefreshQueued = true
+        stateRefreshQueued = stateRefreshQueued or refreshAllState
+        executeRefreshQueued = executeRefreshQueued or refreshExecuteOnly
         auraRefreshRetryAt = now + retryDelay
-        ReportCompatibilityError(refreshAuras and "AuraRefresh" or "StateRefresh", err)
+        ReportCompatibilityError(refreshAuras and "AuraRefresh"
+            or (refreshExecuteOnly and "ExecuteRefresh" or "StateRefresh"), err)
     end
 end)
 
@@ -1290,6 +1346,11 @@ end
 
 local function QueueStateRefresh()
     stateRefreshQueued = true
+    auraRefreshFrame:Show()
+end
+
+local function QueueExecuteRefresh()
+    executeRefreshQueued = true
     auraRefreshFrame:Show()
 end
 
@@ -1322,12 +1383,17 @@ local function CooldownViewerCompatibilityOnEvent(self, event, ...)
     elseif event == "UNIT_HEALTH" then
         local unit = ...
         if unit == "target" or (unit and UnitIsUnit and UnitIsUnit(unit, "target")) then
-            QueueStateRefresh()
+            QueueExecuteRefresh()
         end
-    elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
-        -- Both events normally arrive together after a cast. Coalesce them,
-        -- along with any same-frame aura notification, into one state pass.
+    elseif event == "SPELL_UPDATE_COOLDOWN" then
+        -- Cooldown changes affect the whole catalog. Coalesce them with any
+        -- same-frame aura or execute notification into one state pass.
         QueueStateRefresh()
+    elseif event == "SPELL_UPDATE_USABLE" or event == "ACTIONBAR_UPDATE_USABLE" then
+        -- Resource/usability changes only affect execute desaturation here.
+        -- ACTIONBAR_UPDATE_USABLE is the native 3.3.5 event; keep the spell
+        -- event as well for clients that expose the newer notification.
+        QueueExecuteRefresh()
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         local _, subEvent, sourceGUID, _, _, destinationGUID, _, _, spellID, spellName = ...
         local auraType = select(subEvent == "SPELL_AURA_BROKEN_SPELL" and 15 or 12, ...)
@@ -1374,6 +1440,7 @@ ns.RegisterCDMEventCallback("cooldownViewerCompatibility", CooldownViewerCompati
     "PLAYER_ENTERING_WORLD",
     "SPELL_UPDATE_COOLDOWN",
     "SPELL_UPDATE_USABLE",
+    "ACTIONBAR_UPDATE_USABLE",
     "PLAYER_TARGET_CHANGED",
     "COMBAT_LOG_EVENT_UNFILTERED",
 }, {

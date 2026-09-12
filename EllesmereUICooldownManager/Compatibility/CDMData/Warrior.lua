@@ -154,7 +154,7 @@ C_CooldownViewer.RegisterDefinition({
 
 -- Execute has no meaningful long cooldown, but belongs in the ability viewer
 -- so its readiness can be shown. The compatibility renderer desaturates it
--- using IsUsableSpell, which also honors Sudden Death above execute range.
+-- using spell usability, which also honors Sudden Death above execute range.
 C_CooldownViewer.RegisterDefinition({
     key = "warrior.execute",
     cooldownID = 101021,
