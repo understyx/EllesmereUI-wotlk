@@ -2069,6 +2069,11 @@ initFrame:SetScript("OnEvent", function(self)
                             "healthMacroEnabled", "healthMacroPrio1", "healthMacroPrio2",
                             "healthMacroPrio3", "foodMacroEnabled", "macroFactory",
                             "autoCancelTricksThreat", "autoCancelMisdirectionThreat",
+                            "autoCancelDivineIntervention", "autoCancelHandOfProtection",
+                            "autoCancelDivineSacrifice", "autoCancelChaosBane",
+                            "auraCancelInParty", "auraCancelInRaid",
+                            "auraCancelSoloOpenWorld", "auraCancelInArena",
+                            "chaosBaneSealBlacklist", "chaosBaneBossBlacklist",
                             "roleOverrides",
                         }
                         local savedQoL = {}

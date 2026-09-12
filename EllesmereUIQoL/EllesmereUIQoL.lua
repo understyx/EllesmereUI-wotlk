@@ -3913,6 +3913,11 @@ do
 
     local function Arm(spellID, destGUID, destName)
         if not Enabled(spellID) then return end
+        if EllesmereUI.IsAuraCancellationAllowed and not EllesmereUI.IsAuraCancellationAllowed() then
+            wipe(armed)
+            pendingTargetName = nil
+            return
+        end
         local detector = EllesmereUI.RoleDetector
         local role = detector and destGUID and detector:GetRoleByGUID(destGUID)
         if (not role or role == "NONE") and detector then
@@ -3929,6 +3934,11 @@ do
     end
 
     local function CancelArmedAura()
+        if EllesmereUI.IsAuraCancellationAllowed and not EllesmereUI.IsAuraCancellationAllowed() then
+            wipe(armed)
+            pendingTargetName = nil
+            return
+        end
         local now = GetTime()
         for auraID, expiry in pairs(armed) do
             if expiry < now then armed[auraID] = nil end

@@ -8,6 +8,7 @@ local PAGE_CURSOR   = "Cursor"
 local PAGE_SHIFTER  = "Shifter"
 local PAGE_MOVEMENT = "Movement Alerts"
 local PAGE_PALADIN  = "Paladin Auras"
+local PAGE_BUFFS    = "Buff Removal"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2155,36 +2156,6 @@ initFrame:SetScript("OnEvent", function(self)
 
 
         ---------------------------------------------------------------------------
-        --  THREAT TRANSFER
-        ---------------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "THREAT TRANSFER", y);  y = y - h
-
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Cancel Tricks on Non-Tanks",
-              tooltip="After Tricks of the Trade activates, automatically removes only your threat-transfer aura when the recipient is detected as a healer or DPS. Tank, pet, and unknown recipients keep the transfer.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.autoCancelTricksThreat == true
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.autoCancelTricksThreat = v
-                  if EllesmereUI._applyThreatTransfer then EllesmereUI._applyThreatTransfer() end
-              end },
-            { type="toggle", text="Cancel Misdirection on Non-Tanks",
-              tooltip="After Misdirection activates, automatically removes its threat-transfer aura when the recipient is detected as a healer or DPS. Tank, pet, and unknown recipients keep the transfer.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.autoCancelMisdirectionThreat == true
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.autoCancelMisdirectionThreat = v
-                  if EllesmereUI._applyThreatTransfer then EllesmereUI._applyThreatTransfer() end
-              end }
-        );  y = y - h
-
-        _, h = W:Spacer(parent, y, 20);  y = y - h
-
-        ---------------------------------------------------------------------------
         --  UI
         ---------------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "UI", y);  y = y - h
@@ -2262,8 +2233,8 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_PALADIN },
-        searchTerms = { "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "tricks", "tricks of the trade", "misdirection", "threat transfer", "paladin", "paladin auras", "devotion aura", "retribution aura", "concentration aura", "resistance aura", "crusader aura" },
+        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_PALADIN, PAGE_BUFFS },
+        searchTerms = { "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "tricks", "tricks of the trade", "misdirection", "threat transfer", "buff removal", "auto cancel", "cancel aura", "party", "raid", "solo", "open world", "arena", "seal blacklist", "boss blacklist", "divine intervention", "hand of protection", "divine sacrifice", "chaos bane", "shadowmourne", "paladin", "paladin auras", "devotion aura", "retribution aura", "concentration aura", "resistance aura", "crusader aura" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2280,6 +2251,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_PALADIN and _G._EUI_BuildPaladinAurasPage then
                 return _G._EUI_BuildPaladinAurasPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_BUFFS and _G._EUI_BuildBuffRemovalPage then
+                return _G._EUI_BuildBuffRemovalPage(pageName, parent, yOffset)
             end
         end,
         onReset = function()
@@ -2306,6 +2280,16 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.autoOpenContainers = false
                 EllesmereUIDB.autoCancelTricksThreat = false
                 EllesmereUIDB.autoCancelMisdirectionThreat = false
+                EllesmereUIDB.autoCancelDivineIntervention = false
+                EllesmereUIDB.autoCancelHandOfProtection = false
+                EllesmereUIDB.autoCancelDivineSacrifice = false
+                EllesmereUIDB.autoCancelChaosBane = false
+                EllesmereUIDB.auraCancelInParty = nil
+                EllesmereUIDB.auraCancelInRaid = nil
+                EllesmereUIDB.auraCancelSoloOpenWorld = nil
+                EllesmereUIDB.auraCancelInArena = nil
+                EllesmereUIDB.chaosBaneSealBlacklist = nil
+                EllesmereUIDB.chaosBaneBossBlacklist = nil
                 EllesmereUIDB.autoRepairGuild = false
                 EllesmereUIDB.shifterEnabled = false
                 EllesmereUIDB.shifterPositions = nil
@@ -2354,6 +2338,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyInstanceResetAnnounce then EllesmereUI._applyInstanceResetAnnounce() end
             if EllesmereUI._applyAutoOpenContainers then EllesmereUI._applyAutoOpenContainers() end
             if EllesmereUI._applyThreatTransfer then EllesmereUI._applyThreatTransfer() end
+            if EllesmereUI._applyBuffRemoval then EllesmereUI._applyBuffRemoval() end
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
             if _G._EUI_PaladinAuras_Reset then _G._EUI_PaladinAuras_Reset() end

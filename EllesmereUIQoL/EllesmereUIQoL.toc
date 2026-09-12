@@ -11,6 +11,7 @@
 
 # Main Luas
 EllesmereUIQoL.lua
+EllesmereUIQoL_BuffRemoval.lua
 EllesmereUIQoL_Cursor.lua
 EllesmereUIQoL_Bloodlust.lua
 EllesmereUIQoL_PaladinAuras.lua
@@ -22,6 +23,7 @@ EllesmereUIQoL_MovementAlert.lua
 
 # Options
 EUI_QoL_Options.lua
+EUI_QoL_BuffRemoval_Options.lua
 EUI_QoL_Cursor_Options.lua
 EUI_QoL_Bloodlust_Options.lua
 EUI_QoL_PaladinAuras_Options.lua
