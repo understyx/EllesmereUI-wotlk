@@ -26,6 +26,15 @@ local function Refresh()
     if _G._EUI_PaladinAuras_Apply then _G._EUI_PaladinAuras_Apply() end
 end
 
+local function SetGrowth(value)
+    if _G._EUI_PaladinAuras_SetGrowth then
+        _G._EUI_PaladinAuras_SetGrowth(value)
+    else
+        Set("growDirection", value)
+        Refresh()
+    end
+end
+
 local function AuraValues()
     local values = {}
     for _, key in ipairs(AURA_IDS) do
@@ -129,7 +138,12 @@ local function BuildPaladinAurasPage(_, parent, yOffset)
           disabled=Off, disabledTooltip="Enable Paladin Auras",
           getValue=function() return Cfg("classColor", false) end,
           setValue=function(v) Set("classColor", v); Refresh() end },
-        { type="label", text="" }
+        { type="dropdown", text="Growth Direction",
+          tooltip="Chooses whether additional aura rows are added above or below the first row.",
+          disabled=Off, disabledTooltip="Enable Paladin Auras",
+          values={ UP="Up", DOWN="Down" }, order={ "UP", "DOWN" },
+          getValue=function() return Cfg("growDirection", "UP") end,
+          setValue=SetGrowth }
     ); y = y - h
 
     _, h = W:Spacer(parent, y, 20); y = y - h

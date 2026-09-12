@@ -18,6 +18,7 @@ local defaults = {
             iconZoom   = 30,
             textSize   = 15,
             spacing    = 2,
+            growDirection = "UP",
             order      = { "48942", "54043", "19746", "48943", "48945", "48947", "32223" },
             pos        = nil,
         },
@@ -34,6 +35,31 @@ local auraByName = {}
 local frame
 local rows = {}
 local paladinUnits = {}
+
+local function GrowthDirection(p)
+    return p and p.growDirection == "DOWN" and "DOWN" or "UP"
+end
+
+local function SetGrowEdge(pos, grow, width, height)
+    if not pos or pos.point ~= "CENTER" or (pos.relPoint or pos.point) ~= "CENTER" then return end
+    width = width or (frame and frame:GetWidth()) or 180
+    height = height or (frame and frame:GetHeight()) or 27
+    pos.growEdge = {
+        anchor = grow == "DOWN" and "TOPLEFT" or "BOTTOMLEFT",
+        x = (pos.x or 0) - width / 2,
+        y = (pos.y or 0) + (grow == "DOWN" and height / 2 or -height / 2),
+    }
+end
+
+local function LiveCenterPosition()
+    if not (frame and frame:GetLeft() and frame:GetRight()
+        and frame:GetTop() and frame:GetBottom()) then return nil end
+    local uiScale = UIParent:GetEffectiveScale()
+    local ratio = frame:GetEffectiveScale() / uiScale
+    local cx = (frame:GetLeft() + frame:GetRight()) * ratio / 2 - UIParent:GetWidth() / 2
+    local cy = (frame:GetTop() + frame:GetBottom()) * ratio / 2 - UIParent:GetHeight() / 2
+    return cx, cy
+end
 
 local function NormalizeOrder(p)
     local order = p and p.order
@@ -121,11 +147,7 @@ local function ApplyPosition()
     if pos and pos.point then
         if pos.point == "CENTER" and (pos.relPoint or pos.point) == "CENTER" then
             if not pos.growEdge then
-                pos.growEdge = {
-                    anchor = "BOTTOMLEFT",
-                    x = (pos.x or 0) - (frame:GetWidth() or 0) / 2,
-                    y = (pos.y or 0) - (frame:GetHeight() or 0) / 2,
-                }
+                SetGrowEdge(pos, GrowthDirection(p))
             end
             local edge = pos.growEdge
             frame:SetPoint(edge.anchor or "BOTTOMLEFT", UIParent, "CENTER",
@@ -134,7 +156,11 @@ local function ApplyPosition()
             frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
         end
     else
-        frame:SetPoint("BOTTOMLEFT", UIParent, "CENTER", 240, -14)
+        if GrowthDirection(p) == "DOWN" then
+            frame:SetPoint("TOPLEFT", UIParent, "CENTER", 240, -14 + ((p and p.iconSize) or 27))
+        else
+            frame:SetPoint("BOTTOMLEFT", UIParent, "CENTER", 240, -14)
+        end
     end
 end
 
@@ -237,6 +263,7 @@ local function Refresh()
     local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT
     local outline = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
     local maxWidth = iconSize
+    local grow = GrowthDirection(p)
 
     for i, spellID in ipairs(display) do
         local row = rows[i] or CreateRow(frame, i)
@@ -246,7 +273,11 @@ local function Refresh()
 
         row:SetSize(iconSize, iconSize)
         row:ClearAllPoints()
-        row:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, (i - 1) * (iconSize + spacing))
+        if grow == "DOWN" then
+            row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(i - 1) * (iconSize + spacing))
+        else
+            row:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, (i - 1) * (iconSize + spacing))
+        end
         row.iconFrame:SetSize(iconSize, iconSize)
         row.icon:SetTexture(def and def.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
         row.icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
@@ -308,7 +339,7 @@ local function RegisterUnlock()
             order = 735,
             noResize = true,
             noSizeMatchTarget = true,
-            getGrowDirection = function() return "UP" end,
+            getGrowDirection = function() return GrowthDirection(P()) end,
             isHidden = function()
                 local p = P()
                 return not p or not p.enabled
@@ -323,13 +354,7 @@ local function RegisterUnlock()
                 local p = P()
                 if not p or not point then return end
                 p.pos = { point = point, relPoint = relPoint, x = x, y = y }
-                if point == "CENTER" and (relPoint or point) == "CENTER" then
-                    p.pos.growEdge = {
-                        anchor = "BOTTOMLEFT",
-                        x = (x or 0) - ((frame and frame:GetWidth()) or 180) / 2,
-                        y = (y or 0) - ((frame and frame:GetHeight()) or p.iconSize or 27) / 2,
-                    }
-                end
+                SetGrowEdge(p.pos, GrowthDirection(p))
                 if not EllesmereUI._unlockActive then ApplyPosition() end
             end,
             loadPos = function()
@@ -353,6 +378,24 @@ end)
 _G._EUI_PaladinAuras_DB = function() return addon.db end
 _G._EUI_PaladinAuras_Apply = Apply
 _G._EUI_PaladinAuras_Refresh = Refresh
+_G._EUI_PaladinAuras_SetGrowth = function(value)
+    local p = P()
+    if not p then return end
+    value = value == "DOWN" and "DOWN" or "UP"
+    if GrowthDirection(p) == value then return end
+
+    -- Rebase from the live center so changing direction does not jump the
+    -- display. Future row-count changes then keep the new starting edge fixed.
+    EnsureFrame()
+    local cx, cy = LiveCenterPosition()
+    p.growDirection = value
+    if cx and cy then
+        p.pos = { point = "CENTER", relPoint = "CENTER", x = cx, y = cy }
+    end
+    Refresh()
+    if p.pos then SetGrowEdge(p.pos, value) end
+    ApplyPosition()
+end
 _G._EUI_PaladinAuras_Reset = function()
     local p = P()
     if not p then return end

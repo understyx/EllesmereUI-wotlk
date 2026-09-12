@@ -23,31 +23,30 @@ if EllesmereUI.Range_SetActive then return end -- already loaded
 
 local GetTime = GetTime
 
--- Fixed-range harm items for the item bracket. Desired display buckets:
---   1-10: 1 yd steps -- 10-50: 5 yd -- 50-80: 10 yd -- then 80+.
--- Yards with no reliable item (1, 6, 9) are omitted; neighboring checks form
--- the bracket. Multi-id rungs: any one answering suffices (some items are
--- invalid on some clients).
+-- Fixed-range harm items for the Wrath item bracket. These are the proven
+-- 3.3.5 rungs used by LibRangeCheck-2.0; the Retail table this fork inherited
+-- included unavailable item IDs and assigned Ruby Acorn to 2 yd instead of
+-- its Wrath 5 yd range.
 local RANGE_ITEMS = {
-    { range = 2,  ids = { 37727, 168948, 194718 } }, -- Ruby Acorn / Dried Kelp / Salamander Feed
-    { range = 3,  ids = { 42732, 200469 } },         -- Everfrost Razor / Khadgar's Rod
-    { range = 4,  id  = 129055 },                    -- Shoe Shine Kit
-    { range = 5,  ids = { 8149, 136605, 63427 } },   -- Voodoo Charm / Solendra's / Worgsaw
-    { range = 7,  id  = 61323 },                     -- Ruby Seeds
+    { range = 5,  id  = 37727 },                     -- Ruby Acorn
     { range = 8,  ids = { 34368, 33278 } },          -- Attuned Crystal Cores / Burning Torch
-    { range = 10, ids = { 32321, 17626, 10699 } },   -- Sparrowhawk Net / Frostwolf Muzzle / Yeh'kinya's
-    { range = 15, ids = { 33069, 31129 } },          -- Sturdy Rope / Blackwhelp Net
-    { range = 20, ids = { 10645, 21519 } },          -- Gnomish Death Ray / Mistletoe
-    { range = 25, ids = { 13289, 24268, 41509, 31463 } },
-    { range = 30, ids = { 17202, 835, 7734, 34191 } },
+    { range = 10, id  = 32321 },                     -- Sparrowhawk Net
+    { range = 15, id  = 33069 },                     -- Sturdy Rope
+    { range = 20, id  = 10645 },                     -- Gnomish Death Ray
+    { range = 25, ids = { 24268, 41509, 31463 } },   -- Nets / Zezzak's Shard
+    { range = 30, ids = { 835, 7734, 34191 } },      -- Large Rope Net / Six Demon Bag / Snowflakes
     { range = 35, ids = { 18904, 24269 } },
-    { range = 40, ids = { 28767, 18640 } },          -- Decapitator / Happy Fun Rock
-    { range = 45, ids = { 32698, 23836 } },          -- Wrangling Rope / Goblin Rocket Launcher
-    { range = 50, id  = 116139 },                    -- Haunting Memento
+    { range = 40, id  = 28767 },                     -- The Decapitator
+    { range = 45, id  = 32698 },                     -- Wrangling Rope
     { range = 60, ids = { 32825, 37887 } },          -- Soul Cannon / Seeds of Nature's Wrath
-    { range = 70, id  = 41265 },                     -- Eyesore Blaster
     { range = 80, id  = 35278 },                     -- Reinforced Net
 }
+
+-- C_Item.IsItemInRange is Retail-only. Wrath exposes the equivalent global
+-- and returns 1/0 rather than booleans. Keep the distinction so Retail's
+-- protected-call guard is not applied to the unrestricted legacy function.
+local modernItemInRange = C_Item and C_Item.IsItemInRange
+local ItemInRange = modernItemInRange or IsItemInRange
 
 local RG = {
     ladder = {},       -- ascending { range = yds, spells = { sid, ... } }
@@ -99,11 +98,37 @@ local function BuildLadder()
             for si = line.itemIndexOffset + 1, line.itemIndexOffset + line.numSpellBookItems do
                 local itemType, actionID, spellID = C_SpellBook.GetSpellBookItemType(si, bank)
                 local sid = spellID or actionID
-                if itemType == Enum.SpellBookItemType.Spell and sid
-                    and not (C_Spell.IsSpellPassive and C_Spell.IsSpellPassive(sid))
-                    and (not C_Spell.IsSpellHarmful or C_Spell.IsSpellHarmful(sid)) then
+                local passive = false
+                if IsPassiveSpell then
+                    local ok, result = pcall(IsPassiveSpell, si, BOOKTYPE_SPELL or "spell")
+                    passive = ok and (result == true or result == 1)
+                elseif C_Spell.IsSpellPassive then
+                    passive = C_Spell.IsSpellPassive(sid)
+                end
+
+                -- Wrath's GetSpellInfo returns min/max range in slots 8/9;
+                -- the C_Spell compatibility shape cannot be trusted here
+                -- because those slots differ from Retail's legacy wrapper.
+                local spellName, maxR
+                if sid and GetSpellInfo then
+                    spellName = GetSpellInfo(sid)
+                    maxR = select(9, GetSpellInfo(sid))
+                end
+                if maxR == nil and sid then
                     local sinfo = C_Spell.GetSpellInfo(sid)
-                    local maxR = sinfo and sinfo.maxRange
+                    maxR = sinfo and sinfo.maxRange
+                end
+
+                local harmful = true
+                if spellName and IsHarmfulSpell then
+                    local ok, result = pcall(IsHarmfulSpell, spellName)
+                    if ok then harmful = result == true or result == 1 end
+                elseif sid and C_Spell.IsSpellHarmful then
+                    harmful = C_Spell.IsSpellHarmful(sid)
+                end
+
+                if itemType == Enum.SpellBookItemType.Spell and sid
+                    and not passive and harmful then
                     if maxR and maxR > 0 and maxR <= 100 then
                         local rung = byRange[maxR]
                         if not rung then
@@ -150,17 +175,19 @@ local function ItemEntryInRange(entry, unit)
     if ids then
         local sawFalse = false
         for i = 1, #ids do
-            local res = C_Item.IsItemInRange(ids[i], unit)
+            local res = ItemInRange(ids[i], unit)
             if not (issecretvalue and issecretvalue(res)) then
-                if res == true then return true end
-                if res == false then sawFalse = true end
+                if res == true or res == 1 then return true end
+                if res == false or res == 0 then sawFalse = true end
             end
         end
         if sawFalse then return false end
         return nil
     end
-    local res = C_Item.IsItemInRange(entry.id, unit)
+    local res = ItemInRange(entry.id, unit)
     if issecretvalue and issecretvalue(res) then return nil end
+    if res == 1 then return true end
+    if res == 0 then return false end
     return res
 end
 
@@ -171,6 +198,7 @@ end
 -- Hostile checks stay legal. Fails toward skipping the walk: a restricted
 -- query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
+    if not modernItemInRange then return true end
     if not (InCombatLockdown()
         or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance())) then
         return true
@@ -221,7 +249,7 @@ end
 -- query (its verdict at any cutoff is identical), never the other way.
 function EllesmereUI.Range_ItemBracket(unit, stopRange)
     if not unit or not UnitExists(unit) then return nil end
-    if not (C_Item and C_Item.IsItemInRange) then return nil end
+    if not ItemInRange then return nil end
     if not ItemChecksAllowed(unit) then return nil end
     local now = GetTime()
     if brCache.has and brCache.unit == unit and (now - brCache.t) < CACHE_TTL
