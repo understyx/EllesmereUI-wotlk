@@ -6047,6 +6047,12 @@ function EAB:ApplyAlwaysShowButtons(barKey)
             if info.nativeMainBar then
                 EAB_VTABLE.MainBarPageSync.SetButtonConfig(btn, false, showEmpty)
             end
+            -- slotBG is parented to the bar rather than the button, so hiding
+            -- an overflow button does not hide its empty-slot artwork.  This
+            -- matters especially for StanceBar, whose cutoff follows the live
+            -- number of shapeshift forms instead of a fixed configured count.
+            local bfd = EFD(btn)
+            if bfd.slotBG then bfd.slotBG:Hide() end
             btn:SetAlpha(0)
             SafeEnableMouse(btn, false)
             if not InCombatLockdown() then
