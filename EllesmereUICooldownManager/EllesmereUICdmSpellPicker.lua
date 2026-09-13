@@ -1864,6 +1864,11 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     -- frame still resolves regardless of its talent/override form.
     if not sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs = {} end
     sd.hostedBuffSpellIDs[spellID] = true
+    -- Custom IDs have no guaranteed Blizzard buff-viewer frame; arm the
+    -- direct player-aura edge scanner immediately for the live fallback.
+    if sd.customSpellIDs and sd.customSpellIDs[spellID] then
+        ns._cdmAnyCustomHostedBuff = true
+    end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true

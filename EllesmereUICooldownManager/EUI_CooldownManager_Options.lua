@@ -10355,30 +10355,279 @@ initFrame:SetScript("OnEvent", function(self)
                             mH = mH + ITEM_H
                         end
 
-                        -- Visibility When Missing (HOSTED auras only): what this
-                        -- slot shows while the aura is missing. Default (nil) =
-                        -- today's desaturated placeholder; "hidden" keeps the
-                        -- reserved slot but renders nothing; "hiddenShift" skips
-                        -- the placeholder entirely so later icons close the gap
-                        -- (same outcome as Hidden on CD (Shift Icons)). Purely
-                        -- per-spell: no apply opts, and hosted rows never get the
-                        -- Apply-to-Bar strip anyway (their entries chain to no
-                        -- tier by architecture).
+                        -- Hosted-aura visibility is a two-stage choice:
+                        --   Visibility When -> Missing / Active -> visual effect.
+                        -- It remains one per-spell setting, so selecting Active
+                        -- reverses the condition instead of layering a second rule
+                        -- on top. The legacy missing-state values are preserved;
+                        -- active-state choices use new values in the same key and
+                        -- therefore need no saved-profile migration.
                         if isHostedAura then
-                            local MISSING_VIS_ITEMS = {
-                                { val = nil,           label = "Desaturated" },
-                                { val = "hidden",      label = "Hidden" },
-                                { val = "hiddenShift", label = "Hidden (Shift Icons)" },
+                            local function DecodeHostedVisibility()
+                                local v = ss.hostedMissingVis
+                                if v == false then v = nil end
+                                if v == "activeDesaturated" then return "active", "desaturated" end
+                                if v == "activeHidden" then return "active", "hidden" end
+                                if v == "activeHiddenShift" then return "active", "hiddenShift" end
+                                if v == "hidden" then return "missing", "hidden" end
+                                if v == "hiddenShift" then return "missing", "hiddenShift" end
+                                return "missing", "desaturated"
+                            end
+
+                            local VIS_EFFECTS = {
+                                { key = "desaturated", label = "Desaturated" },
+                                { key = "hidden", label = "Hidden" },
+                                { key = "hiddenShift", label = "Hidden (Shift Icons)" },
                             }
-                            MakeSubnavRow("Visibility When Missing", MISSING_VIS_ITEMS,
-                                function() return ss.hostedMissingVis end,
-                                function(v)
-                                    EnsureSS(); SetOwn("hostedMissingVis", v)
-                                    -- Re-collect so the placeholder is re-injected,
-                                    -- skipped, or re-marked immediately.
-                                    if ns.QueueReanchor then ns.QueueReanchor() end
-                                end,
-                                function() return ss.hostedMissingVis == nil end)
+
+                            local row = EllesmereUI.SafeCreateFrame("Button", nil, inner)
+                            row:SetHeight(ITEM_H)
+                            row:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                            row:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                            row:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+                            local acR, acG, acB = EllesmereUI.GetAccentColor()
+                            local lbl = row:CreateFontString(nil, "OVERLAY")
+                            lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                            lbl:SetPoint("LEFT", 10, 0)
+                            lbl:SetJustifyH("LEFT")
+                            lbl:SetText(EllesmereUI.L("Visibility When"))
+
+                            local function UpdateVisibilityLabel()
+                                local v = ss.hostedMissingVis
+                                if v ~= nil and v ~= false then
+                                    lbl:SetTextColor(acR, acG, acB, 1)
+                                else
+                                    lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                end
+                            end
+                            UpdateVisibilityLabel()
+
+                            local arrow = row:CreateTexture(nil, "ARTWORK")
+                            arrow:SetSize(10, 10)
+                            arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+                            arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
+                            arrow:SetAlpha(0.7)
+
+                            local hl = row:CreateTexture(nil, "ARTWORK")
+                            hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0); hl:SetAlpha(0)
+
+                            local conditionSub, effectSub
+                            local conditionRows = {}
+                            local effectRows = {}
+
+                            local function RefreshConditionRows()
+                                local selectedWhen = DecodeHostedVisibility()
+                                for _, entry in ipairs(conditionRows) do
+                                    local selected = entry.when == selectedWhen
+                                    entry.label:SetTextColor(selected and acR or tDimR,
+                                        selected and acG or tDimG,
+                                        selected and acB or tDimB,
+                                        selected and 1 or tDimA)
+                                    entry.highlight:SetAlpha(selected and 1 or 0)
+                                end
+                            end
+
+                            local function RefreshEffectRows()
+                                local selectedWhen, selectedEffect = DecodeHostedVisibility()
+                                for _, entry in ipairs(effectRows) do
+                                    local selected = entry.when == selectedWhen
+                                        and entry.effect == selectedEffect
+                                    entry.label:SetTextColor(selected and acR or tDimR,
+                                        selected and acG or tDimG,
+                                        selected and acB or tDimB,
+                                        selected and 1 or tDimA)
+                                    entry.highlight:SetAlpha(selected and 1 or 0)
+                                end
+                            end
+
+                            local function ShowEffects(owner, when)
+                                if not effectSub then
+                                    effectSub = EllesmereUI.SafeCreateFrame("Frame", nil, menu)
+                                    effectSub:SetFrameStrata("FULLSCREEN_DIALOG")
+                                    effectSub:SetFrameLevel(menu:GetFrameLevel() + 8)
+                                    effectSub:SetClampedToScreen(true)
+                                    effectSub:EnableMouse(true)
+                                else
+                                    for _, ch in ipairs({effectSub:GetChildren()}) do
+                                        ch:Hide(); ch:SetParent(nil)
+                                    end
+                                    for _, rg in ipairs({effectSub:GetRegions()}) do
+                                        if rg.Hide then rg:Hide() end
+                                    end
+                                end
+
+                                -- FitMenuWidth expects FontString regions, not raw
+                                -- text. These three fixed captions fit the same 180px
+                                -- width used by the original visibility flyout.
+                                local effectW = 180
+                                effectSub:SetSize(effectW, 4 + (#VIS_EFFECTS * ITEM_H) + 4)
+                                effectSub:ClearAllPoints()
+                                effectSub:SetPoint("TOPLEFT", owner, "TOPRIGHT", 2, 0)
+
+                                local bg = effectSub:CreateTexture(nil, "BACKGROUND")
+                                bg:SetAllPoints(); bg:SetTexture(mBgR, mBgG, mBgB, mBgA)
+                                EllesmereUI.MakeBorder(effectSub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+
+                                effectRows = {}
+                                local y = 4
+                                for _, effect in ipairs(VIS_EFFECTS) do
+                                    local effectKey = effect.key
+                                    local item = EllesmereUI.SafeCreateFrame("Button", nil, effectSub)
+                                    item:SetHeight(ITEM_H)
+                                    item:SetPoint("TOPLEFT", effectSub, "TOPLEFT", 1, -y)
+                                    item:SetPoint("TOPRIGHT", effectSub, "TOPRIGHT", -1, -y)
+                                    item:SetFrameLevel(effectSub:GetFrameLevel() + 2)
+
+                                    local itemLabel = item:CreateFontString(nil, "OVERLAY")
+                                    itemLabel:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                                    itemLabel:SetPoint("LEFT", 10, 0)
+                                    itemLabel:SetJustifyH("LEFT")
+                                    itemLabel:SetText(EllesmereUI.L(effect.label))
+
+                                    local itemHl = item:CreateTexture(nil, "ARTWORK")
+                                    itemHl:SetAllPoints(); itemHl:SetTexture(1, 1, 1, hlA)
+                                    effectRows[#effectRows + 1] = {
+                                        when = when, effect = effectKey,
+                                        label = itemLabel, highlight = itemHl,
+                                    }
+
+                                    item:SetScript("OnEnter", function()
+                                        itemLabel:SetTextColor(1, 1, 1, 1)
+                                        itemHl:SetAlpha(1)
+                                    end)
+                                    item:SetScript("OnLeave", function()
+                                        local curWhen, curEffect = DecodeHostedVisibility()
+                                        local nowSelected = curWhen == when and curEffect == effectKey
+                                        itemLabel:SetTextColor(nowSelected and acR or tDimR,
+                                            nowSelected and acG or tDimG,
+                                            nowSelected and acB or tDimB,
+                                            nowSelected and 1 or tDimA)
+                                        itemHl:SetAlpha(nowSelected and 1 or 0)
+                                    end)
+                                    item:SetScript("OnClick", function()
+                                        EnsureSS()
+                                        local value
+                                        if when == "active" then
+                                            if effectKey == "desaturated" then value = "activeDesaturated"
+                                            elseif effectKey == "hidden" then value = "activeHidden"
+                                            else value = "activeHiddenShift" end
+                                        elseif effectKey == "hidden" then
+                                            value = "hidden"
+                                        elseif effectKey == "hiddenShift" then
+                                            value = "hiddenShift"
+                                        end
+                                        ss.hostedMissingVis = value
+                                        UpdateVisibilityLabel()
+                                        RefreshConditionRows()
+                                        RefreshEffectRows()
+                                        if ns.RefreshCDMIconAppearance then
+                                            ns.RefreshCDMIconAppearance(barKey)
+                                        end
+                                        if ns.QueueReanchor then ns.QueueReanchor() end
+                                    end)
+                                    y = y + ITEM_H
+                                end
+                                RefreshEffectRows()
+                                effectSub:Show()
+                            end
+
+                            local function ShowConditions()
+                                if menu._openSub and menu._openSub ~= conditionSub
+                                   and menu._openSub.Hide then
+                                    menu._openSub:Hide()
+                                end
+                                if conditionSub and conditionSub:IsShown() then return end
+                                if not conditionSub then
+                                    conditionSub = EllesmereUI.SafeCreateFrame("Frame", nil, menu)
+                                    conditionSub:SetFrameStrata("FULLSCREEN_DIALOG")
+                                    conditionSub:SetFrameLevel(menu:GetFrameLevel() + 5)
+                                    conditionSub:SetClampedToScreen(true)
+                                    conditionSub:EnableMouse(true)
+                                else
+                                    for _, ch in ipairs({conditionSub:GetChildren()}) do
+                                        ch:Hide(); ch:SetParent(nil)
+                                    end
+                                    for _, rg in ipairs({conditionSub:GetRegions()}) do
+                                        if rg.Hide then rg:Hide() end
+                                    end
+                                end
+
+                                local conditionW = 130
+                                conditionSub:SetSize(conditionW, 4 + (2 * ITEM_H) + 4)
+                                conditionSub:ClearAllPoints()
+                                conditionSub:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)
+
+                                local bg = conditionSub:CreateTexture(nil, "BACKGROUND")
+                                bg:SetAllPoints(); bg:SetTexture(mBgR, mBgG, mBgB, mBgA)
+                                EllesmereUI.MakeBorder(conditionSub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+
+                                conditionRows = {}
+                                local y = 4
+                                local choices = {
+                                    { when = "missing", label = "Missing" },
+                                    { when = "active", label = "Active" },
+                                }
+                                for _, choice in ipairs(choices) do
+                                    local when = choice.when
+                                    local item = EllesmereUI.SafeCreateFrame("Button", nil, conditionSub)
+                                    item:SetHeight(ITEM_H)
+                                    item:SetPoint("TOPLEFT", conditionSub, "TOPLEFT", 1, -y)
+                                    item:SetPoint("TOPRIGHT", conditionSub, "TOPRIGHT", -1, -y)
+                                    item:SetFrameLevel(conditionSub:GetFrameLevel() + 2)
+
+                                    local itemLabel = item:CreateFontString(nil, "OVERLAY")
+                                    itemLabel:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                                    itemLabel:SetPoint("LEFT", 10, 0)
+                                    itemLabel:SetJustifyH("LEFT")
+                                    itemLabel:SetText(EllesmereUI.L(choice.label))
+                                    local itemArrow = item:CreateTexture(nil, "ARTWORK")
+                                    itemArrow:SetSize(10, 10)
+                                    itemArrow:SetPoint("RIGHT", item, "RIGHT", -8, 0)
+                                    itemArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
+                                    itemArrow:SetAlpha(0.7)
+                                    local itemHl = item:CreateTexture(nil, "ARTWORK")
+                                    itemHl:SetAllPoints(); itemHl:SetTexture(1, 1, 1, hlA)
+
+                                    conditionRows[#conditionRows + 1] = {
+                                        when = when, label = itemLabel, highlight = itemHl,
+                                    }
+                                    item:SetScript("OnEnter", function()
+                                        itemLabel:SetTextColor(1, 1, 1, 1)
+                                        itemHl:SetAlpha(1)
+                                        ShowEffects(item, when)
+                                    end)
+                                    item:SetScript("OnLeave", function()
+                                        RefreshConditionRows()
+                                    end)
+                                    -- These are navigation rows; the effect is selected
+                                    -- in the third-level flyout.
+                                    item:SetScript("OnClick", function()
+                                        ShowEffects(item, when)
+                                    end)
+                                    y = y + ITEM_H
+                                end
+                                RefreshConditionRows()
+                                conditionSub._anyDropdownHovered = function()
+                                    return effectSub and effectSub:IsShown() and effectSub:IsMouseOver()
+                                end
+                                conditionSub:SetScript("OnHide", function()
+                                    if effectSub and effectSub:IsShown() then effectSub:Hide() end
+                                end)
+                                conditionSub:Show()
+                                menu._openSub = conditionSub
+                            end
+
+                            row:SetScript("OnEnter", function()
+                                lbl:SetTextColor(1, 1, 1, 1)
+                                hl:SetTexture(1, 1, 1, hlA); hl:SetAlpha(1)
+                                ShowConditions()
+                            end)
+                            row:SetScript("OnLeave", function()
+                                UpdateVisibilityLabel()
+                                hl:SetAlpha(0)
+                            end)
+                            mH = mH + ITEM_H
                         end
 
                         -- BUFF BAR per-icon menu. "Buff Glow" reuses the glow-style

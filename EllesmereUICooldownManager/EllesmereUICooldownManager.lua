@@ -5555,7 +5555,8 @@ local function RefreshCDMIconAppearance(barKey)
         -- bar, flagged fd._isBuffViewerFrame) -- and its inactive placeholder -- must
         -- get the same per-spell resolution so its Buff Glow / Duration Text /
         -- Charge-Stack / Border / Desaturate match the active frame.
-        if isBuffFamilyBar or (fd and fd._isBuffViewerFrame) or icon._isPlaceholderFrame then
+        if isBuffFamilyBar or (fd and fd._isBuffViewerFrame)
+           or icon._isPlaceholderFrame or icon._isHostedCustomAuraFrame then
             -- Per-icon Audio on Buff Gain/Loss: attach the gain+loss sound hooks once,
             -- and only when the feature is in use anywhere (gate = 0 cost otherwise).
             if ns._cdmAnyBuffSound and ns.EnsureBuffSoundHook then ns.EnsureBuffSoundHook(icon) end
@@ -6991,7 +6992,8 @@ _CDMApplyVisibility = function()
                             -- straight to the original branch (identical code, no added
                             -- work). _missingHidden = hosted "Visibility When Missing:
                             -- Hidden" placeholder (slot reserved, rendered invisible).
-                            if (barData.hidePlaceholderIcon or ic._missingHidden) and ic._isPlaceholderFrame then
+                            if ((barData.hidePlaceholderIcon or ic._missingHidden) and ic._isPlaceholderFrame)
+                               or ic._hostedActiveHidden then
                                 -- Hide Icon: an Always-Show placeholder keeps its reserved
                                 -- layout slot but stays fully invisible (icon, border, bg).
                                 ic:SetAlpha(0)
@@ -7095,7 +7097,8 @@ local function ApplyBarOpacity(barKey)
                 -- to the original branch (identical code, no added work).
                 -- _missingHidden = hosted "Visibility When Missing: Hidden"
                 -- placeholder (slot reserved, rendered invisible).
-                if (barData.hidePlaceholderIcon or ic._missingHidden) and ic._isPlaceholderFrame then
+                if ((barData.hidePlaceholderIcon or ic._missingHidden) and ic._isPlaceholderFrame)
+                   or ic._hostedActiveHidden then
                     -- Hide Icon: an Always-Show placeholder keeps its reserved
                     -- layout slot but stays fully invisible (icon, border, bg).
                     ic:SetAlpha(0)
