@@ -101,6 +101,37 @@ initFrame:SetScript("OnEvent", function(self)
         if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, GetCDMOptUseShadow()) end
         fs:SetFont(font, size, GetCDMOptOutline())
     end
+
+    -- Small diagnostic shown on every CDM options page. Read the edit target
+    -- through CDM's cached spec key (rather than querying the live spec
+    -- directly), because that is the key all settings on the page are actually
+    -- saved under during a specialization transition.
+    local function AddActiveSpecDebug(parent, yOffset)
+        local ROW_H = 22
+        local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+        local specName
+        if specKey and EUI and EUI.Spec and EUI.Spec.GetInfoByID then
+            local info = EUI.Spec:GetInfoByID(tonumber(specKey) or specKey)
+            specName = info and info.name
+        end
+        if not specName and specKey and GetSpecializationInfoByID then
+            specName = select(2, GetSpecializationInfoByID(tonumber(specKey) or specKey))
+        end
+
+        local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
+        frame:SetHeight(ROW_H)
+        frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
+        frame:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
+
+        local label = frame:CreateFontString(nil, "OVERLAY")
+        label:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+        label:SetPoint("CENTER")
+        label:SetTextColor(0.7, 0.7, 0.7, 0.75)
+        label:SetText("CDM edit spec: " .. (specName or "unresolved")
+            .. (specKey and (" (" .. specKey .. ")") or ""))
+        return ROW_H
+    end
+
     local function MakeTextInput(tyuent, label, yOffset, getValue, setValue)
         local ROW_H = 50
         local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
@@ -600,6 +631,8 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
+
+        y = y - AddActiveSpecDebug(parent, y)
 
         local bg = ns.GetBarGlows()
         local curBar = NormalizeSelectedBar(bg.selectedBar or "cooldowns")
@@ -3026,6 +3059,8 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
+
+        y = y - AddActiveSpecDebug(parent, y)
 
         -- If user chose Blizzard bars, show re-enable button and bail
         local usingBlizz = DB() and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).useBlizzardBuffBars
@@ -16021,6 +16056,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         local barData = bars[selectedCDMBarIndex]
         if not barData then return math.abs(yOffset) end
+
+        y = y - AddActiveSpecDebug(parent, y)
 
         -- Tag every option registered while building this page with the
         -- currently-selected bar, so a global-search jump to a bar-specific
