@@ -77,6 +77,7 @@ local FOLDER_BLACKLIST = {
     EllesmereUIQoL               = true,
     EllesmereUIRaidCooldowns     = true,
     EllesmereUIAuraBuffReminders = true,
+    EllesmereUISwingBars         = true,
     EllesmereUICooldownManager   = true, -- owns its profile-layout/spec-content split
     -- Minimap + Chat remain override-eligible; their engine-coupled settings
     -- are excluded per-path via SETTING_BLACKLIST below.
@@ -2709,6 +2710,7 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIQoL"]               = true,   -- whole module (supersedes the old page scopes)
     ["EllesmereUIRaidCooldowns"]     = true,   -- owns group visibility by class/spec/role
     ["EllesmereUIAuraBuffReminders"] = true,
+    ["EllesmereUISwingBars"]         = true,
     ["EllesmereUICooldownManager"] = true,
     -- Raid Frames: HoverCast bindings live in the account-global clickCast
     -- store (never per-profile), so overrides can't apply to them.

@@ -74,6 +74,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIDamageMeters",     display = "Damage Meters",       svName = "EllesmereUIDamageMetersDB",      suffix = "DamageMeters"      },
     { folder = "EllesmereUIChat",             display = "Chat",                svName = "EllesmereUIChatDB",              suffix = "Chat"              },
     { folder = "EllesmereUIDataBars",         display = "DataBars",            svName = "EllesmereUIDataBarsDB",          suffix = "DataBars"          },
+    { folder = "EllesmereUISwingBars",       display = "Swingbars",           svName = "EllesmereUISwingBarsDB",         suffix = "SwingBars"         },
     { folder = "EllesmereUIQuickdraw",        display = "Quickdraw",           svName = "EllesmereUIQuickdrawDB",         suffix = "Quickdraw"         },
 }
 EllesmereUI._ADDON_DB_MAP = ADDON_DB_MAP
@@ -1414,6 +1415,8 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EDM_Apply then _G._EDM_Apply() end
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     if _G._EDB_Apply then _G._EDB_Apply() end
+    -- Swingbars (visibility, appearance, layout and position)
+    if _G._ESB_Apply then _G._ESB_Apply() end
     -- Quickdraw (enable state + palette count drive the override bindings)
     if _G._EQD_Apply then _G._EQD_Apply() end
     -- Dragon Riding HUD
