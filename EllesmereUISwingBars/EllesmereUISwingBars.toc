@@ -1,0 +1,16 @@
+## Interface: 30300
+## Title: |cff0cd29fEllesmereUI|r Swingbars
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Lightweight melee and ranged weapon swing timers.
+## Author: Ellesmere
+## Version: 8.6.4-wotlk.20260911
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUISwingBarsDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Runtime
+EllesmereUISwingBars.lua
+
+# Options
+EUI_SwingBars_Options.lua

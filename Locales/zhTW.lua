@@ -3349,7 +3349,7 @@ L["Gradient Right"]                = "向右漸層"
 L["Gradient Up"]                   = "向上漸層"
 L["Group Finder and Premade Groups window, plus browsing quality-of-life extras."] = "組隊搜尋器與預組隊伍視窗，並附帶瀏覽時的各項便利功能。"
 L["GROUP FINDER QUEUE"]            = "組隊搜尋器佇列"
-L["Guild & Communities"]           = "公會與社群"
+L["Friends, Guild & Communication"] = "好友、公會與通訊"
 L["Hands"]                         = "手部"
 L["Hash"]                          = "雜湊"
 L["Hash Marker"]                   = "刻度標記"
@@ -3521,7 +3521,7 @@ L["The class and profession trainer window: skill list, train button, and cost d
 
 L["The gem socketing window with squared gem slots."] = "寶石鑲嵌介面，改用方形寶石欄位。"
 
-L["The Guild & Communities window: roster, chat, and the community list."] = "公會與社群介面：成員名冊、聊天頻道與社群清單。"
+L["The Social and guild windows: friends, ignore, Who, guild roster, channels, Guild Bank, and guild utility dialogs."] = "社交與公會介面：好友、忽略名單、玩家查詢、公會名冊、頻道、公會銀行及公會相關功能視窗。"
 L["The item conversion window (catalyst and similar kiosks)."] = "物品轉換介面（催化劑與類似裝置）。"
 L["The item preview / transmog dressing room window."] = "物品預覽／幻化試衣間介面。"
 L["The macro editor: tabs, icon grid, text well, and buttons."] = "巨集編輯器：標籤頁、圖示選單、文本輸入框與各項按鈕。"

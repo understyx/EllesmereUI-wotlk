@@ -72,11 +72,11 @@ local FOLDER_BLACKLIST = {
     EllesmereUIDamageMeters      = true,
     EllesmereUIMythicTimer       = true,
     EllesmereUIQuestTracker      = true,
-    EllesmereUIFriends           = true,
     EllesmereUIBags              = true,
     EllesmereUIQoL               = true,
     EllesmereUIRaidCooldowns     = true,
     EllesmereUIAuraBuffReminders = true,
+    EllesmereUISwingBars         = true,
     EllesmereUICooldownManager   = true, -- owns its profile-layout/spec-content split
     -- Minimap + Chat remain override-eligible; their engine-coupled settings
     -- are excluded per-path via SETTING_BLACKLIST below.
@@ -100,7 +100,6 @@ local REFRESH_FNS = {
     EllesmereUINameplates        = { "_ENP_RefreshAllSettings" },
     EllesmereUIQuestTracker      = { "_EQT_RefreshAll" },
     EllesmereUIChat              = { "_ECHAT_RefreshAll" },
-    EllesmereUIFriends           = { "_EFR_ApplyFriends" },
     EllesmereUIMythicTimer       = { "_EMT_Apply" },
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
@@ -2704,11 +2703,11 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIDamageMeters"]      = true,
     ["EllesmereUIMythicTimer"]       = true,
     ["EllesmereUIQuestTracker"]      = true,
-    ["EllesmereUIFriends"]           = true,
     ["EllesmereUIBags"]              = true,
     ["EllesmereUIQoL"]               = true,   -- whole module (supersedes the old page scopes)
     ["EllesmereUIRaidCooldowns"]     = true,   -- owns group visibility by class/spec/role
     ["EllesmereUIAuraBuffReminders"] = true,
+    ["EllesmereUISwingBars"]         = true,
     ["EllesmereUICooldownManager"] = true,
     -- Raid Frames: HoverCast bindings live in the account-global clickCast
     -- store (never per-profile), so overrides can't apply to them.

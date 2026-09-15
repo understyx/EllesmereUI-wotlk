@@ -292,7 +292,6 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIRaidCooldowns",     display = "Raid Cooldowns",       search_name = "EllesmereUI Raid Cooldowns"          },
     { folder = "EllesmereUIPallyPower",        display = "PallyPower",           search_name = "EllesmereUI PallyPower Blessings"    },
     { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced"       },
-    { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
 
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",        search_name = "EllesmereUI Quest Tracker"           },
     { folder = "EllesmereUIMinimap",           display = "Minimap",              search_name = "EllesmereUI Minimap"                 },
@@ -300,6 +299,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIDamageMeters",      display = "Damage Meters",        search_name = "EllesmereUI Damage Meters"           },
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
+    { folder = "EllesmereUISwingBars",         display = "Swingbars",            search_name = "EllesmereUI Swingbars Swing Timer"  },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
@@ -336,6 +336,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIPallyPower",
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
+            "EllesmereUISwingBars",
             "EllesmereUIQuickdraw",
             "EllesmereUIPartyMode",
         },
@@ -348,7 +349,6 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIDamageMeters",
 
             "EllesmereUIQuestTracker",
-            "EllesmereUIFriends",
             "EllesmereUIMinimap",
             "EllesmereUIChat",
             "EllesmereUIBags",
@@ -955,6 +955,12 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDataBars", {
     "bars.*.length",     -- unlock resize owned
     "bars.*.thickness",  -- unlock resize owned
     "bars.*.snapEdge",   -- mutated by the drag save itself
+})
+
+EllesmereUI.RegisterSyncExclusions("EllesmereUISwingBars", {
+    "position",
+    "width",
+    "barHeight",
 })
 
 -- Bags is the one auto-synced module: without this the bank window position
@@ -3879,7 +3885,6 @@ EllesmereUI._addonKeyToFolder = {
     auraBuff     = "EllesmereUIAuraBuffReminders",
     extras       = "EllesmereUIQoL",
     raidCooldowns = "EllesmereUIRaidCooldowns",
-    friends      = "EllesmereUIFriends",
     minimap      = "EllesmereUIMinimap",
     chat         = "EllesmereUIChat",
     questTracker = "EllesmereUIQuestTracker",
@@ -3887,6 +3892,7 @@ EllesmereUI._addonKeyToFolder = {
     blizzardSkin = "EllesmereUIBlizzardSkin",
     damageMeters = "EllesmereUIDamageMeters",
     dataBars     = "EllesmereUIDataBars",
+    swingBars    = "EllesmereUISwingBars",
     raidFrames   = "EllesmereUIRaidFrames",
     bags         = "EllesmereUIBags",
     quickdraw    = "EllesmereUIQuickdraw",
@@ -10048,11 +10054,11 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIBlizzardSkin = true,
         EllesmereUIQuestTracker = true,
         EllesmereUIMinimap = true,
-        EllesmereUIFriends = true,
         EllesmereUIChat = true,
         EllesmereUIDamageMeters = true,
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
+        EllesmereUISwingBars = true,
         EllesmereUIQuickdraw = true,
         EllesmereUIPallyPower = true,
     }
@@ -11246,6 +11252,8 @@ EllesmereUI._RunConflictCheck = function()
             { addon = "BetterBags",               label = "BetterBags",                 targets = { "EllesmereUIBags" } },
             { addon = "Sorted",                   label = "Sorted",                     targets = { "EllesmereUIBags" } },
             { addon = "UltimateMouseCursor",      label = "Ultimate Mouse Cursor",      targets = { "EllesmereUIQoL" } },
+            { addon = "Swingbar",                 label = "Swingbar",                   targets = { "EllesmereUISwingBars" },
+              message = "The standalone Swingbar addon and EllesmereUI Swingbars both track and display the same weapon swings. Please disable one of them to avoid duplicate bars." },
             { addon = "BetterCooldownManager",    label = "Better Cooldown Manager",    targets = { "EllesmereUICooldownManager", "EllesmereUIResourceBars" } },
             { addon = "CooldownManagerCentered",    label = "Cooldown Manager Centered",    targets = { "EllesmereUICooldownManager" } },
             { addon = "SkironCooldownManager",    label = "Skiron Cooldown Manager",    targets = { "EllesmereUICooldownManager" } },

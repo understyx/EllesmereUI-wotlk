@@ -94,8 +94,26 @@ initFrame:SetScript("OnEvent", function(self)
         ["Defensive Stance"]        = "Stance",
         ["Berserker Stance"]        = "Stance",
         ["Power Word: Fortitude"]   = "Fortitude",
+        ["Prayer of Fortitude"]     = "Fortitude",
+        ["Mark of the Wild"]        = "Wild",
+        ["Gift of the Wild"]        = "Wild",
         ["Arcane Intellect"]        = "Intellect",
+        ["Arcane Brilliance"]       = "Intellect",
+        ["Dalaran Intellect"]       = "Intellect",
+        ["Dalaran Brilliance"]      = "Intellect",
+        ["Divine Spirit"]           = "Spirit",
+        ["Prayer of Spirit"]        = "Spirit",
+        ["Shadow Protection"]       = "Shadow",
+        ["Prayer of Shadow Protection"] = "Shadow",
         ["Battle Shout"]            = "Shout",
+        ["Blessing of Kings"]       = "Kings",
+        ["Greater Blessing of Kings"] = "Kings",
+        ["Blessing of Might"]       = "Might",
+        ["Greater Blessing of Might"] = "Might",
+        ["Blessing of Wisdom"]      = "Wisdom",
+        ["Greater Blessing of Wisdom"] = "Wisdom",
+        ["Blessing of Sanctuary"]   = "Sanctuary",
+        ["Greater Blessing of Sanctuary"] = "Sanctuary",
     }
     local LABEL_CLASS_OVERRIDES = {
         ROGUE  = "Poison",   -- all rogue poisons
@@ -123,9 +141,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- 1) Raid buffs for this class (only enabled ones)
         local RAID_BUFFS = _G._EABR_RAID_BUFFS or {}
         for _, buff in ipairs(RAID_BUFFS) do
-            if buff.class == playerClass and Known(buff.castSpell) then
+            local castID = (not IsInGroup() and buff.singleSpell) or buff.castSpell
+            if buff.class == playerClass and Known(castID) then
                 if rb and rb.enabled and rb.enabled[buff.key] then
-                    icons[#icons+1] = { texture = Tex(buff.castSpell), label = ShortLabel(_G._EABR_SpellName(buff.castSpell, buff.name)), cat = "raidbuff", itemKey = buff.key }
+                    icons[#icons+1] = { texture = Tex(castID), label = ShortLabel(_G._EABR_SpellName(castID, buff.name)), cat = "raidbuff", itemKey = buff.key }
                 end
             end
         end
@@ -134,7 +153,8 @@ initFrame:SetScript("OnEvent", function(self)
         local AURAS = _G._EABR_AURAS or {}
         local beaconAdded = false
         for _, aura in ipairs(AURAS) do
-            if aura.class == playerClass and Known(aura.castSpell) then
+            local castID = aura.castSpellFn and aura.castSpellFn() or aura.castSpell
+            if aura.class == playerClass and Known(castID) then
                 if au and au.enabled and au.enabled[aura.key] then
                     local specOk = true
                     if aura.specs then
@@ -144,11 +164,11 @@ initFrame:SetScript("OnEvent", function(self)
                     if specOk then
                         if aura.key == "bol" or aura.key == "bof" then
                             if not beaconAdded then
-                                icons[#icons+1] = { texture = Tex(aura.castSpell), label = ShortLabel(_G._EABR_SpellName(aura.castSpell, aura.name)), cat = "aura", itemKey = aura.key }
+                                icons[#icons+1] = { texture = Tex(castID), label = ShortLabel(_G._EABR_SpellName(castID, aura.name)), cat = "aura", itemKey = aura.key }
                                 beaconAdded = true
                             end
                         else
-                            icons[#icons+1] = { texture = Tex(aura.castSpell), label = ShortLabel(_G._EABR_SpellName(aura.castSpell, aura.name)), cat = "aura", itemKey = aura.key }
+                            icons[#icons+1] = { texture = Tex(castID), label = ShortLabel(_G._EABR_SpellName(castID, aura.name)), cat = "aura", itemKey = aura.key }
                         end
                     end
                 end
@@ -1111,8 +1131,9 @@ initFrame:SetScript("OnEvent", function(self)
             local RAID_BUFFS = _G._EABR_RAID_BUFFS or {}
             local gridItems = {}
             for _, buff in ipairs(RAID_BUFFS) do
+                local castID = (not IsInGroup() and buff.singleSpell) or buff.castSpell
                 gridItems[#gridItems+1] = {
-                    label = _G._EABR_SpellName(buff.castSpell, buff.name),
+                    label = _G._EABR_SpellName(castID, buff.name),
                     classToken = buff.class,
                     key = buff.key,
                     getVal = function() local r = RDB(); return r and r.enabled and r.enabled[buff.key] end,
@@ -1149,8 +1170,9 @@ initFrame:SetScript("OnEvent", function(self)
             local AURAS = _G._EABR_AURAS or {}
             local gridItems = {}
             for _, aura in ipairs(AURAS) do
+                local castID = aura.castSpellFn and aura.castSpellFn() or aura.castSpell
                 gridItems[#gridItems+1] = {
-                    label = _G._EABR_SpellName(aura.castSpell, aura.name),
+                    label = _G._EABR_SpellName(castID, aura.name),
                     classToken = aura.class,
                     key = aura.key,
                     getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,

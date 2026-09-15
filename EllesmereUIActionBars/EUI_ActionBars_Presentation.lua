@@ -538,6 +538,11 @@ function Presentation:Install()
     eventFrame:RegisterEvent("ACTIONBAR_UPDATE_STATE")
     eventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
     eventFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+    -- Wrath possession/encounter bars (for example Blood Queen's bite) are
+    -- bonus bar 5. The state driver updates the secure action immediately;
+    -- repaint from the matching FrameXML event so page-11 icons appear in the
+    -- same event burst even when the transition happens during combat.
+    eventFrame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
     eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")

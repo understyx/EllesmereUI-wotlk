@@ -1488,10 +1488,9 @@ end
 
 --- Single source of truth for "what type is this bar" / "what family is it in".
 ---
---- The 3 default bars (cooldowns/utility/buffs) have their barType stamped
---- in DEFAULTS, but legacy installs may have nil barType because the field
---- was added later. Both helpers fall back to key-based inference for those
---- legacy entries.
+--- Default bars have their barType stamped in DEFAULTS, but legacy installs
+--- may still contain the former Utility/Buffs/Debuffs defaults with a nil
+--- barType. Both helpers fall back to key-based inference for those entries.
 ---
 --- Pass either a bar key (string) or a bar data table (with .key and
 --- .barType fields). Both forms are accepted for caller convenience.
@@ -1865,6 +1864,11 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     -- frame still resolves regardless of its talent/override form.
     if not sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs = {} end
     sd.hostedBuffSpellIDs[spellID] = true
+    -- Custom IDs have no guaranteed Blizzard buff-viewer frame; arm the
+    -- direct player-aura edge scanner immediately for the live fallback.
+    if sd.customSpellIDs and sd.customSpellIDs[spellID] then
+        ns._cdmAnyCustomHostedBuff = true
+    end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
@@ -2017,6 +2021,11 @@ function ns.AddCDMBar(barType, name, numRows)
     local RegisterCDMUnlockElements = ns.RegisterCDMUnlockElements
     local MAX_CUSTOM_BARS = ns.MAX_CUSTOM_BARS
 
+    -- All newly-created bars use the unified cooldown type. It can host
+    -- utility spells, buffs, and debuffs through the existing picker paths.
+    if barType ~= nil and barType ~= "cooldowns" then return nil end
+    barType = "cooldowns"
+
     local p = ECME.db.profile
     local bars = ns.GetActiveCDMConfig(true).bars
     -- Count existing custom bars (non-default)
@@ -2029,13 +2038,7 @@ function ns.AddCDMBar(barType, name, numRows)
     end
     if customCount >= MAX_CUSTOM_BARS then return nil end
     -- Determine bar type label for default name
-    barType = barType or "cooldowns"
-    local typeLabel = barType == "cooldowns" and "Cooldowns"
-                   or barType == "utility" and "Utility"
-                   or barType == "buffs" and "Buffs"
-                   or barType == "debuffs" and "Debuffs"
-                   or barType == "custom_buff" and "Auras"
-                   or "Cooldowns"
+    local typeLabel = "Cooldowns"
     -- Count existing custom bars of this type for numbering
     local typeCount = 0
     for _, b in ipairs(bars) do
@@ -2078,7 +2081,7 @@ function ns.AddCDMBar(barType, name, numRows)
     return key
 end
 
--- Remove a custom CDM bar (only custom bars, not the 3 defaults).
+-- Remove a custom CDM bar (never remove built-in or legacy-default bars).
 -- Spells that were on the deleted bar are migrated to the matching ghost
 -- bar for their family so they stay hidden -- without this they'd spill
 -- back into the default bar for their viewer category, which is the

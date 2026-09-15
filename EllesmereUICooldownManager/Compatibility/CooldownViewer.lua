@@ -224,6 +224,17 @@ local cachedPlayerAuras = {}
 local cachedTargetDebuffs = {}
 local cachedTargetDebuffsAnySource = {}
 local cachedTargetDebuffsAnySourceByName = {}
+-- Helpful auras whose definition opts into auraUnit="smartGroup" are cached
+-- separately from player auras.  These are deliberately definition-driven:
+-- the UI never exposes a generic unit-scope switch, and only curated spells
+-- such as Beacon of Light / Earth Shield pay the group scanning cost.
+local smartGroupAuraSpellIDs = {}
+local smartGroupAuraClasses = {}
+local cachedSmartGroupAuras = {}
+local smartGroupAurasByGUID = {}
+local smartGroupGUIDByUnit = {}
+local smartGroupDirtyUnits = {}
+local smartGroupUnitOrder = {}
 local cachedAuraTime = 0
 
 -- Retail accepts a spell ID through C_Spell.IsSpellUsable. On legacy clients,
@@ -389,6 +400,14 @@ local function ValidateDefinition(def)
     if def.auraTags ~= nil and type(def.auraTags) ~= "table" then
         return false, "auraTags must be a table"
     end
+    if def.auraUnit == "smartGroup" and def.auraOwnOnly ~= true then
+        return false, "smartGroup auras must set auraOwnOnly=true"
+    end
+    if def.auraUnit == "smartGroup"
+        and def.trackingType ~= "aura"
+        and def.trackingType ~= "cooldown_and_aura" then
+        return false, "smartGroup is only supported for helpful auras"
+    end
 
     if def.trackingType == "cooldown" and not def.spellID then return false, "Tracking type cooldown requires spellID" end
     if (def.trackingType == "aura" or def.trackingType == "debuff")
@@ -441,6 +460,24 @@ local function IndexDefinitionAuraTags(def)
         for _, spellID in ipairs(def.auraSpellIDs) do AddTaggedSpellID(spellID, tags) end
     end
     def.auraTags = tags
+end
+
+local function IndexSmartGroupDefinition(def)
+    if def.auraUnit ~= "smartGroup" then return end
+
+    -- Smart-group tracking is intentionally narrow and own-cast only. Index
+    -- every equivalent aura identity once so one unit scan can serve both the
+    -- Buff Icon and Buff Bar definitions for the same spell.
+    local function Add(spellID)
+        if type(spellID) == "number" and spellID > 0 then
+            smartGroupAuraSpellIDs[spellID] = true
+        end
+    end
+    Add(def.auraSpellID or def.spellID)
+    if def.auraSpellIDs then
+        for _, spellID in ipairs(def.auraSpellIDs) do Add(spellID) end
+    end
+    if def.class then smartGroupAuraClasses[def.class] = true end
 end
 
 -- Adapter Prototype
@@ -876,6 +913,7 @@ function C_CooldownViewer.RegisterDefinition(def)
         executeCooldownIDs[#executeCooldownIDs + 1] = def.cooldownID
     end
     IndexDefinitionAuraTags(def)
+    IndexSmartGroupDefinition(def)
 
     if (def.internalCooldown or 0) > 0 then
         local auraSpellID = def.auraSpellID or def.spellID
@@ -947,12 +985,15 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         matchedAuraSpellID = state and state.matchedAuraSpellID,
         matchedAuraIcon = state and state.matchedAuraIcon,
         matchedAuraName = state and state.matchedAuraName,
+        matchedAuraUnit = state and state.matchedAuraUnit,
+        matchedAuraUnitGUID = state and state.matchedAuraUnitGUID,
         auraSpellIDs = def.auraSpellIDs,
         anySourceDebuff = def.anySourceDebuff,
         debuffScope = def.debuffScope,
         hasAura = def.hasAura,
         selfAura = def.selfAura,
         auraUnit = def.auraUnit,
+        auraOwnOnly = def.auraOwnOnly,
         execute = def.execute,
         class = def.class,
         isTrinketProc = def.isTrinketProc,
@@ -974,7 +1015,163 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
 end
 
 -- Aura Caching
-local function UpdateAuraCache()
+local function PlayerUsesSmartGroupAuras()
+    local _, playerClass = UnitClass("player")
+    return playerClass and smartGroupAuraClasses[playerClass] == true
+end
+
+local function IsSmartGroupUnitToken(unit)
+    if type(unit) ~= "string" then return false end
+    if unit == "player" then return true end
+    return string.match(unit, "^party%d+$") ~= nil
+        or string.match(unit, "^raid%d+$") ~= nil
+end
+
+local function BuildSmartGroupUnitOrder()
+    wipe(smartGroupUnitOrder)
+
+    local raidCount = GetNumRaidMembers and GetNumRaidMembers() or 0
+    if raidCount > 0 or UnitExists("raid1") then
+        for i = 1, 40 do
+            local unit = "raid" .. i
+            if UnitExists(unit) then
+                smartGroupUnitOrder[#smartGroupUnitOrder + 1] = unit
+            end
+        end
+    else
+        -- WeakAuras-style Smart Group includes the player in a party and uses
+        -- only the player while solo.
+        smartGroupUnitOrder[1] = "player"
+        for i = 1, 4 do
+            local unit = "party" .. i
+            if UnitExists(unit) then
+                smartGroupUnitOrder[#smartGroupUnitOrder + 1] = unit
+            end
+        end
+    end
+end
+
+local function AuraSourceIsPlayer(source)
+    if source == "player" or source == "pet" then return true end
+    if source and UnitIsUnit then
+        return UnitIsUnit(source, "player") or UnitIsUnit(source, "pet")
+    end
+    return false
+end
+
+local function CacheSmartGroupAura(bySpell, unit, name, icon, count, duration,
+    expirationTime, source, spellID, playerFiltered)
+    if not spellID or not smartGroupAuraSpellIDs[spellID] then return false end
+
+    -- HELPFUL|PLAYER is authoritative when the legacy core omits caster data.
+    -- If the core ignores PLAYER but does return a caster, reject other
+    -- players explicitly so their Beacon/Earth Shield never becomes ours.
+    if not AuraSourceIsPlayer(source) and not (playerFiltered and source == nil) then
+        return false
+    end
+
+    bySpell[spellID] = {
+        duration = duration or 0,
+        expirationTime = expirationTime or 0,
+        count = count or 0,
+        spellID = spellID,
+        icon = icon,
+        name = name,
+        unit = unit,
+        unitGUID = UnitGUID and UnitGUID(unit),
+    }
+    return true
+end
+
+local function ScanSmartGroupUnit(unit)
+    local previousGUID = smartGroupGUIDByUnit[unit]
+    local guid = UnitExists(unit) and UnitGUID and UnitGUID(unit)
+    if previousGUID and previousGUID ~= guid then
+        smartGroupAurasByGUID[previousGUID] = nil
+    end
+    smartGroupGUIDByUnit[unit] = guid
+    if not guid then return end
+
+    local bySpell = {}
+    smartGroupAurasByGUID[guid] = bySpell
+
+    -- Prefer the server's own-cast filter. Most 3.3.5 cores implement it and
+    -- it remains usable even when the unfiltered aura omits sourceUnit.
+    for i = 1, 40 do
+        local name, _, icon, count, _, duration, expirationTime, source, _, _, spellID =
+            UnitAura(unit, i, "HELPFUL|PLAYER")
+        if not name then break end
+        CacheSmartGroupAura(bySpell, unit, name, icon, count, duration,
+            expirationTime, source, spellID, true)
+    end
+
+    -- Compatibility fallback for cores with a broken PLAYER filter. Explicit
+    -- caster identity is required here, so this can never claim another
+    -- paladin's Beacon or shaman's Earth Shield.
+    for i = 1, 40 do
+        local name, _, icon, count, _, duration, expirationTime, source, _, _, spellID =
+            UnitAura(unit, i, "HELPFUL")
+        if not name then break end
+        if spellID and smartGroupAuraSpellIDs[spellID] and not bySpell[spellID]
+            and AuraSourceIsPlayer(source) then
+            CacheSmartGroupAura(bySpell, unit, name, icon, count, duration,
+                expirationTime, source, spellID, false)
+        end
+    end
+end
+
+local function RebuildSmartGroupSelections()
+    local previous = cachedSmartGroupAuras
+    local selected = {}
+
+    -- Iterate in stable roster order. If an impossible/transient duplicate is
+    -- observed, retain the previously matched unit until its aura disappears.
+    for spellID in pairs(smartGroupAuraSpellIDs) do
+        local oldGUID = previous[spellID] and previous[spellID].unitGUID
+        local fallback
+        for i = 1, #smartGroupUnitOrder do
+            local unit = smartGroupUnitOrder[i]
+            local guid = smartGroupGUIDByUnit[unit]
+                or (UnitGUID and UnitGUID(unit))
+            local aura = guid and smartGroupAurasByGUID[guid]
+                and smartGroupAurasByGUID[guid][spellID]
+            if aura then
+                fallback = fallback or aura
+                if oldGUID and guid == oldGUID then
+                    selected[spellID] = aura
+                    break
+                end
+            end
+        end
+        selected[spellID] = selected[spellID] or fallback
+    end
+    cachedSmartGroupAuras = selected
+end
+
+local function RefreshSmartGroupAuraCache(fullRefresh)
+    if not PlayerUsesSmartGroupAuras() then
+        wipe(cachedSmartGroupAuras)
+        wipe(smartGroupDirtyUnits)
+        return
+    end
+
+    BuildSmartGroupUnitOrder()
+    if fullRefresh then
+        wipe(smartGroupAurasByGUID)
+        wipe(smartGroupGUIDByUnit)
+        for i = 1, #smartGroupUnitOrder do
+            ScanSmartGroupUnit(smartGroupUnitOrder[i])
+        end
+    else
+        for unit in pairs(smartGroupDirtyUnits) do
+            ScanSmartGroupUnit(unit)
+        end
+    end
+    wipe(smartGroupDirtyUnits)
+    RebuildSmartGroupSelections()
+end
+
+local function UpdateAuraCache(fullSmartGroupRefresh)
     wipe(cachedPlayerAuras)
     wipe(cachedTargetDebuffs)
     wipe(cachedTargetDebuffsAnySource)
@@ -1092,6 +1289,7 @@ local function UpdateAuraCache()
             end
         end
     end
+    RefreshSmartGroupAuraCache(fullSmartGroupRefresh)
     cachedAuraTime = GetTime()
 end
 
@@ -1101,7 +1299,9 @@ local function GetCachedAura(spellID, unit, anySource)
     if GetTime() > cachedAuraTime + 0.5 then
         UpdateAuraCache()
     end
-    if unit == "target" then
+    if unit == "smartGroup" then
+        return cachedSmartGroupAuras[spellID]
+    elseif unit == "target" then
         local cache = anySource and cachedTargetDebuffsAnySource or cachedTargetDebuffs
         local aura = cache[spellID]
         if not aura and anySource then
@@ -1215,6 +1415,8 @@ local function ReevaluateState()
                         state.matchedAuraSpellID = aura.spellID
                         state.matchedAuraIcon = aura.icon
                         state.matchedAuraName = aura.name
+                        state.matchedAuraUnit = aura.unit
+                        state.matchedAuraUnitGUID = aura.unitGUID
                         -- CLEU normally starts ICDs at the exact proc event.
                         -- This fallback recovers a proc already active at login
                         -- or after an event gap, using the aura's start time.
@@ -1235,6 +1437,8 @@ local function ReevaluateState()
                         state.matchedAuraSpellID = nil
                         state.matchedAuraIcon = nil
                         state.matchedAuraName = nil
+                        state.matchedAuraUnit = nil
+                        state.matchedAuraUnitGUID = nil
                     end
                 end
             end
@@ -1248,6 +1452,8 @@ local function ReevaluateState()
             state.matchedAuraSpellID = nil
             state.matchedAuraIcon = nil
             state.matchedAuraName = nil
+            state.matchedAuraUnit = nil
+            state.matchedAuraUnitGUID = nil
             state.internalCooldownExpiration = nil
         end
 
@@ -1275,7 +1481,7 @@ end
 -- equipment rebuilds never depend on event-frame dispatch order.
 function ns.RefreshCooldownViewerCompatibility()
     local ok, err = xpcall(function()
-        UpdateAuraCache()
+        UpdateAuraCache(true)
         ReevaluateAvailability()
         ReevaluateState()
     end, CompatibilityTraceback)
@@ -1291,6 +1497,7 @@ end
 -- UNIT_AURA; the combat-log path below supplies a second authoritative wakeup
 -- without adding a permanent polling ticker.
 local auraRefreshQueued = false
+local standardAuraRefreshQueued = false
 local stateRefreshQueued = false
 local executeRefreshQueued = false
 local auraRefreshRetryAt = 0
@@ -1305,16 +1512,29 @@ auraRefreshFrame:SetScript("OnUpdate", function(self)
     -- the refresh can mark a newer generation dirty without being overwritten
     -- by the successful completion of this one.
     local refreshAuras = auraRefreshQueued
+    local refreshStandardAuras = standardAuraRefreshQueued
     local refreshAllState = stateRefreshQueued
     local refreshExecuteOnly = executeRefreshQueued and not refreshAllState
     auraRefreshQueued = false
+    standardAuraRefreshQueued = false
     stateRefreshQueued = false
     executeRefreshQueued = false
     local ok, err = xpcall(function()
         if refreshExecuteOnly then
             RefreshExecuteAdapters()
         else
-            if refreshAuras then UpdateAuraCache() end
+            if refreshAuras then
+                if refreshStandardAuras then
+                    UpdateAuraCache()
+                else
+                    -- A party/raid member changed, but neither player nor
+                    -- target did. Refresh only that member's two curated
+                    -- Smart Group candidates instead of rescanning the normal
+                    -- player/target caches on every raid UNIT_AURA event.
+                    RefreshSmartGroupAuraCache(false)
+                    cachedAuraTime = GetTime()
+                end
+            end
             ReevaluateState()
         end
     end, CompatibilityTraceback)
@@ -1330,6 +1550,7 @@ auraRefreshFrame:SetScript("OnUpdate", function(self)
         -- Preserve both the failed generation and any newer aura request
         -- raised synchronously while ReevaluateState was running.
         auraRefreshQueued = auraRefreshQueued or refreshAuras
+        standardAuraRefreshQueued = standardAuraRefreshQueued or refreshStandardAuras
         stateRefreshQueued = stateRefreshQueued or refreshAllState
         executeRefreshQueued = executeRefreshQueued or refreshExecuteOnly
         auraRefreshRetryAt = now + retryDelay
@@ -1338,7 +1559,14 @@ auraRefreshFrame:SetScript("OnUpdate", function(self)
     end
 end)
 
-local function QueueAuraRefresh()
+local function QueueAuraRefresh(unit)
+    if PlayerUsesSmartGroupAuras() and IsSmartGroupUnitToken(unit) then
+        smartGroupDirtyUnits[unit] = true
+    end
+    if not unit or unit == "player" or unit == "target"
+        or (UnitIsUnit and (UnitIsUnit(unit, "player") or UnitIsUnit(unit, "target"))) then
+        standardAuraRefreshQueued = true
+    end
     auraRefreshQueued = true
     stateRefreshQueued = true
     auraRefreshFrame:Show()
@@ -1372,14 +1600,18 @@ local function CooldownViewerCompatibilityOnEvent(self, event, ...)
     elseif event == "PLAYER_ENTERING_WORLD" then
         wipe(playerDebuffsByGUID)
         ns.RefreshCooldownViewerCompatibility()
+    elseif event == "GROUP_ROSTER_UPDATE" or event == "RAID_ROSTER_UPDATE"
+        or event == "PARTY_MEMBERS_CHANGED" then
+        ns.RefreshCooldownViewerCompatibility()
     elseif event == "UNIT_AURA" then
         local unit = ...
         if not unit or unit == "player" or unit == "target"
+            or (PlayerUsesSmartGroupAuras() and IsSmartGroupUnitToken(unit))
             or (UnitIsUnit and (UnitIsUnit(unit, "player") or UnitIsUnit(unit, "target"))) then
-            QueueAuraRefresh()
+            QueueAuraRefresh(unit)
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
-        QueueAuraRefresh()
+        QueueAuraRefresh("target")
     elseif event == "UNIT_HEALTH" then
         local unit = ...
         if unit == "target" or (unit and UnitIsUnit and UnitIsUnit(unit, "target")) then
@@ -1412,7 +1644,7 @@ local function CooldownViewerCompatibilityOnEvent(self, event, ...)
         if IsAuraCombatLogEvent(subEvent) then
             local targetGUID = UnitGUID("target")
             if targetGUID and destinationGUID == targetGUID then
-                QueueAuraRefresh()
+                QueueAuraRefresh("target")
             end
         end
         if destinationGUID == UnitGUID("player")
@@ -1426,7 +1658,7 @@ local function CooldownViewerCompatibilityOnEvent(self, event, ...)
                         StartInternalCooldown(cooldownID, now)
                     end
                 end
-                QueueAuraRefresh()
+                QueueAuraRefresh("player")
             end
         end
     end
@@ -1438,13 +1670,16 @@ ns.RegisterCDMEventCallback("cooldownViewerCompatibility", CooldownViewerCompati
     "PLAYER_TALENT_UPDATE",
     "PLAYER_EQUIPMENT_CHANGED",
     "PLAYER_ENTERING_WORLD",
+    "GROUP_ROSTER_UPDATE",
+    "RAID_ROSTER_UPDATE",
+    "PARTY_MEMBERS_CHANGED",
+    "UNIT_AURA",
     "SPELL_UPDATE_COOLDOWN",
     "SPELL_UPDATE_USABLE",
     "ACTIONBAR_UPDATE_USABLE",
     "PLAYER_TARGET_CHANGED",
     "COMBAT_LOG_EVENT_UNFILTERED",
 }, {
-    UNIT_AURA = { "player", "target" },
     UNIT_HEALTH = { "target" },
 })
 

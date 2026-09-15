@@ -314,7 +314,8 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     local hostedFamily
     if frame and bk and sd2 then
         local fdH = ns._hookFrameData and ns._hookFrameData[frame]
-        if (fdH and fdH._isBuffViewerFrame) or frame._isPlaceholderFrame then
+        if (fdH and fdH._isBuffViewerFrame) or frame._isPlaceholderFrame
+           or frame._isHostedCustomAuraFrame then
             local bdH = ns.barDataByKey and ns.barDataByKey[bk]
             if bdH and bdH.barType ~= "buffs" and bdH.barType ~= "custom_buff" then
                 if frame._hostedAuraFamily == "debuffs"
@@ -776,7 +777,13 @@ function ns.RebuildSpellRouteMap()
                 -- diversion must survive that so the buff still renders here. SVV
                 -- expands variants so any live talent/override form resolves.
                 for sid in pairs(sd.hostedBuffSpellIDs) do
-                    if type(sid) == "number" and sid > 0 then
+                    -- A manually-entered custom buff is not guaranteed to have
+                    -- any Blizzard BuffIconCooldownViewer frame. It is rendered
+                    -- by our direct player-aura fallback instead; diverting a
+                    -- coincidental native frame too would duplicate it.
+                    local isCustomHosted = sd.customSpellIDs
+                        and sd.customSpellIDs[sid]
+                    if type(sid) == "number" and sid > 0 and not isCustomHosted then
                         SVV(_divertedSpellsBuff, sid, bd.key, false)
                     end
                 end
@@ -847,8 +854,19 @@ local function CdidIDReadable(id)
     return id > 0
 end
 
+-- New profiles have one default visible bar. Essential and Utility remain
+-- separate Blizzard viewer pools, but an unclaimed Utility frame falls back
+-- to the unified Cooldowns bar when no legacy Utility bar exists.
+local function ViewerFallbackBar(viewerDefaultBar)
+    if barDataByKey[viewerDefaultBar] then return viewerDefaultBar end
+    if viewerDefaultBar == "utility" and barDataByKey.cooldowns then
+        return "cooldowns"
+    end
+    return viewerDefaultBar
+end
+
 local function ResolveCDIDToBar(cdID, viewerDefaultBar)
-    if not cdID then return viewerDefaultBar end
+    if not cdID then return ViewerFallbackBar(viewerDefaultBar) end
     local cached = _cdidRouteMap[cdID]
     if cached then return cached end
 
@@ -870,8 +888,9 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     local RVV = ns.ResolveVariantValue
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not RVV or not gci then
-        _cdidRouteMap[cdID] = viewerDefaultBar
-        return viewerDefaultBar
+        local fallbackBar = ViewerFallbackBar(viewerDefaultBar)
+        _cdidRouteMap[cdID] = fallbackBar
+        return fallbackBar
     end
 
     local divertMap = viewerDefaultBar == "buffs" and _divertedSpellsBuff
@@ -886,7 +905,7 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
         -- fallback here would pin a ghosted/custom spell to its default bar
         -- until the next rebuild. Leaving it uncached lets a later pass (once
         -- info is ready) resolve the real bar.
-        return viewerDefaultBar
+        return ViewerFallbackBar(viewerDefaultBar)
     end
     local routedBar = nil
     do
@@ -921,11 +940,11 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
             end
         end
         if not sawReadable then
-            return viewerDefaultBar
+            return ViewerFallbackBar(viewerDefaultBar)
         end
     end
 
-    routedBar = routedBar or viewerDefaultBar
+    routedBar = routedBar or ViewerFallbackBar(viewerDefaultBar)
     _cdidRouteMap[cdID] = routedBar
     return routedBar
 end
@@ -3280,7 +3299,7 @@ local function CategorizeFrame(frame, viewerBarKey)
         -- rule this can't happen via picker claims, but legacy data could trigger
         -- it. Fall through to the viewer's default bar so the frame still renders.
     end
-    return viewerBarKey, displaySID, baseSID
+    return ViewerFallbackBar(viewerBarKey), displaySID, baseSID
 end
 
 -------------------------------------------------------------------------------
@@ -3921,6 +3940,24 @@ local function HideAllPlaceholders()
 end
 ns.HideAllPlaceholders = HideAllPlaceholders
 
+-- Blizzard can re-assert a live aura frame's alpha after its viewer updates.
+-- Hosted Active -> Hidden/Hidden (Shift Icons) must survive those writes: the
+-- former keeps a reserved slot, while the latter is omitted from layout. One
+-- guarded post-hook per pooled frame keeps both modes visually stable without
+-- ever Hide()ing a Blizzard-owned pool frame.
+local function EnsureHostedVisibilityAlphaHook(frame)
+    if frame._hostedVisibilityAlphaHooked then return end
+    frame._hostedVisibilityAlphaHooked = true
+    hooksecurefunc(frame, "SetAlpha", function(self)
+        if (self._hostedActiveHidden or self._hostedActiveShift)
+           and not self._hostedVisibilityAlphaGuard then
+            self._hostedVisibilityAlphaGuard = true
+            self:SetAlpha(0)
+            self._hostedVisibilityAlphaGuard = nil
+        end
+    end)
+end
+
 -- Injected custom/preset buff own-frames (buff-family bars). Tracked so the
 -- collect pass can hide them all up front and re-show only the active ones,
 -- exactly like placeholders -- the buff-phase cleanup loops only disable swipe
@@ -4015,6 +4052,103 @@ local function GetOrCreateCustomBuffFrame(barKey, sid)
     return f
 end
 ns.GetOrCreateCustomBuffFrame = GetOrCreateCustomBuffFrame
+
+-- Resolve a manually-entered player buff without requiring a Blizzard CDM
+-- catalog/viewer entry. Retail can answer by spell ID directly; the UnitAura
+-- fallback keeps the same path working on the WotLK compatibility client.
+-- Returns auraData, readable. A secret direct result is deliberately treated
+-- as unreadable rather than boolean-tested (which would error in restricted
+-- content); the caller keeps its previous edge state until a clean read.
+local function GetCustomHostedPlayerAura(spellID)
+    local getByID = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+    if getByID then
+        local aura = getByID(spellID)
+        if issecretvalue and issecretvalue(aura) then return nil, false end
+        return aura, true
+    end
+    if not UnitAura then return nil, false end
+    for i = 1, 40 do
+        local name, _, icon, count, _, duration, expirationTime, source,
+            _, _, auraSpellID = UnitAura("player", i, "HELPFUL")
+        if not name then break end
+        if auraSpellID == spellID then
+            return {
+                name = name,
+                icon = icon,
+                applications = count or 0,
+                duration = duration or 0,
+                expirationTime = expirationTime or 0,
+                sourceUnit = source,
+                spellId = auraSpellID,
+            }, true
+        end
+    end
+    return nil, true
+end
+
+-- Apply an aura's duration to an own-frame cooldown without comparing secret
+-- duration fields. Clean numeric data uses the normal start/duration pair;
+-- timeless or restricted auras simply show the active icon without a swipe.
+local function ApplyCustomHostedAuraCooldown(frame, aura)
+    local duration = aura and aura.duration
+    local expirationTime = aura and aura.expirationTime
+    local durationReadable = type(duration) == "number"
+        and not (issecretvalue and issecretvalue(duration))
+    local expirationReadable = type(expirationTime) == "number"
+        and not (issecretvalue and issecretvalue(expirationTime))
+    if durationReadable and expirationReadable and duration > 0 and expirationTime > 0 then
+        frame._cooldown:SetCooldown(expirationTime - duration, duration)
+    else
+        frame._cooldown:Clear()
+    end
+end
+
+-- Edge detector for direct-aura hosted customs. UNIT_AURA dirties the existing
+-- 10 Hz buff ticker; this gated scan turns only an actual active/missing change
+-- into a reanchor, avoiding a layout rebuild for ordinary aura duration ticks.
+local _customHostedAuraState = {}
+local _customHostedAuraSeen = {}
+local function CustomHostedAuraStateChanged()
+    if not ns._cdmAnyCustomHostedBuff then return false end
+    wipe(_customHostedAuraSeen)
+    local changed = false
+    for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
+        if bd.enabled and not bd.isGhostBar
+           and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+           and bd.barType ~= "custom_buff" then
+            local sd = ns.GetBarSpellData(bd.key)
+            local hosted = sd and sd.hostedBuffSpellIDs
+            local custom = sd and sd.customSpellIDs
+            if hosted and custom then
+                for sid in pairs(hosted) do
+                    if type(sid) == "number" and sid > 0 and custom[sid] then
+                        local key = bd.key .. ":" .. sid
+                        _customHostedAuraSeen[key] = true
+                        local aura, readable = GetCustomHostedPlayerAura(sid)
+                        if readable then
+                            local active = aura and true or false
+                            if active then
+                                local f = _presetFrames[bd.key .. ":custombuff:" .. sid]
+                                if f then ApplyCustomHostedAuraCooldown(f, aura) end
+                            end
+                            if _customHostedAuraState[key] == nil
+                               or _customHostedAuraState[key] ~= active then
+                                _customHostedAuraState[key] = active
+                                changed = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for key in pairs(_customHostedAuraState) do
+        if not _customHostedAuraSeen[key] then
+            _customHostedAuraState[key] = nil
+        end
+    end
+    return changed
+end
 
 -- Own-frame for an item (icon + item cooldown + bag count), shared by the
 -- CD/utility injection (Phase 3) and the buff-family injection. Created once per
@@ -4896,6 +5030,13 @@ local function CollectAndReanchor()
                     allActiveFrames[frame] = true
 
                     if isBuff then
+                        -- Pooled viewer frames can change routes and settings between
+                        -- passes. Active-only marks are recomputed below for a hosted
+                        -- live aura; clearing here guarantees an unhosted/inactive frame
+                        -- is never held invisible by its previous assignment.
+                        frame._hostedActiveHidden = nil
+                        frame._hostedActiveDesat = nil
+                        frame._hostedActiveShift = nil
                         -------------------------------------------------------
                         --  BUFF PATH: CategorizeFrame + dedup
                         -------------------------------------------------------
@@ -4932,25 +5073,67 @@ local function CollectAndReanchor()
                                 if type(frame.IsShown) ~= "function" or frame:IsShown() then
                                     -- Active buff: route Blizzard's real frame.
                                     local tbd = barDataByKey[targetBar]
+                                    -- These marks belong only to a currently-active hosted
+                                    -- aura. Clear them on every collection pass so moving the
+                                    -- aura back to a buff-family bar (or changing the option)
+                                    -- cannot leave stale visibility styling on the pooled frame.
+                                    local hostedActiveVis
                                     if tbd and tbd.barType ~= "buffs"
                                        and tbd.barType ~= "debuffs"
                                        and tbd.barType ~= "custom_buff" then
+                                        -- "Visibility When" is one condition/effect choice.
+                                        -- Legacy missing-state values remain unchanged; the
+                                        -- active-state variants are encoded in the same key so
+                                        -- existing profiles need no migration.
+                                        local sdAV = ns.GetBarSpellData(targetBar)
+                                        -- Resolve through the matching placeholder identity.
+                                        -- A never-before-decorated live viewer frame does not
+                                        -- have _isBuffViewerFrame yet, while the placeholder's
+                                        -- explicit family/cooldownID is sufficient even on the
+                                        -- very first collection pass (including c<cooldownID>
+                                        -- collision-scoped settings).
+                                        local phAV = GetOrCreatePlaceholderFrame(
+                                            targetBar, displaySID, nil)
+                                        phAV._hostedAuraFamily = defaultBarKey
+                                        phAV.cooldownID = dedupKey
+                                        local ssAV = ns.ResolveSpellSettings(phAV,
+                                            displaySID, sdAV, targetBar)
+                                        local av = ssAV and ssAV.hostedMissingVis
+                                        if av == "activeDesaturated" then
+                                            hostedActiveVis = "desaturated"
+                                        elseif av == "activeHidden" then
+                                            hostedActiveVis = "hidden"
+                                        elseif av == "activeHiddenShift" then
+                                            hostedActiveVis = "hiddenShift"
+                                        end
+                                        EnsureHostedVisibilityAlphaHook(frame)
+                                        frame._hostedActiveHidden = (hostedActiveVis == "hidden") or nil
+                                        frame._hostedActiveDesat = (hostedActiveVis == "desaturated") or nil
+                                        frame._hostedActiveShift = (hostedActiveVis == "hiddenShift") or nil
+                                        if frame._hostedActiveHidden or frame._hostedActiveShift then
+                                            frame:SetAlpha(0)
+                                        end
                                         -- HOSTED buff on a CD/util bar: push the real frame into the
                                         -- CD pipeline (cdFrames) so Phase 3 sorts it with cooldowns by
                                         -- assignedSpells position and draws its native swipe. FC.spellID
                                         -- is set here (the buff path doesn't otherwise); it then enters
                                         -- _globalClaimSet (built from cdFrames) so Phase 3 never injects
                                         -- a duplicate. Phase 4 still treats it hands-off (viewerFrame).
+                                        -- Keep an empty destination list for Shift Icons too,
+                                        -- so Phase 3 clears any icon refs/layout count left by
+                                        -- the preceding state (also on the first post-login pass).
                                         if not cdFrames[targetBar] then cdFrames[targetBar] = {} end
-                                        local cf = cdFrames[targetBar]
-                                        cf[#cf + 1] = frame
-                                        local fc = FC(frame)
-                                        fc.barKey = targetBar
-                                        fc.spellID = baseSID or displaySID
-                                        -- Hosted buff: Phase 3 ranks it by its hosted
-                                        -- MARKER slot, independent of the same spell's
-                                        -- cooldown entry on this bar.
-                                        fc.isHostedBuff = true
+                                        if hostedActiveVis ~= "hiddenShift" then
+                                            local cf = cdFrames[targetBar]
+                                            cf[#cf + 1] = frame
+                                            local fc = FC(frame)
+                                            fc.barKey = targetBar
+                                            fc.spellID = baseSID or displaySID
+                                            -- Hosted buff: Phase 3 ranks it by its hosted
+                                            -- MARKER slot, independent of the same spell's
+                                            -- cooldown entry on this bar.
+                                            fc.isHostedBuff = true
+                                        end
                                     else
                                         if not barLists[targetBar] then barLists[targetBar] = {} end
                                         barLists[targetBar][#barLists[targetBar] + 1] =
@@ -5033,7 +5216,16 @@ local function CollectAndReanchor()
                                         phMV._hostedAuraFamily = defaultBarKey
                                         local ssMV = ns.ResolveSpellSettings(phMV, realSID, ns.GetBarSpellData(targetBar), targetBar)
                                         local mv = ssMV and ssMV.hostedMissingVis
-                                        if mv == "hidden" or mv == "hiddenShift" then hostedMissingVis = mv end
+                                        if mv == "hidden" or mv == "hiddenShift" then
+                                            hostedMissingVis = mv
+                                        elseif mv == "activeDesaturated" or mv == "activeHidden"
+                                           or mv == "activeHiddenShift" then
+                                            -- The configured effect applies while ACTIVE;
+                                            -- while missing, keep the placeholder visible in
+                                            -- full colour so the two conditions are true
+                                            -- opposites of the same single setting.
+                                            hostedMissingVis = "saturated"
+                                        end
                                     end
                                     -- Per-icon Always-Show override (on/off) applies only in
                                     -- Always-Show mode. "Keep Buffs in Same Place" reserves
@@ -5075,6 +5267,8 @@ local function CollectAndReanchor()
                                             -- opacity passes while the slot stays
                                             -- reserved. nil for everyone else.
                                             ph._missingHidden = (hostedMissingVis == "hidden") or nil
+                                            ph._hostedMissingSaturated =
+                                                (hostedMissingVis == "saturated") or nil
                                             ph.layoutIndex = frame.layoutIndex or 0
                                             -- Carry the viewer slot's cooldownID so the
                                             -- drag-reorder sort can key this placeholder
@@ -5139,6 +5333,120 @@ local function CollectAndReanchor()
     end
 
 
+
+    -- Manually-entered buffs hosted on CD/utility bars cannot rely on the
+    -- Blizzard BuffIconCooldownViewer: arbitrary aura IDs have no catalog slot,
+    -- which previously left them preview-only forever. Render those entries from
+    -- the player's live aura directly. Catalog-picked hosted buffs stay entirely
+    -- on the native viewer path above.
+    do
+        for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
+            if bd.enabled and not bd.isGhostBar
+               and bd.barType ~= "buffs" and bd.barType ~= "debuffs"
+               and bd.barType ~= "custom_buff" then
+                local barKey = bd.key
+                local sdCustom = ns.GetBarSpellData(barKey)
+                local hosted = sdCustom and sdCustom.hostedBuffSpellIDs
+                local custom = sdCustom and sdCustom.customSpellIDs
+                if hosted and custom then
+                    for sid in pairs(hosted) do
+                        if type(sid) == "number" and sid > 0 and custom[sid] then
+                            ns._cdmAnyCustomHostedBuff = true
+                            -- Even a Shift Icons choice needs an empty list entry
+                            -- so Phase 3 can clear the previously-rendered slot.
+                            if not cdFrames[barKey] then cdFrames[barKey] = {} end
+                            local aura, auraReadable = GetCustomHostedPlayerAura(sid)
+                            local auraStateKey = barKey .. ":" .. sid
+                            local auraActive
+                            if auraReadable then
+                                auraActive = aura and true or false
+                                _customHostedAuraState[auraStateKey] = auraActive
+                            else
+                                auraActive = _customHostedAuraState[auraStateKey] == true
+                            end
+                            local icon = aura and aura.icon
+                            if issecretvalue and issecretvalue(icon) then icon = nil end
+                            if not icon and C_Spell and C_Spell.GetSpellTexture then
+                                icon = C_Spell.GetSpellTexture(sid)
+                            end
+                            if issecretvalue and issecretvalue(icon) then icon = nil end
+
+                            -- Resolve the buff-family per-icon setting through a
+                            -- placeholder identity, just like native hosted auras.
+                            local ph = GetOrCreatePlaceholderFrame(barKey, sid, icon)
+                            ph._hostedAuraFamily = "buffs"
+                            ph.cooldownID = nil
+                            local ssHV = ns.ResolveSpellSettings(ph, sid, sdCustom, barKey)
+                            local vis = ssHV and ssHV.hostedMissingVis
+
+                            if auraActive then
+                                local activeVis
+                                if vis == "activeDesaturated" then
+                                    activeVis = "desaturated"
+                                elseif vis == "activeHidden" then
+                                    activeVis = "hidden"
+                                elseif vis == "activeHiddenShift" then
+                                    activeVis = "hiddenShift"
+                                end
+
+                                local f = GetOrCreateCustomBuffFrame(barKey, sid)
+                                f._isHostedCustomAuraFrame = true
+                                f._hostedAuraFamily = "buffs"
+                                f.wasSetFromAura = true
+                                f.auraInstanceID = aura and aura.auraInstanceID
+                                f._hostedActiveHidden = (activeVis == "hidden") or nil
+                                f._hostedActiveDesat = (activeVis == "desaturated") or nil
+                                f._hostedActiveShift = (activeVis == "hiddenShift") or nil
+                                EnsureHostedVisibilityAlphaHook(f)
+                                if icon and f._tex then f._tex:SetTexture(icon) end
+                                if auraReadable then
+                                    ApplyCustomHostedAuraCooldown(f, aura)
+                                end
+
+                                if activeVis == "hiddenShift" then
+                                    f:Hide()
+                                else
+                                    cdFrames[barKey][#cdFrames[barKey] + 1] = f
+                                    local fc = FC(f)
+                                    fc.barKey = barKey
+                                    fc.spellID = sid
+                                    fc.isHostedBuff = true
+                                    f:Show()
+                                    if f._hostedActiveHidden then f:SetAlpha(0) end
+                                end
+                            else
+                                -- Missing is the hosted default: keep a desaturated
+                                -- placeholder unless the selected rule hides/shifts it.
+                                -- When the chosen condition is Active, Missing is the
+                                -- opposite full-colour state.
+                                local missingVis = "desaturated"
+                                if vis == "hidden" or vis == "hiddenShift" then
+                                    missingVis = vis
+                                elseif vis == "activeDesaturated" or vis == "activeHidden"
+                                   or vis == "activeHiddenShift" then
+                                    missingVis = "saturated"
+                                end
+                                if missingVis ~= "hiddenShift" then
+                                    ph._missingHidden = (missingVis == "hidden") or nil
+                                    ph._hostedMissingSaturated =
+                                        (missingVis == "saturated") or nil
+                                    ph.layoutIndex = 99999
+                                    ph:Show()
+                                    cdFrames[barKey][#cdFrames[barKey] + 1] = ph
+                                    local fc = FC(ph)
+                                    fc.barKey = barKey
+                                    fc.spellID = sid
+                                    fc.isHostedBuff = true
+                                else
+                                    ph:Hide()
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 
     -- Inject custom/preset buff own-frames (cast-timer driven) into buff-family
     -- bars so they sort + lay out beside Blizzard buff frames. The buff tick
@@ -5648,7 +5956,10 @@ local function CollectAndReanchor()
     for _, flist in pairs(cdFrames) do
         for _, f in ipairs(flist) do
             local fc = _ecmeFC[f]
-            if fc then
+            -- A hosted buff and the same spell's cooldown are independent
+            -- marker slots. Do not let the hosted aura satisfy/block the plain
+            -- cooldown slot's custom-frame claim.
+            if fc and not fc.isHostedBuff then
                 local fSid = fc.spellID
                 if fSid then _globalClaimSet[fSid] = true end
                 if fc.baseSpellID then _globalClaimSet[fc.baseSpellID] = true end
@@ -6279,7 +6590,8 @@ local function CollectAndReanchor()
                     -- keeps its reserved layout slot but renders fully invisible.
                     -- The flag is nil for everyone else (original branch below
                     -- unchanged).
-                    if frame._missingHidden and frame._isPlaceholderFrame then
+                    if (frame._missingHidden and frame._isPlaceholderFrame)
+                       or frame._hostedActiveHidden then
                         frame:SetAlpha(0)
                     elseif not (fcH and fcH._cdStateHidden) then
                         frame:SetAlpha(barHidden and 0 or ns.EffectiveBarAlpha(barData))
@@ -7334,7 +7646,7 @@ function ns.SetupViewerHooks()
             MemSnap("BuffTicker")
             local p = ECME and ECME.db and ECME.db.profile
             if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return true end
-            local needsReanchor = false
+            local needsReanchor = CustomHostedAuraStateChanged()
             for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
                 if bd.enabled then
                     local isBuff = (bd.barType == "buffs" or bd.key == "buffs" or bd.barType == "custom_buff")
@@ -7352,7 +7664,8 @@ function ns.SetupViewerHooks()
                                 -- an inactive hosted buff) gets the buff glow/desat logic
                                 -- below regardless of the hosting bar's family.
                                 local isBuffIcon = isBuff or (fd and fd._isBuffViewerFrame)
-                                    or frame._isPlaceholderFrame or false
+                                    or frame._isPlaceholderFrame
+                                    or frame._isHostedCustomAuraFrame or false
 
                                 local isActiveBuff = (frame.wasSetFromAura == true
                                     or frame.auraInstanceID ~= nil)
@@ -7392,7 +7705,11 @@ function ns.SetupViewerHooks()
                                     local desatOn = (bd.desaturateInactiveBuffs ~= false)
                                     if fd._desatOverride == "on" then desatOn = true
                                     elseif fd._desatOverride == "off" then desatOn = false end
-                                    if (bd.showInactiveBuffIcons or frame._isPlaceholderFrame)
+                                    if frame._hostedActiveDesat and isActiveBuff then
+                                        fd.tex:SetDesaturated(true)
+                                    elseif frame._hostedMissingSaturated and not isActiveBuff then
+                                        fd.tex:SetDesaturated(false)
+                                    elseif (bd.showInactiveBuffIcons or frame._isPlaceholderFrame)
                                        and desatOn and not isActiveBuff then
                                         fd.tex:SetDesaturated(true)
                                     elseif fd.tex:IsDesaturated() then

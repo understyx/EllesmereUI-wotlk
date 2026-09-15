@@ -11,7 +11,7 @@ move-folders:
   EllesmereUI/EllesmereUICooldownManager: EllesmereUICooldownManager
   EllesmereUI/EllesmereUIDamageMeters: EllesmereUIDamageMeters
   EllesmereUI/EllesmereUIDataBars: EllesmereUIDataBars
-  EllesmereUI/EllesmereUIFriends: EllesmereUIFriends
+  EllesmereUI/EllesmereUISwingBars: EllesmereUISwingBars
   EllesmereUI/EllesmereUIMinimap: EllesmereUIMinimap
   EllesmereUI/EllesmereUINameplates: EllesmereUINameplates
   EllesmereUI/EllesmereUIQoL: EllesmereUIQoL

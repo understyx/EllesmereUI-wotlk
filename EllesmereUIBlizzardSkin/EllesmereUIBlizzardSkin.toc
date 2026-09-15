@@ -31,6 +31,12 @@ Skins\Loot.lua
 Skins\Quest.lua
 Skins\Talent.lua
 Skins\Worldmap.lua
+Skins\GuildBank.lua
+Skins\Mail.lua
+Skins\AuctionHouse.lua
+Skins\Friends.lua
+Skins\PvP.lua
+Skins\WrathFrames.lua
 
 # Options
 EUI_BlizzardSkin_Options.lua

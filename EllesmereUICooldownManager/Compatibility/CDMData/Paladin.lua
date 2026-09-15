@@ -826,6 +826,8 @@ Register({
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+    auraUnit = "smartGroup",
+    auraOwnOnly = true,
     resolvers = {
         requirements = function()
             return HasLearnedTalent(1, 25) or HasLearnedTalentBySpellID(53563)
@@ -1053,6 +1055,8 @@ Register({
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+    auraUnit = "smartGroup",
+    auraOwnOnly = true,
     resolvers = {
         requirements = function()
             return HasLearnedTalent(1, 25) or HasLearnedTalentBySpellID(53563)

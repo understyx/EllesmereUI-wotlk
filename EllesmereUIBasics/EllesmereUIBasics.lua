@@ -2,7 +2,7 @@
 --  EllesmereUIBasics.lua  (shim for v6.6)
 --
 --  Basics has been split into per-module addons: EllesmereUIMinimap,
---  EllesmereUIFriends, EllesmereUIQuestTracker, EllesmereUIQoL (cursor),
+--  EllesmereUIQuestTracker, EllesmereUIQoL (cursor),
 --  EllesmereUIChat, EllesmereUIDamageMeters, EllesmereUIBlizzardSkin.
 --
 --  This shim exists purely so users who have Basics disabled can be detected

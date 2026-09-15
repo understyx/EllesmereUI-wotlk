@@ -67,13 +67,13 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIRaidCooldowns",     display = "Raid Cooldowns",      svName = "EllesmereUIRaidCooldownsDB",     suffix = "RaidCooldowns"     },
     { folder = "EllesmereUIPallyPower",        display = "PallyPower",          svName = "EllesmereUIPallyPowerDB",        suffix = "PallyPower"        },
     { folder = "EllesmereUIBags",              display = "Bags",                svName = "EllesmereUIBagsDB",              suffix = "Bags"              },
-    { folder = "EllesmereUIFriends",           display = "Friends List",        svName = "EllesmereUIFriendsDB",           suffix = "Friends"           },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Timer",       svName = "EllesmereUIMythicTimerDB",       suffix = "MythicTimer"       },
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",       svName = "EllesmereUIQuestTrackerDB",      suffix = "QuestTracker"      },
     { folder = "EllesmereUIMinimap",           display = "Minimap",             svName = "EllesmereUIMinimapDB",           suffix = "Minimap"           },
     { folder = "EllesmereUIDamageMeters",     display = "Damage Meters",       svName = "EllesmereUIDamageMetersDB",      suffix = "DamageMeters"      },
     { folder = "EllesmereUIChat",             display = "Chat",                svName = "EllesmereUIChatDB",              suffix = "Chat"              },
     { folder = "EllesmereUIDataBars",         display = "DataBars",            svName = "EllesmereUIDataBarsDB",          suffix = "DataBars"          },
+    { folder = "EllesmereUISwingBars",       display = "Swingbars",           svName = "EllesmereUISwingBarsDB",         suffix = "SwingBars"         },
     { folder = "EllesmereUIQuickdraw",        display = "Quickdraw",           svName = "EllesmereUIQuickdrawDB",         suffix = "Quickdraw"         },
 }
 EllesmereUI._ADDON_DB_MAP = ADDON_DB_MAP
@@ -1406,14 +1406,14 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EQT_RefreshAll then _G._EQT_RefreshAll() end
     -- Chat (sidebar icons, borders, fonts, visibility)
     if _G._ECHAT_RefreshAll then _G._ECHAT_RefreshAll() end
-    -- Friends List
-    if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
     -- Mythic Timer
     if _G._EMT_Apply then _G._EMT_Apply() end
     -- Damage Meters
     if _G._EDM_Apply then _G._EDM_Apply() end
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     if _G._EDB_Apply then _G._EDB_Apply() end
+    -- Swingbars (visibility, appearance, layout and position)
+    if _G._ESB_Apply then _G._ESB_Apply() end
     -- Quickdraw (enable state + palette count drive the override bindings)
     if _G._EQD_Apply then _G._EQD_Apply() end
     -- Dragon Riding HUD
@@ -1757,7 +1757,7 @@ end
 --
 -- Deliberately absent (state, not settings): lfgSavedRoles (the player's
 -- saved LFG roles), charSheetCollapsedSections (transient UI state),
--- characterFramePos / friendsFramePos (dragged panel positions, resolution-
+-- characterFramePos (dragged panel position, resolution-
 -- bound), tooltipFixedPos (stale account key; the live one is per-profile
 -- and rides the profile itself), blizzWindowModernBG (dead key, read
 -- nowhere).

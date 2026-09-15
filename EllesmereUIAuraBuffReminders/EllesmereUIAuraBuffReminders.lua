@@ -224,8 +224,26 @@ local LABEL_OVERRIDES = {
     ["Defensive Stance"]        = "Stance",
     ["Berserker Stance"]        = "Stance",
     ["Power Word: Fortitude"]   = "Fortitude",
+    ["Prayer of Fortitude"]     = "Fortitude",
+    ["Mark of the Wild"]        = "Wild",
+    ["Gift of the Wild"]        = "Wild",
     ["Arcane Intellect"]        = "Intellect",
+    ["Arcane Brilliance"]       = "Intellect",
+    ["Dalaran Intellect"]       = "Intellect",
+    ["Dalaran Brilliance"]      = "Intellect",
+    ["Divine Spirit"]           = "Spirit",
+    ["Prayer of Spirit"]        = "Spirit",
+    ["Shadow Protection"]       = "Shadow",
+    ["Prayer of Shadow Protection"] = "Shadow",
     ["Battle Shout"]            = "Shout",
+    ["Blessing of Kings"]       = "Kings",
+    ["Greater Blessing of Kings"] = "Kings",
+    ["Blessing of Might"]       = "Might",
+    ["Greater Blessing of Might"] = "Might",
+    ["Blessing of Wisdom"]      = "Wisdom",
+    ["Greater Blessing of Wisdom"] = "Wisdom",
+    ["Blessing of Sanctuary"]   = "Sanctuary",
+    ["Greater Blessing of Sanctuary"] = "Sanctuary",
     ["Hunter's Mark"]           = "Mark",
 }
 local LABEL_CLASS_OVERRIDES = {
@@ -293,8 +311,12 @@ end
 -------------------------------------------------------------------------------
 local NON_SECRET_SPELL_IDS = {
     -- WotLK Raid Buffs
-    [48469]=true, [48470]=true, [48161]=true, [48162]=true, [42995]=true, [43002]=true,
-    [47436]=true, [25898]=true, [20217]=true, [48934]=true, [19740]=true,
+    [1126]=true, [21849]=true, [1243]=true, [21562]=true,
+    [1459]=true, [23028]=true, [61024]=true, [61316]=true,
+    [14752]=true, [27681]=true, [976]=true, [27683]=true,
+    [6673]=true, [20217]=true, [25898]=true,
+    [19740]=true, [25782]=true, [19742]=true, [25894]=true,
+    [5677]=true, [20911]=true, [25899]=true,
     -- Warrior Stances
     [2457]=true, [2458]=true, [71]=true,
     -- Shadowform
@@ -664,13 +686,19 @@ local function _unitInRange(u)
     if UnitIsUnit(u, "player") then return true end
     if not UnitExists(u) then return false end
     local inRange, checked = UnitInRange(u)
-    if not (isSecret(inRange) or isSecret(checked)) and checked then
-        return inRange == true
+    if not (isSecret(inRange) or isSecret(checked)) then
+        -- Retail returns (inRange, checked). Wrath 3.3.5 returns only
+        -- inRange; a nil second result therefore means the first result is
+        -- authoritative, not that the range check failed.
+        if checked ~= nil then
+            return (checked == true or checked == 1) and (inRange == true or inRange == 1)
+        end
+        if inRange ~= nil then return inRange == true or inRange == 1 end
     end
     -- Secret or uncheckable: visibility fallback
     local vis = UnitIsVisible(u)
     if isSecret(vis) then return true end
-    return vis == true
+    return vis == true or vis == 1
 end
 
 -- Returns true if any in-range group member who BENEFITS from the buff is
@@ -799,7 +827,11 @@ end
 local BUFF_BENEFICIARIES = {
     intellect = {
         MAGE = true, WARLOCK = true, PRIEST = true, DRUID = true,
-        SHAMAN = true, PALADIN = true,
+        SHAMAN = true, PALADIN = true, HUNTER = true,
+    },
+    mana = {
+        MAGE = true, WARLOCK = true, PRIEST = true, DRUID = true,
+        SHAMAN = true, PALADIN = true, HUNTER = true,
     },
     attackPower = {
         WARRIOR = true, ROGUE = true, HUNTER = true, DEATHKNIGHT = true,
@@ -808,7 +840,7 @@ local BUFF_BENEFICIARIES = {
 }
 
 -------------------------------------------------------------------------------
---  SPELL DATA Raid Buffs (all non-secret in 12.0, work in combat)
+--  SPELL DATA Raid Buffs (WotLK 3.3.5)
 -------------------------------------------------------------------------------
 -- Resolve a spell's display name from its ID in the client's locale, with
 -- an English fallback, so reminder labels follow the game client's language
@@ -842,12 +874,32 @@ EABR.WeaponEnchants = function()
 end
 
 local RAID_BUFFS = {
-    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=48469,  buffIDs={48469,48470},   check="raid" },
-    { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=48161,  buffIDs={48161,48162},   check="raid" },
-    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=42995,  buffIDs={42995,43002},   check="raid", benefit="intellect" },
-    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=47436,  buffIDs={47436},   check="raid", benefit="attackPower" },
-    { key="bok",    class="PALADIN", name="Blessing of Kings",      castSpell=25898,  buffIDs={25898,20217},   check="raid", pallyPowerBlessing=3 },
-    { key="bom",    class="PALADIN", name="Blessing of Might",      castSpell=48934,  buffIDs={48934,19740},   check="raid", benefit="attackPower", pallyPowerBlessing=2 },
+    -- Use base-rank IDs for detection. The Wrath compatibility aura API
+    -- deliberately matches by localized spell name, exactly as RBS does, so
+    -- every rank is accepted. castSpell is the group version; singleSpell is
+    -- used while solo so reagents are not wasted in the open world.
+    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=21849, singleSpell=1126,
+      buffIDs={1126,21849}, check="raid" },
+    { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=21562, singleSpell=1243,
+      buffIDs={1243,21562}, check="raid" },
+    { key="spirit", class="PRIEST",  name="Divine Spirit",          castSpell=27681, singleSpell=14752,
+      buffIDs={14752,27681}, check="raid", benefit="mana" },
+    { key="shadow_prot", class="PRIEST", name="Shadow Protection", castSpell=27683, singleSpell=976,
+      buffIDs={976,27683}, check="raid" },
+    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=23028, singleSpell=1459,
+      buffIDs={1459,23028,61024,61316}, check="raid", benefit="intellect" },
+    -- Battle Shout and Blessing of Might are the same flat-AP family in RBS.
+    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,
+      buffIDs={6673,19740,25782}, check="raid", benefit="attackPower" },
+    { key="bok",    class="PALADIN", name="Blessing of Kings",      castSpell=25898, singleSpell=20217,
+      buffIDs={20217,25898}, check="raid", pallyPowerBlessing=3 },
+    { key="bom",    class="PALADIN", name="Blessing of Might",      castSpell=25782, singleSpell=19740,
+      buffIDs={19740,25782,6673}, check="raid", benefit="attackPower", pallyPowerBlessing=2 },
+    -- RBS treats Mana Spring as satisfying the Wisdom family.
+    { key="bow",    class="PALADIN", name="Blessing of Wisdom",     castSpell=25894, singleSpell=19742,
+      buffIDs={19742,25894,5677}, check="raid", benefit="mana", pallyPowerBlessing=1 },
+    { key="bos",    class="PALADIN", name="Blessing of Sanctuary",  castSpell=25899, singleSpell=20911,
+      buffIDs={20911,25899}, check="raid", pallyPowerBlessing=4 },
 }
 
 -------------------------------------------------------------------------------
@@ -867,13 +919,59 @@ local AURAS = {
     -- Righteous Fury (Prot Paladin threat)
     { key="righteous_fury", class="PALADIN", name="Righteous Fury", castSpell=25780, buffIDs={25780},
       check="player", specs={66}, combatOk=false },
+    -- RBS self-buff catalog. Multi-choice families accept any active member
+    -- but choose a sensible spell for the current specialization when clicked.
+    { key="paladin_aura", class="PALADIN", name="Paladin Aura", castSpell=465,
+      castSpellFn=function() return 465 end,
+      buffIDs={465,7294,19746,32223,19876,19888,19891},
+      check="playerSelfCast", combatOk=false },
+    { key="paladin_seal", class="PALADIN", name="Paladin Seal", castSpell=31801,
+      castSpellFn=function()
+          if GetSpecID() == 65 and Known(20166) then return 20166 end
+          if Known(53736) then return 53736 end
+          if Known(31801) then return 31801 end
+          if Known(20375) then return 20375 end
+          return 21084
+      end,
+      buffIDs={20165,20166,21084,20164,31801,20375,53736}, check="player", combatOk=false },
+    { key="hunter_aspect", class="HUNTER", name="Hunter Aspect", castSpell=61846,
+      castSpellFn=function() return Known(61846) and 61846 or 13165 end,
+      buffIDs={13163,13165,13161,20043,34074,5118,13159,61846}, check="player", combatOk=false },
+    { key="trueshot_aura", class="HUNTER", name="Trueshot Aura", castSpell=19506,
+      -- Abomination's Might and Unleashed Rage provide the same 10% attack
+      -- power category, so RBS correctly treats either as satisfying this.
+      buffIDs={19506,53137,30802}, check="player", requireTalent=19506, combatOk=false },
+    { key="dk_presence", class="DEATHKNIGHT", name="Death Knight Presence", castSpell=48266,
+      castSpellFn=function()
+          local s = GetSpecID()
+          return s == 251 and 48263 or (s == 252 and 48265 or 48266)
+      end,
+      buffIDs={48266,48263,48265}, check="player", combatOk=false },
+    { key="inner_fire", class="PRIEST", name="Inner Fire", castSpell=588,
+      buffIDs={588}, check="player", combatOk=false },
+    { key="vampiric_embrace", class="PRIEST", name="Vampiric Embrace", castSpell=15286,
+      buffIDs={15286}, check="player", specs={258}, combatOk=false },
+    { key="bone_shield", class="DEATHKNIGHT", name="Bone Shield", castSpell=49222,
+      buffIDs={49222}, check="player", requireTalent=49222, combatOk=false },
+    { key="fel_armor", class="WARLOCK", name="Fel Armor", castSpell=28176,
+      buffIDs={28176}, check="player", combatOk=false },
+    { key="soul_link", class="WARLOCK", name="Soul Link", castSpell=19028,
+      buffIDs={19028}, check="player", requireTalent=19028, combatOk=false },
+    { key="mage_armor", class="MAGE", name="Mage Armor", castSpell=6117,
+      castSpellFn=function()
+          local s = GetSpecID()
+          return s == 63 and 30482 or (s == 64 and 7302 or 6117)
+      end,
+      buffIDs={6117,168,7302,30482}, check="player", combatOk=false },
 }
 
 -------------------------------------------------------------------------------
 --  Healthstone tracking
 -------------------------------------------------------------------------------
--- Healthstone: check if player has one in bags (itemID 36892)
-local HEALTHSTONE_ITEM_IDS = { 36892 }  -- Fel Healthstone (WotLK)
+-- Fel Healthstone has three item variants depending on the creating
+-- Warlock's Improved Healthstone rank. RBS checks the improved form; accepting
+-- all three prevents a false reminder after receiving an upgraded stone.
+local HEALTHSTONE_ITEM_IDS = { 36892, 36893, 36894 }
 
 -- Pet tracking: classes that summon permanent pets
 local PET_CLASSES = { HUNTER = true, WARLOCK = true, DEATHKNIGHT = true, MAGE = true }
@@ -884,13 +982,13 @@ local PET_CLASSES = { HUNTER = true, WARLOCK = true, DEATHKNIGHT = true, MAGE = 
 -- Rogue poison items. WotLK applies these to weapons rather than as auras.
 local ROGUE_POISONS = {
     -- Lethal poisons (mutually exclusive per slot).
-    { key="deadly",     name="Deadly Poison IX",     castSpell=57973, itemID=43232, cat="lethal" },
+    { key="deadly",     name="Deadly Poison IX",     castSpell=57973, itemID=43233, cat="lethal" },
     { key="instant",    name="Instant Poison IX",    castSpell=57968, itemID=43231, cat="lethal" },
-    { key="wound",      name="Wound Poison VII",     castSpell=57975, itemID=43233, cat="lethal" },
+    { key="wound",      name="Wound Poison VII",     castSpell=57975, itemID=43235, cat="lethal" },
     -- Non-lethal poisons (mutually exclusive per slot).
-    { key="crippling",  name="Crippling Poison II",  castSpell=3408, itemID=43234, cat="nonlethal" },
-    { key="mindnumbing", name="Mind-numbing Poison III", castSpell=5761, itemID=43235, cat="nonlethal" },
-    { key="anesthetic", name="Anesthetic Poison II", castSpell=26785, itemID=43230, cat="nonlethal" },
+    { key="crippling",  name="Crippling Poison",     castSpell=3408, itemID=3775, cat="nonlethal" },
+    { key="mindnumbing", name="Mind-numbing Poison", castSpell=5761, itemID=5237, cat="nonlethal" },
+    { key="anesthetic", name="Anesthetic Poison II", castSpell=26785, itemID=43237, cat="nonlethal" },
 }
 
 -- Shaman Imbues (WotLK)
@@ -904,11 +1002,12 @@ local SHAMAN_IMBUES = {
 -- Warlock weapon stones (WotLK). The reminder macro creates the selected
 -- stone when absent and applies it to the main hand when it already exists.
 local WARLOCK_STONES = {
-    { key="firestone",  name="Grand Firestone",  createSpell=60220, itemID=41196, specs={266,267} },
-    { key="spellstone", name="Grand Spellstone", createSpell=47888, itemID=41191, specs={265} },
+    { key="firestone",  name="Grand Firestone",  createSpell=60220, itemID=41174, specs={266,267} },
+    { key="spellstone", name="Grand Spellstone", createSpell=47888, itemID=41196, specs={265} },
 }
 
--- Shaman Shields: WotLK has Lightning Shield, Water Shield, Earth Shield.
+-- Shaman's own shields. Earth Shield is targeted and belongs to the future
+-- raid-status/assignment checker rather than this self-buff family.
 -- No Elemental Orbit talent in WotLK.
 local function ShamanShieldCastSpell()
     local specIdx = GetSpecialization and GetSpecialization() or 0
@@ -918,7 +1017,9 @@ end
 
 local SHAMAN_SHIELDS = {
     { key="shield_basic", name="Shield",
-      castSpellFn=ShamanShieldCastSpell, buffIDs={49281, 57960, 49284},
+      -- Earth Shield belongs on a tank and is a separate RBS check; it must
+      -- not satisfy the Shaman's own Water/Lightning Shield reminder.
+      castSpellFn=ShamanShieldCastSpell, buffIDs={49281, 57960},
       check="player" },
 }
 
@@ -948,6 +1049,16 @@ for _, f in ipairs(FLASK_ITEMS) do
     FLASK_BUFF_ID_SET[f.buffID] = true
     FLASK_NAME_SET[f.name] = true
 end
+
+-- RBS accepts one Battle plus one Guardian elixir as a complete alternative
+-- to a flask. Keep these on the addon table to avoid consuming scarce
+-- file-scope locals in this large Lua 5.1 chunk.
+EABR.BattleElixirIDs = {
+    28497, 53748, 53749, 33721, 53746, 60345, 60340, 60344, 60341, 60346,
+}
+EABR.GuardianElixirIDs = {
+    60347, 53751, 53747, 60343, 53763, 53764,
+}
 
 -- Food Items (WotLK)
 local FOOD_ITEMS = {
@@ -1037,6 +1148,23 @@ local function PlayerHasFlaskBuff()
             return true
         end
     end
+    -- No flask: match RBS's "Flask or two Elixirs" rule.
+    local hasBattle, hasGuardian = false, false
+    for _, id in ipairs(EABR.BattleElixirIDs) do
+        local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+        if ok and result ~= nil then
+            if not IsUnderDuration(result.duration, result.expirationTime) then hasBattle = true end
+            break
+        end
+    end
+    for _, id in ipairs(EABR.GuardianElixirIDs) do
+        local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+        if ok and result ~= nil then
+            if not IsUnderDuration(result.duration, result.expirationTime) then hasGuardian = true end
+            break
+        end
+    end
+    if hasBattle and hasGuardian then return true end
     -- Name-based fallback for flasks not in our ID set (lazy scan)
     if _AC.valid then
         _AC.ensureNames()
@@ -1379,7 +1507,8 @@ local defaults = {
             showOthersMissing = true,
             scale = 1.0,
             enabled = {
-                motw=true, bshout=true, fort=true, ai=true, bok=true, bom=true,
+                motw=true, bshout=true, fort=true, spirit=true, shadow_prot=true,
+                ai=true, bok=true, bom=true, bow=true, bos=true,
             },
         },
         auras = {
@@ -1387,7 +1516,10 @@ local defaults = {
             scale = 1.0,
             enabled = {
                 battle_stance=true, def_stance=true, berserk_stance=true, shadowform=true,
-                righteous_fury=true,
+                righteous_fury=true, paladin_aura=true, paladin_seal=true,
+                hunter_aspect=true, trueshot_aura=true, dk_presence=true, inner_fire=true,
+                vampiric_embrace=true, bone_shield=true, fel_armor=true,
+                soul_link=true, mage_armor=true,
             },
         },
         consumables = {
@@ -1398,7 +1530,7 @@ local defaults = {
                 crippling=true, mindnumbing=true, anesthetic=true,
                 flametongue=true, windfury=true, earthliving=true, frostbrand=true,
                 firestone=true, spellstone=true,
-                ls=true, ws=true, es=true,
+                shield_basic=true,
                 weapon_enchant=true,
                 flask=true,
                 food=true,
@@ -1709,7 +1841,10 @@ end
 local function SetIconSpell(btn, spellID, texture, label)
     if not InCombat() then
         btn:SetAttribute("type", "spell")
-        btn:SetAttribute("spell", spellID)
+        -- A localized spell name always casts the highest learned rank on
+        -- Wrath. An ID would cast that exact rank, which made RBS-style base
+        -- IDs unsafe for clickable reminders.
+        btn:SetAttribute("spell", GetSpellInfo(spellID) or spellID)
         btn:SetAttribute("item", nil)
         btn:SetAttribute("macrotext", nil)
         btn:SetAttribute("unit", "player")
@@ -1900,11 +2035,12 @@ if inInstance or rb.showNonInstanced then
     local hasPallyAssignments = pallyName and pp.HasAssignmentsForPaladin
                                 and pp:HasAssignmentsForPaladin(pallyName)
     for _, buff in ipairs(RAID_BUFFS) do
+        local castID = (not IsInGroup() and buff.singleSpell) or buff.castSpell
         local usePallyAssignment = hasPallyAssignments and buff.pallyPowerBlessing
         local assignedToPlayer = not usePallyAssignment
                                 or (pp.HasBlessingAssignment
                                     and pp:HasBlessingAssignment(pallyName, buff.pallyPowerBlessing))
-        if rb.enabled[buff.key] and (buff.class == playerClass) and Known(buff.castSpell)
+        if rb.enabled[buff.key] and (buff.class == playerClass) and Known(castID)
            and not (buff.noPvP and inPvP) and assignedToPlayer then
             -- In combat, skip buffs whose IDs are not all whitelisted
             local canCheck = true
@@ -1935,8 +2071,8 @@ if inInstance or rb.showNonInstanced then
                 end
                 if isMissing then
                     local e = AcquireEntry()
-                    e.mode = "spell"; e.spellID = buff.castSpell
-                    e.label = ShortLabel(_G._EABR_SpellName(buff.castSpell, buff.name))
+                    e.mode = "spell"; e.spellID = castID
+                    e.label = ShortLabel(_G._EABR_SpellName(castID, buff.name))
                     if buff.check == "huntersMark" then e.unit = "target" end
                     e.cat = "raidbuff"; e.data = buff; e.scale = rb.scale or 1.0
                     e.dismissKey = buff.key and ("raidbuff:" .. buff.key) or nil
@@ -1953,10 +2089,11 @@ local function CollectAuras(missing, playerClass, specID, inInstance, inCombat)
 local au = db.profile.auras
 if inInstance or au.showNonInstanced then
     for _, aura in ipairs(AURAS) do
+        local castID = aura.castSpellFn and aura.castSpellFn() or aura.castSpell
         if aura.standalone then
             -- Handled by standalone system, skip
         elseif au.enabled[aura.key] and (aura.class == playerClass)
-           and ((aura.isStance and GetStanceState(aura.castSpell)) or (not aura.isStance and Known(aura.castSpell)))
+           and ((aura.isStance and GetStanceState(castID)) or (not aura.isStance and Known(castID)))
            and not (aura.notIfKnown and Known(aura.notIfKnown))
            and not (aura.requireTalent and not Known(aura.requireTalent))
            and not (aura.noPvP and InPvPInstance()) then
@@ -2010,7 +2147,7 @@ if inInstance or au.showNonInstanced then
                         isMissing = not PlayerHasSelfCastAuraByID(aura.buffIDs)
                     elseif aura.isStance then
                         -- Stance is a shapeshift form: hide once it's the active stance
-                        local _, isActive = GetStanceState(aura.castSpell)
+                        local _, isActive = GetStanceState(castID)
                         isMissing = not isActive
                     else
                         -- Use instance-specific buff list if available and in instance
@@ -2025,8 +2162,8 @@ if inInstance or au.showNonInstanced then
                     end
                     if isMissing then
                         local e = AcquireEntry()
-                        e.mode = "spell"; e.spellID = aura.castSpell
-                        e.label = ShortLabel(_G._EABR_SpellName(aura.castSpell, aura.name))
+                        e.mode = "spell"; e.spellID = castID
+                        e.label = ShortLabel(_G._EABR_SpellName(castID, aura.name))
                         e.cat = "aura"; e.data = aura; e.scale = au.scale or 1.0
                         e.dismissKey = "aura:" .. aura.key
                         missing[#missing+1] = e
@@ -2139,9 +2276,8 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     end
                 end
 
-                -- Shaman Shields: talent-gated entries.
-                -- Earth Shield self-buff (383648) is combat-safe and handled
-                -- separately below. Other shields are OOC only.
+                -- Shaman self-shields. Earth Shield is deliberately excluded:
+                -- RBS treats that as a separate targeted tank assignment.
                 for _, shield in ipairs(SHAMAN_SHIELDS) do
                     local castID = shield.castSpellFn and shield.castSpellFn() or shield.castSpell
                     if co.enabled[shield.key] ~= false and Known(castID) then
@@ -3434,6 +3570,10 @@ function EABR:OnEnable()
 
     rangeFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     rangeFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    -- Native Wrath roster events. GROUP_ROSTER_UPDATE is a Retail event and
+    -- remains synthetic on 3.3.5, so it cannot drive this rebuild by itself.
+    rangeFrame:RegisterEvent("RAID_ROSTER_UPDATE")
+    rangeFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
     rangeFrame:RegisterEvent("UNIT_PHASE")
     rangeFrame:SetScript("OnEvent", function(_, event)
         if event == "UNIT_PHASE" then
@@ -3441,6 +3581,17 @@ function EABR:OnEnable()
         else
             _rebuildRangeTracking()
         end
+    end)
+    -- UNIT_IN_RANGE_UPDATE is also Retail-only. RBS solved this by scanning
+    -- periodically; do the cheaper equivalent here and request a full refresh
+    -- only when a member's in-range state actually changes.
+    local rangeElapsed = 0
+    rangeFrame:SetScript("OnUpdate", function(_, elapsed)
+        if not (_needGroupAura and db and db.profile.raidBuffs.showOthersMissing) then return end
+        rangeElapsed = rangeElapsed + elapsed
+        if rangeElapsed < 1 then return end
+        rangeElapsed = 0
+        if _checkAllRangeUnits() then RequestRefresh() end
     end)
     _rebuildRangeTracking()
 end
@@ -3582,9 +3733,13 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         return
     end
 
-    -- Roster changes don't affect player buffs/consumables. Skip the
-    -- full refresh (which scans all group members via AnyGroupMemberMissingBuff).
-    if e == "GROUP_ROSTER_UPDATE" then return end
+    -- Roster changes directly affect "Show Others Missing". Wrath emits the
+    -- two native events below instead of Retail's GROUP_ROSTER_UPDATE.
+    if e == "GROUP_ROSTER_UPDATE" or e == "RAID_ROSTER_UPDATE"
+       or e == "PARTY_MEMBERS_CHANGED" then
+        RequestRefresh()
+        return
+    end
 
     -- Bag CONTENT changes (BAG_UPDATE/_DELAYED) change item counts and which item
     -- we resolve, so re-scan. BAG_UPDATE_COOLDOWN is intentionally NOT handled (or
@@ -3661,6 +3816,8 @@ mainFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 mainFrame:RegisterEvent("PLAYER_LEVEL_CHANGED")
 mainFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 mainFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+mainFrame:RegisterEvent("RAID_ROSTER_UPDATE")
+mainFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 mainFrame:RegisterUnitEvent("UNIT_AURA", "player")
 mainFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 mainFrame:RegisterEvent("CHALLENGE_MODE_START")

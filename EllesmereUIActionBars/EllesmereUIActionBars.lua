@@ -212,8 +212,15 @@ function EAB.VisibilityCompat.ApplyMode(settings, mode)
     local wasMouseover = settings.mouseoverEnabled
     settings.mouseoverEnabled = (mode == "mouseover")
     if mode == "mouseover" then
-        if not settings._savedBarAlpha then
-            settings._savedBarAlpha = settings.mouseoverAlpha or 1
+        if settings._savedBarAlpha == nil then
+            local restoreAlpha = settings.mouseoverAlpha
+            -- While mouseover mode is active mouseoverAlpha is the hidden
+            -- alpha, not the alpha to restore on enter. Older/imported
+            -- profiles can be missing _savedBarAlpha; normalizing one of
+            -- those profiles used to save the hidden zero as the fade-in
+            -- target, leaving the bar and its icons invisible on hover.
+            if wasMouseover and restoreAlpha == 0 then restoreAlpha = 1 end
+            settings._savedBarAlpha = restoreAlpha == nil and 1 or restoreAlpha
         end
         settings.mouseoverAlpha = 0
     elseif wasMouseover and settings._savedBarAlpha then
@@ -1996,8 +2003,13 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
     local _, class = UnitClass("player")
     local parts = {}
     if barKey == "MainBar" then
-        -- [overridebar]/[possessbar] don't exist in WotLK. Vehicles and
-        -- possession both use bonus-bar offset 5 (action page 11).
+        -- Wrath encounter/possession actions (including Blood Queen's bite)
+        -- are bonus bar 5, action page 11. Keep this before every user paging
+        -- rule: macro state clauses are first-match-wins, and ElvUI's Wrath
+        -- driver likewise puts [bonusbar:5] 11 first.
+        parts[#parts + 1] = "[bonusbar:5] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE
+        -- [overridebar]/[possessbar] don't exist in WotLK. Vehicle UI uses
+        -- the same action-page layout on this client.
         parts[#parts + 1] = "[vehicleui] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE
     end
     for _, state in ipairs(PG.modifier) do
@@ -2007,7 +2019,6 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
         end
     end
     if barKey == "MainBar" then
-        parts[#parts + 1] = "[bonusbar:5] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE
         for i = 2, NUM_AB_PAGES do
             parts[#parts + 1] = "[bar:" .. i .. "] " .. i
         end
@@ -2059,12 +2070,13 @@ local function GetClassPagingConditions()
     local _, class = UnitClass("player")
     local conditions = ""
 
-    -- VehicleMenuBarActionButton uses the same bonus-bar page as possession
-    -- on Wrath. [overridebar]/[possessbar] are later-client conditionals.
-    conditions = conditions .. "[vehicleui] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE .. "; "
-
-    -- Dragonriding (all classes)
+    -- Wrath possession/encounter actions use bonus bar 5. This must be the
+    -- first match so manual pages and class forms cannot mask the encounter
+    -- action (the same ordering used by ElvUI-WotLK).
     conditions = conditions .. "[bonusbar:5] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE .. "; "
+
+    -- Vehicle UI uses the same action-page layout on Wrath.
+    conditions = conditions .. "[vehicleui] " .. EAB_VTABLE.VEHICLE_ACTION_PAGE .. "; "
 
     -- Manual page switching (pages 2-6)
     -- [bar:N] responds to WoW's internal page set by ChangeActionBarPage().
@@ -6047,6 +6059,12 @@ function EAB:ApplyAlwaysShowButtons(barKey)
             if info.nativeMainBar then
                 EAB_VTABLE.MainBarPageSync.SetButtonConfig(btn, false, showEmpty)
             end
+            -- slotBG is parented to the bar rather than the button, so hiding
+            -- an overflow button does not hide its empty-slot artwork.  This
+            -- matters especially for StanceBar, whose cutoff follows the live
+            -- number of shapeshift forms instead of a fixed configured count.
+            local bfd = EFD(btn)
+            if bfd.slotBG then bfd.slotBG:Hide() end
             btn:SetAlpha(0)
             SafeEnableMouse(btn, false)
             if not InCombatLockdown() then
@@ -6543,12 +6561,24 @@ function EAB_VTABLE.Hover.GetState(barKey, frame)
     return state
 end
 
+function EAB_VTABLE.Hover.GetTargetAlpha(settings)
+    local alpha = settings and settings._savedBarAlpha
+    -- Alpha zero is the stored hidden state, never a useful hover target.
+    -- Repair profiles written by the old normalization path in place so the
+    -- options value and every later mouseover refresh agree.
+    if type(alpha) ~= "number" or alpha <= 0 then
+        alpha = 1
+        if settings then settings._savedBarAlpha = alpha end
+    end
+    return alpha
+end
+
 ns._broadcastingMouseover = false
 
 function EAB_VTABLE.Hover.FadeIn(barKey, state)
     local s = EAB_VTABLE.Hover.GetSettings(barKey)
     if s and s.mouseoverEnabled and state and state.fadeDir ~= "in" then
-        local targetAlpha = s._savedBarAlpha or 1
+        local targetAlpha = EAB_VTABLE.Hover.GetTargetAlpha(s)
         state.fadeDir = "in"
         StopFade(state.frame)
         FadeTo(state.frame, targetAlpha, s.mouseoverSpeed or 0.15)
@@ -6692,8 +6722,26 @@ local function AttachHoverHooks(barKey)
         return true
     end
 
+    -- Parent/child OnEnter and OnLeave ordering is not stable when crossing
+    -- between the bar frame and one of its buttons. Re-check the real cursor
+    -- position after the leave delay instead of trusting whichever script ran
+    -- last; otherwise a parent OnLeave can immediately hide a bar while its
+    -- child button is still under the cursor.
+    local function IsStillHovered()
+        if frame:IsMouseOver() and CanEnter(frame) then return true end
+        for i = 1, #buttons do
+            local btn = buttons[i]
+            if btn and btn:IsShown() and btn:IsMouseOver() and CanEnter(btn) then
+                return true
+            end
+        end
+        return false
+    end
+
     local OnEnter, OnLeave = EAB_VTABLE.Hover.BuildHandlers(barKey, state, {
         canEnter = CanEnter,
+        isStillHovered = IsStillHovered,
+        markHoveredWhileActive = true,
         blockFadeOut = function()
             -- Keep bar visible while a spell flyout spawned from this bar is open.
             return GetEABFlyout():IsVisible() and GetEABFlyout():IsMouseOver()
@@ -6740,10 +6788,19 @@ function EAB:RefreshMouseover()
                         AttachExtraBarHoverHooks(info)
                     end
                     StopFade(frame)
-                    frame:SetAlpha(0)
                     local state = hoverStates[key]
-                    if state then state.fadeDir = "out" end
-                    if key == "MainBar" then SyncPagingAlpha(0) end
+                    -- Refreshes can run while the cursor is already on the
+                    -- bar (profile apply, combat end, option sync). Preserve
+                    -- that live hover instead of snapping the frame back to
+                    -- zero and waiting for an OnEnter that will not re-fire.
+                    local hovered = state and frame:IsMouseOver()
+                    local alpha = hovered and EAB_VTABLE.Hover.GetTargetAlpha(s) or 0
+                    frame:SetAlpha(alpha)
+                    if state then
+                        state.isHovered = hovered and true or false
+                        state.fadeDir = hovered and "in" or "out"
+                    end
+                    if key == "MainBar" then SyncPagingAlpha(alpha) end
                 else
                     StopFade(frame)
                     frame:SetAlpha(s.mouseoverAlpha or 1)
@@ -10322,8 +10379,9 @@ function EAB:FinishSetup()
                     StopFade(frame)
                     if frame:IsMouseOver() then
                         if state then state.isHovered = true; state.fadeDir = "in" end
-                        frame:SetAlpha(s._savedBarAlpha or 1)
-                        if key == "MainBar" then SyncPagingAlpha(s._savedBarAlpha or 1) end
+                        local fullAlpha = EAB_VTABLE.Hover.GetTargetAlpha(s)
+                        frame:SetAlpha(fullAlpha)
+                        if key == "MainBar" then SyncPagingAlpha(fullAlpha) end
                     else
                         if state then state.isHovered = false; state.fadeDir = "out" end
                         frame:SetAlpha(0)
@@ -10569,7 +10627,7 @@ function EAB:FinishSetup()
                     -- Show mouseover-faded bars at full opacity
                     if s.mouseoverEnabled then
                         StopFade(frame)
-                        local fullAlpha = s._savedBarAlpha or 1
+                        local fullAlpha = EAB_VTABLE.Hover.GetTargetAlpha(s)
                         frame:SetAlpha(fullAlpha)
                         if state then state.fadeDir = "in" end
                         if key == "MainBar" then SyncPagingAlpha(fullAlpha) end

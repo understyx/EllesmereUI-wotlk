@@ -780,62 +780,6 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
-EllesmereUI.RegisterMigration({
-    id          = "friends_data_wipe_v1",
-    scope       = "profile",
-    description = "Wipe legacy friends list data across all profiles (sessions 15-17 module rebuild).",
-    body = function(ctx)
-        -- Legacy bridge: skip if the old inline migration already ran.
-        -- Old flag location: EllesmereUIDB._friendsWipeDone
-        -- DESTRUCTIVE: this resets basics.friends to { enabled = wasEnabled }.
-        -- The bridge is critical -- without it, re-running would wipe any
-        -- configuration the user has made since the original migration.
-        if EllesmereUIDB and EllesmereUIDB._friendsWipeDone then return end
-
-        local addons = ctx.profile.addons
-        local basics = addons and addons.EllesmereUIBasics
-        if not basics or not basics.friends then return end
-
-        local wasEnabled = basics.friends.enabled
-        basics.friends = { enabled = wasEnabled }
-    end,
-})
-
-EllesmereUI.RegisterMigration({
-    id          = "friend_notes_wipe_v1",
-    scope       = "global",
-    description = "Wipe legacy bnetAccountID-keyed friendAssignments and friendNotes (sessions 15-17 rebuild).",
-    body = function(ctx)
-        -- Legacy bridge: skip if the old inline migration already ran.
-        -- Old flag location: EllesmereUIDB.global._friendNotesMigrated
-        -- DESTRUCTIVE: wipes EllesmereUIDB.global.friendAssignments and
-        -- .friendNotes. Without the bridge, re-running would destroy any
-        -- data the user has accumulated since the original migration.
-        if EllesmereUIDB and EllesmereUIDB.global
-           and EllesmereUIDB.global._friendNotesMigrated then return end
-
-        local g = ctx.db.global
-        if not g then return end
-
-        -- Set the one-time popup flag only if the user actually had
-        -- group assignments pre-wipe (so users who never used the feature
-        -- don't see a popup about it being "reset").
-        local hadAssignments = false
-        if g.friendAssignments then
-            for _ in pairs(g.friendAssignments) do
-                hadAssignments = true
-                break
-            end
-        end
-        if hadAssignments then
-            g._friendGroupReassignPopup = true
-        end
-
-        g.friendAssignments = {}
-        g.friendNotes = {}
-    end,
-})
-
 -- Pixel-perfect snapping split into global (unlock anchors, spec profiles) and
 -- per-profile (positions + sizes). The per-profile half runs on every profile
 -- including future imports (flag is per-profile so the runner catches new ones).
@@ -1826,7 +1770,7 @@ EllesmereUI.RegisterMigration({
 EllesmereUI.RegisterMigration({
     id          = "v66_basics_split_data",
     scope       = "profile",
-    description = "Move Basics per-module data into new per-addon folders (Minimap/Friends/Chat/QuestTracker/QoL cursor).",
+    description = "Move Basics per-module data into new per-addon folders (Minimap/Chat/QuestTracker/QoL cursor).",
     body = function(ctx)
         local addons = ctx.profile.addons
         if type(addons) ~= "table" then return end
@@ -1843,14 +1787,6 @@ EllesmereUI.RegisterMigration({
             local dst = ensureFolder("EllesmereUIMinimap")
             if dst.minimap == nil then
                 dst.minimap = basics.minimap
-            end
-        end
-
-        -- friends -> EllesmereUIFriends.friends
-        if type(basics.friends) == "table" then
-            local dst = ensureFolder("EllesmereUIFriends")
-            if dst.friends == nil then
-                dst.friends = basics.friends
             end
         end
 
@@ -1889,7 +1825,7 @@ EllesmereUI.RegisterMigration({
 EllesmereUI.RegisterMigration({
     id          = "v66_basics_split_disabled_state",
     scope       = "global",
-    description = "Carry EllesmereUIBasics disabled state onto Minimap/Friends/QuestTracker addons.",
+    description = "Carry EllesmereUIBasics disabled state onto Minimap and QuestTracker addons.",
     body = function(ctx)
         if not C_AddOns or not C_AddOns.GetAddOnEnableState then return end
         local char = UnitName("player")
@@ -1900,7 +1836,7 @@ EllesmereUI.RegisterMigration({
         if basicsState == nil or basicsState ~= 0 then return end
 
         -- Basics is disabled for this character. Mirror that onto the new addons.
-        local targets = { "EllesmereUIMinimap", "EllesmereUIFriends", "EllesmereUIQuestTracker" }
+        local targets = { "EllesmereUIMinimap", "EllesmereUIQuestTracker" }
         local disabled = {}
         for _, name in ipairs(targets) do
             local state = C_AddOns.GetAddOnEnableState(name, char)
@@ -1918,7 +1854,7 @@ EllesmereUI.RegisterMigration({
                 if EllesmereUI and EllesmereUI.ShowConfirmPopup then
                     EllesmereUI:ShowConfirmPopup({
                         title       = "EllesmereUI Addon Split",
-                        message     = "EllesmereUI Basics has been split into separate addons. Since you had Basics disabled, Minimap, Friends, and Quest Tracker have been disabled to match. A reload is required to apply this change.",
+                        message     = "EllesmereUI Basics has been split into separate addons. Since you had Basics disabled, Minimap and Quest Tracker have been disabled to match. A reload is required to apply this change.",
                         confirmText = "Reload Now",
                         cancelText  = "Later",
                         onConfirm   = function() ReloadUI() end,

@@ -1,0 +1,88 @@
+------------------------------------------------------------------------
+r390 | danielbarron | 2010-10-09 09:22:47 +0000 (Sat, 09 Oct 2010) | 2 lines
+Changed paths:
+   A /tags/v3.274 (from /trunk:389)
+
+RaidBuffStatus:
+- Tagged as release.  Last update for 3.x ever.  Future versions will be for 4.0.
+------------------------------------------------------------------------
+r389 | oscarucb | 2010-10-08 02:11:20 +0000 (Fri, 08 Oct 2010) | 2 lines
+Changed paths:
+   M /trunk/Core.lua
+
+minor fix to last - make version check more robust
+
+------------------------------------------------------------------------
+r388 | oscarucb | 2010-10-08 00:08:29 +0000 (Fri, 08 Oct 2010) | 3 lines
+Changed paths:
+   M /trunk/Buffs.lua
+   M /trunk/Config.lua
+   M /trunk/Core.lua
+   M /trunk/MiniMap.lua
+   M /trunk/RaidBuffStatus.toc
+   M /trunk/ToolScanner.lua
+   M /trunk/oRAEvent.lua
+
+add more inteeligent and automatic project versioning
+so the version stamp is always correct, even on an svn dev copy
+
+------------------------------------------------------------------------
+r387 | oscarucb | 2010-10-05 20:39:37 +0000 (Tue, 05 Oct 2010) | 2 lines
+Changed paths:
+   M /trunk/RaidBuffStatus.toc
+   M /trunk/ReadMe.txt
+
+update readme and toc
+
+------------------------------------------------------------------------
+r386 | oscarucb | 2010-10-05 08:10:18 +0000 (Tue, 05 Oct 2010) | 2 lines
+Changed paths:
+   M /trunk/Buffs.lua
+   M /trunk/Core.lua
+
+Add right-click self buffing for missing temporary weapon enchants (shaman, warlock, rogue)
+
+------------------------------------------------------------------------
+r385 | danielbarron | 2010-10-04 14:33:17 +0000 (Mon, 04 Oct 2010) | 2 lines
+Changed paths:
+   M /trunk/RaidBuffStatus.toc
+   M /trunk/ReadMe.txt
+
+RaidBuffStatus:
+- Updated toc and ReadMe.txt.
+------------------------------------------------------------------------
+r383 | oscarucb | 2010-09-19 00:29:03 +0000 (Sun, 19 Sep 2010) | 6 lines
+Changed paths:
+   M /trunk/Buffs.lua
+   M /trunk/Core.lua
+
+Add detection of missing pets for hunters, warlocks, and appropriately-specced DKs and mages
+This check is mainly complicated by the fact that pets don't exist while a unit is mounted, so 
+the check conservatively assumes the pet is present if the unit is mounted and we can't tell for sure.
+Right-click summons the missing pet
+
+
+------------------------------------------------------------------------
+r381 | danielbarron | 2010-09-12 13:03:55 +0000 (Sun, 12 Sep 2010) | 4 lines
+Changed paths:
+   M /trunk/Buffs.lua
+   M /trunk/Core.lua
+   M /trunk/RaidBuffStatus.toc
+   M /trunk/ReadMe.txt
+
+RaidBuffStatus:
+- Fixed buff/rez sorting routine finally I think.
+- Fixed right-click buffing for Focus Magic.
+- Fixed whispers for Amplify Magic.
+------------------------------------------------------------------------
+r380 | danielbarron | 2010-09-06 21:50:11 +0000 (Mon, 06 Sep 2010) | 4 lines
+Changed paths:
+   M /trunk/Core.lua
+   M /trunk/RaidBuffStatus.toc
+   M /trunk/ReadMe.txt
+
+RaidBuffStatus:
+- Gave Shadow Priests priority over other rezers due to their instant mana regeneration.
+- Fixed rezing I think.
+- Fiddled with Death Knight taunt detection.
+------------------------------------------------------------------------

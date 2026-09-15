@@ -757,13 +757,10 @@ end
 
 local function CreateFlyoutToggle()
     if flyoutToggle then
-        -- Re-apply the current accent to the existing textures so a later
-        -- ApplyAll (e.g. at PLAYER_ENTERING_WORLD, after EllesmereUI's theme
-        -- resolution has mutated ELLESMERE_GREEN) picks up the right color.
-        local EG2 = EllesmereUI.ELLESMERE_GREEN
-        if flyoutToggle._norm   then flyoutToggle._norm:SetVertexColor(EG2.r, EG2.g, EG2.b, 1)   end
-        if flyoutToggle._pushed then flyoutToggle._pushed:SetVertexColor(EG2.r, EG2.g, EG2.b, 1) end
-        if flyoutToggle._hl     then flyoutToggle._hl:SetVertexColor(EG2.r, EG2.g, EG2.b, 1)     end
+        -- Preserve the source artwork's colors across repeated rebuilds.
+        if flyoutToggle._norm   then flyoutToggle._norm:SetDesaturated(false);   flyoutToggle._norm:SetVertexColor(1, 1, 1, 1)   end
+        if flyoutToggle._pushed then flyoutToggle._pushed:SetDesaturated(false); flyoutToggle._pushed:SetVertexColor(1, 1, 1, 1) end
+        if flyoutToggle._hl     then flyoutToggle._hl:SetDesaturated(false);     flyoutToggle._hl:SetVertexColor(1, 1, 1, 1)     end
         return flyoutToggle
     end
 
@@ -776,34 +773,27 @@ local function CreateFlyoutToggle()
     local norm = btn:CreateTexture(nil, "ARTWORK")
     norm:SetAllPoints()
     norm:SetAtlas("Map-Filter-Button")
-    norm:SetDesaturated(true)
-    norm:SetVertexColor(EG.r, EG.g, EG.b, 1)
+    norm:SetDesaturated(false)
+    norm:SetVertexColor(1, 1, 1, 1)
     btn:SetNormalTexture(norm)
     btn._norm = norm
 
     local pushed = btn:CreateTexture(nil, "ARTWORK")
     pushed:SetAllPoints()
     pushed:SetAtlas("Map-Filter-Button-down")
-    pushed:SetDesaturated(true)
-    pushed:SetVertexColor(EG.r, EG.g, EG.b, 1)
+    pushed:SetDesaturated(false)
+    pushed:SetVertexColor(1, 1, 1, 1)
     btn:SetPushedTexture(pushed)
     btn._pushed = pushed
 
     local hl = btn:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
     hl:SetAtlas("Map-Filter-Button")
-    hl:SetDesaturated(true)
-    hl:SetVertexColor(EG.r, EG.g, EG.b, 1)
+    hl:SetDesaturated(false)
+    hl:SetVertexColor(1, 1, 1, 1)
     hl:SetAlpha(0.3)
     btn:SetHighlightTexture(hl)
     btn._hl = hl
-
-    -- Keep the three textures in sync with the accent color.
-    -- Vertex alpha stays at 1; the highlight's SetAlpha(0.3) still applies
-    -- on top since the two multiply.
-    EllesmereUI.RegAccent({ type = "vertex", obj = norm })
-    EllesmereUI.RegAccent({ type = "vertex", obj = pushed })
-    EllesmereUI.RegAccent({ type = "vertex", obj = hl })
 
     -- Black background to match indicator icons
     local bg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
@@ -1387,12 +1377,12 @@ local INDICATOR_ATLAS_RATIO = {
     ["UI-HUD-Minimap-Guild-Disabled"]        = 1,
 }
 local INDICATOR_ATLAS_SCALE = {}
--- Calendar atlases: all 31 days share the same ratio/scale
+-- Calendar atlases map to Wrath's square day/night calendar sprite.
 for day = 1, 31 do
     local prefix = "UI-HUD-Calendar-" .. day
-    INDICATOR_ATLAS_RATIO[prefix .. "-Up"]        = 21 / 19
-    INDICATOR_ATLAS_RATIO[prefix .. "-Mouseover"] = 21 / 19
-    INDICATOR_ATLAS_RATIO[prefix .. "-Down"]      = 21 / 19
+    INDICATOR_ATLAS_RATIO[prefix .. "-Up"]        = 1
+    INDICATOR_ATLAS_RATIO[prefix .. "-Mouseover"] = 1
+    INDICATOR_ATLAS_RATIO[prefix .. "-Down"]      = 1
     INDICATOR_ATLAS_SCALE[prefix .. "-Up"]        = 1.25
     INDICATOR_ATLAS_SCALE[prefix .. "-Mouseover"] = 1.25
     INDICATOR_ATLAS_SCALE[prefix .. "-Down"]      = 1.25
@@ -1697,6 +1687,10 @@ local function GetFTTMenu()
 
     local function MakeItem(text, yOff, onClick)
         local b = EllesmereUI.SafeCreateFrame("Button", nil, m)
+        -- Legacy clients do not reliably inherit a child's frame level from
+        -- high-level tooltip parents.  Keep the interactive row (including
+        -- its FontString) above the menu background.
+        b:SetFrameLevel(m:GetFrameLevel() + 1)
         b:RegisterForClicks("AnyUp")
         b:SetPoint("TOPLEFT", m, "TOPLEFT", PAD, yOff)
         b:SetPoint("TOPRIGHT", m, "TOPRIGHT", -PAD, yOff)
@@ -1780,6 +1774,11 @@ local function EnsureFTTRow(idx)
     if _friendsTTRows[idx] then return _friendsTTRows[idx] end
     local tt = GetFriendsTT()
     local btn = EllesmereUI.SafeCreateFrame("Button", nil, tt)
+    -- On Wrath, an unnamed child button can remain at frame level 0 even when
+    -- its parent tooltip is raised.  Its text then renders beneath the
+    -- tooltip's BACKGROUND texture while direct children such as headers do
+    -- not.  Pin every row above the tooltip explicitly.
+    btn:SetFrameLevel(tt:GetFrameLevel() + 1)
     btn:EnableMouse(true)
     btn:RegisterForClicks("AnyUp")
     btn:SetHeight(FTT_ROW_H)
@@ -2288,15 +2287,12 @@ end
 
 local function BuildCustomIndicators(minimap)
     if _customIndicators.tracking then
-        -- Re-apply the current accent to the friends icon so a later ApplyAll
-        -- (e.g. at PLAYER_ENTERING_WORLD, after EllesmereUI's theme resolution
-        -- has mutated ELLESMERE_GREEN) picks up the right color -- same
-        -- pattern as CreateFlyoutToggle. The create-once path below reads the
-        -- accent only at creation time, which can race the theme resolution.
+        -- Rebuilds must not reintroduce desaturation or an accent tint.
         local fi = _customIndicators.friends and _customIndicators.friends._icon
         if fi then
-            local EG2 = EllesmereUI.ELLESMERE_GREEN
-            fi:SetVertexColor(EG2.r, EG2.g, EG2.b, 1)
+            fi:SetDesaturated(false)
+            fi:SetVertexColor(1, 1, 1, 1)
+            fi:SetAlpha(1)
         end
         return
     end
@@ -2350,7 +2346,7 @@ local function BuildCustomIndicators(minimap)
     end)
 
     -- Calendar (day-of-month atlas)
-    local calDay = tonumber(date("%d")) or 1
+    local calDay = CalendarGetDate and select(3, CalendarGetDate()) or tonumber(date("%d")) or 1
     local calPrefix = "UI-HUD-Calendar-" .. calDay
     _customIndicators.calendar = CreateIndicatorBtn("_gameTime", minimap,
         calPrefix .. "-Up", calPrefix .. "-Mouseover", calPrefix .. "-Down",
@@ -2358,10 +2354,30 @@ local function BuildCustomIndicators(minimap)
             if ToggleCalendar then ToggleCalendar() end
         end)
     _customIndicators.calendar._calDay = calDay
+    -- Wrath stores the calendar artwork as a 128x64 day/night sprite rather
+    -- than one atlas per date. Crop its 50x50 cell and draw the date on top,
+    -- matching GameTimeFrame's native treatment of the same texture.
+    _customIndicators.calendar._dayText = _customIndicators.calendar:CreateFontString(nil, "OVERLAY")
+    _customIndicators.calendar._dayText:SetFont(FTT_FONT(), 9, "OUTLINE")
+    _customIndicators.calendar._dayText:SetPoint("CENTER", _customIndicators.calendar._icon, "CENTER", 0, -1)
+    _customIndicators.calendar._dayText:SetTextColor(1, 0.82, 0, 1)
+    _customIndicators.calendar._refreshCalendarArt = function(self)
+        if not self._icon then return end
+        local hour, minute = GetGameTime()
+        local time = (hour or 0) * 60 + (minute or 0)
+        local minX = (time < 330 or time >= 1260) and 0.5 or 0
+        self._icon:SetTexture("Interface\\Calendar\\UI-Calendar-Button")
+        self._icon:SetTexCoord(minX, minX + 50 / 128, 0, 50 / 64)
+        local day = CalendarGetDate and select(3, CalendarGetDate()) or tonumber(date("%d")) or 1
+        self._calDay = day
+        self._dayText:SetText(day)
+    end
+    _customIndicators.calendar:_refreshCalendarArt()
     local calBaseEnter = _customIndicators.calendar:GetScript("OnEnter")
     local calBaseLeave = _customIndicators.calendar:GetScript("OnLeave")
     _customIndicators.calendar:SetScript("OnEnter", function(self)
         if calBaseEnter then calBaseEnter(self) end
+        if self._refreshCalendarArt then self:_refreshCalendarArt() end
         if GetFFD(self).freeMoveJustDragged then return end
         local lockoutEntries
         if not (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance()) then
@@ -2406,17 +2422,12 @@ local function BuildCustomIndicators(minimap)
             end
             ToggleFriendsFrame()
         end)
-    -- Atlas is not in INDICATOR_ATLAS_RATIO so icon uses inset anchoring
-    -- (TOPLEFT/BOTTOMRIGHT). Desaturate slightly for idle state.
+    -- Atlas is not in INDICATOR_ATLAS_RATIO so icon uses inset anchoring.
+    -- Keep its native colors; accent tinting made the source icon grayscale.
     if _customIndicators.friends._icon then
-        _customIndicators.friends._icon:SetDesaturated(true)
-        EllesmereUI.RegAccent({ type = "vertex", obj = _customIndicators.friends._icon })
-        -- Apply current accent immediately (initial accent pass already ran)
-        local g = EllesmereUI.ELLESMERE_GREEN
-        if g then
-            _customIndicators.friends._icon:SetVertexColor(g.r, g.g, g.b, 1)
-        end
-        _customIndicators.friends._icon:SetAlpha(0.85)
+        _customIndicators.friends._icon:SetDesaturated(false)
+        _customIndicators.friends._icon:SetVertexColor(1, 1, 1, 1)
+        _customIndicators.friends._icon:SetAlpha(1)
     end
     local friendsBtnEnter = _customIndicators.friends:GetScript("OnEnter")
     local friendsBtnLeave = _customIndicators.friends:GetScript("OnLeave")
@@ -2428,7 +2439,7 @@ local function BuildCustomIndicators(minimap)
     end)
     _customIndicators.friends:SetScript("OnLeave", function(self)
         if friendsBtnLeave then friendsBtnLeave(self) end
-        if self._icon then self._icon:SetAlpha(0.85) end
+        if self._icon then self._icon:SetAlpha(1) end
         HideFriendsTooltip()
     end)
 
@@ -2625,7 +2636,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     ResizeIndicator(ci.tracking)
     -- Update calendar day if it changed (midnight rollover)
     if ci.calendar then
-        local today = tonumber(date("%d")) or 1
+        local today = CalendarGetDate and select(3, CalendarGetDate()) or tonumber(date("%d")) or 1
         if ci.calendar._calDay ~= today then
             ci.calendar._calDay = today
             local prefix = "UI-HUD-Calendar-" .. today
@@ -2634,6 +2645,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             ci.calendar._downAtlas = prefix .. "-Down"
             if ci.calendar._icon then ci.calendar._icon:SetAtlas(ci.calendar._upAtlas) end
         end
+        if ci.calendar._refreshCalendarArt then ci.calendar:_refreshCalendarArt() end
     end
     ResizeIndicator(ci.calendar)
     ResizeIndicator(ci.mail)
