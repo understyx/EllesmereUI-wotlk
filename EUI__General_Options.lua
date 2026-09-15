@@ -2042,21 +2042,6 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         local oldScale = EllesmereUIDB and EllesmereUIDB.ppUIScale
                         local oldScaleAuto = EllesmereUIDB and EllesmereUIDB.ppUIScaleAuto
-                        -- Preserve friend group data across reset
-                        local oldGlobal = EllesmereUIDB and EllesmereUIDB.global
-                        local savedFriends
-                        if oldGlobal then
-                            savedFriends = {
-                                friendGroups = oldGlobal.friendGroups,
-                                friendAssignments = oldGlobal.friendAssignments,
-                                friendGroupOrder = oldGlobal.friendGroupOrder,
-                                friendGroupColors = oldGlobal.friendGroupColors,
-                                friendNotes = oldGlobal.friendNotes,
-                                friendFavCollapsed = oldGlobal.friendFavCollapsed,
-                                friendPendingCollapsed = oldGlobal.friendPendingCollapsed,
-                                friendUngroupedCollapsed = oldGlobal.friendUngroupedCollapsed,
-                            }
-                        end
                         -- Preserve QoL settings (stored on EllesmereUIDB root)
                         local qolKeys = {
                             "autoOpenContainers", "autoSellJunk", "autoRepair",
@@ -2086,12 +2071,6 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUIDB = _G["EllesmereUIDB"]
                         if oldScale then EllesmereUIDB.ppUIScale = oldScale end
                         if oldScaleAuto ~= nil then EllesmereUIDB.ppUIScaleAuto = oldScaleAuto end
-                        if savedFriends then
-                            if not EllesmereUIDB.global then EllesmereUIDB.global = {} end
-                            for k, v in pairs(savedFriends) do
-                                EllesmereUIDB.global[k] = v
-                            end
-                        end
                         for k, v in pairs(savedQoL) do
                             EllesmereUIDB[k] = v
                         end
@@ -4051,7 +4030,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUISwingBars         = "Weapon swing timers for melee attacks and ranged Auto Shot.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
-                EllesmereUIFriends           = "A modern friends list with built-in organization tools.",
 
                 EllesmereUIQuestTracker      = "A clean, updated reskin of Blizzard's Quest Tracker.",
                 EllesmereUIMinimap           = "A new age minimap with clean styling and square layout options.",
@@ -6457,7 +6435,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUISwingBars         = "Weapon swing timers for melee attacks and ranged Auto Shot.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
-                EllesmereUIFriends           = "A modern friends list with built-in organization tools.",
 
                 EllesmereUIQuestTracker      = "A clean, updated reskin of Blizzard's Quest Tracker.",
                 EllesmereUIMinimap           = "A new age minimap with clean styling and square layout options.",

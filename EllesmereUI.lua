@@ -292,7 +292,6 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIRaidCooldowns",     display = "Raid Cooldowns",       search_name = "EllesmereUI Raid Cooldowns"          },
     { folder = "EllesmereUIPallyPower",        display = "PallyPower",           search_name = "EllesmereUI PallyPower Blessings"    },
     { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced"       },
-    { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
 
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",        search_name = "EllesmereUI Quest Tracker"           },
     { folder = "EllesmereUIMinimap",           display = "Minimap",              search_name = "EllesmereUI Minimap"                 },
@@ -350,7 +349,6 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIDamageMeters",
 
             "EllesmereUIQuestTracker",
-            "EllesmereUIFriends",
             "EllesmereUIMinimap",
             "EllesmereUIChat",
             "EllesmereUIBags",
@@ -3887,7 +3885,6 @@ EllesmereUI._addonKeyToFolder = {
     auraBuff     = "EllesmereUIAuraBuffReminders",
     extras       = "EllesmereUIQoL",
     raidCooldowns = "EllesmereUIRaidCooldowns",
-    friends      = "EllesmereUIFriends",
     minimap      = "EllesmereUIMinimap",
     chat         = "EllesmereUIChat",
     questTracker = "EllesmereUIQuestTracker",
@@ -10057,7 +10054,6 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIBlizzardSkin = true,
         EllesmereUIQuestTracker = true,
         EllesmereUIMinimap = true,
-        EllesmereUIFriends = true,
         EllesmereUIChat = true,
         EllesmereUIDamageMeters = true,
         EllesmereUIBags = true,

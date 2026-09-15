@@ -2,7 +2,11 @@ local WSkin = _G.EllesmereUIBlizzardSkin
 local _G = _G
 
 --Lua functions
-local unpack = unpack
+local select, unpack = select, unpack
+
+local function Count(value, fallback)
+	return type(value) == "number" and value or fallback
+end
 
 -- Standard icon tex coordinates to crop the default icon border
 local TEXCOORDS = { 0.08, 0.92, 0.08, 0.92 }
@@ -13,6 +17,7 @@ local function SkinTalents()
 
 	WSkin:StripTextures(PlayerTalentFrame, true)
 	WSkin:CreateBackdrop(PlayerTalentFrame, "Transparent")
+	PlayerTalentFrame.backdrop:ClearAllPoints()
 	WSkin:Point(PlayerTalentFrame.backdrop, "TOPLEFT", 11, -12)
 	WSkin:Point(PlayerTalentFrame.backdrop, "BOTTOMRIGHT", -32, 76)
 
@@ -21,8 +26,8 @@ local function SkinTalents()
 	do
 		local offset
 
-		local talentGroups = GetNumTalentGroups(false, false)
-		local petTalentGroups = GetNumTalentGroups(false, true)
+		local talentGroups = type(GetNumTalentGroups) == "function" and GetNumTalentGroups(false, false) or 1
+		local petTalentGroups = type(GetNumTalentGroups) == "function" and GetNumTalentGroups(false, true) or 0
 
 		if talentGroups + petTalentGroups > 1 then
 			WSkin:SetUIPanelWindowInfo(PlayerTalentFrame, "width", nil, 31)
@@ -31,7 +36,7 @@ local function SkinTalents()
 			WSkin:SetUIPanelWindowInfo(PlayerTalentFrame, "width")
 		end
 
-		hooksecurefunc("PlayerTalentFrame_UpdateSpecs", function(_, numTalentGroups, _, numPetTalentGroups)
+		if type(PlayerTalentFrame_UpdateSpecs) == "function" then hooksecurefunc("PlayerTalentFrame_UpdateSpecs", function(_, numTalentGroups, _, numPetTalentGroups)
 			if offset and numTalentGroups + numPetTalentGroups <= 1 then
 				WSkin:SetUIPanelWindowInfo(PlayerTalentFrame, "width")
 				offset = nil
@@ -39,7 +44,7 @@ local function SkinTalents()
 				WSkin:SetUIPanelWindowInfo(PlayerTalentFrame, "width", nil, 31)
 				offset = true
 			end
-		end)
+		end) end
 	end
 
 	WSkin:HandleCloseButton(PlayerTalentFrameCloseButton, PlayerTalentFrame.backdrop)
@@ -67,35 +72,38 @@ local function SkinTalents()
 	WSkin:CreateBackdrop(PlayerTalentFrameScrollFrame, "Default")
 	WSkin:HandleScrollBar(PlayerTalentFrameScrollFrameScrollBar)
 
-	hooksecurefunc("PlayerTalentFrame_Update", function()
-		-- Get the active talent tab (1, 2, or 3) selected by the user
+	local talentButtonsSkinned = {}
+	local function UpdateTalentButtons()
 		local tabIndex = PlayerTalentFrame.selectedTab or 1
-
-		for i = 1, MAX_NUM_TALENTS do
-			local talent = _G["PlayerTalentFrameTalent"..i]
-			local icon = _G["PlayerTalentFrameTalent"..i.."IconTexture"]
-
+		for i = 1, Count(MAX_NUM_TALENTS, 80) do
+			local talent = _G["PlayerTalentFrameTalent" .. i]
+			local icon = _G["PlayerTalentFrameTalent" .. i .. "IconTexture"]
+			local rank = _G["PlayerTalentFrameTalent" .. i .. "Rank"]
 			if talent then
-				-- Pull data directly from the WOTLK client engine API instead of the texture object
-				local _, iconTexturePath = GetTalentInfo(tabIndex, i)
-
-				WSkin:StripTextures(talent)
-				WSkin:CreateBackdrop(talent, "Default")
-				talent:SetFrameLevel(talent:GetParent():GetFrameLevel() + 2)
-
-				if icon then
-					-- Safely apply the asset path retrieved from the engine
-					if iconTexturePath then
-						icon:SetTexture(iconTexturePath)
-					end
-					
-					WSkin:SetInside(icon)
-					icon:SetTexCoord(unpack(TEXCOORDS))
-					icon:SetDrawLayer("ARTWORK")
+				local currentTexture = icon and icon.GetTexture and icon:GetTexture()
+				local iconTexturePath
+				if type(GetTalentInfo) == "function" then iconTexturePath = select(2, GetTalentInfo(tabIndex, i)) end
+				if not talentButtonsSkinned[talent] then
+					talentButtonsSkinned[talent] = true
+					WSkin:StripTextures(talent)
+					WSkin:SetTemplate(talent, "Default")
+					WSkin:StyleButton(talent)
+					local parent = talent.GetParent and talent:GetParent()
+					if parent and parent.GetFrameLevel then talent:SetFrameLevel(parent:GetFrameLevel() + 2) end
 				end
+				if icon then
+					if iconTexturePath or currentTexture then icon:SetTexture(iconTexturePath or currentTexture) end
+					WSkin:SetInside(icon, talent)
+					icon:SetTexCoord(unpack(TEXCOORDS))
+					if icon.SetDrawLayer then icon:SetDrawLayer("ARTWORK") end
+				end
+				WSkin:FontTemplate(rank, nil, 12, "OUTLINE")
 			end
 		end
-	end)
+	end
+
+	UpdateTalentButtons()
+	if type(PlayerTalentFrame_Update) == "function" then hooksecurefunc("PlayerTalentFrame_Update", UpdateTalentButtons) end
 
 
 	for i = 1, 4 do
@@ -103,14 +111,16 @@ local function SkinTalents()
 	end
 
 	if MAX_TALENT_TABS then
-		for i = 1, MAX_TALENT_TABS do
+		for i = 1, Count(MAX_TALENT_TABS, 2) do
 			local tab = _G["PlayerSpecTab"..i]
 			if tab then
-				tab:GetRegions():Hide()
-				WSkin:CreateBackdrop(tab, "Default")
+				local border = tab.GetRegions and tab:GetRegions()
+				if border and border.Hide then border:Hide() end
+				WSkin:SetTemplate(tab, "Default")
+				WSkin:StyleButton(tab, nil, true)
 				local norm = tab:GetNormalTexture()
 				if norm then
-					WSkin:SetInside(norm)
+					WSkin:SetInside(norm, tab)
 					norm:SetTexCoord(unpack(TEXCOORDS))
 				end
 			end
@@ -127,15 +137,18 @@ local function SkinTalents()
 	WSkin:Point(PlayerTalentFrameScrollFrameScrollBar, "TOPLEFT", PlayerTalentFrameScrollFrame, "TOPRIGHT", 4, -18)
 	WSkin:Point(PlayerTalentFrameScrollFrameScrollBar, "BOTTOMLEFT", PlayerTalentFrameScrollFrame, "BOTTOMRIGHT", 4, 18)
 
+	PlayerTalentFrameResetButton:ClearAllPoints()
+	PlayerTalentFrameLearnButton:ClearAllPoints()
 	WSkin:Point(PlayerTalentFrameResetButton, "RIGHT", -4, 1)
 	WSkin:Point(PlayerTalentFrameLearnButton, "RIGHT", PlayerTalentFrameResetButton, "LEFT", -3, 0)
 
-	WSkin:Point(PlayerSpecTab1, "TOPLEFT", PlayerTalentFrame, "TOPRIGHT", -33, -65)
-	PlayerSpecTab1.ClearAllPoints = function() end
-	PlayerSpecTab1.SetPoint = function() end
+	if PlayerSpecTab1 then
+		WSkin:Point(PlayerSpecTab1, "TOPLEFT", PlayerTalentFrame, "TOPRIGHT", -33, -65)
+		PlayerSpecTab1.ClearAllPoints = function() end
+		PlayerSpecTab1.SetPoint = function() end
+	end
 
 	WSkin:Point(PlayerTalentFrameTab1, "BOTTOMLEFT", 11, 46)
 end
 
 WSkin:AddCallbackForAddon("Blizzard_TalentUI", "Skin_Talent", SkinTalents, "playerspells")
-WSkin:AddCallback("Skin_Talent", SkinTalents, "playerspells")

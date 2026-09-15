@@ -681,8 +681,6 @@ L["Automatically starts and stops combat logging when entering or leaving a logg
 L["Changing the /keys popup requires a reload to update slash command registration."] = "Изменение всплывающего окна /keys требует перезагрузки интерфейса для обновления регистрации команды."
 L["Enabling the LFG Reminder requires a reload to take effect."] = "Включение напоминания LFG требует перезагрузки интерфейса."
 
--- == Friends List (from EllesmereUIFriends) =================================
-
 -- == Mythic+ Timer (from EllesmereUIMythicTimer) =============================
 L["TIMER"]                          = "ТАЙМЕР"
 L["OBJECTIVES"]                     = "ЦЕЛИ"

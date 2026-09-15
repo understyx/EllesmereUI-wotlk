@@ -4,6 +4,7 @@ WSkin.TexCoords = { 0.08, 0.92, 0.08, 0.92 }
 
 local _G = _G
 local unpack, type, select, getmetatable = unpack, type, select, getmetatable
+local floor, format = math.floor, string.format
 local CreateFrame = CreateFrame
 
 -- Texture references
@@ -76,6 +77,12 @@ local function SetInside(obj, anchor, xOffset, yOffset, anchor2)
 end
 
 local function SetTemplate(frame, template, glossTex, ignoreUpdates, forcePixelMode, isUnitFrameElement)
+	local objectType = type(frame)
+	if (objectType ~= "table" and objectType ~= "userdata")
+		or not frame.SetBackdrop or not frame.SetBackdropColor or not frame.SetBackdropBorderColor then
+		return
+	end
+
 	borderr, borderg, borderb = 0.2, 0.2, 0.2
 	if template == "Transparent" then
 		backdropr, backdropg, backdropb, backdropa = 0, 0, 0, 0.8
@@ -154,27 +161,34 @@ local function StripTextures(object, kill, alpha)
 	end
 end
 
+local styleButtonState = setmetatable({}, { __mode = "k" })
 local function StyleButton(button, noHover, noPushed, noChecked)
-	if button.SetHighlightTexture and not button.hover and not noHover then
+	local state = button and styleButtonState and styleButtonState[button]
+	if button and not state then
+		state = {}
+		styleButtonState[button] = state
+	end
+	if not button then return end
+	if button.SetHighlightTexture and not state.hover and not noHover then
 		local hover = button:CreateTexture()
 		SetInside(hover)
 		hover:SetTexture(1, 1, 1, 0.3)
 		button:SetHighlightTexture(hover)
-		button.hover = hover
+		state.hover = hover
 	end
-	if button.SetPushedTexture and not button.pushed and not noPushed then
+	if button.SetPushedTexture and not state.pushed and not noPushed then
 		local pushed = button:CreateTexture()
 		SetInside(pushed)
 		pushed:SetTexture(0.9, 0.8, 0.1, 0.3)
 		button:SetPushedTexture(pushed)
-		button.pushed = pushed
+		state.pushed = pushed
 	end
-	if button.SetCheckedTexture and not button.checked and not noChecked then
+	if button.SetCheckedTexture and not state.checked and not noChecked then
 		local checked = button:CreateTexture()
 		SetInside(checked)
 		checked:SetTexture(1, 1, 1, 0.3)
 		button:SetCheckedTexture(checked)
-		button.checked = checked
+		state.checked = checked
 	end
 	local name = button.GetName and button:GetName()
 	local cooldown = name and _G[name.."Cooldown"]
@@ -704,7 +718,20 @@ function WSkin:SetOriginalBackdrop()
 end
 
 function WSkin:HandleButton(button, strip, isDeclineButton, useCreateBackdrop, noSetTemplate)
-	if button.isSkinned then return end
+	local objectType = type(button)
+	if (objectType ~= "table" and objectType ~= "userdata") or not button.HookScript then return end
+	if (not noSetTemplate and not useCreateBackdrop) and not button.SetBackdrop then return end
+	if RetailState(button).legacyButton then return end
+
+	local buttonName = button.GetName and button:GetName()
+	if buttonName then
+		local left = _G[buttonName .. "Left"]
+		local middle = _G[buttonName .. "Middle"] or _G[buttonName .. "Mid"]
+		local right = _G[buttonName .. "Right"]
+		if left then left:SetAlpha(0) end
+		if middle then middle:SetAlpha(0) end
+		if right then right:SetAlpha(0) end
+	end
 
 	if button.Left then button.Left:SetAlpha(0) end
 	if button.Middle then button.Middle:SetAlpha(0) end
@@ -726,47 +753,54 @@ function WSkin:HandleButton(button, strip, isDeclineButton, useCreateBackdrop, n
 	button:HookScript("OnEnter", WSkin.SetModifiedBackdrop)
 	button:HookScript("OnLeave", WSkin.SetOriginalBackdrop)
 
-	button.isSkinned = true
+	RetailState(button).legacyButton = true
 end
 
 function WSkin:HandleCloseButton(f, point)
-	if not f then return end
+	local objectType = type(f)
+	if (objectType ~= "table" and objectType ~= "userdata") or not f.CreateTexture or not f.HookScript then return end
+	local state = RetailState(f)
 	StripTextures(f)
 
-	if f:GetNormalTexture() then f:SetNormalTexture("") f.SetNormalTexture = function() end end
-	if f:GetPushedTexture() then f:SetPushedTexture("") f.SetPushedTexture = function() end end
-	if f:GetHighlightTexture() then f:SetHighlightTexture("") f.SetHighlightTexture = function() end end
-	if f:GetDisabledTexture() then f:SetDisabledTexture("") f.SetDisabledTexture = function() end end
+	if f.SetNormalTexture then f:SetNormalTexture("") end
+	if f.SetPushedTexture then f:SetPushedTexture("") end
+	if f.SetHighlightTexture then f:SetHighlightTexture("") end
+	if f.SetDisabledTexture then f:SetDisabledTexture("") end
 
-	for i = 1, select("#", f:GetRegions()) do
-		local region = select(i, f:GetRegions())
-		if region and region:IsObjectType("Texture") and region ~= f.Texture then
-			region:SetAlpha(0)
+	if f.GetRegions then
+		for i = 1, select("#", f:GetRegions()) do
+			local region = select(i, f:GetRegions())
+			if region and region.IsObjectType and region:IsObjectType("Texture") and region ~= state.closeTexture then
+				region:SetAlpha(0)
+			end
 		end
 	end
 
-	if not f.Texture then
-		f.Texture = f:CreateTexture(nil, "OVERLAY")
-		Point(f.Texture, "CENTER", 0, 0)
-		f.Texture:SetTexture(closeTex)
-		Size(f.Texture, 14, 14)
-		f.Texture:SetVertexColor(1, 1, 1, 0.75)
-		f:HookScript("OnEnter", function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1, 1) end end)
-		f:HookScript("OnLeave", function(btn) if btn.Texture then btn.Texture:SetVertexColor(1, 1, 1, 0.75) end end)
-		f:SetHitRectInsets(4, 4, 4, 4)
-	else
-		f.Texture:SetTexture(closeTex)
-		Size(f.Texture, 14, 14)
-		f.Texture:SetVertexColor(1, 1, 1, 0.75)
+	if not state.closeTexture then
+		state.closeTexture = f:CreateTexture(nil, "OVERLAY")
+		Point(state.closeTexture, "CENTER", 0, 0)
+		f:HookScript("OnEnter", function(btn)
+			local texture = RetailState(btn).closeTexture
+			if texture then texture:SetVertexColor(1, 1, 1, 1) end
+		end)
+		f:HookScript("OnLeave", function(btn)
+			local texture = RetailState(btn).closeTexture
+			if texture then texture:SetVertexColor(1, 1, 1, 0.75) end
+		end)
+		if f.SetHitRectInsets then f:SetHitRectInsets(4, 4, 4, 4) end
 	end
+	state.closeTexture:SetTexture(closeTex)
+	state.closeTexture:SetAlpha(1)
+	state.closeTexture:SetVertexColor(1, 1, 1, 0.75)
+	Size(state.closeTexture, 14, 14)
 
-	if point then
+	if point and f.SetPoint then
 		Point(f, "TOPRIGHT", point, "TOPRIGHT", 2, 3)
 	end
 end
 
 function WSkin:HandleCheckBox(frame, noBackdrop, noReplaceTextures)
-	if frame.isSkinned then return end
+	if not frame or RetailState(frame).legacyCheckBox then return end
 	StripTextures(frame)
 
 	if noBackdrop then
@@ -810,12 +844,12 @@ function WSkin:HandleCheckBox(frame, noBackdrop, noReplaceTextures)
 			if texPath ~= "" then checkbox:SetHighlightTexture("") end
 		end)
 	end
-	frame.isSkinned = true
+	RetailState(frame).legacyCheckBox = true
 end
 
 local tabs = {"LeftDisabled","MiddleDisabled","RightDisabled","Left","Middle","Right"}
 function WSkin:HandleTab(tab, noBackdrop)
-	if (not tab) or (tab.backdrop and not noBackdrop) then return end
+	if not tab or (RetailState(tab).legacyTab and not noBackdrop) then return end
 	for _, object in ipairs(tabs) do
 		local tex = _G[tab:GetName()..object]
 		if tex then tex:SetTexture() end
@@ -829,6 +863,7 @@ function WSkin:HandleTab(tab, noBackdrop)
 		Point(tab.backdrop, "BOTTOMRIGHT", -10, 3)
 		tab:SetHitRectInsets(10, 10, 3, 3)
 	end
+	RetailState(tab).legacyTab = true
 end
 
 WSkin.ArrowRotation = {
@@ -839,7 +874,7 @@ WSkin.ArrowRotation = {
 }
 
 function WSkin:HandleNextPrevButton(btn, arrowDir, color, noBackdrop, stipTexts)
-	if btn.isSkinned then return end
+	if not btn or RetailState(btn).legacyArrow then return end
 
 	if not arrowDir then
 		arrowDir = "down"
@@ -854,20 +889,25 @@ function WSkin:HandleNextPrevButton(btn, arrowDir, color, noBackdrop, stipTexts)
 
 	StripTextures(btn)
 	if not noBackdrop then WSkin:HandleButton(btn) end
-
-	if arrowDir == "up" then
-		btn:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Up")
-		btn:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Down")
-		btn:SetDisabledTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Disabled")
-	elseif arrowDir == "down" then
-		btn:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
-		btn:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Down")
-		btn:SetDisabledTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Disabled")
-	else
-		btn:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
-		btn:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Down")
-		btn:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Disabled")
+	if stipTexts and btn.GetRegions then
+		for i = 1, select("#", btn:GetRegions()) do
+			local region = select(i, btn:GetRegions())
+			if region and region.IsObjectType and region:IsObjectType("FontString") then
+				region:SetText("")
+			end
+		end
 	end
+
+	local arrowTextures = {
+		up = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.tga",
+		down = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga",
+		left = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.tga",
+		right = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.tga",
+	}
+	local arrowTexture = arrowTextures[arrowDir] or arrowTextures.down
+	btn:SetNormalTexture(arrowTexture)
+	btn:SetPushedTexture(arrowTexture)
+	btn:SetDisabledTexture(arrowTexture)
 
 	if noBackdrop then
 		Size(btn, 20, 20)
@@ -881,23 +921,31 @@ function WSkin:HandleNextPrevButton(btn, arrowDir, color, noBackdrop, stipTexts)
 	if Normal then SetInside(Normal) end
 	if Pushed then SetInside(Pushed) end
 	if Disabled then SetInside(Disabled) end
+	local r, g, b = unpack(color or { 1, 1, 1 })
+	if Normal then Normal:SetVertexColor(r, g, b, 1) end
+	if Pushed then Pushed:SetVertexColor(r, g, b, 0.8) end
+	if Disabled then Disabled:SetVertexColor(0.35, 0.35, 0.35, 0.8) end
 
-	btn.isSkinned = true
+	RetailState(btn).legacyArrow = true
 end
 
 function WSkin:HandleScrollBar(frame, horizontal)
-	if frame.backdrop then return end
+	if not frame or RetailState(frame).legacyScrollBar then return end
 
 	local parent = frame:GetParent()
 	local frameName = frame:GetName()
 
 	local scrollUpButton, scrollDownButton
-	local thumb = frame.thumbTexture or frame.GetThumbTexture and frame:GetThumbTexture() or _G[string.format("%s%s", frameName, "ThumbTexture")]
+	local thumb = frame.thumbTexture or frame.GetThumbTexture and frame:GetThumbTexture()
+		or (frameName and _G[format("%s%s", frameName, "ThumbTexture")])
 
 	if frameName then
 		if not horizontal then
-			scrollUpButton = parent.scrollUp or _G[string.format("%s%s", frameName, "ScrollUpButton")] or _G[string.format("%s%s", frameName, "UpButton")] or _G[string.format("%s%s", frameName, "ScrollUp")]
-			scrollDownButton = parent.scrollDown or _G[string.format("%s%s", frameName, "ScrollDownButton")] or _G[string.format("%s%s", frameName, "DownButton")] or _G[string.format("%s%s", frameName, "ScrollDown")]
+			scrollUpButton = parent.scrollUp or _G[format("%s%s", frameName, "ScrollUpButton")] or _G[format("%s%s", frameName, "UpButton")] or _G[format("%s%s", frameName, "ScrollUp")]
+			scrollDownButton = parent.scrollDown or _G[format("%s%s", frameName, "ScrollDownButton")] or _G[format("%s%s", frameName, "DownButton")] or _G[format("%s%s", frameName, "ScrollDown")]
+		else
+			scrollUpButton = _G[format("%s%s", frameName, "ScrollLeftButton")] or _G[format("%s%s", frameName, "LeftButton")] or _G[format("%s%s", frameName, "ScrollLeft")]
+			scrollDownButton = _G[format("%s%s", frameName, "ScrollRightButton")] or _G[format("%s%s", frameName, "RightButton")] or _G[format("%s%s", frameName, "ScrollRight")]
 		end
 	end
 
@@ -913,6 +961,9 @@ function WSkin:HandleScrollBar(frame, horizontal)
 		if not horizontal then
 			Point(scrollUpButton, "BOTTOM", frame, "TOP", 0, 1)
 			WSkin:HandleNextPrevButton(scrollUpButton, "up")
+		else
+			Point(scrollUpButton, "RIGHT", frame, "LEFT", -1, 0)
+			WSkin:HandleNextPrevButton(scrollUpButton, "left")
 		end
 	end
 
@@ -920,6 +971,9 @@ function WSkin:HandleScrollBar(frame, horizontal)
 		if not horizontal then
 			Point(scrollDownButton, "TOP", frame, "BOTTOM", 0, -1)
 			WSkin:HandleNextPrevButton(scrollDownButton, "down")
+		else
+			Point(scrollDownButton, "LEFT", frame, "RIGHT", 1, 0)
+			WSkin:HandleNextPrevButton(scrollDownButton, "right")
 		end
 	end
 
@@ -933,21 +987,92 @@ function WSkin:HandleScrollBar(frame, horizontal)
 		Point(thumb.backdrop, "BOTTOMRIGHT", thumb, "BOTTOMRIGHT", -2, 2)
 		if not frame.thumbTexture then frame.thumbTexture = thumb end
 	end
+	RetailState(frame).legacyScrollBar = true
 end
 
-function WSkin:SetUIPanelWindowInfo(frame, prop, val, offset)
+local uiPanelQueue = setmetatable({}, { __mode = "k" })
+local hitRectQueue = setmetatable({}, { __mode = "k" })
+local queueFrame = CreateFrame("Frame")
+
+local function CanChangeFrame(frame)
+	return not frame.CanChangeAttribute or frame:CanChangeAttribute()
 end
 
-function WSkin:SetBackdropHitRect(frame, backdrop)
+local function ApplyUIPanelInfo(frame, attribute, value, skipUpdate)
+	frame:SetAttribute(attribute, value)
+	if not skipUpdate and frame:IsShown() and UpdateUIPanelPositions then
+		UpdateUIPanelPositions(frame)
+	end
+end
+
+queueFrame:SetScript("OnEvent", function(self)
+	for frame, info in pairs(uiPanelQueue) do
+		if CanChangeFrame(frame) then
+			ApplyUIPanelInfo(frame, info[1], info[2], info[3])
+			uiPanelQueue[frame] = nil
+		end
+	end
+	for frame, info in pairs(hitRectQueue) do
+		if CanChangeFrame(frame) then
+			frame:SetHitRectInsets(info[1], info[2], info[3], info[4])
+			if info[5] then frame:SetClampRectInsets(info[1], -info[2], -info[3], info[4]) end
+			hitRectQueue[frame] = nil
+		end
+	end
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+end)
+
+function WSkin:SetUIPanelWindowInfo(frame, prop, val, offset, skipUpdate, anyPanel)
+	local frameName = frame and frame.GetName and frame:GetName()
+	if not frameName or (not anyPanel and (not UIPanelWindows or not UIPanelWindows[frameName])) then return end
+
+	local attribute = "UIPanelLayout-" .. prop
+	if prop == "width" then
+		local source = val or (frame.backdrop and frame.backdrop:GetWidth()) or frame:GetWidth()
+		if not source or source <= 0 then return end
+		val = floor(source + 0.5) + (offset or 0) + 7
+	end
+	if frame:GetAttribute(attribute) == val then return end
+
+	if CanChangeFrame(frame) then
+		ApplyUIPanelInfo(frame, attribute, val, skipUpdate)
+	else
+		uiPanelQueue[frame] = { attribute, val, skipUpdate }
+		queueFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+	end
+end
+
+function WSkin:SetBackdropHitRect(frame, backdrop, clampRect, attempt)
 	if not frame then return end
 	if not backdrop then backdrop = frame.backdrop end
-	if backdrop and frame then
-		frame:SetHitRectInsets(backdrop:GetLeft() - frame:GetLeft(), frame:GetRight() - backdrop:GetRight(), backdrop:GetTop() - frame:GetTop(), frame:GetBottom() - backdrop:GetBottom())
+	if not backdrop then return end
+
+	local left, right, top, bottom = frame:GetLeft(), frame:GetRight(), frame:GetTop(), frame:GetBottom()
+	local bleft, bright, btop, bbottom = backdrop:GetLeft(), backdrop:GetRight(), backdrop:GetTop(), backdrop:GetBottom()
+	if not (left and right and top and bottom and bleft and bright and btop and bbottom) then
+		if (attempt or 0) < 10 and C_Timer and C_Timer.After then
+			C_Timer.After(0.1, function()
+				WSkin:SetBackdropHitRect(frame, backdrop, clampRect, (attempt or 0) + 1)
+			end)
+		end
+		return
+	end
+
+	left = floor(bleft + 0.5) - floor(left + 0.5)
+	right = floor(right + 0.5) - floor(bright + 0.5)
+	top = floor(top + 0.5) - floor(btop + 0.5)
+	bottom = floor(bbottom + 0.5) - floor(bottom + 0.5)
+	if CanChangeFrame(frame) then
+		frame:SetHitRectInsets(left, right, top, bottom)
+		if clampRect then frame:SetClampRectInsets(left, -right, -top, bottom) end
+	else
+		hitRectQueue[frame] = { left, right, top, bottom, clampRect }
+		queueFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 	end
 end
 
 function WSkin:HandleDropDownBox(frame, width, direction)
-	if frame.backdrop then return end
+	if not frame or frame.backdrop then return end
 
 	local FrameName = frame.GetName and frame:GetName()
 	local button = FrameName and _G[FrameName.."Button"]
@@ -976,7 +1101,7 @@ function WSkin:HandleDropDownBox(frame, width, direction)
 end
 
 function WSkin:HandleRotateButton(btn)
-	if btn.isSkinned then return end
+	if not btn or RetailState(btn).legacyRotate then return end
 
 	SetTemplate(btn)
 	Size(btn, btn:GetWidth() - 14, btn:GetHeight() - 14)
@@ -1000,66 +1125,55 @@ function WSkin:HandleRotateButton(btn)
 		highlightTex:SetTexture(1, 1, 1, 0.3)
 	end
 
-	btn.isSkinned = true
+	RetailState(btn).legacyRotate = true
 end
 
 function WSkin:HandleCollapseExpandButton(button, defaultState, useFontString, xOffset, yOffset)
-	if button.isSkinned then return end
+	if not button or RetailState(button).legacyCollapse then return end
+	local state = RetailState(button)
+	state.legacyCollapse = true
+	state.collapseUpdating = false
+	state.collapseText = button:CreateFontString(nil, "OVERLAY")
+	FontTemplate(state.collapseText, nil, 16, "")
+	Point(state.collapseText, "LEFT", xOffset or 5, yOffset or 0)
+
+	local function SetGlyph(texture)
+		if type(texture) == "string" then
+			if string.find(texture, "MinusButton", 1, true) or string.find(texture, "ZoomOutButton", 1, true) then
+				state.collapseText:SetText("-")
+				return
+			elseif string.find(texture, "PlusButton", 1, true) or string.find(texture, "ZoomInButton", 1, true) then
+				state.collapseText:SetText("+")
+				return
+			end
+		end
+		if texture == "+" or texture == "-" then state.collapseText:SetText(texture) end
+	end
+
+	local normal = button.GetNormalTexture and button:GetNormalTexture()
+	local initialTexture = normal and normal.GetTexture and normal:GetTexture()
+	SetGlyph(defaultState == "auto" and initialTexture or defaultState)
+	if state.collapseText:GetText() == "" and initialTexture then SetGlyph(initialTexture) end
 
 	button:SetNormalTexture("")
 	button:SetPushedTexture("")
 	button:SetHighlightTexture("")
 	button:SetDisabledTexture("")
-
-	button.SetPushedTexture = function() end
-	button.SetHighlightTexture = function() end
-	button.SetDisabledTexture = function() end
-
-	if useFontString then
-		button.collapseText = button:CreateFontString(nil, "OVERLAY")
-		button.collapseText:SetFontObject("GameFontNormal")
-		Point(button.collapseText, "LEFT", xOffset or 5, yOffset or 0)
-		button.collapseText:SetText(defaultState or "")
-		button.SetNormalTexture = function(self, tex)
-			if type(tex) == "string" and tex ~= "" then
-				if tex:find("MinusButton") or tex:find("ZoomOutButton") then
-					self.collapseText:SetText("-")
-				else
-					self.collapseText:SetText("+")
-				end
+	if hooksecurefunc then
+		hooksecurefunc(button, "SetNormalTexture", function(self, texture)
+			if state.collapseUpdating then return end
+			SetGlyph(texture)
+			if texture and texture ~= "" then
+				state.collapseUpdating = true
+				self:SetNormalTexture("")
+				state.collapseUpdating = false
 			end
-		end
-	else
-		local normalTexture = button:GetNormalTexture()
-		if normalTexture then
-			Size(normalTexture, 16)
-			normalTexture:ClearAllPoints()
-			Point(normalTexture, "LEFT", xOffset or 3, yOffset or 0)
-			normalTexture.SetPoint = function() end
-		end
-
-		local pushedTexture = button:GetPushedTexture()
-		if pushedTexture then
-			Size(pushedTexture, 16)
-			pushedTexture:ClearAllPoints()
-			Point(pushedTexture, "LEFT", xOffset or 3, yOffset or 0)
-			pushedTexture.SetPoint = function() end
-		end
-
-		local disabledTexture = button:GetDisabledTexture()
-		if disabledTexture then
-			Size(disabledTexture, 16)
-			disabledTexture:ClearAllPoints()
-			Point(disabledTexture, "LEFT", xOffset or 3, yOffset or 0)
-			disabledTexture.SetPoint = function() end
-			disabledTexture:SetVertexColor(0.6, 0.6, 0.6)
-		end
+		end)
 	end
-	button.isSkinned = true
 end
 
 function WSkin:HandleEditBox(frame)
-	if frame.backdrop then return end
+	if not frame or frame.backdrop then return end
 
 	CreateBackdrop(frame)
 	frame.backdrop:SetFrameLevel(frame:GetFrameLevel())
@@ -1088,8 +1202,123 @@ function WSkin:HandleIcon(icon, parent)
 		end
 		if parent.backdrop then
 			icon:SetParent(parent.backdrop)
+			SetOutside(parent.backdrop, icon)
 		end
 	end
+end
+
+function WSkin:HandleItemButton(button, shrinkIcon)
+	if not button or RetailState(button).legacyItemButton then return end
+
+	local name = button.GetName and button:GetName()
+	local icon = button.icon or button.IconTexture or button.iconTexture
+	if name and _G[name .. "IconTexture"] then
+		icon = _G[name .. "IconTexture"]
+	elseif name and _G[name .. "Icon"] then
+		icon = _G[name .. "Icon"]
+	end
+	local texture = icon and icon.GetTexture and icon:GetTexture()
+
+	StripTextures(button)
+	CreateBackdrop(button, "Default", nil, nil, true)
+	StyleButton(button)
+	if icon then
+		icon:SetTexCoord(unpack(WSkin.TexCoords))
+		if shrinkIcon then
+			button.backdrop:SetAllPoints(button)
+			SetInside(icon, button)
+		else
+			SetOutside(button.backdrop, icon)
+		end
+		icon:SetParent(button.backdrop)
+		if texture then icon:SetTexture(texture) end
+	end
+	RetailState(button).legacyItemButton = true
+	return icon
+end
+
+function WSkin:HandleStatusBar(frame, color)
+	if not frame or RetailState(frame).legacyStatusBar then return end
+	frame:SetFrameLevel(frame:GetFrameLevel() + 1)
+	StripTextures(frame)
+	CreateBackdrop(frame, "Transparent")
+	frame:SetStatusBarTexture(blankTex)
+	frame:SetStatusBarColor(unpack(color or { 0.01, 0.39, 0.10 }))
+	RetailState(frame).legacyStatusBar = true
+end
+
+function WSkin:HandleSliderFrame(frame)
+	if not frame or RetailState(frame).legacySlider then return end
+	local orientation = frame.GetOrientation and frame:GetOrientation()
+	StripTextures(frame)
+	SetTemplate(frame)
+	frame:SetThumbTexture(blankTex)
+	local thumb = frame:GetThumbTexture()
+	if thumb then
+		thumb:SetVertexColor(1, 0.82, 0, 0.8)
+		Size(thumb, 10)
+	end
+	frame:HookScript("OnDisable", function(self)
+		local texture = self:GetThumbTexture()
+		if texture then texture:SetVertexColor(0.6, 0.6, 0.6, 0.8) end
+	end)
+	frame:HookScript("OnEnable", function(self)
+		local texture = self:GetThumbTexture()
+		if texture then texture:SetVertexColor(1, 0.82, 0, 0.8) end
+	end)
+	if orientation == "VERTICAL" then Width(frame, 12) else Height(frame, 12) end
+	RetailState(frame).legacySlider = true
+end
+
+function WSkin:HandleColorSwatch(frame, size)
+	if not frame or RetailState(frame).legacyColorSwatch then return end
+	local texture = frame.GetNormalTexture and frame:GetNormalTexture()
+	StripTextures(frame)
+	CreateBackdrop(frame, "Default")
+	frame.backdrop:SetFrameLevel(frame:GetFrameLevel())
+	if size then Size(frame, size) end
+	if texture then
+		texture:SetTexture(blankTex)
+		SetInside(texture, frame.backdrop)
+		texture:SetAlpha(1)
+	end
+	RetailState(frame).legacyColorSwatch = true
+end
+
+function WSkin:HandleIconSelectionFrame(frame, numIcons, buttonNameTemplate, frameNameOverride)
+	if not frame or RetailState(frame).legacyIconSelection then return end
+	local frameName = frameNameOverride or (frame.GetName and frame:GetName())
+	if not frameName then return end
+	local scrollFrame = _G[frameName .. "ScrollFrame"]
+	local editBox = _G[frameName .. "EditBox"]
+	local okayButton = _G[frameName .. "OkayButton"] or _G[frameName .. "Okay"]
+	local cancelButton = _G[frameName .. "CancelButton"] or _G[frameName .. "Cancel"]
+
+	StripTextures(frame)
+	if scrollFrame then StripTextures(scrollFrame) end
+	if editBox and editBox.DisableDrawLayer then editBox:DisableDrawLayer("BACKGROUND") end
+	CreateBackdrop(frame, "Transparent")
+	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 10, -12)
+	if cancelButton then Point(frame.backdrop, "BOTTOMRIGHT", cancelButton, "BOTTOMRIGHT", 8, -8) end
+	self:HandleButton(okayButton)
+	self:HandleButton(cancelButton)
+	self:HandleEditBox(editBox)
+
+	for i = 1, (numIcons or 0) do
+		local button = _G[buttonNameTemplate .. i]
+		local iconName = button and button.GetName and button:GetName()
+		local icon = iconName and _G[iconName .. "Icon"]
+		if button then
+			StripTextures(button)
+			SetTemplate(button, "Default")
+			StyleButton(button, nil, true)
+			if icon then
+				SetInside(icon)
+				icon:SetTexCoord(unpack(WSkin.TexCoords))
+			end
+		end
+	end
+	RetailState(frame).legacyIconSelection = true
 end
 
 function WSkin:HandleButtonHighlight(frame, r, g, b, a)
@@ -1103,9 +1332,11 @@ function WSkin:HandleButtonHighlight(frame, r, g, b, a)
 
 	if frame.SetHighlightTexture then
 		highlightTexture = frame:GetHighlightTexture()
-		if highlightTexture then
-			highlightTexture:SetAllPoints(frame)
+		if not highlightTexture then
+			highlightTexture = frame:CreateTexture(nil, "HIGHLIGHT")
+			frame:SetHighlightTexture(highlightTexture)
 		end
+		highlightTexture:SetAllPoints(frame)
 	elseif frame.SetTexture then
 		highlightTexture = frame
 		if frame.GetParent and frame:GetParent() then

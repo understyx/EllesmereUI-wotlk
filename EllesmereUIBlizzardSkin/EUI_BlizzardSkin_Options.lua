@@ -1578,9 +1578,9 @@ initFrame:SetScript("OnEvent", function(self)
         },
         {
             key   = "guild",
-            title = "Guild & Communities",
-            desc  = "The Guild & Communities window: roster, chat, and the community list.",
-            reloadMsg = "Changing the Guild & Communities reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            title = "Friends, Guild & Communication",
+            desc  = "The Social and guild windows: friends, ignore, Who, guild roster, channels, Guild Bank, and guild utility dialogs.",
+            reloadMsg = "Changing the Friends, Guild & Communication reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinGuild = v
@@ -2418,7 +2418,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.statSectionsOrder = nil
                 EllesmereUIDB.charSheetCollapsedSections = nil
                 EllesmereUIDB.characterFramePos = nil
-                EllesmereUIDB.friendsFramePos = nil
             end
             if EllesmereUI._applyTooltipCursorAnchor then EllesmereUI._applyTooltipCursorAnchor() end
             if EllesmereUI._applyTooltipFixedAnchor then EllesmereUI._applyTooltipFixedAnchor() end

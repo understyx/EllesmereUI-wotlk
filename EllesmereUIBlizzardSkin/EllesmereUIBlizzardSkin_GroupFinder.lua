@@ -672,7 +672,7 @@ local function SkinCategoryButton(btn, opts)
     local hl = btn.GetHighlightTexture and btn:GetHighlightTexture()
     if hl then hl:SetAlpha(0) end
 
-    -- Card look matches the Guild & Communities sidebar entries: the same
+    -- Card look matches the Social/guild sidebar entries: the same
     -- dialog-sheet card atlas at half strength, pulled in 2px top and bottom
     -- so stacked tabs never sit flush. No border -- the card art carries its
     -- own soft edge.

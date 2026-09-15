@@ -546,7 +546,7 @@ Keep WotLK semantics:
 - Preserve the Zone query/filter capability because it is useful in the WotLK Who workflow.
 - Retail Battle.net presence details may not all exist in the WotLK API; show only status and metadata that can be determined reliably.
 
-Likely implementation area: `EllesmereUIFriends/EllesmereUIFriends.lua`.
+Implementation area: `EllesmereUIBlizzardSkin/Skins/Friends.lua`.
 
 ### WotLK Guild, Chat, and Raid: first-pass defects
 

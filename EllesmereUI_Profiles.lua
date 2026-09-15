@@ -67,7 +67,6 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIRaidCooldowns",     display = "Raid Cooldowns",      svName = "EllesmereUIRaidCooldownsDB",     suffix = "RaidCooldowns"     },
     { folder = "EllesmereUIPallyPower",        display = "PallyPower",          svName = "EllesmereUIPallyPowerDB",        suffix = "PallyPower"        },
     { folder = "EllesmereUIBags",              display = "Bags",                svName = "EllesmereUIBagsDB",              suffix = "Bags"              },
-    { folder = "EllesmereUIFriends",           display = "Friends List",        svName = "EllesmereUIFriendsDB",           suffix = "Friends"           },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Timer",       svName = "EllesmereUIMythicTimerDB",       suffix = "MythicTimer"       },
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",       svName = "EllesmereUIQuestTrackerDB",      suffix = "QuestTracker"      },
     { folder = "EllesmereUIMinimap",           display = "Minimap",             svName = "EllesmereUIMinimapDB",           suffix = "Minimap"           },
@@ -1407,8 +1406,6 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EQT_RefreshAll then _G._EQT_RefreshAll() end
     -- Chat (sidebar icons, borders, fonts, visibility)
     if _G._ECHAT_RefreshAll then _G._ECHAT_RefreshAll() end
-    -- Friends List
-    if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
     -- Mythic Timer
     if _G._EMT_Apply then _G._EMT_Apply() end
     -- Damage Meters
@@ -1760,7 +1757,7 @@ end
 --
 -- Deliberately absent (state, not settings): lfgSavedRoles (the player's
 -- saved LFG roles), charSheetCollapsedSections (transient UI state),
--- characterFramePos / friendsFramePos (dragged panel positions, resolution-
+-- characterFramePos (dragged panel position, resolution-
 -- bound), tooltipFixedPos (stale account key; the live one is per-profile
 -- and rides the profile itself), blizzWindowModernBG (dead key, read
 -- nowhere).
