@@ -140,57 +140,94 @@ RegisterTalentProc("WARLOCK", "pyroclasm", 63244, { 18093, 63243, 63244 })
 RegisterTalentProc("DRUID", "natures_grace", 16886, { 16886 })
 RegisterTalentProc("DRUID", "owlkin_frenzy", 48391, { 48391 })
 
--- Item-set auras. Only bonuses which produce a player-visible timed aura are
--- listed; passive damage modifiers and instant resource/cooldown effects are
--- intentionally omitted because there is no buff state for CDM to display.
+-- Wrath tier-set auras (T7-T10). Only bonuses which produce a timed aura on
+-- the player are listed here. Passive modifiers, instant resource/cooldown
+-- effects, target-only effects, and pet-only effects have no player-buff state
+-- for this CDM category to display.
 RegisterSetProc("DEATHKNIGHT", "t9_damage_2p", 67117,
-    "Thassarian/Koltira Battlegear 2P")
+    "Thassarian/Koltira Battlegear 2P", { 67117, 67115 })
 RegisterSetProc("DEATHKNIGHT", "t10_damage_4p", 70657,
-    "Scourgelord Battlegear 4P")
+    "Scourgelord Battlegear 4P", { 70657, 70656 })
 RegisterSetProc("DEATHKNIGHT", "t10_tank_4p", 70654,
-    "Scourgelord Plate 4P")
+    "Scourgelord Plate 4P", { 70654, 70652 })
 
 RegisterSetProc("WARRIOR", "t7_damage_4p", 61571,
     "Dreadnaught Battlegear 4P")
 RegisterSetProc("WARRIOR", "t8_damage_2p", 64937,
-    "Siegebreaker Battlegear 2P")
+    "Siegebreaker Battlegear 2P", { 64937, 64938 })
 RegisterSetProc("WARRIOR", "t10_damage_2p", 70855,
-    "Ymirjar Lord Battlegear 2P")
-RegisterSetProc("WARRIOR", "t10_damage_4p", 70847,
-    "Ymirjar Lord Battlegear 4P")
+    "Ymirjar Lord Battlegear 2P", { 70855, 70854 })
+-- Ymirjar Battlegear 4P enhances the existing Bloodsurge and Sudden Death
+-- auras instead of applying a distinct visible buff. Both are already in the
+-- class/talent catalogue. Preserve its former ID slot so later saved IDs stay
+-- stable after removing the non-functional passive wrapper entry (70847).
+nextSetID = nextSetID + 1
 RegisterSetProc("WARRIOR", "t10_tank_4p", 70845,
-    "Ymirjar Lord Plate 4P")
+    "Ymirjar Lord Plate 4P", { 70845, 70844 })
 
 RegisterSetProc("PALADIN", "t10_tank_4p", 70760,
-    "Lightsworn Plate 4P")
+    "Lightsworn Plate 4P", { 70760, 70761 })
 
 RegisterSetProc("HUNTER", "t8_4p", 64861,
-    "Scourgestalker Battlegear 4P")
+    "Scourgestalker Battlegear 4P", { 64861, 64860 })
 
-RegisterSetProc("ROGUE", "t9_2p", 67209,
-    "VanCleef/Garona Battlegear 2P")
+RegisterSetProc("ROGUE", "t9_2p", 67210,
+    "VanCleef/Garona Battlegear 2P", { 67210, 67209 })
 
 RegisterSetProc("PRIEST", "t8_shadow_4p", 64907,
-    "Sanctification Garb 4P")
-RegisterSetProc("PRIEST", "t8_healing_4p", 64912,
-    "Sanctification Regalia 4P")
+    "Sanctification Garb 4P", { 64907, 64908 })
+RegisterSetProc("PRIEST", "t8_healing_4p", 64911,
+    "Sanctification Regalia 4P", { 64911, 64912 })
 
 RegisterSetProc("SHAMAN", "t10_enhancement_4p", 70831,
-    "Frost Witch Battlegear 4P")
+    "Frost Witch's Battlegear 4P", { 70831, 70832 })
 
 RegisterSetProc("MAGE", "t8_2p", 64868,
-    "Kirin Tor Garb 2P")
-RegisterSetProc("MAGE", "t10_2p", 70752,
-    "Bloodmage Regalia 2P")
+    "Kirin Tor Garb 2P", { 64868, 64867 })
+RegisterSetProc("MAGE", "t10_2p", 70753,
+    "Bloodmage Regalia 2P", { 70753, 70752 })
 
 RegisterSetProc("WARLOCK", "t7_2p", 61595,
     "Plagueheart Garb 2P")
 RegisterSetProc("WARLOCK", "t7_4p", 61082,
     "Plagueheart Garb 4P")
 RegisterSetProc("WARLOCK", "t10_4p", 70840,
-    "Dark Coven Regalia 4P")
+    "Dark Coven Regalia 4P", { 70840, 70841 })
 
 RegisterSetProc("DRUID", "t8_balance_4p", 64823,
-    "Nightsong Garb 4P")
-RegisterSetProc("DRUID", "t10_balance_2p", 70718,
-    "Lasherweave Regalia 2P")
+    "Nightsong Garb 4P", { 64823, 64824 })
+RegisterSetProc("DRUID", "t10_balance_2p", 70721,
+    "Lasherweave Regalia 2P", { 70721, 70718 })
+
+-- Additional coverage is appended so every pre-existing item-set definition
+-- keeps the same cooldownID used by saved CDM layouts.
+
+-- Tier 7.
+RegisterSetProc("MAGE", "t7_2p", 37445,
+    "Frostfire Garb 2P", { 37445, 61062 })
+
+-- Tier 8.
+RegisterSetProc("DRUID", "t8_feral_2p", 16870,
+    "Nightsong Battlegear 2P", { 16870, 64752 })
+RegisterSetProc("PALADIN", "t8_tank_4p", 64883,
+    "Aegis Plate 4P", { 64883, 64882 })
+
+-- Tier 10.
+RegisterSetProc("DRUID", "t10_feral_4p", 70725,
+    "Lasherweave Battlegear 4P", { 70725, 70726 })
+
+RegisterSetProc("HUNTER", "t10_2p", 70728,
+    "Ahn'Kahar Blood Hunter's Battlegear 2P", { 70728, 70727 })
+RegisterSetProc("HUNTER", "t10_4p", 71007,
+    "Ahn'Kahar Blood Hunter's Battlegear 4P", { 71007, 70730 })
+
+RegisterSetProc("MAGE", "t10_4p", 70747,
+    "Bloodmage Regalia 4P", { 70747, 70748 })
+
+RegisterSetProc("PALADIN", "t10_healing_4p", 70757,
+    "Lightsworn Garb 4P", { 70757, 70756 })
+
+RegisterSetProc("SHAMAN", "t10_restoration_2p", 70806,
+    "Frost Witch's Garb 2P", { 70806, 70807 })
+RegisterSetProc("SHAMAN", "t10_enhancement_2p", 70829,
+    "Frost Witch's Battlegear 2P", { 70829, 70830 })
