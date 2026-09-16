@@ -3,8 +3,10 @@ local addonName, ns = ...
 if not C_CooldownViewer or not C_CooldownViewer.RegisterDefinition then return end
 
 -- Ported from AuraTracker/Data/Config.lua, TrinketData.lua, and TrinketProcData.lua.
--- The raw item -> proc mapping is retained so each proc is only exposed while
--- one of the corresponding trinkets is equipped.
+-- Despite the upstream table name, this contains more than trinkets: rings,
+-- weapons, relics, and other equipped items can also supply proc auras. Keep
+-- the raw item -> proc mapping so a proc is exposed only while a matching item
+-- is equipped.
 local CDM_CATEGORY_BUFF_ICON = 3
 local DEFAULT_INTERNAL_COOLDOWN = 45
 
@@ -444,11 +446,19 @@ function ns.IsCDMTrinketProcCooldownID(cooldownID)
     return EUI_CDM_AuraTrackerTrinketData.cooldownIDs[cooldownID] == true
 end
 
-local function IsTrinketEquipped(itemIDs)
+-- New name for callers that care about the actual scope. Retain the old export
+-- above because profiles and hooks already use the trinket terminology.
+ns.IsCDMEquipmentProcCooldownID = ns.IsCDMTrinketProcCooldownID
+
+local function IsMappedItemEquipped(itemIDs)
     if not GetInventoryItemID then return false end
-    local equipped13 = GetInventoryItemID("player", 13)
-    local equipped14 = GetInventoryItemID("player", 14)
-    return (equipped13 and itemIDs[equipped13]) or (equipped14 and itemIDs[equipped14])
+    for slot = 1, 19 do
+        local equippedItemID = GetInventoryItemID("player", slot)
+        if equippedItemID and itemIDs[equippedItemID] then
+            return true
+        end
+    end
+    return false
 end
 
 local procIDs = {}
@@ -472,12 +482,15 @@ local function RegisterTrinketProc(procSpellID, itemIDs, cooldownID, order)
         trackingType = "aura",
         hasAura = true,
         selfAura = true,
+        isEquipmentProc = true,
         isTrinketProc = true,
+        procSource = "equipment",
+        buffCatalogSection = "equipment",
         internalCooldown = internalCooldown,
 
         resolvers = {
             requirements = function()
-                return IsTrinketEquipped(itemIDs)
+                return IsMappedItemEquipped(itemIDs)
             end,
             resolveSpellID = function()
                 return procSpellID

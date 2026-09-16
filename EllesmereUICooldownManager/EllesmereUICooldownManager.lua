@@ -701,6 +701,10 @@ function SpellStore.NewSpecContainer(specKey)
         classToken = info and info.classToken or nil,
         barSpells = {},
         customActiveStates = {},
+        -- The first stable viewer pass consumes this marker and diverts the
+        -- complete CD/utility catalog to the hidden routing bar.  Scoping the
+        -- marker to newly-created spec data preserves existing configurations.
+        _initializeEmptyBarsV1 = true,
     }
 end
 
@@ -980,16 +984,21 @@ end
 ns.HOSTED_BUFF_MARKER_BASE = 2000000000
 ns.HOSTED_DEBUFF_MARKER_BASE = 2500000000
 
--- One buff-family assignment that follows every proc aura produced by the
--- player's equipped trinkets.  -20 is deliberately outside the equipment-slot
+-- One buff-family assignment that follows every mapped proc aura produced by
+-- the player's equipped gear. -20 is deliberately outside the equipment-slot
 -- namespace (-1..-19), item presets (<= -100), and the encoded marker ranges
 -- below.  The live icons still come from the individual compatibility viewer
 -- definitions; this token is only the user's single routing/placement choice.
 ns.TRINKET_PROC_MARKER = -20
+-- Preferred terminology; retain TRINKET_PROC_MARKER for saved-profile and
+-- extension compatibility.
+ns.EQUIPMENT_PROC_MARKER = ns.TRINKET_PROC_MARKER
 
 function ns.IsTrinketProcMarker(id)
     return id == ns.TRINKET_PROC_MARKER
 end
+
+ns.IsEquipmentProcMarker = ns.IsTrinketProcMarker
 
 -------------------------------------------------------------------------------
 --  Equipment-slot entries. A bar entry can store a negated INVENTORY SLOT id
@@ -8666,9 +8675,21 @@ function ECME:CDMFinishSetup()
         end
     end
 
-    -- (Migration moved to CollectAndReanchor: it must run after the
-    -- viewer pools are populated, which only happens after the first
-    -- successful reanchor.)
+    -- A fresh WotLK compatibility catalog is already populated by OnEnable's
+    -- synchronous refresh, so consume the new-spec empty-bars marker before
+    -- the first route map/build whenever possible. If a client's pools are
+    -- still late, the normal post-reanchor migration retries without stamping.
+    local freshProf = ns.GetActiveSpecContainer(true)
+    if freshProf and freshProf._initializeEmptyBarsV1
+       and ns.MigrateSpecToBarFilterModelV6 then
+        -- FullCDMRebuild constructs its route map before BuildAllCDMBars adds
+        -- internal bars, so materialize the hidden destination first.
+        EnsureGhostBars()
+        ns.MigrateSpecToBarFilterModelV6()
+    end
+
+    -- Legacy/import migrations remain in CollectAndReanchor because their
+    -- viewer pools may only become authoritative after the first layout pass.
 
     ns.FullCDMRebuild("init")
 

@@ -12,7 +12,7 @@
 # WotLK Cooldown Viewer compatibility and definitions
 Compatibility\CooldownViewer.lua
 Compatibility\CDMData\Shared.lua
-Compatibility\CDMData\AuraTracker.lua
+Compatibility\CDMData\Items.lua
 Compatibility\CDMData\DeathKnight.lua
 Compatibility\CDMData\Warrior.lua
 Compatibility\CDMData\Paladin.lua
@@ -23,6 +23,8 @@ Compatibility\CDMData\Shaman.lua
 Compatibility\CDMData\Mage.lua
 Compatibility\CDMData\Warlock.lua
 Compatibility\CDMData\Druid.lua
+Compatibility\CDMData\ProcBuffs.lua
+Compatibility\CDMData\RaidBuffs.lua
 Compatibility\CDMData\Debuffs.lua
 
 # Snapshot strength engine (embedded; CDM supplies configuration and display)

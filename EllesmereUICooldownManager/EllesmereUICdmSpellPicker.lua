@@ -512,27 +512,110 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
     local spells = {}
     for _, e in ipairs(entries) do
         local sid = e.sid
-        local name = C_Spell.GetSpellName(sid)
-        local tex  = C_Spell.GetSpellTexture(sid)
-        if name then
-            local info = e.cdID and C_CooldownViewer
-                and C_CooldownViewer.GetCooldownViewerCooldownInfo
-                and C_CooldownViewer.GetCooldownViewerCooldownInfo(e.cdID)
+        local info = e.cdID and C_CooldownViewer
+            and C_CooldownViewer.GetCooldownViewerCooldownInfo
+            and C_CooldownViewer.GetCooldownViewerCooldownInfo(e.cdID)
+        local name = (info and info.displayName) or C_Spell.GetSpellName(sid)
+        local tex  = C_Spell.GetSpellTexture((info and info.iconSpellID) or sid)
+        if name and not (info and info.pickerHidden) then
             local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
+            if not isOnThisBar and info and info.linkedSpellIDs then
+                for _, linkedID in ipairs(info.linkedSpellIDs) do
+                    if ResolveVariantValue(ourPool, linkedID) == true then
+                        isOnThisBar = true
+                        break
+                    end
+                end
+            end
             spells[#spells + 1] = {
                 cdID        = e.cdID,
                 spellID     = sid,
                 name        = name,
                 icon        = tex,
-                cdmCat      = e.viewerOrder,  -- preserve viewer grouping for sort
+                -- Picker sections use the category enum's compact 0/1 values;
+                -- viewerOrder uses 0/10000 internally for stable sorting.
+                cdmCat      = (not isBuffType and not isDebuffType
+                    and e.viewerOrder >= 10000) and 1 or e.viewerOrder,
                 cdmCatGroup = isDebuffType and "debuff" or (isBuffType and "buff" or "cooldown"),
                 onEUIBar    = isOnThisBar,
                 -- Live viewer pool members are always learned. Catalog
                 -- entries appended below may not be.
                 isKnown     = true,
+                isEquipmentProc = info and info.isEquipmentProc or false,
                 isTrinketProc = info and info.isTrinketProc or false,
+                isItemSetProc = info and info.isItemSetProc or false,
+                isTalentProc = info and info.isTalentProc or false,
+                procSource = info and info.procSource or nil,
                 debuffScope = info and info.debuffScope or nil,
+                linkedSpellIDs = info and info.linkedSpellIDs or nil,
+                externalBuff = info and info.externalBuff or false,
+                buffCatalogSection = info and info.buffCatalogSection or nil,
+                providerClass = info and info.providerClass or nil,
             }
+        end
+    end
+
+    -- WotLK has no Retail CooldownViewerSettings data provider, so the live
+    -- adapter pools used above were previously the picker's only CD/utility
+    -- source. A talent ability omitted by a legacy client's known-spell query
+    -- therefore vanished from "Add a CD/utility spell" entirely. Append the
+    -- compatibility catalog for the active class; learned state only controls
+    -- desaturation/tooltips, never whether a class spell can be selected.
+    if not isBuffType and not isDebuffType
+       and ns.RefreshCooldownViewerCompatibility
+       and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+       and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local seenCd, seenSid = {}, {}
+        for _, sp in ipairs(spells) do
+            if sp.cdID then seenCd[sp.cdID] = true end
+            StoreVariantValue(seenSid, sp.spellID, true, false)
+        end
+
+        local knownCd = {}
+        for _, category in ipairs({ 1, 2 }) do
+            for _, cdID in ipairs(C_CooldownViewer.GetCooldownViewerCategorySet(category, false) or {}) do
+                knownCd[cdID] = true
+            end
+        end
+
+        local _, playerClass = UnitClass("player")
+        for _, category in ipairs({ 1, 2 }) do
+            for _, cdID in ipairs(C_CooldownViewer.GetCooldownViewerCategorySet(category, true) or {}) do
+                if not seenCd[cdID] then
+                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                    local sid = info and info.spellID
+                    local name = sid and ((info and info.displayName)
+                        or C_Spell.GetSpellName(sid))
+                    local classMatches = info and info.class == playerClass
+                    local sharedAndKnown = info and not info.class and knownCd[cdID]
+                    if name and not info.pickerHidden
+                       and (classMatches or sharedAndKnown)
+                       and not ResolveVariantValue(seenSid, sid) then
+                        local isOnThisBar = ResolveVariantValue(ourPool, sid) == true
+                        if not isOnThisBar and info.linkedSpellIDs then
+                            for _, linkedID in ipairs(info.linkedSpellIDs) do
+                                if ResolveVariantValue(ourPool, linkedID) == true then
+                                    isOnThisBar = true
+                                    break
+                                end
+                            end
+                        end
+                        spells[#spells + 1] = {
+                            cdID = cdID,
+                            spellID = sid,
+                            name = name,
+                            icon = C_Spell.GetSpellTexture(info.iconSpellID or sid),
+                            cdmCat = category - 1,
+                            cdmCatGroup = "cooldown",
+                            onEUIBar = isOnThisBar,
+                            isKnown = knownCd[cdID] == true,
+                            linkedSpellIDs = info.linkedSpellIDs,
+                        }
+                        seenCd[cdID] = true
+                        StoreVariantValue(seenSid, sid, true, false)
+                    end
+                end
+            end
         end
     end
 
@@ -551,14 +634,26 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                 local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
                 local sid = info and (info.spellID or info.auraSpellID)
                 local name = sid and C_Spell.GetSpellName(sid)
-                if name and (not info.class or info.class == playerClass) then
+                if name and not info.pickerHidden
+                   and (not info.class or info.class == playerClass) then
+                    local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
+                    if not isOnThisBar and info.linkedSpellIDs then
+                        for _, linkedID in ipairs(info.linkedSpellIDs) do
+                            if ResolveVariantValue(ourPool, linkedID) == true then
+                                isOnThisBar = true
+                                break
+                            end
+                        end
+                    end
                     spells[#spells + 1] = {
-                        cdID = cdID, spellID = sid, name = name,
-                        icon = C_Spell.GetSpellTexture(sid),
+                        cdID = cdID, spellID = sid,
+                        name = info.displayName or name,
+                        icon = C_Spell.GetSpellTexture(info.iconSpellID or sid),
                         cdmCat = 0, cdmCatGroup = "debuff",
-                        onEUIBar = (ResolveVariantValue(ourPool, sid) == true),
+                        onEUIBar = isOnThisBar,
                         isKnown = IsPlayerSpell and IsPlayerSpell(sid) or false,
                         debuffScope = info.debuffScope or "personal",
+                        linkedSpellIDs = info.linkedSpellIDs,
                     }
                 end
             end
@@ -585,18 +680,39 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
             if not seenCd[cdID] then
                 local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
                 local sid = info and (info.spellID or info.auraSpellID)
-                local name = sid and C_Spell.GetSpellName(sid)
-                -- Proc definitions are intentionally represented by the single
-                -- Trinket Procs row, never hundreds of item-specific rows.
+                local name = sid and ((info and info.displayName)
+                    or C_Spell.GetSpellName(sid))
+                local recipientMatches = info and (not info.recipientClasses
+                    or info.recipientClasses[playerClass] == true)
+                -- Equipment-proc definitions are intentionally represented by
+                -- one catch-all row, never hundreds of item-specific rows.
                 if name and not info.isTrinketProc
+                   and recipientMatches
                    and (not info.class or info.class == playerClass) then
+                    local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
+                    if not isOnThisBar and info.linkedSpellIDs then
+                        for _, linkedID in ipairs(info.linkedSpellIDs) do
+                            if ResolveVariantValue(ourPool, linkedID) == true then
+                                isOnThisBar = true
+                                break
+                            end
+                        end
+                    end
                     spells[#spells + 1] = {
                         cdID = cdID, spellID = sid, name = name,
-                        icon = C_Spell.GetSpellTexture(sid),
+                        icon = C_Spell.GetSpellTexture(info.iconSpellID or sid),
                         cdmCat = 0, cdmCatGroup = "buff",
-                        onEUIBar = (ResolveVariantValue(ourPool, sid) == true),
+                        onEUIBar = isOnThisBar,
                         isKnown = knownCd[cdID] == true,
+                        isEquipmentProc = info.isEquipmentProc == true,
                         isTrinketProc = false,
+                        isItemSetProc = info.isItemSetProc == true,
+                        isTalentProc = info.isTalentProc == true,
+                        procSource = info.procSource,
+                        linkedSpellIDs = info.linkedSpellIDs,
+                        externalBuff = info.externalBuff == true,
+                        buffCatalogSection = info.buffCatalogSection,
+                        providerClass = info.providerClass,
                     }
                 end
             end
@@ -634,7 +750,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                             icon        = tex,
                             -- Match the live entries' viewer grouping values
                             -- so catalog spells sort beside learned peers.
-                            cdmCat      = (evc and ce.category == evc.Utility) and 10000 or 0,
+                            cdmCat      = (evc and ce.category == evc.Utility) and 1 or 0,
                             cdmCatGroup = "cooldown",
                             onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true),
                             isKnown     = known,
@@ -718,7 +834,7 @@ function ns.IsSpellDisplayedInCDM(barKey, cdID)
     return false
 end
 
---- One-time per-spec pass that serves TWO purposes with the same logic:
+--- One-time per-spec pass that serves THREE purposes with the same logic:
 ---
 ---   1. Legacy migration: convert pre-refactor "assignedSpells as content
 ---      filter" data on default CD/utility bars into the new "ghost-bar
@@ -732,7 +848,10 @@ end
 ---      cooldown the importer tracks but the layout doesn't place gets hidden
 ---      instead of spilling onto the default bar.
 ---
---- Both reduce to the same operation: ghost (tracked spells) MINUS (spells
+---   3. Fresh-spec initialization: start with no automatically populated
+---      cooldowns while sane curated defaults are still being developed.
+---
+--- All three reduce to the same operation: ghost (tracked spells) MINUS (spells
 --- assigned to any visible bar) MINUS (already ghosted). Spells from the
 --- Essential and Utility viewer categories that are NOT in any bar's
 --- assignedSpells (and NOT already ghosted) are added to __ghost_cd.
@@ -740,9 +859,9 @@ end
 --- Per-spec lazy because the spell category APIs are spec-dependent. Runs
 --- once per spec via the prof._barFilterModelV6 flag, stamped after a
 --- successful pass. Skipped if the user has no populated assignedSpells on
---- default CD/utility bars (clean install -- nothing to preserve) UNLESS
---- _importGhostMode is set (an imported layout must run even with empty
---- default bars, e.g. a custom-bar-only layout).
+--- default CD/utility bars (an existing untouched layout has nothing to
+--- preserve) UNLESS _importGhostMode is set (an imported custom-only layout)
+--- or _initializeEmptyBarsV1 is set (a newly-created spec starts empty).
 ---
 --- Buff bars are NOT migrated: under the OLD model, the buff path's
 --- viewerBarKey fallback already showed everything from BuffIconCooldownViewer
@@ -790,21 +909,23 @@ function ns.MigrateSpecToBarFilterModelV6()
     end
 
     -- Skip if both default CD/util bars are empty: nothing to preserve.
-    -- EXCEPTION: imported layouts (_importGhostMode) always run. A layout that
-    -- intentionally leaves the default bars empty (custom-only) still needs every
-    -- tracked spell it doesn't place ghosted, not spilled onto the default bar.
+    -- EXCEPTIONS: imported layouts and newly-created specs always run. Both
+    -- intentionally leave visible bars empty and need every unplaced tracked
+    -- spell ghosted rather than spilled onto the default bar.
     local cdBs = prof.barSpells.cooldowns
     local utBs = prof.barSpells.utility
     local hasCDList = cdBs and cdBs.assignedSpells and #cdBs.assignedSpells > 0
     local hasUTList = utBs and utBs.assignedSpells and #utBs.assignedSpells > 0
-    if not hasCDList and not hasUTList and not prof._importGhostMode then
+    if not hasCDList and not hasUTList
+       and not prof._importGhostMode and not prof._initializeEmptyBarsV1 then
         prof._barFilterModelV6 = true
         return
     end
 
-    -- Bail if viewer pools aren't populated yet -- the migration must use
-    -- the same source of truth as the route map (live viewer pools), so
-    -- if Blizzard hasn't filled them yet we retry next session.
+    -- Bail if viewer pools aren't populated yet -- legacy/import migration
+    -- must use the same source of truth as the route map. Fresh WotLK specs
+    -- may proceed from the complete compatibility category catalog alone, so
+    -- they can be empty before the first visible layout pass.
     local function HasPopulatedPool()
         for _, vName in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer" }) do
             local v = _G[vName]
@@ -816,7 +937,7 @@ function ns.MigrateSpecToBarFilterModelV6()
         end
         return false
     end
-    if not HasPopulatedPool() then return end
+    if not HasPopulatedPool() and not prof._initializeEmptyBarsV1 then return end
 
     -- Step 2: build assignedSet from the LIVE bar list. Default bars
     -- (cooldowns/utility) contribute too -- their assignedSpells under the
@@ -882,13 +1003,25 @@ function ns.MigrateSpecToBarFilterModelV6()
     local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     local evc = Enum and Enum.CooldownViewerCategory
-    if gcs and gci and evc then
-        for _, cat in ipairs({ evc.Essential, evc.Utility }) do
+    local categoriesToScan
+    if ns.RefreshCooldownViewerCompatibility then
+        -- The WotLK compatibility catalog uses its own stable numeric schema.
+        categoriesToScan = { 1, 2 }
+    elseif evc and evc.Essential ~= nil and evc.Utility ~= nil then
+        categoriesToScan = { evc.Essential, evc.Utility }
+    end
+    local _, playerClass = UnitClass("player")
+    if gcs and gci and categoriesToScan then
+        for _, cat in ipairs(categoriesToScan) do
             local cdIDs = gcs(cat, true)
             if cdIDs then
                 for _, cdID in ipairs(cdIDs) do
                     local info = gci(cdID)
-                    if info then
+                    -- The WotLK compatibility category API's includeUnknown
+                    -- set contains definitions for every class. Only seed the
+                    -- active class (plus class-neutral shared entries) into
+                    -- this spec's hidden bar.
+                    if info and (not info.class or info.class == playerClass) then
                         local sid = info.overrideSpellID or info.spellID
                         if _IsUsableSID(sid) then sidUnion[sid] = true end
                     end
@@ -911,6 +1044,7 @@ function ns.MigrateSpecToBarFilterModelV6()
 
     prof._barFilterModelV6 = true
     prof._importGhostMode = nil  -- import-authoritative ghosting done for this spec
+    prof._initializeEmptyBarsV1 = nil -- fresh-spec empty state is now materialized
     return addedCount
 end
 
@@ -1093,7 +1227,7 @@ local function BuffOrderKeyMatchesEntry(key, sid, cdID, frame)
 end
 
 --- Enumerate the default buffs bar's explicit assignments.  Viewer entries are
---- included only when the user selected that spell (or the Trinket Procs
+--- included only when the user selected that spell (or the Equipment Procs
 --- catch-all); custom/injected entries are appended from the same assignment
 --- list.  This makes the default bar obey the EllesmereUI picker just like
 --- every custom buff bar and the Debuffs bar.

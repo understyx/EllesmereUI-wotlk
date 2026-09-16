@@ -442,7 +442,10 @@ local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTag
 end
 
 RegisterBasic("mortal_strike",    101023, 100, { 12294, 21551, 21552, 21553, 25248, 30330, 47485, 47486 })
-RegisterBasic("bloodthirst",      101024, 110, { 23881, 23892, 23893, 23894, 25251, 30335, 47449, 47450 })
+-- This 3.3.5a client exposes Bloodthirst as the single max-rank spell 23881;
+-- the later retail/Wrath rank-chain IDs do not resolve here and caused the
+-- compatibility catalog to discard the picker row entirely.
+RegisterBasic("bloodthirst",      101024, 110, { 23881 })
 RegisterBasic("shield_slam",      101025, 120, { 23922, 23923, 23924, 23925, 25258, 30356, 47487, 47488 })
 RegisterBasic("revenge",          101026, 130, { 6572, 6574, 7379, 11600, 11601, 25288, 25269, 30357, 57823 })
 RegisterBasic("overpower",        101027, 140, { 7384 })

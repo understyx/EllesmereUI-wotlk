@@ -7059,8 +7059,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- CD/utility bars: one click, one move.
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
-            -- Individual proc aura definitions remain the runtime frames, but
-            -- users manage them through the single catch-all row below.
+            -- Individual equipment-proc aura definitions remain the runtime
+            -- frames, but users manage them through the catch-all row below.
             if sp.cdmCatGroup == "buff" and not sp.isTrinketProc then
                 knownSpells[#knownSpells + 1] = sp
             end
@@ -7190,7 +7190,7 @@ initFrame:SetScript("OnEvent", function(self)
             mH = mH + 9
         end
 
-        -- One assignment follows every proc aura from either equipped trinket.
+        -- One assignment follows every mapped proc aura from equipped gear.
         -- The individual proc definitions stay internal so simultaneous procs
         -- can still render as separate live icons.
         do
@@ -7211,15 +7211,25 @@ initFrame:SetScript("OnEvent", function(self)
             local ico = ti:CreateTexture(nil, "ARTWORK")
             ico:SetSize(ITEM_H - 4, ITEM_H - 4)
             ico:SetPoint("LEFT", 4, 0)
-            local equipped = GetInventoryItemID("player", 13)
-                or GetInventoryItemID("player", 14)
+            local equipped
+            local mappedItems = EUI_CDM_AuraTrackerTrinketData
+                and EUI_CDM_AuraTrackerTrinketData.itemToProc
+            if GetInventoryItemID and mappedItems then
+                for slot = 1, 19 do
+                    local itemID = GetInventoryItemID("player", slot)
+                    if itemID and mappedItems[itemID] then
+                        equipped = itemID
+                        break
+                    end
+                end
+            end
             ico:SetTexture((equipped and C_Item.GetItemIconByID(equipped))
                 or "Interface\\Icons\\INV_Jewelry_TrinketPVP_01")
             ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             local lbl = ti:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
             lbl:SetPoint("LEFT", ico, "RIGHT", 6, 0)
-            lbl:SetText(EllesmereUI.L("Trinket Procs"))
+            lbl:SetText(EllesmereUI.L("Equipment Procs"))
             local hl = ti:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0)
             if isAdded then
@@ -7564,6 +7574,11 @@ initFrame:SetScript("OnEvent", function(self)
         local function MakeSpellRow(sp)
             local assigned = already[sp.spellID]
                 or (sp.cdID and alreadyCd and alreadyCd[sp.cdID])
+            if not assigned and sp.linkedSpellIDs then
+                for _, linkedID in ipairs(sp.linkedSpellIDs) do
+                    if already[linkedID] then assigned = true; break end
+                end
+            end
             local item = EllesmereUI.SafeCreateFrame("Button", nil, inner)
             item:SetHeight(ITEM_H)
             item:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -7625,6 +7640,30 @@ initFrame:SetScript("OnEvent", function(self)
             mH = mH + ITEM_H
             return item
         end
+        local function AddSection(label, rows)
+            if #rows == 0 then return end
+            local header = EllesmereUI.SafeCreateFrame("Frame", nil, inner)
+            header:SetHeight(24)
+            header:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            header:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            -- The menu background lives on a high fullscreen-dialog level.
+            -- Match the spell rows so the caption is not composited behind it.
+            header:SetFrameLevel(menu:GetFrameLevel() + 2)
+            local fs = header:CreateFontString(nil, "OVERLAY")
+            fs:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+            fs:SetPoint("CENTER", header, "CENTER", 0, 2)
+            fs:SetJustifyH("CENTER")
+            fs:SetText(EllesmereUI.L(label))
+            fs:SetTextColor(tDimR, tDimG, tDimB, 0.9)
+            local line = header:CreateTexture(nil, "ARTWORK")
+            line:SetHeight(1)
+            line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 8, 1)
+            line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, 1)
+            line:SetTexture(1, 1, 1, 0.12)
+            mH = mH + 24
+            for _, sp in ipairs(rows) do MakeSpellRow(sp) end
+        end
+
         if isDebuffPicker then
             local personal, raid = {}, {}
             for _, sp in ipairs(knownSpells) do
@@ -7634,33 +7673,32 @@ initFrame:SetScript("OnEvent", function(self)
                     personal[#personal + 1] = sp
                 end
             end
-            local function AddSection(label, rows)
-                if #rows == 0 then return end
-                local header = EllesmereUI.SafeCreateFrame("Frame", nil, inner)
-                header:SetHeight(24)
-                header:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
-                header:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
-                -- The menu background lives on a high fullscreen-dialog level.
-                -- Match the spell rows so the caption is not composited behind it.
-                header:SetFrameLevel(menu:GetFrameLevel() + 2)
-                local fs = header:CreateFontString(nil, "OVERLAY")
-                fs:SetFont(FONT_PATH, 10, GetCDMOptOutline())
-                fs:SetPoint("CENTER", header, "CENTER", 0, 2)
-                fs:SetJustifyH("CENTER")
-                fs:SetText(EllesmereUI.L(label))
-                fs:SetTextColor(tDimR, tDimG, tDimB, 0.9)
-                local line = header:CreateTexture(nil, "ARTWORK")
-                line:SetHeight(1)
-                line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 8, 1)
-                line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, 1)
-                line:SetTexture(1, 1, 1, 0.12)
-                mH = mH + 24
-                for _, sp in ipairs(rows) do MakeSpellRow(sp) end
-            end
             AddSection("Personal Debuffs", personal)
             AddSection("Raid Debuffs", raid)
         else
-            for _, sp in ipairs(knownSpells) do MakeSpellRow(sp) end
+            local classBuffs, talentProcs, itemSetProcs = {}, {}, {}
+            local raidBuffs, externals, healing = {}, {}, {}
+            for _, sp in ipairs(knownSpells) do
+                if sp.isTalentProc or sp.buffCatalogSection == "talent" then
+                    talentProcs[#talentProcs + 1] = sp
+                elseif sp.isItemSetProc or sp.buffCatalogSection == "item_set" then
+                    itemSetProcs[#itemSetProcs + 1] = sp
+                elseif not sp.externalBuff then
+                    classBuffs[#classBuffs + 1] = sp
+                elseif sp.buffCatalogSection == "raid" then
+                    raidBuffs[#raidBuffs + 1] = sp
+                elseif sp.buffCatalogSection == "healing" then
+                    healing[#healing + 1] = sp
+                else
+                    externals[#externals + 1] = sp
+                end
+            end
+            AddSection("Class Buffs", classBuffs)
+            AddSection("Talent Procs", talentProcs)
+            AddSection("Item Set Procs", itemSetProcs)
+            AddSection("Raid Buffs", raidBuffs)
+            AddSection("External Buffs", externals)
+            AddSection("Healing Buffs", healing)
         end
 
         -- "Missing Buffs?" footer -- opens Blizzard's CDM to Display more buffs.
@@ -10394,10 +10432,10 @@ initFrame:SetScript("OnEvent", function(self)
                         --   Visibility When -> Missing / Active -> visual effect.
                         -- It remains one per-spell setting, so selecting Active
                         -- reverses the condition instead of layering a second rule
-                        -- on top. The legacy missing-state values are preserved;
-                        -- active-state choices use new values in the same key and
-                        -- therefore need no saved-profile migration.
-                        if isHostedAura then
+                        -- on top. Explicit legacy missing-state values are
+                        -- preserved; an unset value follows the new active-only
+                        -- buff default.
+                        if isHostedAura and not isDebuffIcon then
                             local function DecodeHostedVisibility()
                                 local v = ss.hostedMissingVis
                                 if v == false then v = nil end
@@ -10406,7 +10444,10 @@ initFrame:SetScript("OnEvent", function(self)
                                 if v == "activeHiddenShift" then return "active", "hiddenShift" end
                                 if v == "hidden" then return "missing", "hidden" end
                                 if v == "hiddenShift" then return "missing", "hiddenShift" end
-                                return "missing", "desaturated"
+                                if v == "missingDesaturated" then return "missing", "desaturated" end
+                                -- Active-only is the default for every buff-family
+                                -- aura, including buffs hosted on CD/utility bars.
+                                return "missing", "hiddenShift"
                             end
 
                             local VIS_EFFECTS = {
@@ -10551,6 +10592,8 @@ initFrame:SetScript("OnEvent", function(self)
                                             value = "hidden"
                                         elseif effectKey == "hiddenShift" then
                                             value = "hiddenShift"
+                                        else
+                                            value = "missingDesaturated"
                                         end
                                         ss.hostedMissingVis = value
                                         UpdateVisibilityLabel()
@@ -11103,7 +11146,7 @@ initFrame:SetScript("OnEvent", function(self)
                             -- overrides: always-show and desaturate-inactive are baked in
                             -- (a cd/util bar has no such bar toggle to override). Audio
                             -- rows below still apply, so they stay outside this guard.
-                            if not isHostedAura then
+                            if not isHostedAura and not isDebuffIcon then
                             -- Always Show Buffs: per-icon tri-state override of the bar
                             -- toggle. Default = inherit bar; Show = force the inactive
                             -- placeholder on; Hide = force it off. A reanchor (queued by
@@ -11153,7 +11196,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 nil,
                                 { apply = { keys = { "desatInactive" },
                                             write = function(t, v) t.desatInactive = v end } })
-                            end  -- if not isHostedAura (bar-toggle overrides omitted)
+                            end  -- hosted/debuff aura (inactive policy is fixed or barless)
 
                             AddBuffGainRow()
                             AddBuffLossRow()
@@ -17884,12 +17927,15 @@ initFrame:SetScript("OnEvent", function(self)
         local isBuffGlowBar = isBuffBar or isDebuffBar or (barData.barType == "custom_buff")
         local scaleAnimRow
         if isBuffGlowBar then
-            -- Row 1: Always Show Buffs (native buff bars only) | Icon Scale.
+        -- Row 1: inactive aura policy | Icon Scale.
             -- Per-bar now: shows a greyed placeholder icon for each inactive
-            -- tracked buff. No edit-mode change, no reload. custom_buff bars
-            -- draw their own always-on icons, so the toggle is hidden there.
+            -- tracked buff. Debuffs always show their inactive placeholder.
+            -- No edit-mode change, no reload. custom_buff bars draw their own
+            -- always-on icons, so the toggle is hidden there.
             local row1Left
-            if isBuffBar or isDebuffBar then
+            if isDebuffBar then
+                row1Left = { type="label", text="Inactive Debuffs: Always Shown" }
+            elseif isBuffBar then
                 row1Left = { type="toggle", text="Always Show Buffs",
                     -- Mutually exclusive with "Keep Buffs in Same Place" (Bar Layout).
                     -- Disabled while that is the active choice. The extra
@@ -17930,7 +17976,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end });  y = y - h
 
             -- Inline cog on Always Show Buffs toggle (per-bar; native buff bars)
-            if isBuffBar then
+            if isBuffBar and not isDebuffBar then
                 local _, asbCogShow = EllesmereUI.BuildCogPopup({
                     title = "Always Show Buffs",
                     rows = {

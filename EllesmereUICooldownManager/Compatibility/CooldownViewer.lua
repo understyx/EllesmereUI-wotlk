@@ -935,6 +935,34 @@ function C_CooldownViewer.RegisterDefinition(def)
         end
         return oA < oB
     end)
+
+    -- The legacy data files distinguish short/proc buffs (BuffIcon, category
+    -- 3) from persistent tracked buffs (BuffBar, category 4). EUI's icon-bar
+    -- picker is intentionally broader: it is a catalogue of every buff that is
+    -- relevant to the current class. Mirror each category-4 definition into
+    -- the icon viewer unless that class already registered the same spell as a
+    -- native icon definition. The reserved 9xxxxx range keeps these synthetic
+    -- cooldown IDs stable without colliding with the class/item schemas.
+    if def.category == 4 and def.mirrorToBuffIcon ~= false then
+        local alreadyMirrored = false
+        for _, iconCooldownID in ipairs(categories[3] or {}) do
+            local iconDef = definitions[iconCooldownID]
+            if iconDef and iconDef.class == def.class
+               and iconDef.spellID == def.spellID then
+                alreadyMirrored = true
+                break
+            end
+        end
+        if not alreadyMirrored then
+            local mirror = {}
+            for key, value in pairs(def) do mirror[key] = value end
+            mirror.key = def.key .. ".buff_icon_catalog"
+            mirror.cooldownID = 700000 + def.cooldownID
+            mirror.category = 3
+            mirror.catalogMirror = true
+            C_CooldownViewer.RegisterDefinition(mirror)
+        end
+    end
 end
 
 -- Shared classification API used by the WotLK unit-frame and raid-frame aura
@@ -979,6 +1007,8 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         spellID = activeSpellID,
         overrideSpellID = def.overrideSpellID,
         linkedSpellIDs = def.linkedSpellIDs,
+        displayName = def.displayName,
+        pickerHidden = def.pickerHidden,
         iconSpellID = def.iconSpellID,
         auraSpellID = (state and state.auraActive and state.matchedAuraSpellID)
             or (avail and avail.activeAuraSpellID) or def.auraSpellID,
@@ -996,7 +1026,16 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         auraOwnOnly = def.auraOwnOnly,
         execute = def.execute,
         class = def.class,
+        providerClass = def.providerClass,
+        recipientClasses = def.recipientClasses,
+        externalBuff = def.externalBuff == true,
+        buffCatalogSection = def.buffCatalogSection,
+        catalogMirror = def.catalogMirror == true,
+        isEquipmentProc = def.isEquipmentProc == true,
         isTrinketProc = def.isTrinketProc,
+        isItemSetProc = def.isItemSetProc == true,
+        isTalentProc = def.isTalentProc == true,
+        procSource = def.procSource,
         auraTags = def.auraTags,
         isDefensive = def.auraTags and def.auraTags.defensive == true or false,
         isExternal = def.auraTags and def.auraTags.external == true or false,
@@ -1318,8 +1357,82 @@ local function GetCachedAura(spellID, unit, anySource)
 end
 
 -- Refresh logic
+-- Some 3.3.5 clients/cores do not reliably answer IsSpellKnown(spellID) for
+-- abilities granted by talents (Bloodthirst is a common example), even while
+-- the ability is present in the player's spellbook. Build an exact spell-ID
+-- index from spellbook links on each availability refresh, with a name/rank
+-- fallback only for clients that cannot expose an ID for a slot. This preserves
+-- correct rank selection while definitions walk spellIDs newest-to-oldest below.
+local function BuildLearnedSpellbookIndex()
+    local learnedIDs, fallbackKeys, learnedTalentNames = {}, {}, {}
+    if GetNumSpellTabs and GetSpellTabInfo then
+        local bookType = BOOKTYPE_SPELL or "spell"
+        for tab = 1, (GetNumSpellTabs() or 0) do
+            local _, _, offset, count = GetSpellTabInfo(tab)
+            offset = offset or 0
+            count = count or 0
+            for slot = offset + 1, offset + count do
+                local name, rank
+                if GetSpellBookItemName then
+                    name, rank = GetSpellBookItemName(slot, bookType)
+                end
+                -- Some legacy clients expose a non-functional modern stub.
+                -- Fall through to the native Wrath API when it returns nil.
+                if not name and GetSpellName then
+                    name, rank = GetSpellName(slot, bookType)
+                end
+                if name then
+                    local link
+                    if GetSpellLink then
+                        local ok, result = pcall(GetSpellLink, slot, bookType)
+                        if ok then link = result end
+                    end
+                    local learnedID = type(link) == "string"
+                        and tonumber(link:match("|Hspell:(%d+)"))
+                    if learnedID then
+                        learnedIDs[learnedID] = true
+                    else
+                        local fallbackKey = rank and (name .. "\31" .. rank) or name
+                        fallbackKeys[fallbackKey] = true
+                    end
+                end
+            end
+        end
+    end
+
+    -- Final legacy fallback for talent-granted active abilities. Certain
+    -- private-server clients omit those abilities from every numeric
+    -- spellbook query even though GetTalentInfo reports the learned talent.
+    -- This is intentionally only a name fallback; ordinary trained ranks keep
+    -- using the exact spellbook IDs above.
+    if GetNumTalentTabs and GetNumTalents and GetTalentInfo then
+        for tab = 1, (GetNumTalentTabs() or 0) do
+            for talent = 1, (GetNumTalents(tab) or 0) do
+                local name, _, _, _, rank = GetTalentInfo(tab, talent)
+                if name and (rank or 0) > 0 then
+                    learnedTalentNames[name] = true
+                end
+            end
+        end
+    end
+
+    return learnedIDs, fallbackKeys, learnedTalentNames
+end
+
+local function IsDefinitionSpellKnown(spellID, learnedIDs, fallbackKeys, learnedTalentNames)
+    if IsSpellKnown and IsSpellKnown(spellID) then return true end
+    if learnedIDs[spellID] then return true end
+    local name, rank
+    if GetSpellInfo then name, rank = GetSpellInfo(spellID) end
+    if not name then return false end
+    local key = rank and (name .. "\31" .. rank) or name
+    return fallbackKeys[key] == true or fallbackKeys[name] == true
+        or learnedTalentNames[name] == true
+end
+
 local function ReevaluateAvailability()
     local _, playerClass = UnitClass("player")
+    local learnedIDs, fallbackKeys, learnedTalentNames = BuildLearnedSpellbookIndex()
 
     for cdID, def in pairs(definitions) do
         local allowed = true
@@ -1343,14 +1456,14 @@ local function ReevaluateAvailability()
             elseif def.spellIDs then
                 for i = #def.spellIDs, 1, -1 do
                     local sID = def.spellIDs[i]
-                    if IsSpellKnown and IsSpellKnown(sID) then
+                    if IsDefinitionSpellKnown(sID, learnedIDs, fallbackKeys, learnedTalentNames) then
                         isKnown = true
                         activeSpellID = sID
                         break
                     end
                 end
             elseif def.spellID then
-                if IsSpellKnown and IsSpellKnown(def.spellID) then
+                if IsDefinitionSpellKnown(def.spellID, learnedIDs, fallbackKeys, learnedTalentNames) then
                     isKnown = true
                     activeSpellID = def.spellID
                 end
@@ -1692,7 +1805,7 @@ local function CreateMockPool(categoryID)
             -- remain available through GetCooldownViewerCategorySet(..., true)
             -- for pickers and reconciliation.
             --
-            -- On Retail, aura-only entries (trinket procs) only acquire a pool
+            -- On Retail, aura-only entries (equipment procs) only acquire a pool
             -- frame while the proc aura is active.  Returning inactive aura
             -- adapters here caused the hooks layer to process hidden frames,
             -- producing empty layout slots and icon overlaps when procs fired

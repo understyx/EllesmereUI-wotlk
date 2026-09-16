@@ -57,6 +57,9 @@ local function Register(class, key, spellIDs, auraSpellID, iconSpellID, auraSpel
         auraSpellIDs = auraSpellIDs,
         anySourceDebuff = anySourceDebuff,
         debuffScope = anySourceDebuff and "raid" or "personal",
+        linkedSpellIDs = options and options.linkedSpellIDs,
+        displayName = options and options.displayName,
+        pickerHidden = options and options.pickerHidden,
         iconSpellID = iconSpellID or spellID,
         trackingType = "debuff",
         hasAura = true,
@@ -66,7 +69,12 @@ local function Register(class, key, spellIDs, auraSpellID, iconSpellID, auraSpel
     -- Poison and talent-proc auras are not normal spellbook entries. Let their
     -- owning class/talent make the picker entry available while the runtime
     -- still matches the real target aura IDs above.
-    if options and (options.alwaysKnown or options.talentTab or options.talentSpellID) then
+    if options and options.disabled then
+        definition.resolvers = {
+            requirements = function() return false end,
+            resolveSpellID = function() return spellID end,
+        }
+    elseif options and (options.alwaysKnown or options.talentTab or options.talentSpellID) then
         definition.resolvers = {
             requirements = function()
                 if options.alwaysKnown then return true end
@@ -81,6 +89,27 @@ local function Register(class, key, spellIDs, auraSpellID, iconSpellID, auraSpel
         }
     end
     C_CooldownViewer.RegisterDefinition(definition)
+end
+
+local function MergeSpellIDs(...)
+    local merged = {}
+    for listIndex = 1, select("#", ...) do
+        local spellIDs = select(listIndex, ...)
+        for i = 1, #(spellIDs or {}) do
+            merged[#merged + 1] = spellIDs[i]
+        end
+    end
+    return merged
+end
+
+local function BuildLinkedSpellIDs(primarySpellID, spellIDs)
+    local linked = { primarySpellID }
+    for i = 1, #spellIDs do
+        if spellIDs[i] ~= primarySpellID then
+            linked[#linked + 1] = spellIDs[i]
+        end
+    end
+    return linked
 end
 
 -- Equivalent raid-debuff effects share one detection family.  The player only
@@ -265,17 +294,48 @@ Register("MAGE", "winters_chill",   { 12579 }, 12579, 28593, SPELL_CRIT_AURAS, t
 
 -- Warlock. Haunt deliberately exists here as well as in the cooldown catalog:
 -- its target-debuff timer and its spell cooldown are independent CDM slots.
-Register("WARLOCK", "corruption",          { 172, 6222, 6223, 7648, 11671, 11672, 25311, 27216, 47812, 47813 })
-Register("WARLOCK", "curse_of_agony",      { 980, 1014, 6217, 11711, 11712, 11713, 27218, 47863, 47864 })
-Register("WARLOCK", "curse_of_doom",       { 603, 30910, 47867 })
+local WARLOCK_CORRUPTION = { 172, 6222, 6223, 7648, 11671, 11672, 25311, 27216, 47812, 47813 }
+local WARLOCK_SEED = { 27243, 47835, 47836 }
+local WARLOCK_AGONY = { 980, 1014, 6217, 11711, 11712, 11713, 27218, 47863, 47864 }
+local WARLOCK_DOOM = { 603, 30910, 47867 }
+local WARLOCK_ELEMENTS = { 1490, 11721, 11722, 27228, 47865 }
+local WARLOCK_WEAKNESS = { 702, 1108, 6205, 7646, 11707, 11708, 27224, 30909, 50511 }
+local WARLOCK_TONGUES = { 1714, 11719, 11720, 12889 }
+local WARLOCK_EXHAUSTION = { 18223 }
+
+-- Personal tracking uses one logical slot for mutually-exclusive auras. The
+-- linked IDs let old Seed/Doom assignments continue to claim the new combined
+-- frame. Raid-effect definitions below intentionally remain separate: those
+-- answer a different question (is this raid debuff covered by anyone?).
+local WARLOCK_CORRUPTION_FAMILY = MergeSpellIDs(WARLOCK_CORRUPTION, WARLOCK_SEED)
+Register("WARLOCK", "corruption", WARLOCK_CORRUPTION, nil, 47813,
+    WARLOCK_CORRUPTION_FAMILY, false,
+    { displayName = "Corruption / Seed of Corruption",
+      linkedSpellIDs = BuildLinkedSpellIDs(47813, WARLOCK_CORRUPTION_FAMILY) })
+
+local WARLOCK_CURSE_FAMILY = MergeSpellIDs(WARLOCK_AGONY, WARLOCK_DOOM,
+    WARLOCK_ELEMENTS, WARLOCK_WEAKNESS, WARLOCK_TONGUES, WARLOCK_EXHAUSTION)
+local WARLOCK_PERSONAL_CURSE_ALIASES = MergeSpellIDs(WARLOCK_AGONY, WARLOCK_DOOM)
+Register("WARLOCK", "curse_of_agony", WARLOCK_AGONY, nil, 47864,
+    WARLOCK_CURSE_FAMILY, false,
+    { displayName = "Curses",
+      -- Raid-debuff spell IDs must not alias this personal entry: selecting
+      -- Curse of Elements in the Raid section must not also select Curses.
+      linkedSpellIDs = BuildLinkedSpellIDs(47864, WARLOCK_PERSONAL_CURSE_ALIASES) })
+
+-- Keep the historical cooldownID slots occupied so later debuff IDs remain
+-- stable. These tombstones never materialize and never appear in the picker.
+Register("WARLOCK", "curse_of_doom", WARLOCK_DOOM, nil, nil, nil, false,
+    { disabled = true, pickerHidden = true })
 Register("WARLOCK", "unstable_affliction", { 30108, 30404, 30405, 47841, 47843 })
 Register("WARLOCK", "haunt",               { 48181, 59161, 59163, 59164 })
 Register("WARLOCK", "immolate",            { 348, 707, 1094, 2941, 11665, 11667, 11668, 25309, 27215, 47810, 47811 })
-Register("WARLOCK", "seed_of_corruption",  { 27243, 47835, 47836 })
-Register("WARLOCK", "curse_of_elements",   { 1490, 11721, 11722, 27228, 47865 }, nil, nil, SPELL_DAMAGE_AURAS, true)
-Register("WARLOCK", "curse_of_weakness",   { 702, 1108, 6205, 7646, 11707, 11708, 27224, 30909, 50511 }, nil, nil, ATTACK_POWER_AURAS, true)
-Register("WARLOCK", "curse_of_weakness_armor", { 702, 1108, 6205, 7646, 11707, 11708, 27224, 30909, 50511 }, nil, 50511, MINOR_ARMOR_AURAS, true)
-Register("WARLOCK", "curse_of_tongues",    { 1714, 11719, 11720, 12889 }, nil, nil, CAST_SPEED_AURAS, true)
+Register("WARLOCK", "seed_of_corruption", WARLOCK_SEED, nil, nil, nil, false,
+    { disabled = true, pickerHidden = true })
+Register("WARLOCK", "curse_of_elements",   WARLOCK_ELEMENTS, nil, nil, SPELL_DAMAGE_AURAS, true)
+Register("WARLOCK", "curse_of_weakness",   WARLOCK_WEAKNESS, nil, nil, ATTACK_POWER_AURAS, true)
+Register("WARLOCK", "curse_of_weakness_armor", WARLOCK_WEAKNESS, nil, 50511, MINOR_ARMOR_AURAS, true)
+Register("WARLOCK", "curse_of_tongues",    WARLOCK_TONGUES, nil, nil, CAST_SPEED_AURAS, true)
 Register("WARLOCK", "improved_shadow_bolt", { 17800 }, 17800, 17803, SPELL_CRIT_AURAS, true,
     { talentSpellID = 17803 })
 Register("WARLOCK", "fear",                { 5782, 6213, 6215 })

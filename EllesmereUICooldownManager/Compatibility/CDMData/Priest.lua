@@ -277,10 +277,15 @@ Register({
     order = 10,
     spellID = 33151,
     auraSpellID = 33151,
+    auraSpellIDs = { 33151, 33154 },
+    linkedSpellIDs = { 33151, 33154 },
     iconSpellID = 33151,
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+    isTalentProc = true,
+    procSource = "talent",
+    buffCatalogSection = "talent",
     resolvers = {
         requirements = function()
             return HasLearnedTalent(2, 16) -- Holy: Surge of Light
@@ -302,6 +307,9 @@ Register({
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+    isTalentProc = true,
+    procSource = "talent",
+    buffCatalogSection = "talent",
     resolvers = {
         requirements = function()
             return HasLearnedTalent(3, 6) -- Shadow: Shadow Weaving
@@ -319,10 +327,15 @@ Register({
     order = 30,
     spellID = 59889,
     auraSpellID = 59889,
+    auraSpellIDs = { 59889, 52800 },
+    linkedSpellIDs = { 59889, 52800 },
     iconSpellID = 59889,
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
+    isTalentProc = true,
+    procSource = "talent",
+    buffCatalogSection = "talent",
     resolvers = {
         requirements = function()
             return HasLearnedTalent(1, 25) -- Disc: Borrowed Time
