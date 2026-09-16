@@ -93,8 +93,8 @@ bindingScopeButton = MakeButton("", 0, function()
     if InCombatLockdown() then return end
     local currentBindingSet = GetCurrentBindingSet()
     local bindingSet = currentBindingSet == 2 and 1 or 2
-    LoadBindings(currentBindingSet)
-    SetCurrentBindingSet(bindingSet)
+    -- Wrath switches the active binding scope as part of LoadBindings;
+    -- SetCurrentBindingSet is a newer API and does not exist in 3.3.5.
     LoadBindings(bindingSet)
     RefreshActionBarBindings()
     changed = false
