@@ -851,13 +851,11 @@ local function SkinInspectSheet()
                 end
             end
 
-            local function UpdateInspectTalents()
+            local function UpdateInspectTalentIcons()
                 local curTal = _G.InspectTalentFrame
                 if not curTal then return end
                 local tabIndex = (_G.PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(curTal))
                     or curTal.selectedTab or 1
-                local isPet = curTal.pet or false
-                local group = curTal.talentGroup or 1
 
                 if S and S.UpdateRetailTab then
                     for i, tab in ipairs(talentTabs) do
@@ -866,59 +864,54 @@ local function SkinInspectSheet()
                 end
 
                 for i = 1, (MAX_NUM_TALENTS or 40) do
-                    local btn = _G["InspectTalentFrameTalent" .. i]
-                    local icon = _G["InspectTalentFrameTalent" .. i .. "IconTexture"]
-                    local rank = _G["InspectTalentFrameTalent" .. i .. "Rank"]
+                    local buttonName = "InspectTalentFrameTalent" .. i
+                    local btn = _G[buttonName]
+                    -- TalentFrame_Update writes the inspected spell texture
+                    -- into this exact inherited ItemButtonTemplate region.
+                    -- Preserve it instead of querying the talent API again or
+                    -- drawing a second icon on top of the native one.
+                    local icon = _G[buttonName .. "IconTexture"]
+                        or (btn and (btn.icon or btn.Icon or btn.IconTexture))
+                    local rank = _G[buttonName .. "Rank"]
+                        or (btn and (btn.Rank or btn.rank))
 
                     if btn then
                         local bfd = GetFFD(btn)
-                        if not bfd.nativeIcon and icon then bfd.nativeIcon = icon:GetTexture() end
-
-                        local iconTexturePath, currentRank, maxRank
-                        if _G.GetTalentInfo then
-                            local _, apiIcon, _, _, apiRank, apiMaxRank = GetTalentInfo(
-                                tabIndex, i, curTal.inspect ~= false, isPet, group)
-                            iconTexturePath = apiIcon
-                            currentRank = apiRank
-                            maxRank = apiMaxRank
-                        end
-                        iconTexturePath = iconTexturePath
-                            or (icon and icon:GetTexture())
-                            or bfd.nativeIcon
-
                         if not bfd.euiSkinned then
-                            if S and S.StripTextures then S:StripTextures(btn) end
-                            if S and S.CreateBackdrop then S:CreateBackdrop(btn, "Default") end
+                            -- Do not call StripTextures on a talent button: its
+                            -- spell icon is one of the ordinary texture regions.
+                            for j = 1, select("#", btn:GetRegions()) do
+                                local region = select(j, btn:GetRegions())
+                                if region and region:IsObjectType("Texture") and region ~= icon then
+                                    region:SetTexture(nil)
+                                end
+                            end
+                            -- Match the working player-talent skin and put the
+                            -- template on the button itself.  A child backdrop
+                            -- can share the button's frame level on this client
+                            -- and cover BORDER-layer icon regions.
+                            if S and S.SetTemplate then S:SetTemplate(btn, "Default") end
                             if S and S.StyleButton then S:StyleButton(btn) end
                             bfd.euiSkinned = true
                         end
                         btn:SetFrameLevel(btn:GetParent():GetFrameLevel() + 2)
 
                         if icon then
-                            icon:SetTexture(iconTexturePath)
-                            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                            icon:SetDrawLayer("ARTWORK")
-                            if iconTexturePath then icon:Show() else icon:Hide() end
-                            icon:SetAlpha(iconTexturePath and 1 or 0)
                             if S and S.SetInside then S:SetInside(icon, btn, 2, 2) end
+                            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                            if icon.SetDrawLayer then icon:SetDrawLayer("ARTWORK", 1) end
+                            icon:SetAlpha(1)
+                            icon:Show()
                         end
 
                         if rank then
                             rank:SetFont(fontPath, 9, "OUTLINE")
-                            rank:SetDrawLayer("OVERLAY", 7)
+                            if rank.SetDrawLayer then rank:SetDrawLayer("OVERLAY", 7) end
                             rank:ClearAllPoints()
                             rank:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
-                            rank:SetWidth(math.max(20, (btn:GetWidth() or 32) - 4))
-                            rank:SetHeight(11)
-                            rank:SetJustifyH("RIGHT")
-                            rank:SetJustifyV("BOTTOM")
-                            if currentRank ~= nil and maxRank then
-                                rank:SetText(currentRank .. "/" .. maxRank)
-                            end
-                            rank:SetTextColor(1, 1, 1, (currentRank or 0) > 0 and 1 or 0.58)
                             rank:SetShadowColor(0, 0, 0, 1)
                             rank:SetShadowOffset(1, -1)
-                            rank:Show()
+                            rank:SetAlpha(1)
                         end
                     end
                 end
@@ -942,21 +935,29 @@ local function SkinInspectSheet()
             end
 
             LayoutTalentTabs()
-            UpdateInspectTalents()
-            GetFFD(tal).updateTalents = UpdateInspectTalents
+            UpdateInspectTalentIcons()
+            GetFFD(tal).updateTalents = UpdateInspectTalentIcons
             for _, tab in ipairs(talentTabs) do
                 tab:HookScript("OnClick", function()
-                    C_Timer.After(0, UpdateInspectTalents)
+                    C_Timer.After(0, UpdateInspectTalentIcons)
                 end)
             end
             if _G.InspectTalentFrame_Update then
-                hooksecurefunc("InspectTalentFrame_Update", UpdateInspectTalents)
+                hooksecurefunc("InspectTalentFrame_Update", UpdateInspectTalentIcons)
+            end
+            -- Reassert the native icon's render layer after Blizzard changes
+            -- its texture/desaturation while switching inspected talent tabs.
+            if _G.TalentFrame_Update then
+                hooksecurefunc("TalentFrame_Update", function(updatedFrame)
+                    if updatedFrame == tal then
+                        UpdateInspectTalentIcons()
+                    end
+                end)
             end
             tal:HookScript("OnShow", function()
                 LayoutTalentTabs()
-                UpdateInspectTalents()
-                C_Timer.After(0, UpdateInspectTalents)
-                C_Timer.After(0.2, UpdateInspectTalents)
+                UpdateInspectTalentIcons()
+                C_Timer.After(0, UpdateInspectTalentIcons)
             end)
         elseif GetFFD(tal).updateTalents then
             GetFFD(tal).updateTalents()

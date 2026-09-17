@@ -2000,6 +2000,7 @@ do
             GameMenuButtonUIOptions,
             GameMenuButtonKeybindings,
             GameMenuButtonMacros,
+            _G.GameMenuButtonRatings, -- koKR client
             GameMenuButtonLogout,
             GameMenuButtonQuit,
             GameMenuButtonContinue,
@@ -2040,6 +2041,125 @@ do
                 ApplyButtonStyle(menuBtn)
             end
         end
+    end)
+end
+
+-------------------------------------------------------------------------------
+--  Ready Check Skinning
+--  The prompt is a core 3.3.5 popup, not part of Blizzard_RaidUI.  Skin its
+--  listener (the native visibility owner) so raid leaders do not see an empty
+--  shell when Blizzard deliberately hides the prompt for the initiator.
+-------------------------------------------------------------------------------
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        if EllesmereUIDB and EllesmereUIDB.reskinPopupsMenus == false then return end
+
+        local frame = _G.ReadyCheckFrame
+        local listener = _G.ReadyCheckListenerFrame
+        if not frame or not listener then return end
+
+        frame:EnableMouse(true)
+
+        local function ApplyButtonStyle(btn)
+            if not btn then return end
+            local d = GetFFD(btn)
+            if not d.readyCheckSkinned then
+                d.readyCheckSkinned = true
+
+                for i = 1, select("#", btn:GetRegions()) do
+                    local region = select(i, btn:GetRegions())
+                    if region and region:IsObjectType("Texture") and not GetFFD(region).owned then
+                        region:SetAlpha(0)
+                    end
+                end
+                if btn.Left then btn.Left:SetAlpha(0) end
+                if btn.Middle then btn.Middle:SetAlpha(0) end
+                if btn.Right then btn.Right:SetAlpha(0) end
+
+                local bg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
+                bg:SetAllPoints()
+                GetFFD(bg).owned = true
+                d.readyCheckBg = bg
+
+                local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+                highlight:SetAllPoints()
+                highlight:SetTexture(1, 1, 1, 0.1)
+                GetFFD(highlight).owned = true
+            end
+
+            local color = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor
+                or { r = 0.1, g = 0.1, b = 0.1, a = 0.8 }
+            d.readyCheckBg:SetTexture(color.r, color.g, color.b, color.a == nil and 0.8 or color.a)
+            EllesmereUI._applyBlizzardConfiguredBorder(btn, "popupMenuButton", 1)
+
+            local label = btn:GetFontString()
+            if label then
+                local font = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin")
+                    or "Fonts\\FRIZQT__.TTF"
+                local _, size = label:GetFont()
+                label:SetFont(font, size or 12, "")
+                if EllesmereUI._getPopupMenuElementMode() == "native" then
+                    label:SetTextColor(1, 1, 1, 1)
+                else
+                    local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
+                    label:SetTextColor(r, g, b, 1)
+                end
+            end
+        end
+
+        local function ApplyReadyCheckStyle()
+            -- Blizzard refreshes the portrait before showing the listener.
+            -- Alpha suppression keeps it gone without replacing SetTexture.
+            for i = 1, select("#", listener:GetRegions()) do
+                local region = select(i, listener:GetRegions())
+                if region and region:IsObjectType("Texture") and not GetFFD(region).owned then
+                    region:SetAlpha(0)
+                end
+            end
+
+            local d = GetFFD(listener)
+            if not d.readyCheckBg then
+                local RS = EllesmereUI.RESKIN
+                local bg = listener:CreateTexture(nil, "BACKGROUND", nil, -8)
+                bg:SetAllPoints()
+                bg:SetTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
+                GetFFD(bg).owned = true
+                d.readyCheckBg = bg
+            end
+            d.readyCheckBg:Show()
+            EllesmereUI._applyBlizzardConfiguredBorder(listener, "popupMenu", 1)
+
+            local yesButton = _G.ReadyCheckFrameYesButton
+            local noButton = _G.ReadyCheckFrameNoButton
+            ApplyButtonStyle(yesButton)
+            ApplyButtonStyle(noButton)
+
+            if yesButton then
+                yesButton:ClearAllPoints()
+                yesButton:SetPoint("TOPRIGHT", listener, "CENTER", -3, -5)
+            end
+            if noButton then
+                noButton:ClearAllPoints()
+                noButton:SetPoint("TOPLEFT", listener, "CENTER", 4, -5)
+            end
+
+            local text = _G.ReadyCheckFrameText
+            if text then
+                text:ClearAllPoints()
+                text:SetPoint("TOP", listener, "TOP", 0, -15)
+                text:SetTextColor(1, 1, 1, 1)
+                local font = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin")
+                    or "Fonts\\FRIZQT__.TTF"
+                local _, size = text:GetFont()
+                text:SetFont(font, size or 12, "")
+            end
+        end
+
+        ApplyReadyCheckStyle()
+        listener:HookScript("OnShow", ApplyReadyCheckStyle)
     end)
 end
 
