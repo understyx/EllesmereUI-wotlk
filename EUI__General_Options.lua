@@ -3389,6 +3389,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { key = "SoulShards",      label = "Soul Shards"      },
                 { key = "HolyPower",       label = "Holy Power"       },
                 { key = "ArcaneCharges",   label = "Arcane Charges"   },
+                { key = "HotStreak",       label = "Hot Streak"       },
                 { key = "Icicles",         label = "Icicles"          },
                 { key = "Chi",             label = "Chi"              },
                 { key = "Essence",         label = "Essence"          },

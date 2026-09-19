@@ -3388,6 +3388,7 @@ EllesmereUI.DEFAULT_CLASS_RESOURCE_COLORS = {
     SoulShards      = { r = 0.5059, g = 0.3412, b = 0.8431 },
     HolyPower       = { r = 0.949,  g = 0.902,  b = 0.6    },
     ArcaneCharges   = { r = 0.7176, g = 0.4902, b = 0.8118 },
+    HotStreak       = { r = 1.0,    g = 0.35,   b = 0.05   },
     Icicles         = { r = 0.7098, g = 1.0,    b = 0.9216 },
     Chi             = { r = 0.0,    g = 1.0,    b = 0.6    },
     Essence         = { r = 0.2,    g = 0.58,   b = 0.502  },

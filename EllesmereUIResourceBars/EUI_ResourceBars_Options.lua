@@ -625,7 +625,13 @@ initFrame:SetScript("OnEvent", function(self)
                     -- belongs exclusively to bar-type stack bars (Show Max
                     -- Stacks), which the isBar branch above previews.
                     local shown = pc._pvShownCount or _previewPipCount
-                    pc._countText:SetText(tostring(shown))
+                    local gsr = _G._ERB_GetSecondaryResource
+                    local info = gsr and gsr()
+                    if info and info.power == "HOT_STREAK" then
+                        pc._countText:SetText(tostring(shown) .. "/2")
+                    else
+                        pc._countText:SetText(tostring(shown))
+                    end
                 end
                 pc._countText:Show()
             elseif pc._countText then

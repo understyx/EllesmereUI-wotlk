@@ -452,6 +452,150 @@ local EBON_MIGHT_DURATION = 20
 --Function to get Icicles for Frost
 local ICICLES_SPELL_ID = 205473
 
+-- Fire Mage Hot Streak tracker (Wrath). The display is 0/2 or 1/2 before the
+-- proc, 2/2 while Hot Streak is active, and 3/2 when one additional crit is
+-- banked for after Pyroblast consumes the proc.
+-- Keep all state/functions on one namespace table because this file's main
+-- chunk is at Lua 5.1's local-variable limit.
+ns.HotStreak = {
+    AURA_SPELL = 48108,
+    count = 0,
+    active = nil,
+    banked = false,
+    ignoreNextCrit = false,
+    qualifyingNames = {},
+}
+
+function ns.HotStreak:AddQualifyingSpell(spellID)
+    local spellName = GetSpellInfo(spellID)
+    if spellName then self.qualifyingNames[spellName] = true end
+end
+
+-- Hot Streak's Wrath tooltip names these five spells. SPELL_DAMAGE excludes
+-- Living Bomb's periodic ticks while still counting its final explosion.
+ns.HotStreak:AddQualifyingSpell(133)    -- Fireball
+ns.HotStreak:AddQualifyingSpell(2136)   -- Fire Blast
+ns.HotStreak:AddQualifyingSpell(2948)   -- Scorch
+ns.HotStreak:AddQualifyingSpell(44457)  -- Living Bomb
+ns.HotStreak:AddQualifyingSpell(44614)  -- Frostfire Bolt
+
+function ns.HotStreak:HasAura()
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        return C_UnitAuras.GetPlayerAuraBySpellID(self.AURA_SPELL) ~= nil
+    end
+    local spellName = GetSpellInfo(self.AURA_SPELL)
+    return spellName and UnitBuff("player", spellName) ~= nil or false
+end
+
+function ns.HotStreak:Reset()
+    self.active = self:HasAura()
+    self.count = self.active and 2 or 0
+    self.banked = false
+    self.ignoreNextCrit = false
+end
+
+-- UNIT_AURA is the normal synchronization path. If aura gain is observed
+-- before its combat-log damage event, ignore that one crit so the proc-causing
+-- hit is not mistaken for a newly banked crit.
+function ns.HotStreak:SyncAura()
+    local activeNow = self:HasAura()
+    local changed = self.active ~= activeNow
+    if self.active == nil then
+        self.count = activeNow and 2 or 0
+    elseif activeNow and not self.active then
+        -- Preserve a third crit that landed while the proc aura was still in
+        -- flight; otherwise establish the proc's base value of two.
+        self.count = math.max(2, math.min(self.count, 3))
+        self.ignoreNextCrit = true
+    elseif not activeNow and self.active then
+        -- Consuming/losing Hot Streak removes the two crits represented by the
+        -- proc and leaves a banked third crit behind: 2 -> 0, 3 -> 1.
+        self.count = math.max(0, self.count - 2)
+        self.ignoreNextCrit = false
+    end
+    self.active = activeNow
+    self.banked = activeNow and self.count > 2 or false
+    return changed
+end
+
+function ns.HotStreak:AuraApplied(isRefresh)
+    local changed = not self.active or self.count ~= 2
+    if isRefresh and self.active then
+        -- A second completed pair while the proc is already active refreshes
+        -- that proc; the bank has been consumed by the refreshed pair.
+        self.count = 2
+    else
+        self.count = math.max(2, math.min(self.count, 3))
+    end
+    self.active = true
+    self.banked = self.count > 2
+    self.ignoreNextCrit = false
+    return changed
+end
+
+function ns.HotStreak:AuraRemoved()
+    local changed = self.active and true or false
+    if self.active then
+        self.count = math.max(0, self.count - 2)
+    end
+    self.active = false
+    self.banked = false
+    self.ignoreNextCrit = false
+    return changed
+end
+
+function ns.HotStreak:IsAura(spellID, spellName)
+    if spellID == self.AURA_SPELL then return true end
+    local auraName = GetSpellInfo(self.AURA_SPELL)
+    return auraName and spellName == auraName or false
+end
+
+function ns.HotStreak:HandleCombatLog(...)
+    local subEvent, sourceGUID, destGUID, spellID, spellName, critical
+    if select("#", ...) == 0 and CombatLogGetCurrentEventInfo then
+        local _, se, _, src, _, _, _, dst, _, _, _, sid, sname,
+            _, _, _, _, _, _, _, crit = CombatLogGetCurrentEventInfo()
+        subEvent, sourceGUID, destGUID = se, src, dst
+        spellID, spellName, critical = sid, sname, crit
+    else
+        local _, se, src, _, _, dst, _, _, sid, sname,
+            _, _, _, _, _, _, _, crit = ...
+        subEvent, sourceGUID, destGUID = se, src, dst
+        spellID, spellName, critical = sid, sname, crit
+    end
+
+    local playerGUID = UnitGUID("player")
+    if destGUID == playerGUID and self:IsAura(spellID, spellName) then
+        if subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH" then
+            return self:AuraApplied(subEvent == "SPELL_AURA_REFRESH")
+        elseif subEvent == "SPELL_AURA_REMOVED" then
+            return self:AuraRemoved()
+        end
+    end
+
+    if subEvent ~= "SPELL_DAMAGE" or sourceGUID ~= playerGUID
+       or not self.qualifyingNames[spellName] then
+        return false
+    end
+
+    if critical == true or critical == 1 then
+        if self.ignoreNextCrit then
+            self.ignoreNextCrit = false
+        else
+            self.count = math.min(3, self.count + 1)
+        end
+    else
+        self.count = self.active and 2 or 0
+        self.ignoreNextCrit = false
+    end
+    self.banked = self.active and self.count > 2 or false
+    return true
+end
+
+function ns.HotStreak:GetValue()
+    return self.count, 2, self.banked, self.active
+end
+
 -- Prot Warrior Ignore Pain (Midnight): stacking buff 190456 (0-100 stacks),
 -- but ALL player aura fields are SECRET (field-confirmed: spellId, name and
 -- applications return secrets even out of combat), so stacks cannot be read
@@ -566,7 +710,8 @@ local function GetSecondaryResource()
     -- 3.3.5 client.  Keep this gate before any specialization, form, or power
     -- API calls so unsupported classes (notably Warlocks, whose Soul Shards
     -- are inventory items in Wrath) cannot enter retail-only resource paths.
-    if classFile ~= "DRUID" and classFile ~= "ROGUE" and classFile ~= "DEATHKNIGHT" then
+    if classFile ~= "DRUID" and classFile ~= "ROGUE" and classFile ~= "DEATHKNIGHT"
+       and classFile ~= "MAGE" then
         return nil
     end
 
@@ -627,11 +772,18 @@ local function GetSecondaryResource()
     elseif classFile == "EVOKER" then
         local mx = UnitPowerMax("player", PT.ESSENCE)
         return { power = PT.ESSENCE, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
-    elseif classFile == "MAGE" and spec == 1 then
-        local mx = UnitPowerMax("player", PT.ARCANE)
-        return { power = PT.ARCANE, max = (not issecretvalue or not issecretvalue(mx)) and mx or 4, type = "points" }
-    elseif classFile == "MAGE" and spec == 3 then
-        return { power = "ICICLES", max = 5, type = "custom" }
+    elseif classFile == "MAGE" then
+        if select(4, GetBuildInfo()) <= 30300 then
+            if spec == 2 then
+                return { power = "HOT_STREAK", max = 2, type = "custom" }
+            end
+            return nil
+        elseif spec == 1 then
+            local mx = UnitPowerMax("player", PT.ARCANE)
+            return { power = PT.ARCANE, max = (not issecretvalue or not issecretvalue(mx)) and mx or 4, type = "points" }
+        elseif spec == 3 then
+            return { power = "ICICLES", max = 5, type = "custom" }
+        end
     elseif classFile == "DEMONHUNTER" then
         -- Resolve specID: 581=Vengeance, 1480=Devourer, 577=Havoc
         local specID = spec and C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(spec)
@@ -717,6 +869,7 @@ do
         [PT.SOUL_SHARDS] = "SoulShards",
         [PT.ARCANE]      = "ArcaneCharges",
         [PT.ESSENCE]     = "Essence",
+        ["HOT_STREAK"]                = "HotStreak",
         ["ICICLES"]                  = "Icicles",
         ["SOUL_FRAGMENTS_VENGEANCE"] = "SoulFragments",
         ["SOUL_FRAGMENTS_DEVOURER"]  = "SoulFragments",
@@ -2200,6 +2353,38 @@ end
 -------------------------------------------------------------------------------
 local function IsSpecDisabled()
     return false
+end
+
+-- The combat log is a high-volume event. Prefer the compatibility layer's
+-- shared dispatcher so Resource Bars, CDM, and its integrations fan out from
+-- one native registration. The direct frame route is only a fallback when CDM
+-- is disabled and therefore has not installed that shared compatibility API.
+function ns.SyncHotStreakEvent()
+    local sp = _G._ERB_ResolveSecondaryCfg and _G._ERB_ResolveSecondaryCfg()
+    local shouldRegister = cachedSecondary and cachedSecondary.power == "HOT_STREAK"
+        and sp and sp.enabled ~= false and not IsSpecDisabled(sp)
+    if shouldRegister and not ns.HotStreak.registered then
+        ns.HotStreak:Reset()
+        if EllesmereUI.RegisterCDMEventCallback then
+            EllesmereUI.RegisterCDMEventCallback("resourceBarsHotStreak",
+                ns.HotStreak.SharedEventCallback, { "COMBAT_LOG_EVENT_UNFILTERED" })
+            ns.HotStreak.eventRoute = "shared"
+        else
+            _erbEventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+            ns.HotStreak.eventRoute = "frame"
+        end
+        ns.HotStreak.registered = true
+    elseif not shouldRegister and ns.HotStreak.registered then
+        if ns.HotStreak.eventRoute == "shared"
+           and EllesmereUI.UnregisterCDMEventCallback then
+            EllesmereUI.UnregisterCDMEventCallback("resourceBarsHotStreak")
+        elseif ns.HotStreak.eventRoute == "frame" then
+            _erbEventFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        end
+        ns.HotStreak.eventRoute = nil
+        ns.HotStreak.registered = false
+        ns.HotStreak:Reset()
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -5487,6 +5672,8 @@ local function UpdateSecondaryResource()
             cur = _ptsCur
             maxC = maxPts
             isSecret = true
+        elseif powerType == "HOT_STREAK" then
+            cur, maxC = ns.HotStreak:GetValue()
         elseif powerType == "SOUL_FRAGMENTS_VENGEANCE" then
             -- Vengeance DH: GetSpellCastCount returns a SECRET value in 12.0+.
             -- We cannot compare it in Lua.  Instead we pass the raw value to
@@ -5537,6 +5724,18 @@ local function UpdateSecondaryResource()
                     if rc then r, g, b = rc.r, rc.g, rc.b end
                 end
             end
+        end
+
+        -- A banked crit must be distinguishable from the ordinary first crit,
+        -- even though both display 1/2. It intentionally wins over generic
+        -- threshold/buff coloring while enabled.
+        if powerType == "HOT_STREAK" and ns.HotStreak.banked then
+            r = _tsR or 0x0c/255
+            g = _tsG or 0xd2/255
+            b = _tsB or 0x9d/255
+            a = 1
+            _tsEntry = nil
+            _tsBandOn = false
         end
 
         if isSecret then
@@ -5801,7 +6000,11 @@ local function UpdateSecondaryResource()
             end
             -- Count text (use real count, not clamped)
             if sp.showText and secondaryFrame._countText then
-                secondaryFrame._countText:SetText(tostring(_enhRealCur or cur))
+                if powerType == "HOT_STREAK" then
+                    secondaryFrame._countText:SetFormattedText("%d/%d", _enhRealCur or cur, maxC)
+                else
+                    secondaryFrame._countText:SetText(tostring(_enhRealCur or cur))
+                end
                 colorText(_spTextInstead, _tiTrig, tr, tg, tb, _spTextBaseR, _spTextBaseG, _spTextBaseB)
             end
         end
@@ -5981,6 +6184,16 @@ local function UpdateSecondaryResource()
     -- Buff + recolor text instead
     if _buffActive and _spTextInstead and secondaryFrame and secondaryFrame._countText then
         secondaryFrame._countText:SetTextColor(_bfr, _bfg, _bfb, 0.9)
+    end
+end
+
+-- Callback shape used by the compatibility shared-event dispatcher. The same
+-- state path is also called by OnEvent when Resource Bars runs without CDM.
+function ns.HotStreak.SharedEventCallback(_, event, ...)
+    if event == "COMBAT_LOG_EVENT_UNFILTERED"
+       and cachedSecondary and cachedSecondary.power == "HOT_STREAK"
+       and ns.HotStreak:HandleCombatLog(...) then
+        UpdateSecondaryResource()
     end
 end
 
@@ -8530,6 +8743,7 @@ function ERB:ApplyAll()
     cachedClass = classFile
     cachedPrimary = GetPrimaryPowerType()
     cachedSecondary = GetSecondaryResource()
+    ns.SyncHotStreakEvent()
     -- Seed combat state so a /reload mid-combat doesn't apply the OOC fade
     -- during the fight (isInCombat otherwise only flips on PLAYER_REGEN).
     isInCombat = InCombatLockdown()
@@ -8624,6 +8838,7 @@ do
             ironfurBaseDur = IronfurBaseDuration()
             cachedPrimary = GetPrimaryPowerType()
             cachedSecondary = GetSecondaryResource()
+            ns.SyncHotStreakEvent()
             BuildBars()
             UpdatePrimaryBar()
             UpdateSecondaryResource()
@@ -8637,7 +8852,12 @@ end
 --  Event handling
 -------------------------------------------------------------------------------
 local function OnEvent(self, event, ...)
-    if event == "UNIT_HEALTH" then
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        if cachedSecondary and cachedSecondary.power == "HOT_STREAK"
+           and ns.HotStreak:HandleCombatLog(...) then
+            UpdateSecondaryResource()
+        end
+    elseif event == "UNIT_HEALTH" then
         UpdateHealthBar()
         -- Stagger is based on health, so update secondary resource too
         if cachedSecondary and cachedSecondary.power == "BREWMASTER_STAGGER" then
@@ -8751,9 +8971,11 @@ local function OnEvent(self, event, ...)
         ironfurGoEUntil = 0
         ironfurBaseDur = IronfurBaseDuration()
         IP.hashEndTime = 0
+        ns.HotStreak:Reset()
         ns.InvalidateThresholdCaches()
         cachedPrimary = GetPrimaryPowerType()
         cachedSecondary = GetSecondaryResource()
+        ns.SyncHotStreakEvent()
         BuildBars()
         BuildCastBar()
         UpdatePrimaryBar()
@@ -8788,7 +9010,10 @@ local function OnEvent(self, event, ...)
             if cachedSecondary then
                 -- Refresh on aura change for custom resources and for buff coloring
                 -- (any resource type -- a tracked buff gain/loss recolors the bar).
-                if cachedSecondary.type == "custom" or SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) then
+                if cachedSecondary.power == "HOT_STREAK" then
+                    ns.HotStreak:SyncAura()
+                    UpdateSecondaryResource()
+                elseif cachedSecondary.type == "custom" or SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) then
                     UpdateSecondaryResource()
                 end
             end
@@ -8820,6 +9045,7 @@ local function OnEvent(self, event, ...)
         wipe(ironfurTicks)
         ironfurGoEUntil = 0
         IP.hashEndTime = 0
+        ns.HotStreak:Reset()
         if EllesmereUI then
             if EllesmereUI.HandleTipOfTheSpear then
                 EllesmereUI.HandleTipOfTheSpear(event)
@@ -8831,7 +9057,11 @@ local function OnEvent(self, event, ...)
                 EllesmereUI.HandleSweepingStrikes(event)
             end
         end
+        if cachedSecondary and cachedSecondary.power == "HOT_STREAK" then
+            UpdateSecondaryResource()
+        end
     elseif event == "PLAYER_ENTERING_WORLD" then
+        ns.HotStreak:Reset()
         C_Timer.After(0.5, function()
             ERB:ApplyAll()
             RegisterUnlockElements()
