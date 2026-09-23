@@ -3944,7 +3944,7 @@ local SetupReadyCheckManaWarning = function()
         ag:SetLooping("REPEAT")
         warnFrame._breathe = ag
         EABR.RCWApplySettings()
-        warnFS:SetText("LOW MANA")
+        warnFS:SetText(EllesmereUI.L("LOW MANA"))
     end
 
     -- Only listen for READY_CHECK when out of combat AND in a raid.

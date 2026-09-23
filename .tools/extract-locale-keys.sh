@@ -21,14 +21,7 @@ cd "$(dirname "$0")/.."
 OUT="Locales/_keys.txt"
 TMP="$(mktemp)"
 
-grep -rhoE 'EllesmereUI\.Lf?\("[^"]*"' \
-  --include='*.lua' \
-  --exclude-dir='Libs' \
-  --exclude-dir='Locales' \
-  --exclude='EllesmereUI_LocaleDev.lua' \
-  . \
-  | sed -E 's/^EllesmereUI\.Lf?\("//; s/"$//' \
-  | sort -u > "$TMP"
+python3 .tools/extract-locale-keys.py > "$TMP"
 
 COUNT="$(wc -l < "$TMP" | tr -d ' ')"
 
@@ -37,7 +30,7 @@ COUNT="$(wc -l < "$TMP" | tr -d ' ')"
   echo "# Canonical list of translatable English keys passed as string literals"
   echo "# ($COUNT unique). Regenerate after wrapping new strings. Keys passed as"
   echo "# variables are not listed here -- use the in-game /euiloc harvester for"
-  echo "# the complete runtime set."
+  echo "# the complete runtime set. Control characters and trailing spaces are escaped."
   cat "$TMP"
 } > "$OUT"
 

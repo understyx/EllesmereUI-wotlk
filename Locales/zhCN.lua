@@ -5988,6 +5988,25 @@ L["Independent"]                   = "独立"
 L["Above Row"]                     = "行上方"
 L["Show My Debuffs"] = "显示自己施加的减益效果"
 L["Bindings"]                      = "按键绑定"
+
+-- Wrath-specific strings contributed from the Chinese community fork. Keep
+-- these in the catalog so every runtime file remains language-neutral.
+L["|cff00ccffEllesmere:|r Reload required to create custom bars. Type /reload"] = "|cff00ccffEllesmere:|r 需要重载界面才能创建自定义动作条。请输入 /reload"
+L["Hover an action button and press a key to bind it.\nPress Escape or right-click to clear all bindings for that button."] = "将鼠标悬停在动作按钮上并按下一个按键即可绑定。\n按 Esc 或右键点击可清除该按钮的所有绑定。"
+L["Switch to Account-wide Keybindings"] = "切换到账号级按键绑定"
+L["Switch to Character-specific Keybindings"] = "切换到角色专属按键绑定"
+L["Bound to: %s"] = "已绑定：%s"
+L["No bindings set"] = "未设置绑定"
+L["Keyring"] = "钥匙栏"
+L["Keyring (%d)"] = "钥匙栏（%d）"
+L["Mount:"] = "坐骑："
+L["M+ Score:"] = "大秘境评分："
+L["CDM edit spec: %s"] = "冷却管理器编辑专精：%s"
+L["unresolved"] = "未解析"
+L["Enter a slot ID from 1 to 19"] = "输入 1 到 19 之间的栏位 ID"
+L["Ungroup %s"] = "取消分组 %s"
+L["%1$s is tracked by Blizzard as %2$s and should be added to %3$s."] = "“%1$s”被暴雪标记为%2$s，应添加到%3$s。"
+
 -- Case-variant keys the retranslation also dropped (Lua keys are
 -- case-sensitive; these are distinct from their capitalized twins).
 L["LANGUAGE"]          = "语言"

@@ -87,7 +87,7 @@ do
             title:SetFont(FONT, 16, EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("cdm") or "")
             title:SetTextColor(1, 1, 1)
             title:SetPoint("TOP", popup, "TOP", 0, -20)
-            title:SetText("CDM Addon Conflict")
+            title:SetText(EllesmereUI.L("CDM Addon Conflict"))
 
             local msg = popup:CreateFontString(nil, "OVERLAY")
             msg:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("cdm") or "")
@@ -97,7 +97,7 @@ do
             msg:SetJustifyH("CENTER")
             msg:SetWordWrap(true)
             msg:SetSpacing(4)
-            msg:SetText("Ayije_CDM and EllesmereUI's Cooldown Manager cannot both be loaded at the same time. Disable EllesmereUI's CDM for now, you can choose to disable/enable one or the other after reloading.")
+            msg:SetText(EllesmereUI.L("Ayije_CDM and EllesmereUI's Cooldown Manager cannot both be loaded at the same time. Disable EllesmereUI's CDM for now, you can choose to disable/enable one or the other after reloading."))
 
             local BTN_W, BTN_H = 170, 29
             local btn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
@@ -115,7 +115,7 @@ do
             btnLbl:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("cdm") or "")
             btnLbl:SetTextColor(EG.r, EG.g, EG.b, 0.9)
             btnLbl:SetPoint("CENTER")
-            btnLbl:SetText("Disable & Reload")
+            btnLbl:SetText(EllesmereUI.L("Disable & Reload"))
             btn:SetScript("OnEnter", function()
                 btnBrd:SetTexture(EG.r, EG.g, EG.b, 1)
                 btnLbl:SetTextColor(EG.r, EG.g, EG.b, 1)

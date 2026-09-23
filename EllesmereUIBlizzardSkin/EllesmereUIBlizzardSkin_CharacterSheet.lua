@@ -2560,6 +2560,14 @@ local function SkinCharacterSheet()
     if scrollFrame:GetWidth() and scrollFrame:GetWidth() > 0 then
         scrollChild:SetWidth(scrollFrame:GetWidth())
     end
+    -- On the creation frame the anchors can still resolve to width 0, which
+    -- leaves the temporary width in place and clips right-aligned stat values.
+    -- Re-check once after the layout pass has settled.
+    scrollFrame:SetScript("OnUpdate", function(self)
+        self:SetScript("OnUpdate", nil)
+        local width = self:GetWidth()
+        if width and width > 0 then scrollChild:SetWidth(width) end
+    end)
 
     -- Custom thin scrollbar: pinned to the owner frame's right edge, thumb
     -- responds to wheel + drag. Opts: trackOwner (frame the track pins to),
@@ -4624,7 +4632,7 @@ local function SkinCharacterSheet()
                     local missing = GetMissingSetItems(tile._setName)
                     if #missing > 0 then
                         GameTooltip:SetOwner(tile, "ANCHOR_RIGHT")
-                        GameTooltip:AddLine("Missing Items:", 1, 0.3, 0.3, 1)
+                        GameTooltip:AddLine(EllesmereUI.L("Missing Items:"), 1, 0.3, 0.3, 1)
                         for _, item in ipairs(missing) do
                             local icon = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(item.itemID))
                                 or (GetItemIcon and GetItemIcon(item.itemID))
@@ -4873,7 +4881,7 @@ local function SkinCharacterSheet()
             label:SetFont(fontPath, 9, "")
             label:SetPoint("CENTER", calcTab, "CENTER", 0, 0)
             label:SetJustifyH("CENTER")
-            label:SetText("Upgrades")
+            label:SetText(EllesmereUI.L("Upgrades"))
 
             -- Accent underline (matches Blizzard tab underline)
             local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }

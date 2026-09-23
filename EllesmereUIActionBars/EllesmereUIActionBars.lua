@@ -2714,8 +2714,13 @@ local function SetupBar(info, skipProtected)
                 if bindPrefix then
                     btn.commandName = bindPrefix .. i
                 end
-                btn:RegisterForClicks("AnyDown", "AnyUp")
-                btn:SetAttribute("useOnKeyDown", GetCVarBool("ActionButtonUseKeyDown"))
+                -- Wrath does not honor Retail's useOnKeyDown routing when a
+                -- secure action button is registered for both phases: the
+                -- click can execute on both press and release. Register only
+                -- the phase selected by the client CVar.
+                local keyDown = GetCVarBool("ActionButtonUseKeyDown")
+                btn:SetAttribute("useOnKeyDown", keyDown)
+                btn:RegisterForClicks(keyDown and "AnyDown" or "AnyUp")
                 if btn.EnableMouseWheel then
                     btn:EnableMouseWheel(true)
                 end
@@ -8952,10 +8957,9 @@ _G._EAB_UpdateKeybinds = UpdateKeybinds
 
 
 
--- Update useOnKeyDown on all action buttons to match the CVar.
--- RegisterForClicks is always ("AnyDown", "AnyUp") so empower spells
--- receive key-down even in key-up mode. Only the attribute changes.
--- Must be called out of combat (SetAttribute on secure buttons).
+-- Update the secure click phase on all action buttons to match the CVar.
+-- Wrath can execute a button twice when both AnyDown and AnyUp are registered,
+-- so keep exactly one active phase. Must be called out of combat.
 local function ApplyClickRegistration()
     local keyDown = GetCVarBool("ActionButtonUseKeyDown")
     for _, info in ipairs(BAR_CONFIG) do
@@ -8965,6 +8969,7 @@ local function ApplyClickRegistration()
                 for _, btn in ipairs(btns) do
                     if btn then
                         btn:SetAttribute("useOnKeyDown", keyDown)
+                        btn:RegisterForClicks(keyDown and "AnyDown" or "AnyUp")
                     end
                 end
             end
@@ -9708,7 +9713,16 @@ function EAB:OnInitialize()
     -- Populate the live binding table before buttons and override routes are
     -- built. On Wrath this is not guaranteed to have happened for a newly
     -- loaded addon, particularly when character-specific bindings are active.
-    LoadBindings(GetCurrentBindingSet())
+    -- GetCurrentBindingSet can be unavailable or return an uninitialized value
+    -- this early on Wrath. LoadBindings only accepts account (1) or character
+    -- (2), so let the client finish its normal login load for any other value.
+    local activeBindingSet
+    if type(GetCurrentBindingSet) == "function" then
+        activeBindingSet = GetCurrentBindingSet()
+    end
+    if activeBindingSet == 1 or activeBindingSet == 2 then
+        LoadBindings(activeBindingSet)
+    end
 
     -- Detect first install BEFORE AceDB creates the saved variable.
     -- We use a dedicated flag so "Reset to Defaults" also re-captures.
@@ -11672,10 +11686,10 @@ local function UpdateXPBar()
 
     if restedXP > 0 then
         if showRawValues then
-            strRested = format(" (Rested: %s)", AbbreviateLargeNumbers(restedXP))
+            strRested = format(" (%s: %s)", EllesmereUI.L("Rested"), AbbreviateLargeNumbers(restedXP))
         else
             local restedPct = (restedXP / maxXP) * 100
-            strRested = format(" (Rested: %.1f%%)", restedPct)
+            strRested = format(" (%s: %.1f%%)", EllesmereUI.L("Rested"), restedPct)
         end
     end
 
@@ -11716,12 +11730,12 @@ local function CreateXPBar()
         local restedXP = GetXPExhaustion() or 0
         local pct = (currentXP / maxXP) * 100
         local remain = maxXP - currentXP
-        GameTooltip:AddLine("Experience", 1, 1, 1)
-        GameTooltip:AddDoubleLine("Level", tostring(UnitLevel("player")), 1, 1, 1, 1, 1, 1)
-        GameTooltip:AddDoubleLine("XP", format("%s / %s (%.1f%%)", BreakUpLargeNumbers(currentXP), BreakUpLargeNumbers(maxXP), pct), 1, 1, 1, 1, 1, 1)
-        GameTooltip:AddDoubleLine("Remaining", BreakUpLargeNumbers(remain), 1, 1, 1, 1, 1, 1)
+        GameTooltip:AddLine(EllesmereUI.L("Experience"), 1, 1, 1)
+        GameTooltip:AddDoubleLine(EllesmereUI.L("Level"), tostring(UnitLevel("player")), 1, 1, 1, 1, 1, 1)
+        GameTooltip:AddDoubleLine(EllesmereUI.L("XP"), format("%s / %s (%.1f%%)", BreakUpLargeNumbers(currentXP), BreakUpLargeNumbers(maxXP), pct), 1, 1, 1, 1, 1, 1)
+        GameTooltip:AddDoubleLine(EllesmereUI.L("Remaining"), BreakUpLargeNumbers(remain), 1, 1, 1, 1, 1, 1)
         if restedXP > 0 then
-            GameTooltip:AddDoubleLine("Rested", format("+%s (%.1f%%)", BreakUpLargeNumbers(restedXP), (restedXP / maxXP) * 100), 1, 1, 1, 1, 1, 1)
+            GameTooltip:AddDoubleLine(EllesmereUI.L("Rested"), format("+%s (%.1f%%)", BreakUpLargeNumbers(restedXP), (restedXP / maxXP) * 100), 1, 1, 1, 1, 1, 1)
         end
         GameTooltip:Show()
     end)
@@ -11812,7 +11826,7 @@ local function UpdateRepBar()
     bar:SetValue(current)
 
     local pct = (current / maximum) * 100
-    text:SetText(format("%s: %.0f%% [%s]", name, pct, standing))
+    text:SetText(format("%s: %.0f%% [%s]", name, pct, EllesmereUI.L(standing)))
 
     -- Auto-size text if bar is too narrow
     local barW = frame:GetWidth()
@@ -11837,12 +11851,12 @@ local function CreateRepBar()
         GameTooltip:AddLine(data.name, 1, 1, 1)
         local reaction = data.reaction or 4
         local standing = _G["FACTION_STANDING_LABEL" .. reaction] or ""
-        GameTooltip:AddDoubleLine("Standing", standing, 1, 1, 1, 1, 1, 1)
+        GameTooltip:AddDoubleLine(EllesmereUI.L("Standing"), standing, 1, 1, 1, 1, 1, 1)
         local current = (data.currentStanding or 0) - (data.currentReactionThreshold or 0)
         local maximum = (data.nextReactionThreshold or 1) - (data.currentReactionThreshold or 0)
         if maximum <= 0 then maximum = 1 end
         local pct = (current / maximum) * 100
-        GameTooltip:AddDoubleLine("Reputation", format("%s / %s (%.1f%%)", BreakUpLargeNumbers(current), BreakUpLargeNumbers(maximum), pct), 1, 1, 1, 1, 1, 1)
+        GameTooltip:AddDoubleLine(EllesmereUI.L("Reputation"), format("%s / %s (%.1f%%)", BreakUpLargeNumbers(current), BreakUpLargeNumbers(maximum), pct), 1, 1, 1, 1, 1, 1)
         GameTooltip:Show()
     end)
     holder:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -11998,7 +12012,7 @@ local function CreateFavorBar()
         local current = math.min(st.favor or 0, st.needed)
         local pct = (current / st.needed) * 100
         GameTooltip:AddDoubleLine("Favor", format("%s / %s (%.1f%%)", BreakUpLargeNumbers(current), BreakUpLargeNumbers(st.needed), pct), 1, 1, 1, 1, 1, 1)
-        GameTooltip:AddDoubleLine("Remaining", BreakUpLargeNumbers(st.needed - current), 1, 1, 1, 1, 1, 1)
+        GameTooltip:AddDoubleLine(EllesmereUI.L("Remaining"), BreakUpLargeNumbers(st.needed - current), 1, 1, 1, 1, 1, 1)
         GameTooltip:Show()
     end)
     holder:SetScript("OnLeave", function() GameTooltip:Hide() end)

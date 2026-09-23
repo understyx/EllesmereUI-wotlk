@@ -625,19 +625,21 @@ end
             and C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary then
             local info = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unit)
             local score = info and info.currentSeasonScore
+            local scoreLabel = EllesmereUI.L("M+ Score:")
             if score and not (_isSecret and _isSecret(score)) and score > 0
-                and not _tipHasLine(tt, "M+ Score") then
+                and not _tipHasLine(tt, scoreLabel) then
                 local sColor = C_ChallengeMode and C_ChallengeMode.GetDungeonScoreRarityColor
                     and C_ChallengeMode.GetDungeonScoreRarityColor(score)
                 local r, g, b = 1, 1, 1
                 if sColor then r, g, b = sColor.r, sColor.g, sColor.b end
-                tt:AddDoubleLine("M+ Score:", score, 1, 1, 1, r, g, b)
+                tt:AddDoubleLine(scoreLabel, score, 1, 1, 1, r, g, b)
             end
         end
         -- Mount name from the live helpful aura that MountJournal recognizes.
         -- Opt-in (default off). Per-GUID cached so refresh ticks on an
         -- unmounted player never re-walk the whole aura list.
-        if unit and guid and db and db.tooltipShowMount and not _tipHasLine(tt, "Mount:") then
+        local mountLabel = EllesmereUI.L("Mount:")
+        if unit and guid and db and db.tooltipShowMount and not _tipHasLine(tt, mountLabel) then
             local mountName, mountCollected
             local cached = _mountCache[guid]
             if cached and (GetTime() - cached.time) < _mountCacheTTL then
@@ -658,7 +660,7 @@ end
                 elseif mountCollected == false then
                     valText = mountName .. " |TInterface\\RaidFrame\\ReadyCheck-NotReady:0|t"
                 end
-                tt:AddDoubleLine("Mount:", valText, 1, 1, 1, 1, 1, 1)
+                tt:AddDoubleLine(mountLabel, valText, 1, 1, 1, 1, 1, 1)
             end
         end
         -- Who the hovered player currently targets (opt-in, default off).
@@ -1925,11 +1927,40 @@ do
 
         local RS = EllesmereUI.RESKIN
 
-        -- Strip decorative textures
-        for i = 1, select("#", GameMenuFrame:GetRegions()) do
-            local r = select(i, GameMenuFrame:GetRegions())
-            if r and r:IsObjectType("Texture") then r:SetAlpha(0) end
+        -- Blizzard reapplies the native dialog chrome whenever the menu opens.
+        -- Keep native textures suppressed while leaving EUI-owned art alone.
+        local suppressedTextures = {}
+        local function SuppressGameMenuTexture(region)
+            if suppressedTextures[region] then return end
+            suppressedTextures[region] = true
+            region:SetAlpha(0)
+            if hooksecurefunc then
+                hooksecurefunc(region, "SetAlpha", function(texture, alpha)
+                    if alpha ~= 0 and not texture._euiAlphaLock then
+                        texture._euiAlphaLock = true
+                        texture:SetAlpha(0)
+                        texture._euiAlphaLock = nil
+                    end
+                end)
+                hooksecurefunc(region, "Show", function(texture)
+                    if not texture._euiAlphaLock then
+                        texture._euiAlphaLock = true
+                        texture:SetAlpha(0)
+                        texture._euiAlphaLock = nil
+                    end
+                end)
+            end
         end
+        local function HideNativeGameMenuChrome()
+            if GameMenuFrame.SetBackdrop then GameMenuFrame:SetBackdrop(nil) end
+            for i = 1, select("#", GameMenuFrame:GetRegions()) do
+                local region = select(i, GameMenuFrame:GetRegions())
+                if region and region:IsObjectType("Texture") and not region._euiOwned then
+                    SuppressGameMenuTexture(region)
+                end
+            end
+        end
+        HideNativeGameMenuChrome()
         if GameMenuFrame.NineSlice then GameMenuFrame.NineSlice:SetAlpha(0) end
         if GameMenuFrame.Border then GameMenuFrame.Border:SetAlpha(0) end
         -- Strip header textures, accent-color the title, nudge down
@@ -1954,6 +1985,7 @@ do
         local gmBg = GameMenuFrame:CreateTexture(nil, "BACKGROUND")
         gmBg:SetAllPoints()
         gmBg:SetTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
+        gmBg._euiOwned = true
         local function ApplyButtonStyle(btn)
             local d = GetFFD(btn)
             -- Blizzard's pooled buttons are skinned in this addon's private
@@ -1980,6 +2012,7 @@ do
             end
         end
         local function ApplyMenuStyle()
+            HideNativeGameMenuChrome()
             EllesmereUI._applyBlizzardConfiguredBorder(GameMenuFrame, "popupMenu", 1)
             if GameMenuFrame.buttonPool then
                 for btn in GameMenuFrame.buttonPool:EnumerateActive() do ApplyButtonStyle(btn) end

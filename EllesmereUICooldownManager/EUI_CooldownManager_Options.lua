@@ -127,8 +127,9 @@ initFrame:SetScript("OnEvent", function(self)
         label:SetFont(FONT_PATH, 11, GetCDMOptOutline())
         label:SetPoint("CENTER")
         label:SetTextColor(0.7, 0.7, 0.7, 0.75)
-        label:SetText("CDM edit spec: " .. (specName or "unresolved")
-            .. (specKey and (" (" .. specKey .. ")") or ""))
+        local specLabel = (specName or EllesmereUI.L("unresolved"))
+            .. (specKey and (" (" .. specKey .. ")") or "")
+        label:SetText(EllesmereUI.Lf("CDM edit spec: %s", specLabel))
         return ROW_H
     end
 
@@ -5915,10 +5916,13 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function ShowWrongBarTypePopup(spellName, isSpellBuff)
         if not EllesmereUI or not EllesmereUI.ShowConfirmPopup then return end
-        local correctBar = isSpellBuff and "a Buff bar" or "a Cooldown or Utility bar"
+        local correctBar = EllesmereUI.L(isSpellBuff and "a Buff bar" or "a Cooldown or Utility bar")
         EllesmereUI:ShowConfirmPopup({
             title = "Wrong Bar Type",
-            message = (spellName or "This spell") .. " is tracked by Blizzard as " .. (isSpellBuff and "a buff/aura" or "a cooldown") .. " and should be added to " .. correctBar .. ".",
+            message = EllesmereUI.Lf("%1$s is tracked by Blizzard as %2$s and should be added to %3$s.",
+                spellName or EllesmereUI.L("This spell"),
+                EllesmereUI.L(isSpellBuff and "a buff/aura" or "a cooldown"),
+                correctBar),
             confirmText = "Open Blizzard CDM",
             cancelText = "Close",
             onConfirm = function()
@@ -6970,7 +6974,7 @@ initFrame:SetScript("OnEvent", function(self)
                     nameLine:SetText(slotName .. " - " .. (itemName or EMPTY or ""))
                 elseif slot then
                     nameLine:SetTextColor(1, 0.4, 0.4, 0.9)
-                    nameLine:SetText("Enter a slot ID from 1 to 19")
+                    nameLine:SetText(EllesmereUI.L("Enter a slot ID from 1 to 19"))
                 else
                     nameLine:SetText("")
                 end
@@ -7034,7 +7038,7 @@ initFrame:SetScript("OnEvent", function(self)
         local function DoAdd()
             local slot = tonumber(popup._editBox:GetText())
             if not slot or not ns.INV_SLOT_NAMES[slot] then
-                SetStatus("Enter a slot ID from 1 to 19")
+                SetStatus(EllesmereUI.L("Enter a slot ID from 1 to 19"))
                 return
             end
             local marker = -slot

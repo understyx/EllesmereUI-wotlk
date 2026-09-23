@@ -38,13 +38,13 @@ window:Hide()
 
 local title = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("TOP", 0, -14)
-title:SetText("Quick Keybind Mode")
+title:SetText(EllesmereUI.L("Quick Keybind Mode"))
 
 local description = window:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 description:SetPoint("TOPLEFT", 18, -42)
 description:SetPoint("TOPRIGHT", -18, -42)
 description:SetJustifyH("LEFT")
-description:SetText("Hover an action button and press a key to bind it.\nPress Escape or right-click to clear all bindings for that button.")
+description:SetText(EllesmereUI.L("Hover an action button and press a key to bind it.\nPress Escape or right-click to clear all bindings for that button."))
 
 local function MakeButton(text, x, callback, y)
     local button = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
@@ -83,9 +83,9 @@ local bindingScopeButton
 
 local function UpdateBindingScopeButton()
     if GetCurrentBindingSet() == 2 then
-        bindingScopeButton:SetText("Switch to Account-wide Keybindings")
+        bindingScopeButton:SetText(EllesmereUI.L("Switch to Account-wide Keybindings"))
     else
-        bindingScopeButton:SetText("Switch to Character-specific Keybindings")
+        bindingScopeButton:SetText(EllesmereUI.L("Switch to Character-specific Keybindings"))
     end
 end
 
@@ -126,9 +126,9 @@ local function ShowBindingTooltip()
     GameTooltip:AddLine(ButtonLabel(currentButton, currentCommand), 1, 1, 1)
     local key1, key2 = GetBindingKey(currentCommand)
     if key1 or key2 then
-        GameTooltip:AddLine("Bound to: " .. table.concat({ key1 or "", key2 or "" }, key2 and ", " or ""), 0.1, 0.85, 0.65)
+        GameTooltip:AddLine(EllesmereUI.Lf("Bound to: %s", table.concat({ key1 or "", key2 or "" }, key2 and ", " or "")), 0.1, 0.85, 0.65)
     else
-        GameTooltip:AddLine("No bindings set", 0.65, 0.65, 0.65)
+        GameTooltip:AddLine(EllesmereUI.L("No bindings set"), 0.65, 0.65, 0.65)
     end
     GameTooltip:Show()
 end

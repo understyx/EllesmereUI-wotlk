@@ -1189,7 +1189,7 @@ local function BuildBarWindow()
         local title = hdr:CreateFontString(nil, "OVERLAY")
         title:SetPoint("LEFT", hdr, "LEFT", 6, 0)
         SetFont(title, 11)
-        title:SetText("Spell History")
+        title:SetText(EllesmereUI.L("Spell History"))
         frame._title = title
 
         -- Header icons (right-aligned, matching DM window style)

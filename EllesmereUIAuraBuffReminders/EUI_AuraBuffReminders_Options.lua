@@ -1196,7 +1196,7 @@ initFrame:SetScript("OnEvent", function(self)
             for _, poison in ipairs(POISONS) do
                 local poison = poison
                 gridItems[#gridItems+1] = {
-                    label = poison.name,
+                    label = EllesmereUI.L(poison.name),
                     classToken = "ROGUE",
                     key = poison.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[poison.key] end,
@@ -1208,7 +1208,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             local poisonValues, poisonOrder = {}, {}
             for _, poison in ipairs(POISONS) do
-                poisonValues[poison.key] = poison.name
+                poisonValues[poison.key] = EllesmereUI.L(poison.name)
                 poisonOrder[#poisonOrder+1] = poison.key
             end
             _, h = W:DualRow(parent, y,
@@ -1269,7 +1269,7 @@ initFrame:SetScript("OnEvent", function(self)
             for _, stone in ipairs(STONES) do
                 local stone = stone
                 gridItems[#gridItems+1] = {
-                    label = stone.name,
+                    label = EllesmereUI.L(stone.name),
                     classToken = "WARLOCK",
                     key = stone.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[stone.key] end,

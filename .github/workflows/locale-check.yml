@@ -10,6 +10,8 @@ on:
       - '**/*.lua'
       - 'Locales/_keys.txt'
       - '.tools/extract-locale-keys.sh'
+      - '.tools/extract-locale-keys.py'
+      - '.tools/check-hardcoded-translations.sh'
 
 jobs:
   locale-keys:
@@ -19,6 +21,9 @@ jobs:
 
       - name: Regenerate the locale key list
         run: bash .tools/extract-locale-keys.sh
+
+      - name: Reject hard-coded translated UI text
+        run: bash .tools/check-hardcoded-translations.sh
 
       - name: Fail if Locales/_keys.txt is out of date
         run: |
