@@ -153,7 +153,7 @@ local function BuildPaladinAurasPage(_, parent, yOffset)
     NormalizeOrder()
     local function OrderDropdown(index)
         return {
-            type="dropdown", text="Position " .. index,
+            type="dropdown", text=EllesmereUI.Lf("Position %d", index),
             disabled=Off, disabledTooltip="Enable Paladin Auras",
             values=values, order=AURA_IDS,
             getValue=function() return NormalizeOrder()[index] end,

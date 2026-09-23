@@ -115,7 +115,7 @@ local function SpellLabel(def)
         local itemName = GetItemInfo(def.itemIDs[1])
         if itemName then return itemName end
     end
-    return GetSpellInfo(def.spellID) or ("Spell " .. tostring(def.spellID))
+    return GetSpellInfo(def.spellID) or EllesmereUI.Lf("Spell %d", def.spellID)
 end
 
 local function OrderedSpells(class)
@@ -211,7 +211,7 @@ _G._EUI_BuildRaidCooldownsPage = function(_, parent, yOffset)
             EUI:ShowInputPopup({
                 title = "Create Raid Cooldown Group",
                 message = "Choose a name for the new group.",
-                placeholder = "Raid Cooldowns",
+                placeholder = EllesmereUI.L("Raid Cooldowns"),
                 confirmText = "Create",
                 onConfirm = function(name)
                     selectedGroupID = Module():CreateGroup(name)
@@ -245,7 +245,7 @@ _G._EUI_BuildRaidCooldownsPage = function(_, parent, yOffset)
     _, h = W:WideButton(parent, "Delete Selected Group", y, function()
         EUI:ShowConfirmPopup({
             title = "Delete Raid Cooldown Group",
-            message = "Delete " .. (group.name or "this group") .. "? This cannot be undone.",
+            message = EllesmereUI.Lf("Delete %s? This cannot be undone.", group.name or EllesmereUI.L("this group")),
             confirmText = "Delete",
             onConfirm = function()
                 Module():DeleteGroup(group.id)

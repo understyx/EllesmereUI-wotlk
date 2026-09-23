@@ -57,13 +57,13 @@ local function ClassName(addon, classID)
 end
 
 local function AssignmentControlReason(addon, paladinName)
-    if paladinName == addon.player then return "Your assignments" end
+    if paladinName == addon.player then return EllesmereUI.L("Your assignments") end
     if IsPartyLeader() or IsRaidLeader() or IsRaidOfficer() then
-        return "Leader/assistant control"
+        return EllesmereUI.L("Leader/assistant control")
     end
     local paladin = addon:GetRoster()[paladinName]
-    if paladin and paladin.freeassign == true then return "Free assignment enabled" end
-    return "Read only"
+    if paladin and paladin.freeassign == true then return EllesmereUI.L("Free assignment enabled") end
+    return EllesmereUI.L("Read only")
 end
 
 local function ShowAssignmentTooltip(cell)
@@ -72,7 +72,7 @@ local function ShowAssignmentTooltip(cell)
     local assignments = addon:GetAssignments()
     local blessingID = assignments and assignments[cell.paladinName]
                        and assignments[cell.paladinName][cell.classID] or 0
-    local blessingName = blessingID > 0 and addon.Spells[blessingID] or "None"
+    local blessingName = blessingID > 0 and addon.Spells[blessingID] or EllesmereUI.L("None")
     local canControl = addon:CanControl(cell.paladinName)
 
     GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
@@ -82,12 +82,12 @@ local function ShowAssignmentTooltip(cell)
     GameTooltip:AddLine(AssignmentControlReason(addon, cell.paladinName),
         canControl and 0.35 or 1, canControl and 1 or 0.35, 0.35, true)
     if InCombatLockdown and InCombatLockdown() then
-        GameTooltip:AddLine("Assignments cannot be changed in combat.", 1, 0.35, 0.35, true)
+        GameTooltip:AddLine(EllesmereUI.L("Assignments cannot be changed in combat."), 1, 0.35, 0.35, true)
     elseif canControl then
-        GameTooltip:AddLine("Scroll to change. Shift + scroll changes the entire row.", 0.72, 0.72, 0.72, true)
-        GameTooltip:AddLine("Left-click advances; right-click clears.", 0.72, 0.72, 0.72, true)
+        GameTooltip:AddLine(EllesmereUI.L("Scroll to change. Shift + scroll changes the entire row."), 0.72, 0.72, 0.72, true)
+        GameTooltip:AddLine(EllesmereUI.L("Left-click advances; right-click clears."), 0.72, 0.72, 0.72, true)
     else
-        GameTooltip:AddLine("This row is editable by its Paladin, a group leader/assistant, or anyone when that Paladin enables Free Assignment.", 0.72, 0.72, 0.72, true)
+        GameTooltip:AddLine(EllesmereUI.L("This row is editable by its Paladin, a group leader/assistant, or anyone when that Paladin enables Free Assignment."), 0.72, 0.72, 0.72, true)
     end
     GameTooltip:Show()
 end
@@ -153,7 +153,7 @@ local function BuildAssignmentGrid(parent, addon, paladins, y)
 
     local paladinHeader = EllesmereUI.MakeFont(grid, 11, nil, 0.72, 0.72, 0.72, 1)
     PPx.Point(paladinHeader, "LEFT", grid, "TOPLEFT", 8, -headerHeight / 2)
-    paladinHeader:SetText("PALADIN")
+    paladinHeader:SetText(EllesmereUI.L("PALADIN"))
 
     for classID = 1, PALLYPOWER_MAXCLASSES do
         local x = nameWidth + (classID - 1) * columnWidth
@@ -294,7 +294,7 @@ local function BuildAssignmentsPage(parent, yOffset)
 
     local hint = EllesmereUI.MakeFont(parent, 11, nil, 0.62, 0.62, 0.62, 1)
     hint:SetPoint("TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD or 24, y - 8)
-    hint:SetText("Scroll a class cell to change it. Hold Shift while scrolling to change the entire Paladin row.")
+    hint:SetText(EllesmereUI.L("Scroll a class cell to change it. Hold Shift while scrolling to change the entire Paladin row."))
     y = y - 34
 
     y = y - BuildAssignmentGrid(parent, addon, paladins, y)
