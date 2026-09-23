@@ -406,6 +406,91 @@ function WSkin:CreateRetailPageSurface(pane, top, bottom, inset)
 	return surface
 end
 
+-- Shared outer shell for the older 3.3.5 Blizzard panels.  A number of the
+-- original skins only replaced Blizzard's artwork with an ElvUI-style black
+-- rectangle; using the same shell here as the newer Character, Inspect, LFG,
+-- and Achievement work keeps every window in one visual family.
+function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, options)
+	if not frame or not frame.CreateTexture then return end
+	options = options or {}
+	local state = RetailState(frame)
+
+	if frame.SetBackdrop then frame:SetBackdrop(nil) end
+	if not state.windowBackground then
+		local background = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+		background:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
+		background:SetAllPoints(frame)
+		state.windowBackground = background
+
+		local overlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
+		overlay:SetTexture(0, 0, 0, 0.62)
+		overlay:SetAllPoints(frame)
+		state.windowOverlay = overlay
+
+		local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
+		topBar:SetTexture(0, 0, 0, 0.50)
+		topBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+		topBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+		topBar:SetHeight(25)
+		state.windowTopBar = topBar
+
+		-- The atlas is a square sheet containing the 561x433 window crop in its
+		-- upper-right three quarters.  Cover-fit it without stretching when a
+		-- native window changes size (the world map does this frequently).
+		local baseLeft, baseRight, baseTop, baseBottom = 0.25, 1, 0, 0.75
+		local baseWidth, baseHeight = baseRight - baseLeft, baseBottom - baseTop
+		local imageAspect = 561 / 433
+		local function UpdateTexCoords()
+			local width, height = frame:GetSize()
+			if not width or not height or width == 0 or height == 0 then return end
+			local frameAspect = width / height
+			if frameAspect > imageAspect then
+				local visibleHeight = baseHeight * (imageAspect / frameAspect)
+				local trim = (baseHeight - visibleHeight) / 2
+				background:SetTexCoord(baseLeft, baseRight, baseTop + trim, baseBottom - trim)
+			else
+				local visibleWidth = baseWidth * (frameAspect / imageAspect)
+				local trim = (baseWidth - visibleWidth) / 2
+				background:SetTexCoord(baseLeft + trim, baseRight - trim, baseTop, baseBottom)
+			end
+		end
+		state.updateWindowTexCoords = UpdateTexCoords
+		if hooksecurefunc then
+			hooksecurefunc(frame, "SetSize", UpdateTexCoords)
+			hooksecurefunc(frame, "SetWidth", UpdateTexCoords)
+			hooksecurefunc(frame, "SetHeight", UpdateTexCoords)
+		end
+		UpdateTexCoords()
+
+		local pixel = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
+		if pixel and pixel.CreateBorder then
+			pixel.CreateBorder(frame, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
+		end
+	end
+
+	state.windowBackground:Show()
+	state.windowOverlay:Show()
+	state.windowTopBar:Show()
+
+	if options.content ~= false then
+		self:CreateRetailPageSurface(
+			frame,
+			options.contentTop or WSkin.Retail.geometry.headerHeight,
+			options.contentBottom or WSkin.Retail.geometry.footerHeight,
+			options.contentInset or WSkin.Retail.geometry.bodyInset
+		)
+	end
+	self:SetRetailPageTitle(frame, title, titleRegion)
+	if closeButton then
+		self:HandleCloseButton(closeButton)
+		closeButton:ClearAllPoints()
+		closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -3)
+		closeButton:SetSize(24, 24)
+	end
+	state.windowShell = true
+	return state
+end
+
 function WSkin:SetRetailPageTitle(frame, title, titleRegion)
 	if not frame then return end
 	titleRegion = titleRegion or frame.TitleText

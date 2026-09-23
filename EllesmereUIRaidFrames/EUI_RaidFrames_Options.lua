@@ -6213,6 +6213,12 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local function ParseSpellSet(text)
                 local set = {}
+                -- Preserve removals from the built-in ElvUI-WotLK list across
+                -- reloads. NewDB only fills missing defaults, so explicit false
+                -- values suppress entries omitted in this complete-set editor.
+                for id in pairs(ns.DEFAULT_RAID_DEBUFF_WHITELIST or {}) do
+                    set[id] = false
+                end
                 for token in tostring(text or ""):gmatch("%d+") do
                     local id = tonumber(token)
                     if id and id > 0 then set[id] = true end

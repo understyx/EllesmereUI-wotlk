@@ -429,6 +429,121 @@ ns._COMBAT_CLASS_COORDS = {
 -------------------------------------------------------------------------------
 --  Default settings
 -------------------------------------------------------------------------------
+-- ElvUI-WotLK's RaidDebuffs whitelist, converted from spell-name keys to spell
+-- IDs because EllesmereUI's aura path matches IDs directly. Keep this on ns so
+-- the options editor can record explicit false values when a user removes a
+-- default entry (otherwise the default merger would restore it on reload).
+-- Source: ElvUI-WotLK/ElvUI, ElvUI/Settings/Filters/UnitFrame.lua
+-- Commit: 58ea24f7979740221389ce09685eb445723a6346
+ns.DEFAULT_RAID_DEBUFF_WHITELIST = {
+    -- Naxxramas
+    [54022] = true, -- Locust Swarm
+    [54098] = true, -- Poison Bolt Volley
+    [54121] = true, -- Necrotic Poison
+    [54125] = true, -- Web Spray
+    [29306] = true, -- Infected Wound
+    [54378] = true, -- Mortal Wound
+    [27825] = true, -- Shadow Mark
+    [28679] = true, -- Harvest Soul
+    [55645] = true, -- Death Plague
+    [28832] = true, -- Mark of Korth'azz
+    [28833] = true, -- Mark of Blaumeux
+    [28834] = true, -- Mark of Rivendare
+    [28835] = true, -- Mark of Zeliek
+    [57369] = true, -- Unholy Shadow
+    [29212] = true, -- Cripple
+    [29213] = true, -- Curse of the Plaguebringer
+    [29214] = true, -- Wrath of the Plaguebringer
+    [29310] = true, -- Spell Disruption
+    [29998] = true, -- Decrepit Fever
+    [55052] = true, -- Inevitable Doom
+    [55053] = true, -- Deathbloom
+    [28522] = true, -- Icebolt
+    [55665] = true, -- Life Drain
+    [55699] = true, -- Chill
+    [28410] = true, -- Chains of Kel'Thuzad
+    [27819] = true, -- Detonate Mana
+    [27808] = true, -- Frost Blast
+
+    -- Ulduar
+    [62717] = true, -- Slag Pot
+    [63024] = true, -- Gravity Bomb
+    [63018] = true, -- Light Bomb
+    [61903] = true, -- Fusion Punch
+    [61912] = true, -- Static Disruption
+    [64290] = true, -- Stone Grip
+    [62130] = true, -- Unbalancing Strike
+    [63134] = true, -- Sara's Blessing
+    [64157] = true, -- Curse of Doom
+    [64412] = true, -- Phase Punch
+
+    -- Trial of the Crusader
+    [66331] = true, -- Impale
+    [66406] = true, -- Snowbolled!
+    [66869] = true, -- Burning Bile
+    [67618] = true, -- Paralytic Toxin
+    [66689] = true, -- Arctic Breathe
+    [66237] = true, -- Incinerate Flesh
+    [66197] = true, -- Legion Flame
+    [65812] = true, -- Unstable Affliction
+    [67309] = true, -- Twin Spike
+    [66013] = true, -- Penetrating Cold
+    [67574] = true, -- Pursued by Anub'arak
+    [67847] = true, -- Expose Weakness
+
+    -- Icecrown Citadel
+    [69065] = true, -- Impaled
+    [72109] = true, -- Death and Decay
+    [71289] = true, -- Dominate Mind
+    [71237] = true, -- Curse of Torpor
+    [72293] = true, -- Mark of the Fallen Champion
+    [72442] = true, -- Boiling Blood
+    [72449] = true, -- Rune of Blood
+    [72769] = true, -- Scent of Blood
+    [71218] = true, -- Vile Gas
+    [72219] = true, -- Gastric Bloat
+    [69279] = true, -- Gas Spore
+    [71224] = true, -- Mutated Infection
+    [71278] = true, -- Choking Gas Bomb
+    [70215] = true, -- Gaseous Bloat
+    [72549] = true, -- Malleable Goo
+    [70953] = true, -- Plague Sickness
+    [72856] = true, -- Unbound Plague
+    [70447] = true, -- Volatile Ooze Adhesive
+    [72796] = true, -- Glittering Sparks
+    [71822] = true, -- Shadow Resonance
+    [72265] = true, -- Delirious Slash
+    [71473] = true, -- Essence of the Blood Queen
+    [71474] = true, -- Frenzied Bloodthirst
+    [71340] = true, -- Pact of the Darkfallen
+    [71265] = true, -- Swarming Shadows
+    [70923] = true, -- Uncontrollable Frenzy
+    [71733] = true, -- Acid Burst
+    [71738] = true, -- Corrosion
+    [70873] = true, -- Emerald Vigor
+    [71283] = true, -- Gut Spray
+    [70106] = true, -- Chilled to the Bone
+    [70126] = true, -- Frost Beacon
+    [70157] = true, -- Ice Tomb
+    [69766] = true, -- Instability
+    [69762] = true, -- Unchained Magic
+    [72762] = true, -- Defile
+    [70541] = true, -- Infest
+    [70337] = true, -- Necrotic Plague
+    [72149] = true, -- Shockwave
+    [69409] = true, -- Soul Reaper
+    [69242] = true, -- Soul Shriek
+
+    -- The Ruby Sanctum
+    [75887] = true, -- Blazing Aura
+    [74502] = true, -- Enervating Brand
+    [74367] = true, -- Cleave Armor
+    [74562] = true, -- Fiery Combustion
+    [74567] = true, -- Mark of Combustion
+    [74792] = true, -- Soul Consumption
+    [74795] = true, -- Mark of Consumption
+}
+
 local defaults = {
     profile = {
         -- Size & layout
@@ -720,7 +835,7 @@ local defaults = {
         -- sets provide an explicit, allocation-free replacement: whitelist
         -- entries are force-shown (and prioritized), blacklist entries are
         -- always hidden. In "raid" mode the whitelist is the complete source.
-        raidDebuffWhitelist = {},
+        raidDebuffWhitelist = ns.IS_WRATH and ns.DEFAULT_RAID_DEBUFF_WHITELIST or {},
         raidDebuffBlacklist = {},
         -- CC Debuff Glow: glow displayed debuff icons whose aura is crowd control
         -- (Blizzard CROWD_CONTROL aura filter). Mirrors CDM's Buff Glow control.

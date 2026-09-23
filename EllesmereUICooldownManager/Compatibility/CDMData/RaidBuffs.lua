@@ -67,7 +67,14 @@ local function Register(providerClass, key, spellID, auraSpellIDs, recipients, o
         return playerClass and relevantClasses[playerClass] == true
     end
 
-    local tags = { external = true }
+    local section = options.section or "external"
+    -- `externalBuff` below describes where the picker sourced the spell: it
+    -- was cast on the player by somebody else. The aura-filter `external`
+    -- tag is intentionally narrower and marks targeted externals only. Raid
+    -- buffs and routine healing buffs must not enter the raid-frame external
+    -- row merely because another player supplied them.
+    local tags = {}
+    if section == "external" then tags.external = true end
     for tag, enabled in pairs(options.auraTags or {}) do
         if enabled then tags[tag] = true end
     end
@@ -94,7 +101,7 @@ local function Register(providerClass, key, spellID, auraSpellIDs, recipients, o
         externalBuff = true,
         providerClass = providerClass,
         recipientClasses = relevantClasses,
-        buffCatalogSection = options.section or "external",
+        buffCatalogSection = section,
 
         -- External spells are not in the recipient's spellbook. Availability
         -- means "relevant to this class", not "known by this character".
@@ -143,7 +150,7 @@ Register("PALADIN", "blessing_of_wisdom", 48938,
 
 Register("PALADIN", "blessing_of_sanctuary", 25899,
     { 20911, 25899 }, TANK,
-    { section = "raid", excludeProvider = true, auraTags = { defensive = true } })
+    { section = "raid", excludeProvider = true })
 
 Register("WARRIOR", "battle_shout", 47436,
     { 47436, 27578, 6673 }, PHYSICAL,
@@ -151,7 +158,7 @@ Register("WARRIOR", "battle_shout", 47436,
 
 Register("WARRIOR", "commanding_shout", 47440,
     { 47440, 47439, 469 }, ALL,
-    { section = "raid", excludeProvider = true, auraTags = { defensive = true } })
+    { section = "raid", excludeProvider = true })
 
 Register("DEATHKNIGHT", "horn_of_winter", 57623,
     { 57623, 57330, 58643, 8075 }, PHYSICAL,
@@ -159,7 +166,7 @@ Register("DEATHKNIGHT", "horn_of_winter", 57623,
 
 Register("WARLOCK", "blood_pact", 47982,
     { 47982, 6307 }, ALL,
-    { section = "raid", auraTags = { defensive = true } })
+    { section = "raid" })
 
 Register("SHAMAN", "mana_spring", 58774,
     { 58774, 5677 }, MANA,
@@ -202,7 +209,7 @@ Register("WARLOCK", "fel_intelligence", 57567,
     { section = "raid" })
 Register("PRIEST", "renewed_hope", 63944,
     { 63944, 68066 }, ALL,
-    { section = "raid", auraTags = { defensive = true } })
+    { section = "raid" })
 Register(nil, "healing_received", 65139,
     { 34123, 65139 }, ALL,
     { section = "raid" })
@@ -212,7 +219,7 @@ Register(nil, "healing_received", 65139,
 -- recipient catalogue omits the duplicate only for that provider class.
 Register("PALADIN", "devotion_aura", 48942,
     { 465, 10290, 10291, 10292, 10293, 27149, 48941, 48942, 58753 }, ALL,
-    { section = "raid", excludeProvider = true, auraTags = { defensive = true } })
+    { section = "raid", excludeProvider = true })
 Register("PALADIN", "retribution_aura", 54043,
     { 7294, 10298, 10299, 10300, 10301, 27150, 54043 }, TANK,
     { section = "raid", excludeProvider = true })
@@ -221,13 +228,13 @@ Register("PALADIN", "concentration_aura", 19746,
     { section = "raid", excludeProvider = true })
 Register("PALADIN", "fire_resistance_aura", 48947,
     { 19891, 19899, 19900, 27153, 48947, 58739 }, ALL,
-    { section = "raid", excludeProvider = true, auraTags = { defensive = true } })
+    { section = "raid", excludeProvider = true })
 Register("PALADIN", "frost_resistance_aura", 48945,
     { 19888, 19897, 19898, 27152, 48945, 58745 }, ALL,
-    { section = "raid", excludeProvider = true, auraTags = { defensive = true } })
+    { section = "raid", excludeProvider = true })
 Register("PALADIN", "shadow_resistance_aura", 48943,
     { 19876, 19895, 19896, 27151, 48943 }, ALL,
-    { section = "raid", excludeProvider = true, auraTags = { defensive = true } })
+    { section = "raid", excludeProvider = true })
 Register(nil, "nature_resistance", 49071,
     { 20043, 20190, 27045, 49071, 58749 }, ALL,
     { section = "raid", auraTags = { defensive = true } })
@@ -316,7 +323,7 @@ Register("DRUID", "wild_growth", 53251, { 53251, 48438 }, ALL,
     { section = "healing" })
 
 Register("PRIEST", "power_word_shield", 48066, { 48066, 17 }, ALL,
-    { section = "healing", auraTags = { defensive = true } })
+    { section = "healing" })
 Register("PRIEST", "divine_aegis", 47753, { 47753 }, ALL,
     { section = "healing", auraTags = { defensive = true } })
 Register("PRIEST", "prayer_of_mending", 48113,
@@ -334,4 +341,4 @@ Register("SHAMAN", "riptide", 61301, { 61301, 61295 }, ALL,
 Register("SHAMAN", "earthliving", 52000, { 52000, 51945 }, ALL,
     { section = "healing" })
 Register("SHAMAN", "ancestral_fortitude", 16237, { 16237 }, ALL,
-    { section = "healing", auraTags = { defensive = true } })
+    { section = "healing" })

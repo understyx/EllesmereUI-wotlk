@@ -8,6 +8,151 @@ local ADDON_NAME, ns = ...
 local WSkin = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
 local skinned = false
 
+local MAX_GLYPH_SOCKETS = 6
+local LGT = LibStub and LibStub:GetLibrary("LibGroupTalents-1.0", true)
+local GetInspectItemsFrame
+local glyphUI = {
+    active = false,
+    hasData = false,
+    rows = {},
+}
+
+local function GetInspectGlyphUnit()
+    local frame = _G.InspectFrame
+    local unit = frame and frame.unit
+    if not unit or not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
+    return unit
+end
+
+local function CollectInspectGlyphs(unit)
+    if not LGT or not unit then return nil end
+
+    local spellIDs = { LGT:GetUnitGlyphs(unit) }
+    local glyphs = {}
+    for socket = 1, MAX_GLYPH_SOCKETS do
+        local spellID = spellIDs[socket]
+        if type(spellID) == "number" and spellID > 0 then
+            local spellName, _, icon = GetSpellInfo(spellID)
+            glyphs[#glyphs + 1] = {
+                spellID = spellID,
+                name = spellName or ("Spell ID " .. tostring(spellID)),
+                icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark",
+            }
+        end
+    end
+    return glyphs
+end
+
+local function HideNativeInspectPages()
+    local paperDoll = GetInspectItemsFrame and GetInspectItemsFrame()
+    if paperDoll then paperDoll:Hide() end
+    if _G.InspectPVPFrame then _G.InspectPVPFrame:Hide() end
+    if _G.InspectTalentFrame then _G.InspectTalentFrame:Hide() end
+end
+
+local function RestoreSelectedNativeInspectPage()
+    local frame = _G.InspectFrame
+    if not frame then return end
+    local selected = frame.selectedTab or 1
+    local paperDoll = GetInspectItemsFrame and GetInspectItemsFrame()
+    if selected == 1 and paperDoll then paperDoll:Show() end
+    if selected == 2 and _G.InspectPVPFrame then _G.InspectPVPFrame:Show() end
+    if selected == 3 and _G.InspectTalentFrame then _G.InspectTalentFrame:Show() end
+
+    local selectedTab = _G["InspectFrameTab" .. tostring(selected)]
+    if selectedTab and selectedTab.Disable then selectedTab:Disable() end
+end
+
+local function ActivateInspectGlyphPage()
+    local frame = _G.InspectFrame
+    if not frame or not glyphUI.hasData or not glyphUI.panel then return end
+
+    glyphUI.active = true
+    -- The custom page does not change Blizzard's selectedTab value. Re-enable
+    -- the previously selected native tab so it remains clickable as the way
+    -- back from Glyphs even when Blizzard had disabled it as "selected".
+    local selectedTab = _G["InspectFrameTab" .. tostring(frame.selectedTab or 1)]
+    if selectedTab and selectedTab.Enable then selectedTab:Enable() end
+    HideNativeInspectPages()
+    glyphUI.panel:Show()
+
+    if glyphUI.updateTabs then glyphUI.updateTabs() end
+end
+
+local function ReturnToInspectEquipment()
+    glyphUI.active = false
+    if glyphUI.panel then glyphUI.panel:Hide() end
+
+    local tab = _G.InspectFrameTab1
+    if tab and tab.Click then
+        tab:Click()
+        return
+    end
+
+    local frame = _G.InspectFrame
+    if frame then frame.selectedTab = 1 end
+    local paperDoll = GetInspectItemsFrame and GetInspectItemsFrame()
+    if paperDoll then paperDoll:Show() end
+    if glyphUI.updateTabs then glyphUI.updateTabs() end
+end
+
+local function RefreshInspectGlyphs(requestData)
+    local frame = _G.InspectFrame
+    if not frame or not frame:IsShown()
+       or (EllesmereUIDB and EllesmereUIDB.themedInspectSheet == false)
+       or (EllesmereUI and EllesmereUI.BlizzWindowSkinsKilled and EllesmereUI.BlizzWindowSkinsKilled()) then
+        if glyphUI.active then RestoreSelectedNativeInspectPage() end
+        glyphUI.hasData = false
+        if glyphUI.tab then glyphUI.tab:Hide() end
+        if glyphUI.panel then glyphUI.panel:Hide() end
+        glyphUI.active = false
+        return
+    end
+
+    local unit = GetInspectGlyphUnit()
+    local glyphs = CollectInspectGlyphs(unit) or {}
+    if requestData and #glyphs == 0 and LGT and unit then
+        -- LibGroupTalents supplies glyphs through addon communication. Asking
+        -- for talents also requests glyphs from compatible group members.
+        LGT:GetUnitTalents(unit, true)
+        glyphs = CollectInspectGlyphs(unit) or glyphs
+    end
+
+    glyphUI.hasData = #glyphs > 0
+
+    if glyphUI.tab then
+        if glyphUI.hasData then glyphUI.tab:Show() else glyphUI.tab:Hide() end
+    end
+
+    for i = 1, MAX_GLYPH_SOCKETS do
+        local row = glyphUI.rows[i]
+        local glyph = glyphs[i]
+        if row and glyph then
+            row.spellID = glyph.spellID
+            row.icon:SetTexture(glyph.icon)
+            row.name:SetText(glyph.name)
+            row:Show()
+        elseif row then
+            row.spellID = nil
+            row:Hide()
+        end
+    end
+
+    if not glyphUI.hasData then
+        if glyphUI.active then
+            ReturnToInspectEquipment()
+        elseif glyphUI.panel then
+            glyphUI.panel:Hide()
+        end
+    elseif glyphUI.active and glyphUI.panel then
+        HideNativeInspectPages()
+        glyphUI.panel:Show()
+    end
+
+    if glyphUI.layoutTabs then glyphUI.layoutTabs() end
+    if glyphUI.updateTabs then glyphUI.updateTabs() end
+end
+
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
 local function GetFFD(frame)
@@ -66,7 +211,7 @@ local slotGridMap = {
 -- 3.3.5 Inspect UI uses InspectPaperDollFrame itself for the same job.
 -- Keeping that difference behind one helper lets the themed layout and all
 -- visibility refreshes work on both versions.
-local function GetInspectItemsFrame()
+GetInspectItemsFrame = function()
     return _G.InspectPaperDollItemsFrame or _G.InspectPaperDollFrame
 end
 
@@ -1271,7 +1416,103 @@ local function SkinInspectSheet()
         end
     end
 
-    -- Style Tabs (InspectFrameTab1, 2, 3)
+    -- Glyphs are an inspect page rather than a detached addon window. The tab
+    -- is hidden unless LibGroupTalents has actual glyph spell IDs for this
+    -- character, so an unavailable-data placeholder never occupies the UI.
+    if not glyphUI.panel then
+        local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+        local panel = EllesmereUI.SafeCreateFrame("Frame", "EUI_InspectGlyphFrame", frame)
+        panel:SetAllPoints(frame)
+        panel:SetFrameLevel(frame:GetFrameLevel() + 2)
+        panel:Hide()
+        glyphUI.panel = panel
+
+        local surface = EllesmereUI.SafeCreateFrame("Frame", nil, panel)
+        surface:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -70)
+        surface:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 39)
+        surface:SetFrameLevel(panel:GetFrameLevel() + 1)
+        if WSkin and WSkin.ApplyRetailSurface then
+            WSkin:ApplyRetailSurface(surface, "card", 0.025, 0.035, 0.04, 0.78)
+        end
+        glyphUI.surface = surface
+
+        local heading = surface:CreateFontString(nil, "OVERLAY")
+        heading:SetFont(fontPath, 13, "")
+        heading:SetTextColor(1, 1, 1, 0.95)
+        heading:SetPoint("TOP", surface, "TOP", 0, -16)
+        heading:SetText("Glyphs")
+
+        local note = surface:CreateFontString(nil, "OVERLAY")
+        note:SetFont(fontPath, 10, "")
+        note:SetTextColor(1, 1, 1, 0.48)
+        note:SetPoint("TOP", heading, "BOTTOM", 0, -5)
+        note:SetText("Shared glyph data for this character")
+
+        for i = 1, MAX_GLYPH_SOCKETS do
+            local row = EllesmereUI.SafeCreateFrame("Button", nil, surface)
+            row:SetSize(184, 70)
+            row:SetPoint("TOPLEFT", surface, "TOPLEFT",
+                (i % 2 == 1) and 10 or 204,
+                -62 - (math.floor((i - 1) / 2) * 76))
+            row:SetFrameLevel(surface:GetFrameLevel() + 2)
+            if WSkin and WSkin.ApplyRetailSurface then
+                WSkin:ApplyRetailSurface(row, "card", 0.03, 0.043, 0.048, 0.78)
+            end
+
+            local iconFrame = EllesmereUI.SafeCreateFrame("Frame", nil, row)
+            iconFrame:SetSize(40, 40)
+            iconFrame:SetPoint("LEFT", row, "LEFT", 10, 0)
+            iconFrame:SetFrameLevel(row:GetFrameLevel() + 1)
+            local icon = iconFrame:CreateTexture(nil, "ARTWORK")
+            icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 2, -2)
+            icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -2, 2)
+            icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            if EllesmereUI.PanelPP then
+                EllesmereUI.PanelPP.CreateBorder(iconFrame, 0.32, 0.32, 0.32, 1, 1, "OVERLAY", 7)
+            end
+
+            local name = row:CreateFontString(nil, "OVERLAY")
+            name:SetFont(fontPath, 10, "")
+            name:SetTextColor(1, 1, 1, 0.88)
+            name:SetJustifyH("LEFT")
+            name:SetJustifyV("MIDDLE")
+            name:SetPoint("TOPLEFT", iconFrame, "TOPRIGHT", 9, 3)
+            name:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -7, 7)
+
+            row.icon = icon
+            row.name = name
+            row:SetScript("OnEnter", function(self)
+                if not self.spellID then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                if GameTooltip.SetSpellByID then
+                    GameTooltip:SetSpellByID(self.spellID)
+                else
+                    GameTooltip:SetHyperlink("spell:" .. tostring(self.spellID))
+                end
+                GameTooltip:Show()
+            end)
+            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            row:Hide()
+            glyphUI.rows[i] = row
+        end
+    end
+
+    if not glyphUI.tab then
+        local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+        local tab = EllesmereUI.SafeCreateFrame("Button", "EUI_InspectFrameGlyphTab", frame)
+        tab:SetSize(108, 25)
+        tab:SetFrameLevel(frame:GetFrameLevel() + 20)
+        local label = tab:CreateFontString(nil, "OVERLAY")
+        label:SetFont(fontPath, 10, "")
+        label:SetPoint("CENTER")
+        tab:SetFontString(label)
+        tab:SetText("Glyphs")
+        tab:SetScript("OnClick", ActivateInspectGlyphPage)
+        tab:Hide()
+        glyphUI.tab = tab
+    end
+
+    -- Style Tabs (InspectFrameTab1, 2, 3 + conditional Glyphs)
     local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
     local inspTabs = {}
     for i = 1, 3 do
@@ -1281,20 +1522,40 @@ local function SkinInspectSheet()
             if S and S.StyleRetailTab then S:StyleRetailTab(tab) end
         end
     end
+    inspTabs[#inspTabs + 1] = glyphUI.tab
+    if S and S.StyleRetailTab then S:StyleRetailTab(glyphUI.tab) end
     if ns.WSkin and ns.WSkin.NormalizeTabRow then ns.WSkin.NormalizeTabRow(inspTabs) end
 
-    if isLegacyInspect and #inspTabs > 0 then
-        if S and S.LayoutRetailTabRow then S:LayoutRetailTabRow(inspTabs, frame, 144) end
+    local function LayoutInspectTabs()
+        if not isLegacyInspect or not S or not S.LayoutRetailTabRow then return end
+        local visibleCount = 0
+        for _, tab in ipairs(inspTabs) do
+            if tab and tab:IsShown() then visibleCount = visibleCount + 1 end
+        end
+        if visibleCount > 0 then
+            S:LayoutRetailTabRow(inspTabs, frame, INSPECT_WIDTH / visibleCount)
+        end
     end
+    glyphUI.layoutTabs = LayoutInspectTabs
+    LayoutInspectTabs()
 
     -- Update tab visuals on show
     local function UpdateTabVisuals()
-        local isTab1 = (frame.selectedTab or 1) == 1
-        local isTab2 = (frame.selectedTab or 1) == 2
-        local isTab3 = (frame.selectedTab or 1) == 3
+        local isGlyphs = glyphUI.active and glyphUI.hasData
+        local isTab1 = not isGlyphs and (frame.selectedTab or 1) == 1
+        local isTab2 = not isGlyphs and (frame.selectedTab or 1) == 2
+        local isTab3 = not isGlyphs and (frame.selectedTab or 1) == 3
 
         if isTab2 then SkinInspectPVP() end
         if isTab3 then SkinInspectTalents() end
+        if glyphUI.panel then
+            if isGlyphs then
+                HideNativeInspectPages()
+                glyphUI.panel:Show()
+            else
+                glyphUI.panel:Hide()
+            end
+        end
 
         -- Show model background only on Tab 1
         if GetFFD(frame).modelBg then
@@ -1318,11 +1579,15 @@ local function SkinInspectSheet()
         for i = 1, 3 do
             local tab = _G["InspectFrameTab" .. i]
             if tab then
-                local isActive = (frame.selectedTab or 1) == i
+                local isActive = not isGlyphs and (frame.selectedTab or 1) == i
                 if S and S.UpdateRetailTab then S:UpdateRetailTab(tab, isActive) end
             end
         end
+        if glyphUI.tab and S and S.UpdateRetailTab then
+            S:UpdateRetailTab(glyphUI.tab, isGlyphs)
+        end
     end
+    glyphUI.updateTabs = UpdateTabVisuals
 
     -- Hook to update tabs when they change (once only)
     if frame.HookScript and not GetFFD(frame)._tabHooked then
@@ -1335,6 +1600,8 @@ local function SkinInspectSheet()
             local tab = _G["InspectFrameTab" .. i]
             if tab then
                 tab:HookScript("OnClick", function()
+                    glyphUI.active = false
+                    if glyphUI.panel then glyphUI.panel:Hide() end
                     UpdateTabVisuals()
                     local isTab1 = (frame.selectedTab or 1) == 1
                     ApplyTabVisibility(isTab1)
@@ -1343,6 +1610,7 @@ local function SkinInspectSheet()
         end
     end
 
+    RefreshInspectGlyphs(true)
     UpdateTabVisuals()
 
     -- Scale fully owned by Blizzard (SetScale on secure panels taints
@@ -1543,7 +1811,7 @@ local function ApplyThemedInspectSheet()
     if InspectFrame then
         SkinInspectSheet()
         -- Show labels on Tab 1
-        ApplyTabVisibility((InspectFrame.selectedTab or 1) == 1)
+        ApplyTabVisibility(not glyphUI.active and (InspectFrame.selectedTab or 1) == 1)
     end
 end
 
@@ -1603,6 +1871,9 @@ if EllesmereUI then
 
         InspectFrame:HookScript("OnHide", function()
             skinned = false
+            if glyphUI.active then RestoreSelectedNativeInspectPage() end
+            glyphUI.active = false
+            if glyphUI.panel then glyphUI.panel:Hide() end
             RefreshDock()
         end)
 
@@ -1726,6 +1997,38 @@ if EllesmereUI then
             if EllesmereUI._refreshInspectAverageItemLevelVisibility then
                 EllesmereUI._refreshInspectAverageItemLevelVisibility()
             end
+        end
+        RefreshInspectGlyphs(true)
+    end)
+
+    -- Refresh immediately when a compatible group member shares glyph data.
+    -- A roster/target refresh also retries the library request, covering the
+    -- case where the inspect window opened before version discovery completed.
+    if LGT then
+        local glyphCallbacks = {}
+        function glyphCallbacks:GlyphUpdate(_, guid)
+            local unit = GetInspectGlyphUnit()
+            if unit and (not guid or UnitGUID(unit) == guid) then
+                RefreshInspectGlyphs(false)
+            end
+        end
+        function glyphCallbacks:TalentUpdate(_, guid)
+            local unit = GetInspectGlyphUnit()
+            if unit and (not guid or UnitGUID(unit) == guid) then
+                RefreshInspectGlyphs(true)
+            end
+        end
+        LGT.RegisterCallback(glyphCallbacks, "LibGroupTalents_GlyphUpdate", "GlyphUpdate")
+        LGT.RegisterCallback(glyphCallbacks, "LibGroupTalents_Update", "TalentUpdate")
+    end
+
+    local glyphRefreshEvents = EllesmereUI.SafeCreateFrame("Frame")
+    glyphRefreshEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
+    glyphRefreshEvents:RegisterEvent("PARTY_MEMBERS_CHANGED")
+    glyphRefreshEvents:RegisterEvent("RAID_ROSTER_UPDATE")
+    glyphRefreshEvents:SetScript("OnEvent", function()
+        if InspectFrame and InspectFrame:IsShown() then
+            RefreshInspectGlyphs(true)
         end
     end)
 

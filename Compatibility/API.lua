@@ -1534,6 +1534,19 @@ if not C_Item then
     end
 end
 
+-- GetItemNameByID is a retail helper that is not present on 3.3.5.  Keep the
+-- lookup cache-aware by delegating to GetItemInfo: it returns the localized
+-- item name when the data is available and nil while an uncached item loads.
+-- Define this outside the C_Item creation block as some legacy clients expose
+-- a partial C_Item table of their own.
+if C_Item and not C_Item.GetItemNameByID then
+    C_Item.GetItemNameByID = function(itemID)
+        if not itemID then return nil end
+        local getItemInfo = C_Item.GetItemInfo or GetItemInfo
+        return getItemInfo and getItemInfo(itemID) or nil
+    end
+end
+
 -- Tooltip Scanner for isBound (Soulbound) checking
 local tooltipScanner
 local function IsItemBound(bag, slot)

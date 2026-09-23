@@ -1432,7 +1432,7 @@ end
 --- CATALOG (viewer pool incl. inactive + diversions) only changes on rebuilds
 --- and repopulate, not when buffs merely appear/disappear -- so combat
 --- reanchors skip the full enumeration/sorts. Set true wherever composition
---- can change (FullCDMRebuild wrapper, RepopulateFromBlizzard); an unreconciled
+--- can change (FullCDMRebuild wrapper, RestoreDefaultSpells); an unreconciled
 --- newcomer still renders correctly via the layoutIndex spillover fallback
 --- until the next rebuild. Starts true for the login seed pass.
 ns._cdmBuffOrderDirty = true
@@ -2123,6 +2123,23 @@ function ns.RemoveTrackedSpell(barKey, idx)
     return true
 end
 
+--- Remove every spell entry from one bar while preserving the bar's layout,
+--- styling and position. Each entry follows the normal picker removal path so
+--- built-in cooldowns are hidden in the ghost bar and hosted/custom entry
+--- bookkeeping is cleaned up exactly as if the icons were removed one by one.
+--- Returns the number of entries removed.
+function ns.ClearTrackedBar(barKey)
+    local sd = ns.GetBarSpellData(barKey)
+    local list = sd and sd.assignedSpells
+    if type(list) ~= "table" then return 0 end
+
+    local removed = #list
+    while #list > 0 do
+        ns.RemoveTrackedSpell(barKey, #list)
+    end
+    return removed
+end
+
 --- Replace a tracked spell at a given index with a new spellID
 function ns.ReplaceTrackedSpell(barKey, idx, newID)
     local sd = ns.GetBarSpellData(barKey)
@@ -2247,13 +2264,10 @@ function ns.RemoveCDMBar(key)
                 EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
             end
 
-            -- The definition is profile-wide, so the destination disappears
-            -- for every spec. Drop that now-unreachable content bucket from
-            -- every spec container as part of the same explicit deletion.
-            for _, container in pairs(ns.GetActiveSpecProfiles() or {}) do
-                if type(container) == "table" and container.barSpells then
-                    container.barSpells[key] = nil
-                end
+            -- Definition and contents belong only to the active spec.
+            local activeContainer = ns.GetActiveSpecContainer(false)
+            if activeContainer and activeContainer.barSpells then
+                activeContainer.barSpells[key] = nil
             end
 
             -- Unregister from unlock mode

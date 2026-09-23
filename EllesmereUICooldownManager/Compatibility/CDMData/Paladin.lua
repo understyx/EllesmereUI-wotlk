@@ -57,7 +57,6 @@ local AURA_TAGS = {
     ["paladin.hand_of_salvation"] = EXTERNAL,
     ["paladin.aura_mastery"] = DEFENSIVE,
     ["paladin.divine_sacrifice"] = DEFENSIVE,
-    ["paladin.holy_shield"] = DEFENSIVE,
     ["paladin.ardent_defender"] = DEFENSIVE,
     ["paladin.buff.divine_protection"] = DEFENSIVE,
     ["paladin.buff.divine_shield"] = DEFENSIVE,
@@ -1317,7 +1316,6 @@ Register({
     spellIDs = { 20925, 20927, 20928, 27179, 48951, 48952 },
     iconSpellID = 48952,
     trackingType = "cooldown",
-    auraTags = { defensive = true },
 })
 
 Register({

@@ -1994,9 +1994,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end)
 
-    -- Refresh the CDM options pages on spec change. Bar structure/layout is
-    -- profile-wide, but bar contents, Glows and Tracking Bars remain per-spec,
-    -- as do their page-local selections. The panel caches built pages, so after
+    -- Refresh the CDM options pages on spec change. Every CDM page is per-spec,
+    -- as are its page-local selections. The panel caches built pages, so after
     -- a spec swap the cache holds wrappers built for the PREVIOUS spec. A
     -- shared-profile spec swap never
     -- runs RefreshAllAddons (which is what clears the cache on a profile swap), so
@@ -4984,7 +4983,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Charge Hash Lines | Smooth Bars. The number and orientation of hash
         -- separators are resolved automatically from the tracked spell's max
-        -- charges. Smooth Bars remains profile-wide rather than per bar/spec.
+        -- charges. Smooth Bars is stored independently for each spec.
         local SMOOTH_ITEMS = {
             { key = "buffs",     label = "Buffs" },
             { key = "cooldowns", label = "Cooldowns" },
@@ -5691,8 +5690,45 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local durationPositionOrder = { "center", "top", "bottom", "left", "right" }
 
-    -- Track which bar is selected in the CDM Bars tab
+    -- Track which bar is selected in the CDM Bars tab.  The index is only a
+    -- cache for the active spec's bars array; the stable identity is the key.
+    -- Spec-owned layouts can have different array lengths/order, so carrying a
+    -- bare index across a spec switch could select __ghost_cd (iconSize=1).
+    -- That made the three add buttons appear on top of one another and exposed
+    -- the internal hidden-spell sink instead of a user-facing bar.
     local selectedCDMBarIndex = 1
+    local selectedCDMBarKey = "cooldowns"
+
+    local function NormalizeCDMBarSelection(bars)
+        if type(bars) ~= "table" or #bars == 0 then return nil, nil end
+
+        -- Follow the selected bar by key across per-spec arrays and reorders.
+        if selectedCDMBarKey then
+            for i, bar in ipairs(bars) do
+                if not bar.isGhostBar and bar.key == selectedCDMBarKey then
+                    selectedCDMBarIndex = i
+                    return i, bar
+                end
+            end
+        end
+
+        -- A bar that does not exist in the newly-active spec falls back to its
+        -- main Cooldowns bar, then to the first other user-facing bar.
+        local fallbackIndex, fallbackBar
+        for i, bar in ipairs(bars) do
+            if not bar.isGhostBar then
+                if not fallbackBar then fallbackIndex, fallbackBar = i, bar end
+                if bar.key == "cooldowns" then
+                    fallbackIndex, fallbackBar = i, bar
+                    break
+                end
+            end
+        end
+        if not fallbackBar then return nil, nil end
+        selectedCDMBarIndex = fallbackIndex
+        selectedCDMBarKey = fallbackBar.key
+        return fallbackIndex, fallbackBar
+    end
 
     -- Deep-link helper: select a CDM bar by key or barType (used by the What's
     -- New "Always Show Buffs" card preSelect to land on the native buff bar,
@@ -5704,8 +5740,9 @@ initFrame:SetScript("OnEvent", function(self)
         local bars = p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).bars
         if not bars then return end
         for bi, bb in ipairs(bars) do
-            if bb.key == keyOrType or bb.barType == keyOrType then
+            if not bb.isGhostBar and (bb.key == keyOrType or bb.barType == keyOrType) then
                 selectedCDMBarIndex = bi
+                selectedCDMBarKey = bb.key
                 return
             end
         end
@@ -5754,9 +5791,8 @@ initFrame:SetScript("OnEvent", function(self)
         local p = DB()
         if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return nil end
         local bars = ns.GetActiveCDMConfig(true).bars
-        if selectedCDMBarIndex < 1 then selectedCDMBarIndex = 1 end
-        if selectedCDMBarIndex > #bars then selectedCDMBarIndex = #bars end
-        return bars[selectedCDMBarIndex]
+        local _, bar = NormalizeCDMBarSelection(bars)
+        return bar
     end
 
     -- Active state preview on first icon
@@ -5945,7 +5981,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- Append any live-bar spells missing from assignedSpells so the
         -- preview always matches what the player sees on their CDM bars
-        -- (e.g. after re-talenting a spell post-repopulate).
+        -- (e.g. after re-talenting a spell after restoring defaults).
         --
         -- EXCEPTION: skip while an imported layout is still pending its first-load
         -- ghosting (_importGhostMode). The importer's tracked spells spill onto the
@@ -8535,8 +8571,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -----------------------------------------------------------
                     local AB = {}
                     AB.BarDefForProf = function(prof)
-                        local cfg = ns.GetActiveCDMConfig and ns.GetActiveCDMConfig(true)
-                        local bars = cfg and cfg.bars
+                        local bars = prof and prof.cdmBars and prof.cdmBars.bars
                         if not bars then return nil end
                         for _, candidate in ipairs(bars) do
                             if candidate.key == barKey then return candidate end
@@ -8708,7 +8743,6 @@ initFrame:SetScript("OnEvent", function(self)
                             if AB.CAS_KEYS[k] then touchesCas = true; break end
                         end
                         local count = 0
-                        local countedProfileTier = false
                         local CAS_FALSE_STRIPPED = {
                             cdStateEffect = true, thresholdSeconds = true,
                             thresholdDecimals = true, thresholdColorEnabled = true,
@@ -8726,11 +8760,10 @@ initFrame:SetScript("OnEvent", function(self)
                         local function sweep(prof)
                             if type(prof) ~= "table" then return end
                             local bsX = prof.barSpells and prof.barSpells[barKey]
-                            if allSpecs and not countedProfileTier then
+                            if allSpecs then
                                 local targetBd = AB.BarDefForProf(prof)
                                 local targetAbs = targetBd and targetBd.barSpellSettings
                                 if targetAbs and entryLoses(targetAbs, false) then count = count + 1 end
-                                countedProfileTier = true
                             end
                             if allSpecs and bsX and type(bsX.barSettings) == "table" then
                                 for _, k in ipairs(keys) do
@@ -8776,9 +8809,9 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- Write a picked value into a bar tier and clear the shadowing
                     -- per-spell overrides from the bar's member spells, so the
-                    -- apply visibly takes effect everywhere. allSpecs writes the
-                    -- profile-level bd tier (which specs with no CDM data yet
-                    -- inherit) and sweeps every spec's spec-tier + overrides.
+                    -- apply visibly takes effect everywhere. allSpecs writes an
+                    -- independent bar-definition tier into every spec and sweeps
+                    -- each spec's lower tier + per-spell overrides.
                     AB.RunBarApply = function(applyKeys, applyWrite, val, allSpecs)
                         if not applyWrite then return end
                         local keys = applyKeys or {}
@@ -8806,14 +8839,19 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         if allSpecs then
                             if not bdSel then return end
-                            local abs = bdSel.barSpellSettings
-                            if not abs then abs = {}; bdSel.barSpellSettings = abs end
-                            applyWrite(abs, val)
-                            AB.FlipSessionGates(abs)
-                            AB.ForEachClassSpec(true, sweepProf)
+                            AB.ForEachClassSpec(true, function(prof)
+                                local targetBd = AB.BarDefForProf(prof)
+                                if targetBd then
+                                    local abs = targetBd.barSpellSettings
+                                    if not abs then abs = {}; targetBd.barSpellSettings = abs end
+                                    applyWrite(abs, val)
+                                    AB.FlipSessionGates(abs)
+                                    sweepProf(prof)
+                                end
+                            end)
                         else
-                            -- Replacing the active spec tier leaves the shared
-                            -- profile-wide bar tier untouched.
+                            -- The all-spec action writes independent copies. Replacing
+                            -- this spec's copy cannot modify another spec.
                             local activeAbs = bdSel and bdSel.barSpellSettings
                             if activeAbs then
                                 for _, k in ipairs(keys) do activeAbs[k] = nil end
@@ -8907,8 +8945,14 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end
                         if allSpecs then
-                            -- The profile tier was cleared above; there are no
-                            -- per-spec copies of barSpellSettings to sweep.
+                            AB.ForEachClassSpec(false, function(prof)
+                                local targetBd = AB.BarDefForProf(prof)
+                                local target = targetBd and targetBd.barSpellSettings
+                                if target then
+                                    for _, k in ipairs(keys) do target[k] = nil end
+                                    if next(target) == nil then targetBd.barSpellSettings = nil end
+                                end
+                            end)
                         end
                         if touchesCas and ns.GetCustomActiveStateForProf and ns.ResolveCustomActiveKey then
                             -- Remove still-equal stamped values from one cas entry.
@@ -16093,11 +16137,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not bars or #bars == 0 then return math.abs(yOffset) end
 
 
-        -- Clamp selection
-        if selectedCDMBarIndex < 1 then selectedCDMBarIndex = 1 end
-        if selectedCDMBarIndex > #bars then selectedCDMBarIndex = #bars end
-
-        local barData = bars[selectedCDMBarIndex]
+        local _, barData = NormalizeCDMBarSelection(bars)
         if not barData then return math.abs(yOffset) end
 
         y = y - AddActiveSpecDebug(parent, y)
@@ -16113,227 +16153,56 @@ initFrame:SetScript("OnEvent", function(self)
         -- Capture the key so closures can always look up the CURRENT bar data
         -- from the profile, avoiding stale-reference bugs when the bars array
         -- is reordered or the page is rebuilt.
-        -- Searchable single-select "Sync From" dropdown (source spec). Lists the
-        -- player's specs with a search box on top; defaults to the current spec.
-        -- Reuses one frame on ns so repeated opens don't leak.
-        local function ShowRPTSourcePicker(defaultKey, onSelect)
-            -- All-classes source list (current class always + other classes that
-            -- have data), so the source isn't limited to the player's class.
-            local info = ns.GetAllCDMSpecInfo and ns.GetAllCDMSpecInfo()
-                or (ns.GetCDMSpecInfo and ns.GetCDMSpecInfo()) or {}
-            local DDW = 280
-            local ROW_H = 30
-            local MAX_VISIBLE = 10               -- rows shown before the list scrolls
-            local MAX_LIST_H = MAX_VISIBLE * ROW_H
-            local P = ns._rptSrcPopup
-            if not P then
-                P = { rows = {} }
-                ns._rptSrcPopup = P
-                local scale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
-                local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
-                dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-                dimmer:SetAllPoints(UIParent)
-                dimmer:EnableMouse(true)
-                dimmer:Hide()
-                local dt = dimmer:CreateTexture(nil, "BACKGROUND"); dt:SetAllPoints(); dt:SetTexture(0, 0, 0, 0.25)
-                local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
-                popup:SetScale(scale)
-                popup:SetFrameStrata("FULLSCREEN_DIALOG")
-                popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-                PP.Size(popup, DDW + 24, 320)
-                popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-                popup:EnableMouse(true)
-                local bg = popup:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetTexture(0.06, 0.08, 0.10, 1)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
-                local titleFs = EllesmereUI.MakeFont(popup, 15, nil, 1, 1, 1, 1)
-                titleFs:SetPoint("TOP", popup, "TOP", 0, -14); titleFs:SetText("Sync From")
-                local subFs = EllesmereUI.MakeFont(popup, 11, nil, 1, 1, 1, 0.45)
-                subFs:SetPoint("TOP", titleFs, "BOTTOM", 0, -4)
-                subFs:SetWidth(DDW); subFs:SetJustifyH("CENTER")
-                subFs:SetText("Choose the spec to copy trinkets, pots, racials & buff presets from")
-                local search = EllesmereUI.SafeCreateFrame("EditBox", nil, popup)
-                PP.Size(search, DDW, 26)
-                search:SetPoint("TOP", subFs, "BOTTOM", 0, -10)
-                search:SetFont(FONT_PATH, 12, "")
-                search:SetTextColor(1, 1, 1, 0.9); search:SetJustifyH("LEFT")
-                search:SetAutoFocus(false); search:SetMaxLetters(30); search:SetTextInsets(6, 6, 0, 0)
-                local sbg = search:CreateTexture(nil, "BACKGROUND"); sbg:SetAllPoints(); sbg:SetTexture(0, 0, 0, 0.4)
-                EllesmereUI.MakeBorder(search, 1, 1, 1, 0.10, PP)
-                local ph = search:CreateFontString(nil, "OVERLAY"); ph:SetFont(FONT_PATH, 11, "")
-                ph:SetTextColor(0.5, 0.5, 0.5, 0.6); ph:SetPoint("LEFT", search, "LEFT", 6, 0); ph:SetText("Search...")
-                search:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
-                -- Scrollable, capped list: a long cross-class spec list scrolls
-                -- (mousewheel) inside a fixed max height instead of running off the
-                -- screen. A thin thumb on the right shows when there is more to see.
-                local scrollF = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, popup)
-                scrollF:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -8)
-                scrollF:SetPoint("RIGHT", popup, "RIGHT", -12, 0)
-                scrollF:EnableMouseWheel(true)
-                local listF = EllesmereUI.SafeCreateFrame("Frame", nil, scrollF)
-                listF:SetWidth(DDW)
-                scrollF:SetScrollChild(listF)
-                local track = scrollF:CreateTexture(nil, "ARTWORK")
-                track:SetWidth(3); track:SetTexture(1, 1, 1, 0.06)
-                track:SetPoint("TOPRIGHT", scrollF, "TOPRIGHT", -1, 0)
-                track:SetPoint("BOTTOMRIGHT", scrollF, "BOTTOMRIGHT", -1, 0)
-                track:Hide()
-                local thumb = scrollF:CreateTexture(nil, "OVERLAY")
-                thumb:SetWidth(3); thumb:SetTexture(1, 1, 1, 0.25); thumb:Hide()
-                local function UpdateThumb()
-                    local visH, fullH = scrollF:GetHeight(), listF:GetHeight()
-                    local maxScroll = math.max(0, fullH - visH)
-                    if maxScroll <= 0 then track:Hide(); thumb:Hide(); return end
-                    track:Show(); thumb:Show()
-                    local thumbH = math.max(20, visH * visH / fullH)
-                    thumb:SetHeight(thumbH)
-                    local frac = (scrollF:GetVerticalScroll() or 0) / maxScroll
-                    thumb:ClearAllPoints()
-                    thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", 0, -frac * (visH - thumbH))
-                end
-                scrollF:SetScript("OnMouseWheel", function(self, delta)
-                    local maxScroll = math.max(0, listF:GetHeight() - self:GetHeight())
-                    if maxScroll <= 0 then return end
-                    local new = math.max(0, math.min(maxScroll, (self:GetVerticalScroll() or 0) - delta * ROW_H * 2))
-                    self:SetVerticalScroll(new); UpdateThumb()
-                end)
-                dimmer:SetScript("OnMouseDown", function() dimmer:Hide() end)
-                popup:SetScript("OnMouseDown", function() end)
-                P.dimmer, P.popup, P.search, P.ph, P.list, P.DDW = dimmer, popup, search, ph, listF, DDW
-                P.scroll, P.updateThumb = scrollF, UpdateThumb
-            end
+        local barKey = barData.key
 
-            local function Rebuild()
-                local filter = (P.search:GetText() or ""):lower()
-                local shown = 0
-                for _, r in ipairs(P.rows) do r:Hide() end
-                for _, s in ipairs(info) do
-                    local nm = s.name or ""
-                    if filter == "" or nm:lower():find(filter, 1, true) then
-                        shown = shown + 1
-                        local r = P.rows[shown]
-                        if not r then
-                            r = EllesmereUI.SafeCreateFrame("Button", nil, P.list)
-                            PP.Size(r, P.DDW, ROW_H)
-                            r:SetFrameLevel(P.list:GetFrameLevel() + 1)
-                            local hl = r:CreateTexture(nil, "ARTWORK"); hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.06); hl:Hide(); r._hl = hl
-                            local ic = r:CreateTexture(nil, "ARTWORK"); ic:SetSize(20, 20); ic:SetPoint("LEFT", r, "LEFT", 8, 0); r._ic = ic
-                            local tx = EllesmereUI.MakeFont(r, 13, nil, 1, 1, 1, 0.85); tx:SetPoint("LEFT", ic, "RIGHT", 8, 0); r._tx = tx
-                            r:SetScript("OnEnter", function(self) self._hl:Show() end)
-                            r:SetScript("OnLeave", function(self) if not self._isDefault then self._hl:Hide() end end)
-                            P.rows[shown] = r
-                        end
-                        r:ClearAllPoints()
-                        r:SetPoint("TOPLEFT", P.list, "TOPLEFT", 0, -((shown - 1) * ROW_H))
-                        if s.icon then r._ic:SetTexture(s.icon); r._ic:Show() else r._ic:Hide() end
-                        r._tx:SetText(nm)
-                        r._isDefault = (s.key == defaultKey)
-                        if r._isDefault then r._hl:Show() else r._hl:Hide() end
-                        local key = s.key
-                        r:SetScript("OnClick", function()
-                            P.dimmer:Hide()
-                            if onSelect then onSelect(key) end
-                        end)
-                        r:Show()
-                    end
+        local function RefreshBarContents()
+            C_Timer.After(0.15, function()
+                if _cdmPreview and _cdmPreview.Update then
+                    _cdmPreview:Update()
                 end
-                local listH = math.max(ROW_H, shown * ROW_H)
-                P.list:SetHeight(listH)
-                local visH = math.min(listH, MAX_LIST_H)
-                P.scroll:SetHeight(visH)
-                P.popup:SetHeight(110 + visH)
-                P.scroll:SetVerticalScroll(0)
-                if P.updateThumb then P.updateThumb() end
-            end
-            P.search:SetScript("OnTextChanged", function(self)
-                if (self:GetText() or "") == "" then P.ph:Show() else P.ph:Hide() end
-                Rebuild()
-            end)
-            P.search:SetText("")
-            P.ph:Show()
-            Rebuild()
-            P.dimmer:Show()
-            C_Timer.After(0.05, function() P.search:SetFocus() end)
-        end
-
-        -- Copy Generic CDs/Buffs across specs (per profile): trinkets, pots,
-        -- racials and buff-bar presets (Bloodlust, etc.). First-time
-        -- setup picks a SOURCE spec (searchable dropdown, default current spec),
-        -- then a spec picker with the source locked ON (auto-checked, can't be
-        -- deselected).
-        local function DoRPTSyncSetup()
-            local curKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-            ShowRPTSourcePicker(curKey, function(sourceKey)
-                local srcName = sourceKey
-                if GetSpecializationInfoByID and tonumber(sourceKey) then
-                    local _, n = GetSpecializationInfoByID(tonumber(sourceKey))
-                    if n and n ~= "" then srcName = n end
-                end
-                local specs = ns.GetCDMSpecInfo and ns.GetCDMSpecInfo() or {}
-                for _, s in ipairs(specs) do
-                    s.checked = (s.key == sourceKey)
-                end
-                EllesmereUI:ShowCDMSpecPickerPopup({
-                    title       = "Copy Generic CDs/Buffs",
-                    subtitle    = "Choose target specs to receive a one-time copy from " .. srcName .. ". Later edits stay independent.",
-                    confirmText = "Copy",
-                    specs       = specs,
-                    lockedSpecs = { [sourceKey] = "This is the source spec and is always included." },
-                    onConfirm   = function(selectedSpecs)
-                        selectedSpecs[sourceKey] = true
-                        local cnt = 0
-                        for _, v in pairs(selectedSpecs) do if v then cnt = cnt + 1 end end
-                        if cnt <= 1 then
-                            -- Only the source picked, so there is no target.
-                            EllesmereUI:RefreshPage(true)
-                            return
-                        end
-                        if ns.SetupRPTSync then ns.SetupRPTSync(selectedSpecs, sourceKey) end
-                        if ns.FullCDMRebuild then ns.FullCDMRebuild("profile_import") end
-                        EllesmereUI:RefreshPage(true)
-                    end,
-                })
+                UpdateCDMPreviewAndResize()
             end)
         end
 
-        -- The operation is always a fresh one-time copy; no live sync is stored.
-        local function DoRPTSync()
-            DoRPTSyncSetup()
-        end
-
-        -- Action buttons: repopulate + open Blizzard CDM + copy generic CDs/buffs
-        -- (trinkets, pots, racials & buff presets across specs).
-        _, h = W:WideTripleButton(parent,
-            "Repopulate from Blizzard CDM", "Open Blizzard CDM", "Copy Generic CDs/Buffs", y,
+        -- Wrath has no player-facing Blizzard CDM to open or copy from. Keep
+        -- this row focused on the two useful content actions instead: restore
+        -- the compatibility catalog's defaults, or empty the selected bar.
+        _, h = W:WideDualButton(parent,
+            "Restore Default Spells", "Clear Bar", y,
             function()
                 EllesmereUI:ShowConfirmPopup({
-                    title = "Repopulate Bars",
-                    message = "This will reset all default bar spell assignments for the current spec to match Blizzard's CDM layout. Spells you added yourself (presets, custom IDs and racials) are kept. Continue?",
-                    confirmText = "Repopulate",
+                    title = "Restore Default Spells",
+                    message = "This will move all built-in cooldown spells for the current spec back to the default bar. Custom entries are kept. Continue?",
+                    confirmText = "Restore",
                     cancelText = "Cancel",
                     onConfirm = function()
-                        if ns.RepopulateFromBlizzard then
-                            ns.RepopulateFromBlizzard()
+                        if ns.RestoreDefaultSpells then
+                            ns.RestoreDefaultSpells()
                         end
-                        C_Timer.After(0.15, function()
-                            if _cdmPreview and _cdmPreview.Update then
-                                _cdmPreview:Update()
-                            end
-                            UpdateCDMPreviewAndResize()
-                        end)
+                        RefreshBarContents()
                     end,
                 })
             end,
             function()
                 local bd = SelectedCDMBar()
-                local barType = bd and (bd.barType or bd.key) or "cooldowns"
-                local isBuff = (barType == "buffs")
-                if ns.OpenBlizzardCDMTab then
-                    ns.OpenBlizzardCDMTab(isBuff)
-                end
-            end,
-            DoRPTSync, 225);  y = y - h
+                local selectedKey = bd and bd.key or barKey
+                local barName = bd and bd.name or barData.name or "Bar"
+                EllesmereUI:ShowConfirmPopup({
+                    title = "Clear Bar",
+                    message = EllesmereUI.Lf(
+                        "Remove all spells from %1$s for the current spec? Bar settings and position are kept.",
+                        EllesmereUI.L(barName)),
+                    confirmText = "Clear Bar",
+                    cancelText = "Cancel",
+                    onConfirm = function()
+                        if ns.ClearTrackedBar then
+                            ns.ClearTrackedBar(selectedKey)
+                        end
+                        RefreshBarContents()
+                    end,
+                })
+            end);  y = y - h
 
-        local barKey = barData.key
         local function BD()
             local pp = DB()
             if not pp or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return barData end
@@ -16407,7 +16276,7 @@ initFrame:SetScript("OnEvent", function(self)
             ddLbl:SetPoint("RIGHT", arrow, "LEFT", -5, 0)
 
             local function UpdateDDLabel()
-                local bd = bars[selectedCDMBarIndex]
+                local _, bd = NormalizeCDMBarSelection(bars)
                 local label = bd and EllesmereUI.L(bd.name or bd.key) or ""
                 ddLbl:SetText(label)
             end
@@ -16723,16 +16592,14 @@ initFrame:SetScript("OnEvent", function(self)
                             local delKey = b.key
                             EllesmereUI:ShowConfirmPopup({
                                 title = "Delete Bar",
-                                message = EllesmereUI.Lf("Are you sure you want to delete \"%1$s\" from this profile? Its contents will be removed for all specs.", delName),
+                                message = EllesmereUI.Lf("Are you sure you want to delete \"%1$s\" from this spec?", delName),
                                 confirmText = "Delete",
                                 cancelText = "Cancel",
                                 onConfirm = function()
                                     ns.RemoveCDMBar(delKey)
                                     -- Select the cooldowns bar after deletion
-                                    selectedCDMBarIndex = 1
-                                    for bi, bb in ipairs(bars) do
-                                        if bb.key == "cooldowns" then selectedCDMBarIndex = bi; break end
-                                    end
+                                    selectedCDMBarKey = "cooldowns"
+                                    NormalizeCDMBarSelection(bars)
                                     Refresh()
                                     EllesmereUI:InvalidateContentHeaderCache()
                                     EllesmereUI:SetContentHeader(_cdmHeaderBuilder)
@@ -16781,6 +16648,7 @@ initFrame:SetScript("OnEvent", function(self)
                     item:SetScript("OnClick", function()
                         menu:Hide()
                         selectedCDMBarIndex = idx
+                        selectedCDMBarKey = b.key
                         EllesmereUI:InvalidateContentHeaderCache()
                         EllesmereUI:SetContentHeader(_cdmHeaderBuilder)
                         EllesmereUI:RefreshPage(true)
@@ -16831,8 +16699,11 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
                         addItem:SetScript("OnClick", function()
                             menu:Hide()
-                            ns.AddCDMBar(bType)
-                            selectedCDMBarIndex = #ns.GetActiveCDMConfig(true).bars
+                            local newKey = ns.AddCDMBar(bType)
+                            if newKey then
+                                selectedCDMBarKey = newKey
+                                NormalizeCDMBarSelection(ns.GetActiveCDMConfig(true).bars)
+                            end
                             Refresh()
                             EllesmereUI:InvalidateContentHeaderCache()
                             EllesmereUI:SetContentHeader(_cdmHeaderBuilder)
@@ -19714,9 +19585,7 @@ initFrame:SetScript("OnEvent", function(self)
                     keys[#keys + 1] = b.key
                 end
             end
-            if selectedCDMBarIndex < 1 then selectedCDMBarIndex = 1 end
-            if selectedCDMBarIndex > #bars then selectedCDMBarIndex = #bars end
-            local currentBar = bars[selectedCDMBarIndex]
+            local _, currentBar = NormalizeCDMBarSelection(bars)
             return {
                 setter = EllesmereUI._setCDMBar,
                 keys = keys,

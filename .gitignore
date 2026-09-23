@@ -19,3 +19,6 @@ MIDNIGHT_MERGE_PLAN.md
 
 # Local reference addon used while building Raid Cooldowns (never ship/commit)
 /CooldownTrackerOrig/
+
+# Local reference material and archived addons (never ship/commit)
+/DoNotCommit/

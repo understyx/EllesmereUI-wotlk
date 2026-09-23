@@ -1683,10 +1683,9 @@ end
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
 
--- Snapshot specialization-owned CDM contents: spell assignments/settings,
--- tracking bars, glows and active-state rules, including hidden/ghost routing.
--- Bar definitions, positions and CDM unlock links are ordinary profile layout
--- and already travel in the addon profile + unlockLayout snapshots.
+-- Snapshot complete, independent per-spec CDM containers: bar definitions and
+-- positions, spell assignments/settings, tracking bars, glows, active-state
+-- rules and spec-owned unlock links, including hidden/ghost routing.
 local function SnapshotProfileCDMSpecs(profileName, includedFolders, cdmSpecs)
     if includedFolders and not includedFolders["EllesmereUICooldownManager"] then return nil end
     local activeProfile = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
@@ -1712,13 +1711,7 @@ local function SnapshotProfileCDMSpecs(profileName, includedFolders, cdmSpecs)
     local snap = {}
     for specKey, specProf in pairs(bucket.specProfiles) do
         if type(specProf) == "table" and (not cdmSpecs or cdmSpecs[specKey]) then
-            local copy = DeepCopy(specProf)
-            -- Old saves kept complete layouts in every spec container.  Never
-            -- emit those legacy fields into a new-format payload.
-            copy.cdmBars = nil
-            copy.cdmBarPositions = nil
-            copy.cdmUnlockLinks = nil
-            snap[specKey] = copy
+            snap[specKey] = DeepCopy(specProf)
         end
     end
     if not next(snap) then return nil end
@@ -2725,10 +2718,9 @@ local function GetSpellStoreProfiles()
     return sa.profiles
 end
 
--- Overlay independent, specialization-owned CDM content containers. Specs
--- absent from the payload are untouched.  Legacy payloads may still carry a
--- layout inside every spec; promote one deterministic layout to the profile
--- before stripping those obsolete fields.
+-- Overlay complete, independent per-spec CDM containers. Specs absent from the
+-- payload are untouched. Payloads produced during the profile-wide-layout
+-- window are upgraded by copying that shared layout into every incoming spec.
 local function BuildImportedCDMSpellBucket(profileName, incomingSpecs)
     if not EllesmereUIDB then return end
     EllesmereUIDB.spellAssignments = EllesmereUIDB.spellAssignments or { profiles = {} }
@@ -2739,80 +2731,39 @@ local function BuildImportedCDMSpellBucket(profileName, incomingSpecs)
     bucket.specProfiles = bucket.specProfiles or {}
     if type(incomingSpecs) ~= "table" then return end
 
-    local ordered = {}
-    for specKey, specProf in pairs(incomingSpecs) do
-        if type(specProf) == "table" then
-            ordered[#ordered + 1] = { key = specKey, sort = tostring(specKey) }
-        end
-    end
-    table.sort(ordered, function(a, b) return a.sort < b.sort end)
-    local curSpec = Spec and Spec:GetCurrentID()
-    local preferred = curSpec and (incomingSpecs[tostring(curSpec)] or incomingSpecs[curSpec])
-    if type(preferred) ~= "table" then
-        preferred = ordered[1] and incomingSpecs[ordered[1].key]
-    end
+    local pdb = GetProfilesDB()
+    local root = pdb and pdb.profiles and pdb.profiles[profileName]
+    local addon = root and root.addons and root.addons["EllesmereUICooldownManager"]
+    local ul = root and root.unlockLayout
 
-    if type(preferred) == "table"
-       and (type(preferred.cdmBars) == "table"
-            or type(preferred.cdmBarPositions) == "table"
-            or type(preferred.cdmUnlockLinks) == "table") then
-        local pdb = GetProfilesDB()
-        local root = pdb and pdb.profiles and pdb.profiles[profileName]
-        local addon = root and root.addons and root.addons["EllesmereUICooldownManager"]
-        if addon then
-            if type(preferred.cdmBars) == "table" then addon.cdmBars = DeepCopy(preferred.cdmBars) end
-            if type(preferred.cdmBarPositions) == "table" then
-                addon.cdmBarPositions = DeepCopy(preferred.cdmBarPositions)
-            end
-            addon._cdmLayoutProfileWideV1 = true
-
-            -- Keep custom destinations used only by another imported spec.
-            addon.cdmBars = addon.cdmBars or { bars = {} }
-            addon.cdmBars.bars = addon.cdmBars.bars or {}
-            addon.cdmBarPositions = addon.cdmBarPositions or {}
-            local known = {}
-            for _, bd in ipairs(addon.cdmBars.bars) do
-                if type(bd) == "table" and bd.key then known[bd.key] = true end
-            end
-            for _, entry in ipairs(ordered) do
-                local candidate = incomingSpecs[entry.key]
-                for _, bd in ipairs((candidate.cdmBars and candidate.cdmBars.bars) or {}) do
-                    if type(bd) == "table" and bd.key and not known[bd.key] then
-                        addon.cdmBars.bars[#addon.cdmBars.bars + 1] = DeepCopy(bd)
-                        known[bd.key] = true
-                        local pos = candidate.cdmBarPositions and candidate.cdmBarPositions[bd.key]
-                        if pos and addon.cdmBarPositions[bd.key] == nil then
-                            addon.cdmBarPositions[bd.key] = DeepCopy(pos)
-                        end
-                    end
-                end
-            end
+    local function LegacyLinks()
+        local links = { anchors = {}, wm = {}, hm = {} }
+        for k, v in pairs((ul and ul.anchors) or {}) do
+            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+            if barKey then links.anchors[barKey] = DeepCopy(v) end
         end
-        local oldLinks = preferred.cdmUnlockLinks
-        if root and type(oldLinks) == "table" then
-            root.unlockLayout = root.unlockLayout or {}
-            local ul = root.unlockLayout
-            ul.anchors = ul.anchors or {}
-            ul.widthMatch = ul.widthMatch or {}
-            ul.heightMatch = ul.heightMatch or {}
-            for barKey, v in pairs(oldLinks.anchors or {}) do
-                ul.anchors["CDM_" .. barKey] = DeepCopy(v)
-            end
-            for barKey, v in pairs(oldLinks.wm or {}) do
-                ul.widthMatch["CDM_" .. barKey] = DeepCopy(v)
-            end
-            for barKey, v in pairs(oldLinks.hm or {}) do
-                ul.heightMatch["CDM_" .. barKey] = DeepCopy(v)
-            end
-            ul._cdmProfileWideV1 = true
+        for k, v in pairs((ul and ul.widthMatch) or {}) do
+            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+            if barKey then links.wm[barKey] = DeepCopy(v) end
         end
+        for k, v in pairs((ul and ul.heightMatch) or {}) do
+            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+            if barKey then links.hm[barKey] = DeepCopy(v) end
+        end
+        return links
     end
 
     for specKey, specProf in pairs(DeepCopy(incomingSpecs)) do
         if type(specProf) == "table" then
-            specProf.cdmBars = nil
-            specProf.cdmBarPositions = nil
-            specProf.cdmUnlockLinks = nil
+            if not specProf.cdmBars and addon and addon.cdmBars then
+                specProf.cdmBars = DeepCopy(addon.cdmBars)
+            end
+            if not specProf.cdmBarPositions and addon and addon.cdmBarPositions then
+                specProf.cdmBarPositions = DeepCopy(addon.cdmBarPositions)
+            end
+            if not specProf.cdmUnlockLinks then
+                specProf.cdmUnlockLinks = LegacyLinks()
+            end
             bucket.specProfiles[specKey] = specProf
         end
     end
@@ -3366,11 +3317,9 @@ function EllesmereUI.SaveCurrentAsProfile(name)
 
     -- CDM spell content lives in the per-profile spell store at
     -- EllesmereUIDB.spellAssignments.profiles[<name>], OUTSIDE the profile blob.
-    -- DeepCopy(src) above carried the profile-wide bar layout and positions,
-    -- but NOT the spell allocations / per-icon settings / RPT-sync specs / TBB
-    -- broadcast set that ride on this bucket. Fork the whole bucket so the new
-    -- profile is a true 1:1 of the source's CDM (which spells sit on which bars,
-    -- etc). Without this the copy renders bars with no spells on them.
+    -- DeepCopy(src) does not include the independent per-spec CDM containers.
+    -- Fork the whole external bucket so the new profile remains a true 1:1 copy
+    -- without sharing bar definitions, positions, or spell state by reference.
     local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
     if sa and type(sa.profiles) == "table" and type(sa.profiles[current]) == "table" then
         sa.profiles[name] = DeepCopy(sa.profiles[current])

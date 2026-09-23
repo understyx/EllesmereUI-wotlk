@@ -507,21 +507,24 @@ local DEFAULTS = {
     },
 }
 
--- Bar structure, styling and positions are profile layout.  Only the things
--- placed on those bars are specialization-owned.  Keep a named copy of the
--- layout defaults for the legacy spec-container migration below.
-ns.CDM_LAYOUT_DEFAULTS = {
+-- The complete CDM state belongs to a specialization. Keep the sizeable bar
+-- defaults beside the normal addon defaults for readability, but do not let
+-- the profile DB own a live copy: every spec container receives its own copy.
+ns.CDM_SPEC_DEFAULTS = {
     cdmBars = DEFAULTS.profile.cdmBars,
     cdmBarPositions = DEFAULTS.profile.cdmBarPositions,
 }
+DEFAULTS.profile.cdmBars = nil
+DEFAULTS.profile.cdmBarPositions = nil
 
 -------------------------------------------------------------------------------
 --  Dedicated spell assignment store helpers
 --  Lives at EllesmereUIDB.spellAssignments. The spell/bar-content data is
 --  per-profile: spellAssignments.profiles[name].specProfiles[specKey]. It sits
---  at the top level (NOT inside the profile blob), so it never travels with
---  profile export or module sync, but it IS forked/dropped/moved alongside the
---  profile itself (copy/delete/rename in EllesmereUI_Profiles.lua). The active
+--  at the top level (NOT inside the profile blob), so ordinary module sync does
+--  not carry it. The profile exporter snapshots it explicitly, and it is also
+--  forked/dropped/moved alongside the profile itself (copy/delete/rename in
+--  EllesmereUI_Profiles.lua). The active
 --  profile's bucket is resolved live via ns.GetActiveSpecProfiles().
 --  Consolidated into a single local table to stay within Lua 5.1's 200 local
 --  variable limit for the main chunk.
@@ -545,8 +548,8 @@ end
 -- Per-profile spell store. Spell/bar-content data is owned by each profile, so
 -- copying a profile forks its CDM and deleting a bar never crosses profiles. It
 -- lives at spellAssignments.profiles[name].specProfiles -- OUTSIDE the profile
--- blob and the export payload, so module sync and profile export never carry it
--- (both operate on the profile's addons blob, not this store).
+-- blob. The profile exporter snapshots this store explicitly so complete,
+-- independent spec containers survive export/import without entering module sync.
 --
 function ns.GetSpecProfilesForProfile(profileName)
     local sa = SpellStore.Get()
@@ -560,93 +563,17 @@ function ns.GetSpecProfilesForProfile(profileName)
     return bucket.specProfiles
 end
 
--- One-time upgrade from the old complete-per-spec containers.  Prefer the
--- current spec's layout because that is the layout the player was actually
--- using when the upgrade loaded; for an inactive profile, fall back to any
--- stored spec.  Once promoted, remove layout fields from every spec container
--- so future exports/copies cannot accidentally resurrect divergent layouts.
-function ns.EnsureProfileWideCDMLayout()
-    local p = ECME.db and ECME.db.profile
-    -- Use an ordinary read so Spec Overrides' read-tracing proxy can see the
-    -- completed migration flag. rawget() sees only the intentionally empty
-    -- proxy and used to rerun this migration during every golden-border walk.
-    if not p or p._cdmLayoutProfileWideV1 then return p end
-
-    local profiles = ns.GetSpecProfilesForProfile(ns.GetActiveProfileName())
-    local legacy
-    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    -- Do not freeze an arbitrary spec's layout during the early-login window
-    -- before the specialization API is ready. The first real CDM access retries.
-    if not specKey then return p end
-    local specEntries = {}
-    for key in pairs(profiles) do
-        specEntries[#specEntries + 1] = { key = key, sort = tostring(key) }
+-- Read the retired profile-wide layout without mutating it. Existing installs
+-- used this location for a few releases; copying it into every spec on first
+-- access preserves the user's current setup while breaking the shared reference.
+local function LegacyProfileCDMState(profileName)
+    local root = EllesmereUIDB and EllesmereUIDB.profiles
+        and EllesmereUIDB.profiles[profileName]
+    local addon = root and root.addons and root.addons.EllesmereUICooldownManager
+    if profileName == ns.GetActiveProfileName() and ECME.db and ECME.db.profile then
+        addon = ECME.db.profile
     end
-    table.sort(specEntries, function(a, b) return a.sort < b.sort end)
-    -- Older imports could preserve numeric spec keys even though runtime
-    -- containers use strings. Accept both so their saved bar locations are
-    -- not skipped during the one-time promotion.
-    local current = profiles[specKey] or profiles[tonumber(specKey)]
-    if type(current) == "table"
-       and (type(current.cdmBars) == "table"
-            or type(current.cdmBarPositions) == "table") then
-        legacy = current
-    end
-    if not legacy then
-        for _, entry in ipairs(specEntries) do
-            local candidate = profiles[entry.key]
-            if type(candidate) == "table"
-               and (type(candidate.cdmBars) == "table"
-                    or type(candidate.cdmBarPositions) == "table") then
-                legacy = candidate
-                break
-            end
-        end
-    end
-
-    local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
-    if legacy and copy then
-        if type(legacy.cdmBars) == "table" then
-            p.cdmBars = copy(legacy.cdmBars)
-        end
-        if type(legacy.cdmBarPositions) == "table" then
-            p.cdmBarPositions = copy(legacy.cdmBarPositions)
-        end
-    end
-    p.cdmBars = p.cdmBars or (copy and copy(ns.CDM_LAYOUT_DEFAULTS.cdmBars)) or {}
-    p.cdmBarPositions = p.cdmBarPositions or {}
-
-    -- Preserve contents routed to custom bars that existed only in another
-    -- spec: append each missing bar definition to the shared layout and carry
-    -- its position. Matching keys keep the current spec's styling/position.
-    local known = {}
-    for _, bd in ipairs(p.cdmBars.bars or {}) do
-        if type(bd) == "table" and bd.key then known[bd.key] = true end
-    end
-    for _, entry in ipairs(specEntries) do
-        local candidate = profiles[entry.key]
-        for _, bd in ipairs((candidate and candidate.cdmBars
-                             and candidate.cdmBars.bars) or {}) do
-            if type(bd) == "table" and bd.key and not known[bd.key] then
-                p.cdmBars.bars = p.cdmBars.bars or {}
-                p.cdmBars.bars[#p.cdmBars.bars + 1] = copy and copy(bd) or bd
-                known[bd.key] = true
-                local pos = candidate.cdmBarPositions and candidate.cdmBarPositions[bd.key]
-                if pos and p.cdmBarPositions[bd.key] == nil then
-                    p.cdmBarPositions[bd.key] = copy and copy(pos) or pos
-                end
-            end
-        end
-    end
-    p._cdmLayoutProfileWideV1 = true
-
-    for _, container in pairs(profiles) do
-        if type(container) == "table" then
-            container.cdmBars = nil
-            container.cdmBarPositions = nil
-        end
-    end
-    return p
+    return addon
 end
 
 -- Smooth-fill switches for Tracking Bars (Bar Layout > Smooth Bars), owned by
@@ -695,10 +622,13 @@ function ns.GetActiveSpecProfiles()
 end
 
 function SpellStore.NewSpecContainer(specKey)
+    local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
     local info = EUI and EUI.Spec and EUI.Spec:GetInfoByID(tonumber(specKey))
     return {
         specID = tonumber(specKey),
         classToken = info and info.classToken or nil,
+        cdmBars = copy and copy(ns.CDM_SPEC_DEFAULTS.cdmBars) or {},
+        cdmBarPositions = copy and copy(ns.CDM_SPEC_DEFAULTS.cdmBarPositions) or {},
         barSpells = {},
         customActiveStates = {},
         -- The first stable viewer pass consumes this marker and diverts the
@@ -708,21 +638,55 @@ function SpellStore.NewSpecContainer(specKey)
     }
 end
 
--- The specialization-owned CDM content container. A caller may address an
--- inactive spec only by passing its ID explicitly; bar layout itself is read
--- through the profile-wide accessors below.
+-- The complete specialization-owned CDM container. A caller may address an
+-- inactive spec only by passing its ID explicitly; normal runtime/options work
+-- goes through GetActiveSpecContainer so cross-spec writes stay explicit.
 function ns.GetSpecContainerForProfile(profileName, specKey, create)
     specKey = specKey and tostring(specKey) or nil
     if not specKey or specKey == "0" then return nil end
     local profiles = ns.GetSpecProfilesForProfile(profileName)
-    local container = profiles[specKey]
+    local numericKey = tonumber(specKey)
+    local container = profiles[specKey] or (numericKey and profiles[numericKey])
+    if container and profiles[specKey] == nil then
+        profiles[specKey] = container
+        profiles[numericKey] = nil
+    end
     if not container and create then
         container = SpellStore.NewSpecContainer(specKey)
+        local legacy = LegacyProfileCDMState(profileName)
+        local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
+        if legacy and copy then
+            if type(legacy.cdmBars) == "table" then
+                container.cdmBars = copy(legacy.cdmBars)
+            end
+            if type(legacy.cdmBarPositions) == "table" then
+                container.cdmBarPositions = copy(legacy.cdmBarPositions)
+            end
+        end
         profiles[specKey] = container
     end
     if container and create then
         -- Fresh-schema self-heal for partially constructed containers created by
-        -- explicit copy/import helpers in this same codebase.
+        -- explicit copy/import helpers, plus the profile-wide-layout transition.
+        -- The old profile DB stripped values equal to its defaults at logout;
+        -- after layout ownership moved out of that DB, those sparse legacy
+        -- tables no longer received their missing fields automatically. Merge
+        -- the same defaults into each independent copy so the default bar keeps
+        -- its key, type, icon size, and other structural values.
+        local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
+        local merge = EllesmereUI.Lite and EllesmereUI.Lite.DeepMergeDefaults
+        local legacy = LegacyProfileCDMState(profileName)
+        if not container.cdmBars then
+            local source = legacy and legacy.cdmBars or ns.CDM_SPEC_DEFAULTS.cdmBars
+            container.cdmBars = copy and copy(source) or {}
+        end
+        if merge then
+            merge(container.cdmBars, ns.CDM_SPEC_DEFAULTS.cdmBars)
+        end
+        if not container.cdmBarPositions then
+            local source = legacy and legacy.cdmBarPositions or ns.CDM_SPEC_DEFAULTS.cdmBarPositions
+            container.cdmBarPositions = copy and copy(source) or {}
+        end
         if not container.barSpells then container.barSpells = {} end
         if not container.customActiveStates then container.customActiveStates = {} end
         container.specID = container.specID or tonumber(specKey)
@@ -737,27 +701,34 @@ end
 function ns.GetActiveSpecContainer(create)
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
     if not specKey then return nil end
-    return ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), specKey, create)
+    local profileName = ns.GetActiveProfileName()
+    local profiles = create and ns.GetSpecProfilesForProfile(profileName)
+    local sa = create and SpellStore.Get()
+    local bucket = sa and sa.profiles and sa.profiles[profileName]
+    if create and bucket and not bucket._cdmCompleteSpecsV1 then
+        -- Materialize independent copies for every already-known spec now, not
+        -- only when it is next played. This keeps exports complete immediately
+        -- after upgrading from the profile-wide-layout window.
+        local keys = {}
+        for key in pairs(profiles) do keys[#keys + 1] = key end
+        for _, key in ipairs(keys) do
+            if type(profiles[key]) == "table" then
+                ns.GetSpecContainerForProfile(profileName, key, true)
+            end
+        end
+        bucket._cdmCompleteSpecsV1 = true
+    end
+    return ns.GetSpecContainerForProfile(profileName, specKey, create)
 end
 
 function ns.GetActiveCDMConfig(create)
-    local p = ns.EnsureProfileWideCDMLayout()
-    if not p then return nil end
-    if not p.cdmBars and create then
-        local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
-        p.cdmBars = copy and copy(ns.CDM_LAYOUT_DEFAULTS.cdmBars) or {}
-    end
-    return p.cdmBars
+    local container = ns.GetActiveSpecContainer(create)
+    return container and container.cdmBars or nil
 end
 
 function ns.GetActiveCDMPositions(create)
-    local p = ns.EnsureProfileWideCDMLayout()
-    if not p then return nil end
-    if not p.cdmBarPositions and create then p.cdmBarPositions = {} end
-    local positions = p.cdmBarPositions
-    -- Unlock mode reads this bridge directly when preserving growth edges.
-    -- Refresh it whenever the active profile table changes so saves cannot
-    -- accidentally write through a pointer left behind by the prior profile.
+    local container = ns.GetActiveSpecContainer(create)
+    local positions = container and container.cdmBarPositions or nil
     if positions and EllesmereUI then EllesmereUI._cdmBarPositions = positions end
     return positions
 end
@@ -775,10 +746,8 @@ end
 _G._ECME_GetActiveCDMConfig = function() return ns.GetActiveCDMConfig(true) end
 _G._ECME_GetActiveCDMPositions = function() return ns.GetActiveCDMPositions(true) end
 
--- Unlock mode exposes one account-global working table.  CDM links are layout,
--- so bank them in the owning profile's unlockLayout (the same store used by all
--- other profile-wide frame anchors).  The adapter remains because the live
--- unlock tables are still account-global working tables during a profile swap.
+-- Unlock mode exposes one account-global working table. Project only the active
+-- spec's CDM_* links into it and bank them back into that spec before switching.
 do
     local function LiveStores(create)
         if not EllesmereUIDB then return nil end
@@ -792,74 +761,45 @@ do
     end
 
     local function Bucket(profileName, specKey, create)
-        local root = EllesmereUIDB and EllesmereUIDB.profiles
-            and EllesmereUIDB.profiles[profileName]
-        if not root then return nil end
-        if not root.unlockLayout and create then root.unlockLayout = {} end
-        local ul = root.unlockLayout
-        if not ul then return nil end
-        local promoted = false
-        if create then
-            ul.anchors = ul.anchors or {}
-            ul.widthMatch = ul.widthMatch or {}
-            ul.heightMatch = ul.heightMatch or {}
-
-            -- Promote the active legacy spec's links only when this profile has
-            -- no CDM links of its own yet.  Existing profile links always win.
-            if not ul._cdmProfileWideV1 then
-                local has
-                for k in pairs(ul.anchors) do
-                    if type(k) == "string" and k:match("^CDM_.+") then has = true; break end
+        local c = ns.GetSpecContainerForProfile(profileName, specKey, create)
+        if not c then return nil end
+        if not c.cdmUnlockLinks and create then
+            local seeded = { anchors = {}, wm = {}, hm = {} }
+            -- Seed each spec once from the retired profile-wide unlock layout.
+            local root = EllesmereUIDB and EllesmereUIDB.profiles
+                and EllesmereUIDB.profiles[profileName]
+            local ul = root and root.unlockLayout
+            if type(ul) == "table" then
+                for k, v in pairs(ul.anchors or {}) do
+                    local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+                    if barKey then seeded.anchors[barKey] = EllesmereUI.Lite.DeepCopy(v) end
                 end
-                if not has then
-                    local c = ns.GetSpecContainerForProfile(profileName, specKey, false)
-                    local old = c and c.cdmUnlockLinks
-                    if type(old) == "table" then
-                        for barKey, v in pairs(old.anchors or {}) do
-                            ul.anchors["CDM_" .. barKey] = EllesmereUI.Lite.DeepCopy(v)
-                            promoted = true
-                        end
-                        for barKey, v in pairs(old.wm or {}) do
-                            ul.widthMatch["CDM_" .. barKey] = EllesmereUI.Lite.DeepCopy(v)
-                            promoted = true
-                        end
-                        for barKey, v in pairs(old.hm or {}) do
-                            ul.heightMatch["CDM_" .. barKey] = EllesmereUI.Lite.DeepCopy(v)
-                            promoted = true
-                        end
-                    end
+                for k, v in pairs(ul.widthMatch or {}) do
+                    local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+                    if barKey then seeded.wm[barKey] = EllesmereUI.Lite.DeepCopy(v) end
                 end
-                ul._cdmProfileWideV1 = true
+                for k, v in pairs(ul.heightMatch or {}) do
+                    local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+                    if barKey then seeded.hm[barKey] = EllesmereUI.Lite.DeepCopy(v) end
+                end
             end
+            c.cdmUnlockLinks = seeded
         end
-        return { anchors = ul.anchors, wm = ul.widthMatch, hm = ul.heightMatch }, promoted
+        return c.cdmUnlockLinks
     end
 
     local function BankOne(store, dest)
-        local kill = {}
-        for k in pairs(dest) do
-            if type(k) == "string" and k:match("^CDM_.+") then kill[#kill + 1] = k end
-        end
-        for _, k in ipairs(kill) do dest[k] = nil end
+        wipe(dest)
         for k, v in pairs(store or {}) do
-            if type(k) == "string" and k:match("^CDM_.+") then
-                dest[k] = EllesmereUI.Lite.DeepCopy(v)
-            end
+            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
+            if barKey then dest[barKey] = EllesmereUI.Lite.DeepCopy(v) end
         end
     end
 
     local function Bank(profileName, specKey)
-        local b, promoted = Bucket(profileName, specKey, true)
+        local b = Bucket(profileName, specKey, true)
         local an, wm, hm = LiveStores(false)
         if not b then return end
-        -- On the first upgraded login the profile snapshot may not yet carry
-        -- the legacy spec links in its live working tables. Seed only missing
-        -- keys before banking so the promotion cannot erase itself.
-        if promoted then
-            if an then for k, v in pairs(b.anchors) do if an[k] == nil then an[k] = EllesmereUI.Lite.DeepCopy(v) end end end
-            if wm then for k, v in pairs(b.wm) do if wm[k] == nil then wm[k] = EllesmereUI.Lite.DeepCopy(v) end end end
-            if hm then for k, v in pairs(b.hm) do if hm[k] == nil then hm[k] = EllesmereUI.Lite.DeepCopy(v) end end end
-        end
         BankOne(an, b.anchors); BankOne(wm, b.wm); BankOne(hm, b.hm)
     end
 
@@ -869,10 +809,8 @@ do
             if type(k) == "string" and k:match("^CDM_.+") then kill[#kill + 1] = k end
         end
         for _, k in ipairs(kill) do store[k] = nil end
-        for k, v in pairs(src or {}) do
-            if type(k) == "string" and k:match("^CDM_.+") then
-                store[k] = EllesmereUI.Lite.DeepCopy(v)
-            end
+        for barKey, v in pairs(src or {}) do
+            store["CDM_" .. barKey] = EllesmereUI.Lite.DeepCopy(v)
         end
     end
 
@@ -890,7 +828,7 @@ do
         local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
         if not specKey then return end
         local owner = EllesmereUIDB._cdmLinkOwner
-        local same = owner and owner.profile == profileName
+        local same = owner and owner.profile == profileName and owner.spec == specKey
         if force then
             SwapIn(profileName, specKey)
         elseif same then
@@ -900,7 +838,7 @@ do
             if owner then Bank(owner.profile, owner.spec) end
             SwapIn(profileName, specKey)
         end
-        EllesmereUIDB._cdmLinkOwner = { profile = profileName }
+        EllesmereUIDB._cdmLinkOwner = { profile = profileName, spec = specKey }
     end
 
     EllesmereUI._CDMRestoreUnlockLinks = function()
@@ -958,7 +896,7 @@ end
 --
 --  Two bar-level tiers sit below the per-spell entries ("Apply to Bar"):
 --      barSpells[barKey].barSettings   -- this bar, this spec
---      bd.barSpellSettings             -- profile-wide value for this bar
+--      bd.barSpellSettings             -- copied bar-wide values in this spec
 --
 --  Effective value per key: spell entry > barSettings > barSpellSettings >
 --  defaults. The renderer resolves the chain via metatable __index links that
@@ -1148,7 +1086,7 @@ function ns.ChainSettings(child, parent)
     end
 end
 
--- Bar-tier chain head for a bar: spec barSettings chained to the profile-wide
+-- Bar-tier chain head for a bar: barSettings chained to the spec-owned
 -- bd.barSpellSettings when present, else bd.barSpellSettings, else nil.
 function ns.GetBarTierSettings(sd, barKey)
     local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
@@ -1179,8 +1117,8 @@ function ns.BarHasAnySpellSettings(barKey, sd)
 end
 
 -- Iterate every SAVED settings block that can hold per-spell setting keys:
--- all specs' family-store entries/per-bar barSettings, then the profile-wide
--- bar definitions' barSpellSettings. fn(ss) returning true stops the walk.
+-- all specs' family-store entries, per-bar barSettings, and each spec-owned
+-- bar definition's barSpellSettings. fn(ss) returning true stops the walk.
 -- Used by the login gate scans ("does anyone use feature X anywhere").
 function ns.ForEachSavedSettingsBlock(fn)
     if not EllesmereUIDB then return false end
@@ -1207,6 +1145,13 @@ function ns.ForEachSavedSettingsBlock(fn)
                         if type(bset) == "table" and fn(bset) then return true end
                     end
                 end
+                local bars = prof.cdmBars and prof.cdmBars.bars
+                if type(bars) == "table" then
+                    for _, bd in ipairs(bars) do
+                        local abs = type(bd) == "table" and bd.barSpellSettings
+                        if type(abs) == "table" and fn(abs) then return true end
+                    end
+                end
                 local cas = prof.customActiveStates
                 if type(cas) == "table" then
                     for _, ss in pairs(cas) do
@@ -1216,17 +1161,13 @@ function ns.ForEachSavedSettingsBlock(fn)
             end
         end
     end
-    local cfg = ns.GetActiveCDMConfig and ns.GetActiveCDMConfig(true)
-    for _, bd in ipairs((cfg and cfg.bars) or {}) do
-        local abs = type(bd) == "table" and bd.barSpellSettings
-        if type(abs) == "table" and fn(abs) then return true end
-    end
     return false
 end
 
 -- One-time copy of a user CUSTOM spell/buff (customSpellIDs-tagged) plus its
 -- per-spell settings onto the SAME bar in other specs of the active profile.
--- The profile must own a bar with the same key. A target
+-- A target spec must own a bar with the same key; specs have independent bar
+-- lists, so this helper never invents a destination implicitly. A target
 -- that already has the spell on ANY bar is skipped whole (never duplicates
 -- within a spec). Custom Active State is copied as independent data too.
 -- Returns the number of specs actually copied to.
@@ -1250,8 +1191,7 @@ function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
         if on and key ~= curKey and key ~= "0" then
             local prof = ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), key, true)
             local hasTargetBar = false
-            local cfg = ns.GetActiveCDMConfig and ns.GetActiveCDMConfig(true)
-            for _, bd in ipairs((cfg and cfg.bars) or {}) do
+            for _, bd in ipairs((prof.cdmBars and prof.cdmBars.bars) or {}) do
                 if bd.key == barKey then hasTargetBar = true; break end
             end
             -- Present anywhere in this spec? Skip the whole spec.
@@ -1821,8 +1761,8 @@ ns.EnsureMappings = EnsureMappings
 
 -------------------------------------------------------------------------------
 --  Per-Spec Profile Helpers
---  Spell assignments and active-state rules are specialization-owned; bar
---  structure, styling, and positions are profile-wide layout.
+--  Every CDM subsystem, including bar structure/settings/positions, is owned
+--  by the active specialization container.
 -------------------------------------------------------------------------------
 local MAIN_BAR_KEYS = { cooldowns = true, utility = true, buffs = true, debuffs = true }
 
@@ -7834,7 +7774,7 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     -- Both-state guards (mirror EnsureAssignedSpells). This appends live-icon
     -- spells back into assignedSpells; without these it could re-materialize a
     -- spell that is currently HIDDEN (ghosted) or already OWNED by another bar,
-    -- recreating a both-state. The sole caller (RepopulateFromBlizzard) pre-wipes
+    -- recreating a both-state. RestoreDefaultSpells pre-wipes
     -- the ghost and Blizzard-sourced assignments, so these are normally no-ops --
     -- but they keep Reseed safe regardless of caller or ordering.
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
@@ -8010,20 +7950,20 @@ EllesmereUI.CDMReconcileActiveSpecSpells = function()
     ns.ReseedAssignedSpellsFromLiveIcons(true)
 end
 
---- Repopulate all main bars from Blizzard CDM for the current spec.
---- Wipes ONLY Blizzard-sourced entries (positive spell IDs that the CDM
---- viewer owns) from assignedSpells/removedSpells, then rebuilds route
+--- Restore all built-in cooldown spells to the default bar for the current
+--- spec. Wipes ONLY compatibility-catalog entries (positive spell IDs that
+--- the viewer owns) from assignedSpells/removedSpells, then rebuilds route
 --- maps and reanchors. Preserves user-added entries:
 ---   * Negative IDs (trinket slots -13/-14, item presets <= -100)
 ---   * Custom spell IDs (entries in sd.customSpellIDs)
 ---   * Racial spells (entries in _myRacialsSet)
-function ns.RepopulateFromBlizzard()
+function ns.RestoreDefaultSpells()
     local p = ECME.db and ECME.db.profile
     if not p or not ns.GetActiveCDMConfig(true) then return end
     local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return end
 
-    -- A spell ID is "user-added" (preserved across repopulate) if it's a
+    -- A spell ID is "user-added" (preserved while restoring defaults) if it's a
     -- negative preset marker, a custom spell ID added via the picker, or a
     -- racial belonging to this character.
     local function IsUserAdded(sd, id)
@@ -8063,7 +8003,7 @@ function ns.RepopulateFromBlizzard()
     end
 
     -- Filter Blizzard entries off custom CD/utility/aura bars. Default Buffs
-    -- and Debuffs are explicit user allow-lists, so repopulation preserves
+    -- and Debuffs are explicit user allow-lists, so restoring defaults preserves
     -- their selections instead of silently replacing them.
     for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
         if not barData.isGhostBar
@@ -8101,13 +8041,13 @@ function ns.RepopulateFromBlizzard()
     ns._spellOrderDirty = true
     ns._cdmBuffOrderDirty = true  -- re-seed from Blizzard order on next reanchor
 
-    -- (Site #10 re-snapshot deleted: under the new model, "repopulate from
-    -- Blizzard" is just "wipe diversions and let the route map's spillover
-    -- show everything from the viewer." The wipes above already cleared
-    -- assignedSpells / removedSpells / spellSettings and the ghost CD bar
-    -- -- nothing else needed.)
+    -- Under the filter model, restoring defaults means wiping the built-in
+    -- diversions and letting the route map's spillover show everything from
+    -- the compatibility viewer. The wipes above already cleared
+    -- assignedSpells / removedSpells and the ghost CD bar -- nothing else is
+    -- needed.
 
-    ns.FullCDMRebuild("repopulate")
+    ns.FullCDMRebuild("restore_defaults")
     if ns.CollectAndReanchor then ns.CollectAndReanchor() end
 
     ns.ReseedAssignedSpellsFromLiveIcons()
@@ -8119,6 +8059,9 @@ function ns.RepopulateFromBlizzard()
         end
     end)
 end
+
+-- Compatibility alias for older callers and imported snippets.
+ns.RepopulateFromBlizzard = ns.RestoreDefaultSpells
 
 -------------------------------------------------------------------------------
 --  Register CDM bars with unlock mode
@@ -9144,7 +9087,19 @@ function ns.MainCDMOnEvent(_, event, unit, updateInfo, arg3)
         end)
         return
     end
-    if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED"
+    if event == "ACTIVE_TALENT_GROUP_CHANGED" then
+        -- Wrath dual-spec swaps do not reliably emit SPELLS_CHANGED on every
+        -- supported core. Resolve the new spec from the authoritative talent
+        -- group event so the cached key cannot keep writing into the old spec.
+        CheckSpecChange()
+        C_Timer.After(0, function()
+            CheckSpecChange()
+        end)
+        if ns._reseededSpecsSession then wipe(ns._reseededSpecsSession) end
+        ScheduleTalentRebuild()
+        return
+    end
+    if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE"
         or event == "PLAYER_PVP_TALENT_UPDATE" then
         -- Hero talent, loadout, or PvP talent context change -- debounced
         -- rebuild. PvP talents (de)activating on arena enter/exit makes

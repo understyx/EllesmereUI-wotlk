@@ -234,8 +234,25 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
     if not tgtProf.barSpells then tgtProf.barSpells = {} end
     local srcRPT, srcSettings = CollectRPT(srcProf)
 
-    -- Bar definitions are profile-wide.  RPT synchronization only moves the
-    -- specialization-owned entries between those shared destination bars.
+    -- A generic entry may live on a user-created bar. Copy that definition once
+    -- so the target gets a real, independently editable destination.
+    if srcProf.cdmBars and srcProf.cdmBars.bars and tgtProf.cdmBars and tgtProf.cdmBars.bars then
+        local targetKeys = {}
+        for _, bar in ipairs(tgtProf.cdmBars.bars) do
+            if bar.key then targetKeys[bar.key] = true end
+        end
+        for barKey in pairs(srcRPT) do
+            if not targetKeys[barKey] then
+                for _, bar in ipairs(srcProf.cdmBars.bars) do
+                    if bar.key == barKey then
+                        tgtProf.cdmBars.bars[#tgtProf.cdmBars.bars + 1] = DeepCopy(bar)
+                        targetKeys[barKey] = true
+                        break
+                    end
+                end
+            end
+        end
+    end
 
     -- Which bar the source keeps each RPT id on. Bar MEMBERSHIP and per-icon
     -- settings are synced, but the SLOT POSITION (order within a bar) is NOT:
