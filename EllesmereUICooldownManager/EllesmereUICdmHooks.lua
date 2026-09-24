@@ -8127,7 +8127,8 @@ end
 
 local function ShowEditModeLockNotice()
     if not _editModeLockNoticeShown then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r Cooldown Viewer settings are managed by EllesmereUI. Edit Mode changes are disabled.")
+        EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r "
+            .. EllesmereUI.L("Cooldown Viewer settings are managed by EllesmereUI. Edit Mode changes are disabled."))
         _editModeLockNoticeShown = true
     end
 end

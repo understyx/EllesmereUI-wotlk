@@ -1896,7 +1896,7 @@ function ShowFriendsTooltip(anchor)
     if total == 0 then
         local row = EnsureFTTRow(1)
         row.name:SetFont(font, 10, "")
-        row.name:SetText("|cff888888No friends online|r")
+        row.name:SetText("|cff888888" .. EllesmereUI.L("No friends online") .. "|r")
         row.zone:SetText("")
         tt:SetSize(FTT_PAD * 2 + 140, FTT_PAD + FTT_ROW_H + FTT_PAD)
         row.button:ClearAllPoints()
@@ -2009,7 +2009,7 @@ function ShowFriendsTooltip(anchor)
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
             row.name:SetFont(font, 10, "")
-            row.name:SetText("|cff888888...and " .. (#sec.list - maxRows) .. " more|r")
+            row.name:SetText("|cff888888" .. EllesmereUI.Lf("...and %d more", #sec.list - maxRows) .. "|r")
             row.zone:SetText("")
             row.button._entry = nil
             FTTSetRowTarget(row.button, nil)
@@ -4368,7 +4368,7 @@ do
                 label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
                 label:SetTextColor(0.9, 0.9, 0.9)
-                label:SetText(item.text)
+                label:SetText(EllesmereUI.L(item.text))
 
                 local itemFn = item.fn
                 btn:SetScript("OnClick", function()
@@ -4428,7 +4428,7 @@ do
                 label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
                 label:SetTextColor(0.9, 0.9, 0.9)
-                label:SetText(item.text)
+                label:SetText(EllesmereUI.L(item.text))
 
                 btn:HookScript("OnClick", function() C_Timer.After(0, function() SetMenuVisible(false) end) end)
 

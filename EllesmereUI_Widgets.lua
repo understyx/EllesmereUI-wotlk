@@ -5407,7 +5407,7 @@ local function BuildCogPopup(opts)
                     rl:SetFont(FONT, 13, "")
                     rl:SetPoint("LEFT", rf, "LEFT", 20, 0)
                     rl:SetJustifyH("LEFT")
-                    rl:SetText(it.label)
+                    rl:SetText(EllesmereUI.L(it.label))
                     rl:SetTextColor(0.75, 0.75, 0.75, 1)
                     rf._lbl = rl
 

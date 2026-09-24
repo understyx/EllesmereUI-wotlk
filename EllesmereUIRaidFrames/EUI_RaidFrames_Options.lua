@@ -406,7 +406,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local rf = rowFrames[ri]
                     rf._cbIndex = ri
                     rf._cb = roleItems[ri]
-                    rf._lbl:SetText(roleItems[ri].label)
+                    rf._lbl:SetText(EllesmereUI.L(roleItems[ri].label))
                     local ry = cbBaseY - (ri - 1) * MH
                     rf._baseY = ry
                     rf:ClearAllPoints()

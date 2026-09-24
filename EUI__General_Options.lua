@@ -326,7 +326,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             ver:SetText("EllesmereUI " .. (patch.version or ""))
             local tag = MakeFont(parent, 10, nil, EG.r, EG.g, EG.b, 0.85)
             PP.Point(tag, "LEFT", ver, "RIGHT", 10, -1)
-            tag:SetText("MINI PATCH")
+            tag:SetText(EllesmereUI.L("MINI PATCH"))
             local uline = parent:CreateTexture(nil, "ARTWORK")
             uline:SetTexture(1, 1, 1, 0.10)
             PP.Size(uline, totalW, 1)
@@ -2329,7 +2329,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     local label = MakeFont(cell, 13, nil, cr, cg, cb)
                     label:SetPoint("LEFT", cell, "LEFT", GRID_SIDE_PAD, 0)
-                    label:SetText(item.label)
+                    label:SetText(EllesmereUI.L(item.label))
 
                     -- Color swatch (right side)
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(cell, cell:GetFrameLevel() + 2,
@@ -3729,7 +3729,7 @@ initFrame:SetScript("OnEvent", function(self)
                     lbl:SetTextColor(1, 1, 1, EllesmereUI.TEXT_DIM_A)
                     hl:SetAlpha(itm._isSel and EllesmereUI.DD_ITEM_SEL_A or 0)
                 end)
-                itm._lbl:SetText(item.label)
+                itm._lbl:SetText(EllesmereUI.L(item.label))
                 local idx = i
                 itm:SetScript("OnClick", function() menuFrame:Hide(); onSelect(idx, item) end)
                 btns[i] = itm

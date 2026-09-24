@@ -178,7 +178,7 @@ initFrame:SetScript("OnEvent", function(self)
     SLASH_ELLESMERESWINGBARS2 = "/swingbars"
     SlashCmdList.ELLESMERESWINGBARS = function()
         if InCombatLockdown and InCombatLockdown() then
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
             return
         end
         EllesmereUI:ShowModule(ADDON_NAME)

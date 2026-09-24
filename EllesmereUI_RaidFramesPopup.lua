@@ -140,14 +140,14 @@ local function ShowRaidFramesPopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -64)
-    eyebrow:SetText("NEW FEATURE")
+    eyebrow:SetText(EllesmereUI.L("NEW FEATURE"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 26, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("Raid Frames")
+    title:SetText(EllesmereUI.L("Raid Frames"))
 
     -- Description
     local desc = popup:CreateFontString(nil, "OVERLAY")
@@ -157,7 +157,7 @@ local function ShowRaidFramesPopup()
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
-    desc:SetText("EllesmereUI Raid Frames are here! Clean, fully customizable, and built for performance.")
+    desc:SetText(EllesmereUI.L("EllesmereUI Raid Frames are here! Clean, fully customizable, and built for performance."))
 
     -- Feature bullets
     local BULLETS = {
@@ -177,7 +177,7 @@ local function ShowRaidFramesPopup()
         else
             PP.Point(bl, "TOPLEFT", prev, "BOTTOMLEFT", 0, -10)
         end
-        bl:SetText(text)
+        bl:SetText(EllesmereUI.L(text))
         local dot = popup:CreateTexture(nil, "OVERLAY")
         dot:SetTexture(EG.r, EG.g, EG.b, 1)
         PP.Size(dot, 5, 5)
@@ -217,7 +217,7 @@ local function ShowRaidFramesPopup()
         lbl:SetFont(FONT, 15, "")
         PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
         lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-        lbl:SetText(text)
+        lbl:SetText(EllesmereUI.L(text))
         btn:SetScript("OnEnter", function()
             if secondary then
                 lbl:SetTextColor(DISABLE_R, DISABLE_G, DISABLE_B, 1)
@@ -251,7 +251,7 @@ local function ShowRaidFramesPopup()
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText("Enable/disable any time via the options panel sidebar.")
+    footnote:SetText(EllesmereUI.L("Enable/disable any time via the options panel sidebar."))
 
     -- Escape = Keep (the non-destructive default). Consume Escape, propagate
     -- other keys so chat/UI shortcuts still work behind the dimmer.

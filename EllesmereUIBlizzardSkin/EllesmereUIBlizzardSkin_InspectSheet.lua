@@ -35,7 +35,7 @@ local function CollectInspectGlyphs(unit)
             local spellName, _, icon = GetSpellInfo(spellID)
             glyphs[#glyphs + 1] = {
                 spellID = spellID,
-                name = spellName or ("Spell ID " .. tostring(spellID)),
+                name = spellName or EllesmereUI.Lf("Spell ID %d", spellID),
                 icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark",
             }
         end
@@ -1441,13 +1441,13 @@ local function SkinInspectSheet()
         heading:SetFont(fontPath, 13, "")
         heading:SetTextColor(1, 1, 1, 0.95)
         heading:SetPoint("TOP", surface, "TOP", 0, -16)
-        heading:SetText("Glyphs")
+        heading:SetText(EllesmereUI.L("Glyphs"))
 
         local note = surface:CreateFontString(nil, "OVERLAY")
         note:SetFont(fontPath, 10, "")
         note:SetTextColor(1, 1, 1, 0.48)
         note:SetPoint("TOP", heading, "BOTTOM", 0, -5)
-        note:SetText("Shared glyph data for this character")
+        note:SetText(EllesmereUI.L("Shared glyph data for this character"))
 
         for i = 1, MAX_GLYPH_SOCKETS do
             local row = EllesmereUI.SafeCreateFrame("Button", nil, surface)
@@ -1507,7 +1507,7 @@ local function SkinInspectSheet()
         label:SetFont(fontPath, 10, "")
         label:SetPoint("CENTER")
         tab:SetFontString(label)
-        tab:SetText("Glyphs")
+        tab:SetText(EllesmereUI.L("Glyphs"))
         tab:SetScript("OnClick", ActivateInspectGlyphPage)
         tab:Hide()
         glyphUI.tab = tab

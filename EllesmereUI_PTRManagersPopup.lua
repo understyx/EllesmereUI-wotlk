@@ -190,7 +190,7 @@ local function ShowPTRManagersPopup()
         local a = cd.accent
         lbl:SetTextColor(a[1], a[2], a[3], 0.75)
         PP.Point(lbl, "BOTTOM", card, "BOTTOM", 0, 5)
-        lbl:SetText(cd.label)
+        lbl:SetText(EllesmereUI.L(cd.label))
 
         MakeBorder(card, a[1], a[2], a[3], 0.45, PP)
     end
@@ -200,14 +200,14 @@ local function ShowPTRManagersPopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -104)
-    eyebrow:SetText("NEW ON THE 12.1 PTR")
+    eyebrow:SetText(EllesmereUI.L("NEW ON THE 12.1 PTR"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 25, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("Buff & Debuff Managers")
+    title:SetText(EllesmereUI.L("Buff & Debuff Managers"))
 
     -- Description
     local desc = popup:CreateFontString(nil, "OVERLAY")
@@ -217,7 +217,7 @@ local function ShowPTRManagersPopup()
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
-    desc:SetText("Raid frame buffs and debuffs are rebuilt for Midnight's new aura engine. Track whole spell categories with filters, then give each one its own display.")
+    desc:SetText(EllesmereUI.L("Raid frame buffs and debuffs are rebuilt for Midnight's new aura engine. Track whole spell categories with filters, then give each one its own display."))
 
     -- Feature bullets
     local BULLETS = {
@@ -236,7 +236,7 @@ local function ShowPTRManagersPopup()
         else
             PP.Point(bl, "TOPLEFT", prev, "BOTTOMLEFT", 0, -10)
         end
-        bl:SetText(text)
+        bl:SetText(EllesmereUI.L(text))
         local dot = popup:CreateTexture(nil, "OVERLAY")
         dot:SetTexture(EG.r, EG.g, EG.b, 1)
         PP.Size(dot, 5, 5)
@@ -275,7 +275,7 @@ local function ShowPTRManagersPopup()
         lbl:SetFont(FONT, 15, "")
         PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
         lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-        lbl:SetText(text)
+        lbl:SetText(EllesmereUI.L(text))
         btn:SetScript("OnEnter", function()
             lbl:SetTextColor(r, g, b, 1)
             brd:SetColor(r, g, b, secondary and 0.8 or 1)
@@ -304,7 +304,7 @@ local function ShowPTRManagersPopup()
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText("Find them in Raid Frames: Buff Manager & Debuff Manager.")
+    footnote:SetText(EllesmereUI.L("Find them in Raid Frames: Buff Manager & Debuff Manager."))
 
     -- Escape = Got It (non-destructive default). Consume Escape, propagate
     -- other keys so chat/UI shortcuts still work behind the dimmer.
@@ -368,5 +368,5 @@ SlashCmdList["EUIMANAGERSINTRO"] = function()
     if EllesmereUIDB then
         EllesmereUIDB.ptrManagersIntroShown = nil
     end
-    print("|cff00ff98EllesmereUI:|r Managers intro reset. The announcement popup fires on your next /reload.")
+    print(EllesmereUI.L("|cff00ff98EllesmereUI:|r Managers intro reset. The announcement popup fires on your next /reload."))
 end

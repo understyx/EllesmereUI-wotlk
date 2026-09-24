@@ -146,14 +146,14 @@ local function ShowPatchNotesPopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -98)
-    eyebrow:SetText("NEW")
+    eyebrow:SetText(EllesmereUI.L("NEW"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 26, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("Patch Notes")
+    title:SetText(EllesmereUI.L("Patch Notes"))
 
     -- Description
     local desc = popup:CreateFontString(nil, "OVERLAY")
@@ -163,7 +163,7 @@ local function ShowPatchNotesPopup()
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
-    desc:SetText("Never miss an update again. The new Patch Notes section breaks down what's new each release, with quick links straight to every new setting.")
+    desc:SetText(EllesmereUI.L("Never miss an update again. The new Patch Notes section breaks down what's new each release, with quick links straight to every new setting."))
 
     -- Feature bullets
     local BULLETS = {
@@ -182,7 +182,7 @@ local function ShowPatchNotesPopup()
         else
             PP.Point(bl, "TOPLEFT", prev, "BOTTOMLEFT", 0, -10)
         end
-        bl:SetText(text)
+        bl:SetText(EllesmereUI.L(text))
         local dot = popup:CreateTexture(nil, "OVERLAY")
         dot:SetTexture(EG.r, EG.g, EG.b, 1)
         PP.Size(dot, 5, 5)
@@ -198,7 +198,7 @@ local function ShowPatchNotesPopup()
         ReleaseConflictCheck()
         if view then
             if InCombatLockdown() then
-                EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat. Use /eui to view Patch Notes.")
+                EllesmereUI.Print(EllesmereUI.L("|cffff6060[EllesmereUI]|r Cannot open options during combat. Use /eui to view Patch Notes."))
                 return
             end
             -- Patch Notes is its own sidebar module now (_EUIPatchNotes), not a
@@ -226,7 +226,7 @@ local function ShowPatchNotesPopup()
         lbl:SetFont(FONT, 15, "")
         PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
         lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-        lbl:SetText(text)
+        lbl:SetText(EllesmereUI.L(text))
         btn:SetScript("OnEnter", function()
             lbl:SetTextColor(r, g, b, 1)
             brd:SetColor(r, g, b, secondary and 0.6 or 1)
@@ -255,7 +255,7 @@ local function ShowPatchNotesPopup()
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText("Open it anytime from the EUI Options Sidebar.")
+    footnote:SetText(EllesmereUI.L("Open it anytime from the EUI Options Sidebar."))
 
     -- Escape = Maybe Later (the non-committal default). Consume Escape, propagate
     -- other keys so chat/UI shortcuts still work behind the dimmer.

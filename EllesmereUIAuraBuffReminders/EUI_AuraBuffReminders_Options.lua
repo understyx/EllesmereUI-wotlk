@@ -719,7 +719,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Label (left)
                 local label = EllesmereUI.MakeFont(cell, 13, nil, cr, cg, cb)
                 label:SetPoint("LEFT", cell, "LEFT", GRID_SIDE_PAD, 0)
-                label:SetText(item.label)
+                label:SetText(EllesmereUI.L(item.label))
 
                 -- Checkbox box (right)
                 local box = EllesmereUI.SafeCreateFrame("Frame", nil, cell)

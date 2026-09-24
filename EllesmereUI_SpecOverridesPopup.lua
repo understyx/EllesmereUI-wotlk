@@ -191,14 +191,14 @@ local function ShowSpecOverridesPopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -104)
-    eyebrow:SetText("NEW SYSTEM")
+    eyebrow:SetText(EllesmereUI.L("NEW SYSTEM"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 25, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("Settings Overrides")
+    title:SetText(EllesmereUI.L("Settings Overrides"))
 
     -- Description
     local desc = popup:CreateFontString(nil, "OVERLAY")
@@ -208,7 +208,7 @@ local function ShowSpecOverridesPopup()
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
-    desc:SetText("Override any setting for a group of specs, or for the content you're in. Everything else keeps your normal profile settings.")
+    desc:SetText(EllesmereUI.L("Override any setting for a group of specs, or for the content you're in. Everything else keeps your normal profile settings."))
 
     -- Feature bullets
     local BULLETS = {
@@ -227,7 +227,7 @@ local function ShowSpecOverridesPopup()
         else
             PP.Point(bl, "TOPLEFT", prev, "BOTTOMLEFT", 0, -10)
         end
-        bl:SetText(text)
+        bl:SetText(EllesmereUI.L(text))
         local dot = popup:CreateTexture(nil, "OVERLAY")
         dot:SetTexture(EG.r, EG.g, EG.b, 1)
         PP.Size(dot, 5, 5)
@@ -276,7 +276,7 @@ local function ShowSpecOverridesPopup()
         lbl:SetFont(FONT, 15, "")
         PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
         lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-        lbl:SetText(text)
+        lbl:SetText(EllesmereUI.L(text))
         btn:SetScript("OnEnter", function()
             lbl:SetTextColor(r, g, b, 1)
             brd:SetColor(r, g, b, secondary and 0.8 or 1)
@@ -305,7 +305,7 @@ local function ShowSpecOverridesPopup()
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText("Find it anytime: the class glyph beside the module search bar.")
+    footnote:SetText(EllesmereUI.L("Find it anytime: the class glyph beside the module search bar."))
 
     -- Escape = Got It (non-destructive default). Consume Escape, propagate
     -- other keys so chat/UI shortcuts still work behind the dimmer.
@@ -417,5 +417,5 @@ SlashCmdList["EUIOVERRIDESINTRO"] = function()
             EllesmereUIDB.videoGuidesSeen.settings_overrides = nil
         end
     end
-    print("|cff00ff98EllesmereUI:|r Overrides intro reset. The announcement popup fires on your next /reload; the video guide fires on your next click of the overrides glyph.")
+    print(EllesmereUI.L("|cff00ff98EllesmereUI:|r Overrides intro reset. The announcement popup fires on your next /reload; the video guide fires on your next click of the overrides glyph."))
 end

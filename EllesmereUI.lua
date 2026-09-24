@@ -8316,13 +8316,13 @@ local function CreateMainFrame()
     resCpuLabel:SetPoint("BOTTOMRIGHT", resCpuText, "TOPRIGHT", 0, 3)
     resCpuLabel:SetJustifyH("RIGHT")
     resCpuLabel:SetAlpha(0.5)
-    resCpuLabel:SetText("CPU Usage:")
+    resCpuLabel:SetText(EllesmereUI.L("CPU Usage:"))
 
     local resPerfLabel = MakeFont(sidebar, 10, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
     resPerfLabel:SetPoint("BOTTOMRIGHT", resCpuLabel, "TOPRIGHT", 0, 11)
     resPerfLabel:SetJustifyH("RIGHT")
     resPerfLabel:SetAlpha(0.5)
-    resPerfLabel:SetText("All EUI Addons")
+    resPerfLabel:SetText(EllesmereUI.L("All EUI Addons"))
 
     local resDivider = sidebar:CreateTexture(nil, "ARTWORK")
     resDivider:SetTexture(1, 1, 1, 0.15)
@@ -8344,7 +8344,7 @@ local function CreateMainFrame()
             end
             resCpuText:SetText("|cffffffff" .. string.format("%.3f MS (%.1f%%)", cpuVal, pct) .. "|r")
         else
-            resCpuText:SetText("|cffffffffN/A|r")
+            resCpuText:SetText("|cffffffff" .. EllesmereUI.L("N/A") .. "|r")
         end
     end
 
@@ -9025,7 +9025,7 @@ local function CreateMainFrame()
 
                 local hint = MakeFont(linkPopup, 11, nil, TEXT_SECTION.r, TEXT_SECTION.g, TEXT_SECTION.b, TEXT_SECTION.a)
                 hint:SetPoint("TOP", linkPopup, "TOP", 0, -10)
-                hint:SetText("Press Ctrl+C to copy, then Escape to close")
+                hint:SetText(EllesmereUI.L("Press Ctrl+C to copy, then Escape to close"))
 
                 local eb = EllesmereUI.SafeCreateFrame("EditBox", nil, linkPopup)
                 eb:SetSize(340, 26)
@@ -10347,15 +10347,15 @@ function EllesmereUI:SelectPage(pageName)
             failureText:SetWidth(700)
             failureText:SetJustifyH("LEFT")
             if activeModule == "EllesmereUICooldownManager" then
-                failureText:SetText("This settings page could not be loaded. The error was saved; use /cdmerrors to inspect it.")
+                failureText:SetText(EllesmereUI.L("This settings page could not be loaded. The error was saved; use /cdmerrors to inspect it."))
             else
-                failureText:SetText("This settings page could not be loaded. Please retry.")
+                failureText:SetText(EllesmereUI.L("This settings page could not be loaded. Please retry."))
             end
 
             local retry = EllesmereUI.SafeCreateFrame("Button", nil, wrapper, "UIPanelButtonTemplate")
             retry:SetSize(110, 26)
             retry:SetPoint("TOPLEFT", failureText, "BOTTOMLEFT", 0, -16)
-            retry:SetText("Retry")
+            retry:SetText(EllesmereUI.L("Retry"))
             retry:SetScript("OnClick", function() EllesmereUI:RefreshPage(true) end)
 
             built = {
@@ -10994,7 +10994,7 @@ local function ShowSidebarUnlockTip()
         msg:SetWidth(TIP_W - 30)
         msg:SetJustifyH("CENTER")
         msg:SetSpacing(6)
-        msg:SetText("Unlock Mode is where you can adjust\npositioning for all the elements of EllesmereUI")
+        msg:SetText(EllesmereUI.L("Unlock Mode is where you can adjust\npositioning for all the elements of EllesmereUI"))
 
         -- Okay button
         local okBtn = EllesmereUI.SafeCreateFrame("Button", nil, tip)
@@ -11401,7 +11401,7 @@ SLASH_EUIOPTIONS3 = "/ellesmereui"
 SlashCmdList.EUIOPTIONS = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
             return
         end
         EllesmereUI:Toggle()
@@ -11479,7 +11479,7 @@ SLASH_EUIQUICK1 = "/ee"
 SlashCmdList.EUIQUICK = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
             return
         end
         EllesmereUI:Toggle()
@@ -11491,7 +11491,7 @@ SLASH_EUIPARTYMODE1 = "/epm"
 SlashCmdList.EUIPARTYMODE = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
             return
         end
         EllesmereUI:ShowModule("EllesmereUIPartyMode")
@@ -11505,7 +11505,7 @@ SlashCmdList.PARTYMODETOGGLE = function()
         if EllesmereUI_TogglePartyMode then
             EllesmereUI_TogglePartyMode()
         else
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Party Mode addon is not loaded.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Party Mode addon is not loaded."))
         end
     end)
 end
@@ -11518,14 +11518,14 @@ SLASH_EUIUNLOCK1 = "/unlock"
 SlashCmdList.EUIUNLOCK = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
             return
         end
         EllesmereUI:EnsureLoaded()
         if EllesmereUI._openUnlockMode then
             EllesmereUI._openUnlockMode()
         else
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Unlock Mode is not available.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Unlock Mode is not available."))
         end
     end)
 end
@@ -11539,7 +11539,7 @@ SlashCmdList.EUIRESETHINT = function()
             EllesmereUIDB.rfEyeHintSeen = nil
             EllesmereUIDB.bmIconHintDismissed = nil
         end
-        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again.")
+        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r " .. EllesmereUI.L("All hints reset. /reload to see them again."))
     end)
 end
 
@@ -11551,7 +11551,7 @@ SlashCmdList.EUIRESETSCALE = function()
             EllesmereUIDB.ppUIScale = nil
             EllesmereUIDB.ppUIScaleAuto = nil
         end
-        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r UI scale reset. /reload to re-snapshot from your Blizzard scale.")
+        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r " .. EllesmereUI.L("UI scale reset. /reload to re-snapshot from your Blizzard scale."))
     end)
 end
 
@@ -11672,7 +11672,7 @@ end
 -- Open the panel with a specific addon's tab selected
 function EllesmereUI:ShowModule(folderName)
     if InCombatLockdown() then
-        EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+        EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
         return
     end
     self:EnsureLoaded()
@@ -11841,7 +11841,7 @@ initFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_REGEN_DISABLED" then
         if mainFrame and mainFrame:IsShown() then
             EllesmereUI:Hide()
-            EllesmereUI.Print("|cffff6060[EllesmereUI]|r Options closed -- entering combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Options closed -- entering combat."))
         end
         return
     end
@@ -11912,7 +11912,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         btn:SetSize(200, 35)
         btn:SetScript("OnClick", function()
             if InCombatLockdown() then
-                EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
                 return
             end
             HideUIPanel(GameMenuFrame)
@@ -11924,7 +11924,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         unlockBtn:SetSize(200, 35)
         unlockBtn:SetScript("OnClick", function()
             if InCombatLockdown() then
-                EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot toggle Unlock Mode during combat.")
+            EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot toggle Unlock Mode during combat."))
                 return
             end
             HideUIPanel(GameMenuFrame)
@@ -12045,9 +12045,9 @@ initFrame:SetScript("OnEvent", function(self, event)
             if showUnlock then
                 unlockBtn:Show()
                 if brandHex then
-                    unlockBtn:SetText(brandHex .. "EUI|r |cffffffffUnlock Mode|r")
+                    unlockBtn:SetText(brandHex .. "EUI|r |cffffffff" .. EllesmereUI.L("Unlock Mode") .. "|r")
                 else
-                    unlockBtn:SetText("EUI Unlock Mode")
+                    unlockBtn:SetText(EllesmereUI.L("EUI Unlock Mode"))
                 end
                 if _reskinMenu then
                     local fs2 = unlockBtn:GetFontString()
@@ -12162,9 +12162,9 @@ initFrame:SetScript("OnEvent", function(self, event)
                 if showUnlock then
                     unlockBtn:Show()
                     if brandHex then
-                        unlockBtn:SetText(brandHex .. "EUI|r |cffffffffUnlock Mode|r")
+                        unlockBtn:SetText(brandHex .. "EUI|r |cffffffff" .. EllesmereUI.L("Unlock Mode") .. "|r")
                     else
-                        unlockBtn:SetText("EUI Unlock Mode")
+                        unlockBtn:SetText(EllesmereUI.L("EUI Unlock Mode"))
                     end
                     if _reskinMenu then
                         local fs2 = unlockBtn:GetFontString()
@@ -12252,13 +12252,17 @@ initFrame:SetScript("OnEvent", function(self, event)
             local n = tooltip:NumLines()
             local start = n - 4
             if start < 1 then start = 1 end
+            local localizedTag = EllesmereUI.L(tag)
             for i = n, start, -1 do
                 local fs = _G[name .. "TextLeft" .. i]
                 if fs then
                     local txt = fs:GetText()
                     if txt then
                         if _isSecret and _isSecret(txt) then return true end
-                        if txt:find(tag) then return true end
+                        if txt:find(tag, 1, true)
+                            or (localizedTag ~= tag and txt:find(localizedTag, 1, true)) then
+                            return true
+                        end
                     end
                 end
             end
@@ -12299,11 +12303,11 @@ initFrame:SetScript("OnEvent", function(self, event)
             local ok, name = pcall(tooltip.GetName, tooltip)
             if not ok or not name then return end
             if hasDupLine(tooltip, name, "SpellID") then return end
-            tooltip:AddDoubleLine("SpellID", tostring(data.id), 1, 1, 1, 1, 1, 1)
+            tooltip:AddDoubleLine(EllesmereUI.L("SpellID"), tostring(data.id), 1, 1, 1, 1, 1, 1)
             local iconID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(data.id)
                 or (GetSpellTexture and GetSpellTexture(data.id))
             if iconID then
-                tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+                tooltip:AddDoubleLine(EllesmereUI.L("IconID"), tostring(iconID), 1, 1, 1, 1, 1, 1)
             end
             tooltip:Show()
         end
@@ -12320,11 +12324,11 @@ initFrame:SetScript("OnEvent", function(self, event)
             -- ID lines do not belong inside that window.
             if name == "ItemSocketingDescription" then return end
             if hasDupLine(tooltip, name, "ItemID") then return end
-            tooltip:AddDoubleLine("ItemID", tostring(data.id), 1, 1, 1, 1, 1, 1)
+            tooltip:AddDoubleLine(EllesmereUI.L("ItemID"), tostring(data.id), 1, 1, 1, 1, 1, 1)
             local iconID = C_Item.GetItemIconByID and C_Item.GetItemIconByID(data.id)
                 or (GetItemIcon and GetItemIcon(data.id))
             if iconID then
-                tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+                tooltip:AddDoubleLine(EllesmereUI.L("IconID"), tostring(iconID), 1, 1, 1, 1, 1, 1)
             end
             tooltip:Show()
         end
@@ -12344,7 +12348,7 @@ initFrame:SetScript("OnEvent", function(self, event)
             -- the item is uncached (the line then appears on the next hover).
             local _, _, _, _, _, _, _, maxStack = C_Item.GetItemInfo(data.id)
             if maxStack and maxStack > 1 then
-                tooltip:AddDoubleLine("Max Stack", tostring(maxStack), 1, 1, 1, 1, 1, 1)
+                tooltip:AddDoubleLine(EllesmereUI.L("Max Stack"), tostring(maxStack), 1, 1, 1, 1, 1, 1)
                 tooltip:Show()
             end
         end
@@ -12366,11 +12370,11 @@ initFrame:SetScript("OnEvent", function(self, event)
             local okN, name = pcall(tooltip.GetName, tooltip)
             if not okN or not name then return end
             if hasDupLine(tooltip, name, "SpellID") then return end
-            tooltip:AddDoubleLine("SpellID", tostring(spellID), 1, 1, 1, 1, 1, 1)
+            tooltip:AddDoubleLine(EllesmereUI.L("SpellID"), tostring(spellID), 1, 1, 1, 1, 1, 1)
             local iconID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
                 or (GetSpellTexture and GetSpellTexture(spellID))
             if iconID then
-                tooltip:AddDoubleLine("IconID", tostring(iconID), 1, 1, 1, 1, 1, 1)
+                tooltip:AddDoubleLine(EllesmereUI.L("IconID"), tostring(iconID), 1, 1, 1, 1, 1, 1)
             end
             tooltip:Show()
         end
@@ -12419,10 +12423,10 @@ initFrame:SetScript("OnEvent", function(self, event)
         local btn = EllesmereUI.SafeCreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
         btn:SetSize(200, 30)
         btn:SetPoint("CENTER", panel, "CENTER", 0, 0)
-        btn:SetText("Open EllesmereUI")
+        btn:SetText(EllesmereUI.L("Open EllesmereUI"))
         btn:SetScript("OnClick", function()
             if InCombatLockdown() then
-                EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+                EllesmereUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Cannot open options during combat."))
                 return
             end
             -- Close Blizzard settings first, then open ours on next frame to avoid taint

@@ -4522,8 +4522,8 @@ local function SkinCharacterSheet()
                         local pickSname = tile._setName
                         if not (pickSid and pickSname) then return end
                         StaticPopupDialogs["EUI_EQUIP_SET_ICON"] = {
-                            text = "Icon file ID for '" .. pickSname .. "':",
-                            button1 = "Set", button2 = "Cancel",
+                            text = EllesmereUI.Lf("Icon file ID for '%s':", pickSname),
+                            button1 = L("Set"), button2 = L("Cancel"),
                             hasEditBox = true, editBoxWidth = 200,
                             timeout = 0, whileDead = false, hideOnEscape = true,
                             OnShow = function(dialog)

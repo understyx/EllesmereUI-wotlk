@@ -680,7 +680,7 @@ qolFrame:SetScript("OnEvent", function(self)
             if trainBtn then trainBtn:Show(); RefreshButton(); return end
 
             trainBtn = EllesmereUI.SafeCreateFrame("Button", "EUI_TrainAllButton", ClassTrainerFrame, "MagicButtonTemplate")
-            trainBtn:SetText("Train All")
+            trainBtn:SetText(EllesmereUI.L("Train All"))
             trainBtn:SetHeight(ClassTrainerTrainButton:GetHeight() or 22)
             trainBtn:SetWidth(80)
             trainBtn:SetPoint("RIGHT", ClassTrainerTrainButton, "LEFT", -2, 0)
@@ -707,7 +707,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 local coinStr = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString and C_CurrencyInfo.GetCoinTextureString(gold))
                     or (GetCoinTextureString and GetCoinTextureString(gold))
                     or tostring(gold)
-                local msg = string.format("Learn %d skill%s for %s",
+                local msg = EllesmereUI.Lf("Learn %d skill%s for %s",
                     n, n == 1 and "" or "s",
                     coinStr)
                 EllesmereUI.ShowWidgetTooltip(self, msg)
@@ -1337,7 +1337,7 @@ do
             bg:SetTexture(0.133, 0.133, 0.133, 1)
             local txt = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
             txt:SetPoint("CENTER")
-            txt:SetText("Click to Show")
+            txt:SetText(EllesmereUI.L("Click to Show"))
             txt:SetTextColor(0.7, 0.7, 0.7, 1)
             overlay:SetScript("OnClick", function(self)
                 self:Hide()
@@ -1635,7 +1635,7 @@ do
                     fsWorldLbl:Hide()
                     anchor = fsWorldVal
                 else
-                    fsWorldLbl:SetText("(world)")
+                    fsWorldLbl:SetText(EllesmereUI.L("(world)"))
                     fsWorldLbl:ClearAllPoints()
                     fsWorldLbl:SetPoint("LEFT", fsWorldVal, "RIGHT", 3, 0)
                     fsWorldLbl:Show()
@@ -1657,7 +1657,7 @@ do
                     fsLocalLbl:Hide()
                     anchor = fsLocalVal
                 else
-                    fsLocalLbl:SetText("(local)")
+                    fsLocalLbl:SetText(EllesmereUI.L("(local)"))
                     fsLocalLbl:ClearAllPoints()
                     fsLocalLbl:SetPoint("LEFT", fsLocalVal, "RIGHT", 3, 0)
                     fsLocalLbl:Show()
@@ -1857,7 +1857,7 @@ do
         local fs = durWarnOverlay:CreateFontString(nil, "OVERLAY")
         fs:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 18, EllesmereUI.GetFontOutlineFlag("extras"))
         fs:SetPoint("CENTER")
-        fs:SetText("Low Durability")
+        fs:SetText(EllesmereUI.L("Low Durability"))
         durWarnOverlay._text = fs
 
         local function ApplySettings()
@@ -1899,7 +1899,7 @@ do
 
         durWarnOverlay._show = function(pct)
             ApplySettings()
-            durWarnOverlay._text:SetText("Low Durability (" .. math.floor(pct) .. "%)")
+            durWarnOverlay._text:SetText(EllesmereUI.Lf("Low Durability (%d%%)", math.floor(pct)))
             durWarnOverlay:Show()
             ag:Play()
         end
@@ -1920,7 +1920,7 @@ do
     EllesmereUI._durWarnPreview = function()
         CreateDurabilityWarning()
         durWarnOverlay._show(25)
-        durWarnOverlay._text:SetText("Low Durability (Preview)")
+        durWarnOverlay._text:SetText(EllesmereUI.L("Low Durability (Preview)"))
     end
 
     EllesmereUI._durWarnHidePreview = function()
@@ -2467,7 +2467,7 @@ do
                 if playerPos then
                     local px, py = playerPos:GetXY()
                     if px and py and px > 0 and py > 0 then
-                        playerFS:SetText("P: " .. format("%.0f, %.0f", px * 100, py * 100))
+                        playerFS:SetText(EllesmereUI.Lf("P: %.0f, %.0f", px * 100, py * 100))
                         hasPlayer = true
                     end
                 end
@@ -2499,7 +2499,7 @@ do
                     end
                 end
 
-                cursorFS:SetText("C: " .. cText)
+                cursorFS:SetText(EllesmereUI.L("C: ") .. cText)
             end)
         end
 

@@ -51,7 +51,7 @@ local function MakeButton(text, x, callback, y)
     button:SetWidth(160)
     button:SetHeight(24)
     button:SetPoint("BOTTOM", x, y or 13)
-    button:SetText(text)
+    button:SetText(EllesmereUI.L(text))
     button:SetScript("OnClick", callback)
     return button
 end
@@ -166,7 +166,7 @@ local function BindInput(key)
         if old2 then SetBinding(old2) end
         changed = true
         RefreshActionBarBindings()
-        Print("Cleared bindings for " .. ButtonLabel(currentButton, currentCommand) .. ".")
+        Print(EllesmereUI.Lf("Cleared bindings for %s.", ButtonLabel(currentButton, currentCommand)))
         ShowBindingTooltip()
         return
     end
@@ -179,7 +179,7 @@ local function BindInput(key)
     SetBinding(binding, currentCommand)
     changed = true
     RefreshActionBarBindings()
-    Print(binding .. " bound to " .. ButtonLabel(currentButton, currentCommand) .. ".")
+    Print(EllesmereUI.Lf("%1$s bound to %2$s.", binding, ButtonLabel(currentButton, currentCommand)))
     ShowBindingTooltip()
 end
 

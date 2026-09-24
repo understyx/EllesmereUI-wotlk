@@ -15052,7 +15052,7 @@ local function RefreshPreview()
         overlayContainer:SetSize(totalW + anchorPad * 2, totalH + anchorPad * 2 + topExtra)
         if overlayContainer._title then
             ApplyFont(overlayContainer._title, 13)
-            overlayContainer._title:SetText("Overlay Preview")
+            overlayContainer._title:SetText(EllesmereUI.L("Overlay Preview"))
             overlayContainer._title:SetTextColor(1, 1, 1, 0.9)
             overlayContainer._title:Show()
         end
@@ -15960,7 +15960,7 @@ local function RefreshPartyPreview()
         ns._partyOC:SetFrameLevel(10)
         if ns._partyOC._title then
             ApplyFont(ns._partyOC._title, 13)
-            ns._partyOC._title:SetText("Preview")
+            ns._partyOC._title:SetText(EllesmereUI.L("Preview"))
             ns._partyOC._title:SetTextColor(1, 1, 1, 0.9)
             ns._partyOC._title:Show()
         end

@@ -973,7 +973,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                     label:SetWidth(colW - GRID_SIDE_PAD * 2 - GRID_BOX_SZ - 6)
                     label:SetJustifyH("LEFT")
                     label:SetMaxLines(2)
-                    label:SetText(item.label)
+                    label:SetText(EllesmereUI.L(item.label))
 
                     local box = EllesmereUI.SafeCreateFrame("Frame", nil, cell)
                     box:SetSize(GRID_BOX_SZ, GRID_BOX_SZ)

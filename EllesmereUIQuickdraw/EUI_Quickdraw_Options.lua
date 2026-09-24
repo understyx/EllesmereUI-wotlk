@@ -1704,7 +1704,7 @@ initFrame:SetScript("OnEvent", function(self)
             r.label:SetPoint("LEFT", r, "LEFT", 8, 0)
         end
         r.label:SetPoint("RIGHT", r, "RIGHT", -6, 0)
-        r.label:SetText(label)
+        r.label:SetText(EllesmereUI.L(label))
         r:SetScript("OnClick", onClick)
         r:Show()
     end

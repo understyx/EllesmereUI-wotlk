@@ -249,7 +249,7 @@ local function BuildShell()
     eb:SetScript("OnEnterPressed", function(self) Dismiss() end)
     eb:SetScript("OnKeyDown", function(self, key)
         if key == "C" and IsControlKeyDown() then
-            hint:SetText("Link copied - paste it into your browser")
+            hint:SetText(EllesmereUI.L("Link copied - paste it into your browser"))
             hint:SetTextColor(cur.r, cur.g, cur.b, 0.9)
         end
     end)
@@ -267,7 +267,7 @@ local function BuildShell()
     local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
     okLbl:SetFont(FONT, 15, "")
     PP.Point(okLbl, "CENTER", okBtn, "CENTER", 0, 0)
-    okLbl:SetText("Okay")
+    okLbl:SetText(EllesmereUI.L("Okay"))
     ui.okLbl = okLbl
     okBtn:SetScript("OnEnter", function()
         okLbl:SetTextColor(cur.r, cur.g, cur.b, 1)
@@ -303,17 +303,17 @@ local function SetGuide(id, def)
     cur.r, cur.g, cur.b = accent.r, accent.g, accent.b
 
     PP.Size(ui.popup, POPUP_W, def.height or POPUP_H)
-    ui.eyebrow:SetText(def.eyebrow or "VIDEO GUIDE")
+    ui.eyebrow:SetText(EllesmereUI.L(def.eyebrow or "VIDEO GUIDE"))
     ui.eyebrow:SetTextColor(accent.r, accent.g, accent.b, 0.9)
     ui.tri:SetTexture(accent.r, accent.g, accent.b, 0.9)
     ui.rule:SetTexture(accent.r, accent.g, accent.b, 0.35)
-    ui.title:SetText(def.title or "")
-    ui.blurb:SetText(def.blurb or "")
+    ui.title:SetText(EllesmereUI.L(def.title or ""))
+    ui.blurb:SetText(EllesmereUI.L(def.blurb or ""))
     ui.hint:SetText(EllesmereUI.L("Ctrl+C to copy, Escape to close"))
     ui.hint:SetTextColor(1, 1, 1, 0.45)
     ui.okLbl:SetTextColor(accent.r, accent.g, accent.b, 0.9)
     ui.okBrd:SetColor(accent.r, accent.g, accent.b, 0.9)
-    ui.footnote:SetText(def.footnote or "")
+    ui.footnote:SetText(EllesmereUI.L(def.footnote or ""))
 
     ui.eb._readOnly = def.url or ""
     ui.eb:SetText(def.url or "")
@@ -493,7 +493,7 @@ SlashCmdList["EUIVIDEOS"] = function()
         EllesmereUIDB.tutorialTipsSeen = nil
     end
     RefreshTips()
-    print("|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again.")
+    print(EllesmereUI.L("|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again."))
 end
 
 -------------------------------------------------------------------------------

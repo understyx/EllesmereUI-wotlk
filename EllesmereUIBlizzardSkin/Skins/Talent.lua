@@ -1,5 +1,6 @@
 local WSkin = _G.EllesmereUIBlizzardSkin
 if not WSkin then return end
+local EUI = _G.EllesmereUI
 
 local _G = _G
 local type, unpack = type, unpack
@@ -338,14 +339,14 @@ local function LayoutGlyphFrame()
 
 	if not data.majorHeader then
 		data.majorHeader = glyphFrame:CreateFontString(nil, "OVERLAY")
-		data.majorHeader:SetText("MAJOR GLYPHS")
+		data.majorHeader:SetText(EUI.L("MAJOR GLYPHS"))
 		data.majorHeader:SetJustifyH("LEFT")
 		data.majorHeader:SetPoint("TOPLEFT", glyphFrame, "TOPLEFT", CONTROL_LEFT, -54)
 		data.majorHeader:SetWidth(158)
 		WSkin:ApplyRetailTypography(data.majorHeader, "section")
 
 		data.minorHeader = glyphFrame:CreateFontString(nil, "OVERLAY")
-		data.minorHeader:SetText("MINOR GLYPHS")
+		data.minorHeader:SetText(EUI.L("MINOR GLYPHS"))
 		data.minorHeader:SetJustifyH("LEFT")
 		data.minorHeader:SetPoint("TOPLEFT", glyphFrame, "TOPLEFT", 202, -54)
 		data.minorHeader:SetWidth(158)
@@ -452,13 +453,13 @@ local function StyleGlyphSlot(slot)
 	end
 
 	data.iconBorder:SetTexture(1, 1, 1, glyphSpell and 0.16 or 0.08)
-	data.typeLabel:SetText(minor and "MINOR GLYPH" or "MAJOR GLYPH")
+	data.typeLabel:SetText(minor and EUI.L("MINOR GLYPH") or EUI.L("MAJOR GLYPH"))
 	data.typeLabel:SetTextColor(minor and 0.52 or ar, minor and 0.70 or ag, minor and 1.00 or ab, 0.90)
 
 	if not enabled then
 		slot:SetBackdropBorderColor(1, 1, 1, 0.05)
 		slot:SetBackdropColor(0.020, 0.026, 0.030, 0.42)
-		data.nameLabel:SetText("Locked slot")
+		data.nameLabel:SetText(EUI.L("Locked slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, 0.34)
 		data.emptyMark:SetText("-")
 		data.emptyMark:SetTextColor(1, 1, 1, 0.28)
@@ -466,7 +467,7 @@ local function StyleGlyphSlot(slot)
 	elseif minor then
 		slot:SetBackdropBorderColor(0.35, 0.58, 1.00, 0.42)
 		slot:SetBackdropColor(0.030, 0.043, 0.048, glyphSpell and 0.82 or 0.60)
-		data.nameLabel:SetText(glyphName or "Empty slot")
+		data.nameLabel:SetText(glyphName or EUI.L("Empty slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, glyphSpell and 0.92 or 0.58)
 		data.emptyMark:SetText("+")
 		data.emptyMark:SetTextColor(0.52, 0.70, 1.00, 0.70)
@@ -474,7 +475,7 @@ local function StyleGlyphSlot(slot)
 	else
 		slot:SetBackdropBorderColor(ar, ag, ab, 0.55)
 		slot:SetBackdropColor(0.030, 0.043, 0.048, glyphSpell and 0.82 or 0.60)
-		data.nameLabel:SetText(glyphName or "Empty slot")
+		data.nameLabel:SetText(glyphName or EUI.L("Empty slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, glyphSpell and 0.92 or 0.58)
 		data.emptyMark:SetText("+")
 		data.emptyMark:SetTextColor(ar, ag, ab, 0.72)

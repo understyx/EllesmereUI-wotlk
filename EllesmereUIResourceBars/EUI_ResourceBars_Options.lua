@@ -1707,7 +1707,7 @@ initFrame:SetScript("OnEvent", function(self)
             if id and C_Spell and C_Spell.GetSpellName then
                 nameFS:SetText(C_Spell.GetSpellName(id) or "|cffcc5555Unknown ID|r")
             else
-                nameFS:SetText("|cff888888(enter Spell ID)|r")
+                nameFS:SetText(EllesmereUI.L("|cff888888(enter Spell ID)|r"))
             end
         end
         row.RefreshName = RefreshName

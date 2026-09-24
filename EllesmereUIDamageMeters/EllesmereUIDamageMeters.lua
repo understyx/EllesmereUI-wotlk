@@ -2194,7 +2194,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
         if type(item) == "table" and item.text then
             local extra = ""
             if item.timerText then extra = "  " .. item.timerText end
-            menu._mfs:SetText(item.text .. extra); local w = menu._mfs:GetStringWidth() or 0
+            menu._mfs:SetText(EUI.L(item.text) .. extra); local w = menu._mfs:GetStringWidth() or 0
             if w > maxW then maxW = w end
         end
     end
@@ -2213,14 +2213,14 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
         elseif item.isHeader then
             row:SetSize(menuW, CTX_HDR_H); row:ClearAllPoints(); row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, y)
             row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline); row._lbl:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-            row._lbl:SetText(item.text); row._lbl:SetTextColor(1, 0.82, 0, 1); row:EnableMouse(false)
+            row._lbl:SetText(EUI.L(item.text)); row._lbl:SetTextColor(1, 0.82, 0, 1); row:EnableMouse(false)
             row:SetScript("OnEnter", nil); row:SetScript("OnLeave", nil); row:SetScript("OnClick", nil)
             row:Show(); y = y - CTX_HDR_H
         else
             local rowH = item.compact and (CTX_ITEM_H - 2) or CTX_ITEM_H
             row:SetSize(menuW, rowH); row:ClearAllPoints(); row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, y)
             row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
-            row._lbl:SetText(item.text or ""); row:EnableMouse(true)
+            row._lbl:SetText(EUI.L(item.text or "")); row:EnableMouse(true)
             -- Timer text (accent-colored, right-aligned)
             if item.timerText and row._timer then
                 row._timer:SetFont(fontPath, CTX_FONT_SZ, outline)
@@ -4351,7 +4351,7 @@ local function CreateDMWindow(winIdx)
             -- Visuals
             card._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
             card._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
-            card._lbl:SetText(label)
+            card._lbl:SetText(EUI.L(label))
             card._icon:SetTexture(ns.GetDMTypeIcon(dmType))
             card._arrow:Show()
 
