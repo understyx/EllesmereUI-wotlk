@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Configurable raid cooldown groups, announcements, and requests.
 ## Author: Ellesmere
-## Version: 8.6.4-wotlk.20260923
+## Version: 8.6.4-wotlk.20260924
 ## Dependencies: EllesmereUI
 ## OptionalDependencies: EllesmereUICooldownManager
 ## SavedVariables: EllesmereUIRaidCooldownsDB
