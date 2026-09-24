@@ -82,6 +82,14 @@ local function SuppressNative(kind)
         }
     end
     for _, name in ipairs(names) do HideNative(_G[name]) end
+
+    -- Wrath's TokenFrame also owns an anonymous UIPanelCloseButton as its
+    -- fourth child. It closes only the currency pane, so the themed sheet's
+    -- CharacterFrame close button is the sole close control we retain.
+    if kind == "currency" and _G.TokenFrame then
+        local children = { _G.TokenFrame:GetChildren() }
+        HideNative(children[4])
+    end
 end
 
 local function CreateLabel(parent, layer, size, alpha)

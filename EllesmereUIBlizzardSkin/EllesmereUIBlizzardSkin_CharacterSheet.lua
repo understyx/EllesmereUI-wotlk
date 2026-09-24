@@ -1530,6 +1530,7 @@ local function SkinCharacterSheet()
 
         if GetFFD(frame).modelScene   then if isCharacterTab then GetFFD(frame).modelScene:Show() else GetFFD(frame).modelScene:Hide() end   end
         if GetFFD(frame).modelBgFrame then if isCharacterTab then GetFFD(frame).modelBgFrame:Show() else GetFFD(frame).modelBgFrame:Hide() end end
+        if GetFFD(frame).textEyeBtn   then GetFFD(frame).textEyeBtn:SetShown(isCharacterTab) end
     end
 
     local function _hookPaneOnShow(pane, isChar)
@@ -4645,6 +4646,7 @@ local function SkinCharacterSheet()
         eyeBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -6)
         eyeBtn:SetFrameLevel(frame:GetFrameLevel() + 20)
         eyeBtn:SetAlpha(0.4)
+        eyeBtn:SetShown((frame.selectedTab or 1) == 1)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
         eyeTex:SetAllPoints()
         eyeTex:SetTexture(EYE_VISIBLE)
