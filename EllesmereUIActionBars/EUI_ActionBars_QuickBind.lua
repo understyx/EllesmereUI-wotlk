@@ -116,7 +116,7 @@ local function ButtonLabel(button, command)
         local bindingName = GetBindingName(command)
         if bindingName and bindingName ~= "" then return bindingName end
     end
-    return name or command or "Action Button"
+    return name or command or EllesmereUI.L("Action Button")
 end
 
 local function ShowBindingTooltip()
