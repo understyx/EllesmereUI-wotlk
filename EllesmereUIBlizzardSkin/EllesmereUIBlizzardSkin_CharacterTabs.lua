@@ -264,7 +264,7 @@ local function CreateBase(pane, kind, sectionTitle)
 
     panel.empty = CreateLabel(panel.list, "OVERLAY", 10, 0.4)
     panel.empty:SetPoint("CENTER", -6, 0)
-    panel.empty:SetText(_G.NONE or "None")
+    panel.empty:SetText(_G.NONE or EllesmereUI.L("None"))
 
     panel.slider:SetScript("OnValueChanged", function(_, value)
         local nextOffset = math.floor((value or 0) + 0.5)
@@ -314,15 +314,15 @@ local function RowTooltip(row, title, body)
 end
 
 local function BuildReputation(pane)
-    local panel = CreateBase(pane, "reputation", _G.FACTIONS or _G.REPUTATION or "Reputation")
+    local panel = CreateBase(pane, "reputation", _G.FACTIONS or _G.REPUTATION or EllesmereUI.L("Reputation"))
     if panel.built then return panel end
     panel.built = true
-    panel.detail.empty:SetText("Select a faction to view reputation options")
-    panel.detail.atWar = CreateCheck(panel.detail, _G.AT_WAR or "At War")
+    panel.detail.empty:SetText(EllesmereUI.L("Select a faction to view reputation options"))
+    panel.detail.atWar = CreateCheck(panel.detail, _G.AT_WAR or EllesmereUI.L("At War"))
     panel.detail.atWar:SetPoint("BOTTOMLEFT", 10, 8)
-    panel.detail.inactive = CreateCheck(panel.detail, _G.INACTIVE or "Inactive")
+    panel.detail.inactive = CreateCheck(panel.detail, _G.INACTIVE or EllesmereUI.L("Inactive"))
     panel.detail.inactive:SetPoint("LEFT", panel.detail.atWar, "RIGHT", 15, 0)
-    panel.detail.watched = CreateCheck(panel.detail, _G.SHOW_FACTION_ON_MAINSCREEN or _G.SHOW_AS_XP or "Show as XP Bar")
+    panel.detail.watched = CreateCheck(panel.detail, _G.SHOW_FACTION_ON_MAINSCREEN or _G.SHOW_AS_XP or EllesmereUI.L("Show as XP Bar"))
     panel.detail.watched:SetPoint("LEFT", panel.detail.inactive, "RIGHT", 15, 0)
 
     function panel:Refresh()
@@ -437,13 +437,13 @@ local function BuildReputation(pane)
 end
 
 local function BuildSkills(pane)
-    local panel = CreateBase(pane, "skills", _G.SKILLS or "Skills")
+    local panel = CreateBase(pane, "skills", _G.SKILLS or EllesmereUI.L("Skills"))
     if panel.built then return panel end
     panel.built = true
-    panel.detail.empty:SetText("Select a skill to view its details")
-    panel.collapse = CreateTextButton(panel, _G.COLLAPSE_ALL_BUTTON or "Collapse All", 86)
+    panel.detail.empty:SetText(EllesmereUI.L("Select a skill to view its details"))
+    panel.collapse = CreateTextButton(panel, _G.COLLAPSE_ALL_BUTTON or EllesmereUI.L("Collapse All"), 86)
     panel.collapse:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -6)
-    panel.unlearn = CreateTextButton(panel.detail, _G.UNLEARN or "Unlearn", 68)
+    panel.unlearn = CreateTextButton(panel.detail, _G.UNLEARN or EllesmereUI.L("Unlearn"), 68)
     panel.unlearn:SetPoint("BOTTOMRIGHT", -8, 7)
 
     function panel:Refresh()
@@ -559,15 +559,15 @@ local function CurrencyInfo(index)
 end
 
 local function BuildCurrency(pane)
-    local panel = CreateBase(pane, "currency", _G.CURRENCY or "Currency")
+    local panel = CreateBase(pane, "currency", _G.CURRENCY or EllesmereUI.L("Currency"))
     if panel.built then return panel end
     panel.built = true
-    panel.detail.empty:SetText("Select a currency to view its options")
+    panel.detail.empty:SetText(EllesmereUI.L("Select a currency to view its options"))
     panel.money = CreateLabel(panel, "OVERLAY", 9, 0.58)
     panel.money:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -10)
-    panel.detail.backpack = CreateCheck(panel.detail, _G.TOKEN_SHOW_ON_BACKPACK or "Show in Backpack")
+    panel.detail.backpack = CreateCheck(panel.detail, _G.TOKEN_SHOW_ON_BACKPACK or EllesmereUI.L("Show in Backpack"))
     panel.detail.backpack:SetPoint("BOTTOMLEFT", 10, 8)
-    panel.detail.unused = CreateCheck(panel.detail, _G.TOKEN_MARK_UNUSED or "Mark as Unused")
+    panel.detail.unused = CreateCheck(panel.detail, _G.TOKEN_MARK_UNUSED or EllesmereUI.L("Mark as Unused"))
     panel.detail.unused:SetPoint("LEFT", panel.detail.backpack, "RIGHT", 18, 0)
 
     function panel:Refresh()

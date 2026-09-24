@@ -1,6 +1,6 @@
 local WSkin = _G.EllesmereUIBlizzardSkin
 if not WSkin then return end
-local EUI = _G.EllesmereUI
+local EllesmereUI = _G.EllesmereUI
 
 local _G = _G
 local type, unpack = type, unpack
@@ -322,14 +322,33 @@ end
 
 local talentUpdateHooked
 local glyphHooked, glyphAnimationHooked, glyphTitleHooked
-local glyphLayout = {
-	[1] = { CONTROL_LEFT, -82 },
-	[3] = { CONTROL_LEFT, -176 },
-	[5] = { CONTROL_LEFT, -270 },
-	[2] = { 202, -82 },
-	[4] = { 202, -176 },
-	[6] = { 202, -270 },
+local GLYPH_TYPE_MAJOR = 1
+local GLYPH_TYPE_MINOR = 2
+local GLYPH_MINOR_LEFT = 202
+local GLYPH_ROW_TOP = -82
+local GLYPH_ROW_SPACING = 94
+
+-- Socket IDs are ordered by unlock level, not by glyph type. These are the
+-- stock Wrath types and only serve as a fallback while the API is unavailable.
+local glyphTypeFallback = {
+	[1] = GLYPH_TYPE_MAJOR,
+	[2] = GLYPH_TYPE_MINOR,
+	[3] = GLYPH_TYPE_MINOR,
+	[4] = GLYPH_TYPE_MAJOR,
+	[5] = GLYPH_TYPE_MINOR,
+	[6] = GLYPH_TYPE_MAJOR,
 }
+
+local function GetGlyphSlotInfo(slot, id)
+	id = id or (slot and slot.GetID and slot:GetID())
+	local talentGroup = _G.PlayerTalentFrame and _G.PlayerTalentFrame.talentGroup
+	local enabled, glyphType, glyphSpell
+	if id and type(_G.GetGlyphSocketInfo) == "function" then
+		enabled, glyphType, glyphSpell = _G.GetGlyphSocketInfo(id, talentGroup)
+	end
+	glyphType = glyphType or (slot and slot.glyphType) or glyphTypeFallback[id] or GLYPH_TYPE_MAJOR
+	return enabled, glyphType, glyphSpell
+end
 
 local function LayoutGlyphFrame()
 	local glyphFrame = _G.GlyphFrame
@@ -339,18 +358,18 @@ local function LayoutGlyphFrame()
 
 	if not data.majorHeader then
 		data.majorHeader = glyphFrame:CreateFontString(nil, "OVERLAY")
-		data.majorHeader:SetText(EUI.L("MAJOR GLYPHS"))
+		WSkin:ApplyRetailTypography(data.majorHeader, "section")
+		data.majorHeader:SetText(EllesmereUI.L("MAJOR GLYPHS"))
 		data.majorHeader:SetJustifyH("LEFT")
 		data.majorHeader:SetPoint("TOPLEFT", glyphFrame, "TOPLEFT", CONTROL_LEFT, -54)
 		data.majorHeader:SetWidth(158)
-		WSkin:ApplyRetailTypography(data.majorHeader, "section")
 
 		data.minorHeader = glyphFrame:CreateFontString(nil, "OVERLAY")
-		data.minorHeader:SetText(EUI.L("MINOR GLYPHS"))
+		WSkin:ApplyRetailTypography(data.minorHeader, "section")
+		data.minorHeader:SetText(EllesmereUI.L("MINOR GLYPHS"))
 		data.minorHeader:SetJustifyH("LEFT")
 		data.minorHeader:SetPoint("TOPLEFT", glyphFrame, "TOPLEFT", 202, -54)
 		data.minorHeader:SetWidth(158)
-		WSkin:ApplyRetailTypography(data.minorHeader, "section")
 
 		data.majorRule = glyphFrame:CreateTexture(nil, "ARTWORK")
 		data.majorRule:SetPoint("TOPLEFT", glyphFrame, "TOPLEFT", CONTROL_LEFT, -72)
@@ -366,11 +385,17 @@ local function LayoutGlyphFrame()
 	data.majorRule:SetTexture(ar, ag, ab, 0.48)
 	data.minorRule:SetTexture(0.35, 0.58, 1.00, 0.42)
 
-	for id, position in pairs(glyphLayout) do
+	local rows = { [GLYPH_TYPE_MAJOR] = 0, [GLYPH_TYPE_MINOR] = 0 }
+	for id = 1, Count(_G.NUM_GLYPH_SLOTS, 6) do
 		local slot = _G["GlyphFrameGlyph" .. id]
 		if slot then
+			local _, glyphType = GetGlyphSlotInfo(slot, id)
+			glyphType = glyphType == GLYPH_TYPE_MINOR and GLYPH_TYPE_MINOR or GLYPH_TYPE_MAJOR
+			rows[glyphType] = rows[glyphType] + 1
+			local x = glyphType == GLYPH_TYPE_MINOR and GLYPH_MINOR_LEFT or CONTROL_LEFT
+			local y = GLYPH_ROW_TOP - ((rows[glyphType] - 1) * GLYPH_ROW_SPACING)
 			slot:ClearAllPoints()
-			slot:SetPoint("TOPLEFT", glyphFrame, "TOPLEFT", position[1], position[2])
+			slot:SetPoint("TOPLEFT", glyphFrame, "TOPLEFT", x, y)
 			slot:SetSize(158, 68)
 			slot:SetHitRectInsets(0, 0, 0, 0)
 		end
@@ -413,13 +438,7 @@ local function StyleGlyphSlot(slot)
 		data.typeLabel:SetJustifyH("LEFT")
 	end
 
-	local id = slot.GetID and slot:GetID()
-	local talentGroup = _G.PlayerTalentFrame and _G.PlayerTalentFrame.talentGroup
-	local enabled, glyphType, glyphSpell
-	if id and type(_G.GetGlyphSocketInfo) == "function" then
-		enabled, glyphType, glyphSpell = _G.GetGlyphSocketInfo(id, talentGroup)
-	end
-	glyphType = glyphType or slot.glyphType or 1
+	local enabled, glyphType, glyphSpell = GetGlyphSlotInfo(slot)
 
 	-- Blizzard still owns the glyph data, tooltips, drag/drop, animation timing,
 	-- and the actual icon. Only the ornamental rune plate is replaced.
@@ -446,20 +465,20 @@ local function StyleGlyphSlot(slot)
 	end
 
 	local ar, ag, ab = WSkin:GetRetailAccent()
-	local minor = glyphType == 2
+	local minor = glyphType == GLYPH_TYPE_MINOR
 	local glyphName
 	if glyphSpell and type(_G.GetSpellInfo) == "function" then
 		glyphName = _G.GetSpellInfo(glyphSpell)
 	end
 
 	data.iconBorder:SetTexture(1, 1, 1, glyphSpell and 0.16 or 0.08)
-	data.typeLabel:SetText(minor and EUI.L("MINOR GLYPH") or EUI.L("MAJOR GLYPH"))
+	data.typeLabel:SetText(minor and EllesmereUI.L("MINOR GLYPH") or EllesmereUI.L("MAJOR GLYPH"))
 	data.typeLabel:SetTextColor(minor and 0.52 or ar, minor and 0.70 or ag, minor and 1.00 or ab, 0.90)
 
 	if not enabled then
 		slot:SetBackdropBorderColor(1, 1, 1, 0.05)
 		slot:SetBackdropColor(0.020, 0.026, 0.030, 0.42)
-		data.nameLabel:SetText(EUI.L("Locked slot"))
+		data.nameLabel:SetText(EllesmereUI.L("Locked slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, 0.34)
 		data.emptyMark:SetText("-")
 		data.emptyMark:SetTextColor(1, 1, 1, 0.28)
@@ -467,7 +486,7 @@ local function StyleGlyphSlot(slot)
 	elseif minor then
 		slot:SetBackdropBorderColor(0.35, 0.58, 1.00, 0.42)
 		slot:SetBackdropColor(0.030, 0.043, 0.048, glyphSpell and 0.82 or 0.60)
-		data.nameLabel:SetText(glyphName or EUI.L("Empty slot"))
+		data.nameLabel:SetText(glyphName or EllesmereUI.L("Empty slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, glyphSpell and 0.92 or 0.58)
 		data.emptyMark:SetText("+")
 		data.emptyMark:SetTextColor(0.52, 0.70, 1.00, 0.70)
@@ -475,7 +494,7 @@ local function StyleGlyphSlot(slot)
 	else
 		slot:SetBackdropBorderColor(ar, ag, ab, 0.55)
 		slot:SetBackdropColor(0.030, 0.043, 0.048, glyphSpell and 0.82 or 0.60)
-		data.nameLabel:SetText(glyphName or EUI.L("Empty slot"))
+		data.nameLabel:SetText(glyphName or EllesmereUI.L("Empty slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, glyphSpell and 0.92 or 0.58)
 		data.emptyMark:SetText("+")
 		data.emptyMark:SetTextColor(ar, ag, ab, 0.72)
@@ -496,7 +515,7 @@ local function SyncGlyphTitle()
 	parentTitle:Show()
 	if _G.GlyphFrame and _G.GlyphFrame:IsShown() then
 		local text = glyphTitle and glyphTitle:GetText()
-		parentTitle:SetText((text and text ~= "") and text or (_G.GLYPHS or "Glyphs"))
+		parentTitle:SetText((text and text ~= "") and text or (_G.GLYPHS or EllesmereUI.L("Glyphs")))
 	end
 end
 

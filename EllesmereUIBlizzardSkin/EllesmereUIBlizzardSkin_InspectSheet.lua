@@ -9,6 +9,16 @@ local WSkin = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
 local skinned = false
 
 local MAX_GLYPH_SOCKETS = 6
+local GLYPH_TYPE_MAJOR = 1
+local GLYPH_TYPE_MINOR = 2
+local INSPECT_GLYPH_TYPES = {
+    [1] = GLYPH_TYPE_MAJOR,
+    [2] = GLYPH_TYPE_MINOR,
+    [3] = GLYPH_TYPE_MINOR,
+    [4] = GLYPH_TYPE_MAJOR,
+    [5] = GLYPH_TYPE_MINOR,
+    [6] = GLYPH_TYPE_MAJOR,
+}
 local LGT = LibStub and LibStub:GetLibrary("LibGroupTalents-1.0", true)
 local GetInspectItemsFrame
 local glyphUI = {
@@ -16,6 +26,17 @@ local glyphUI = {
     hasData = false,
     rows = {},
 }
+
+local function GetInspectGlyphType(socket)
+    if type(_G.GetGlyphSocketInfo) == "function" then
+        local talentGroup = type(_G.GetActiveTalentGroup) == "function" and _G.GetActiveTalentGroup() or nil
+        local _, glyphType = _G.GetGlyphSocketInfo(socket, talentGroup)
+        if glyphType == GLYPH_TYPE_MAJOR or glyphType == GLYPH_TYPE_MINOR then
+            return glyphType
+        end
+    end
+    return INSPECT_GLYPH_TYPES[socket] or GLYPH_TYPE_MAJOR
+end
 
 local function GetInspectGlyphUnit()
     local frame = _G.InspectFrame
@@ -29,18 +50,20 @@ local function CollectInspectGlyphs(unit)
 
     local spellIDs = { LGT:GetUnitGlyphs(unit) }
     local glyphs = {}
+    local count = 0
     for socket = 1, MAX_GLYPH_SOCKETS do
         local spellID = spellIDs[socket]
         if type(spellID) == "number" and spellID > 0 then
             local spellName, _, icon = GetSpellInfo(spellID)
-            glyphs[#glyphs + 1] = {
+            glyphs[socket] = {
                 spellID = spellID,
                 name = spellName or EllesmereUI.Lf("Spell ID %d", spellID),
                 icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark",
             }
+            count = count + 1
         end
     end
-    return glyphs
+    return glyphs, count
 end
 
 local function HideNativeInspectPages()
@@ -83,6 +106,19 @@ local function ReturnToInspectEquipment()
     glyphUI.active = false
     if glyphUI.panel then glyphUI.panel:Hide() end
 
+    -- InspectPaperDollFrame's OnShow formats the unit's race and class without
+    -- guarding nil. Target-change events can reach us before Blizzard closes
+    -- or retargets InspectFrame, so never synthesize a tab click until all of
+    -- the strings expected by that formatter are available.
+    local unit = GetInspectGlyphUnit()
+    local className = unit and UnitClass(unit)
+    local raceName = unit and UnitRace(unit)
+    if type(className) ~= "string" or className == ""
+       or type(raceName) ~= "string" or raceName == "" then
+        if glyphUI.updateTabs then glyphUI.updateTabs() end
+        return
+    end
+
     local tab = _G.InspectFrameTab1
     if tab and tab.Click then
         tab:Click()
@@ -110,15 +146,19 @@ local function RefreshInspectGlyphs(requestData)
     end
 
     local unit = GetInspectGlyphUnit()
-    local glyphs = CollectInspectGlyphs(unit) or {}
-    if requestData and #glyphs == 0 and LGT and unit then
+    local glyphs, glyphCount = CollectInspectGlyphs(unit)
+    glyphs = glyphs or {}
+    glyphCount = glyphCount or 0
+    if requestData and glyphCount == 0 and LGT and unit then
         -- LibGroupTalents supplies glyphs through addon communication. Asking
         -- for talents also requests glyphs from compatible group members.
         LGT:GetUnitTalents(unit, true)
-        glyphs = CollectInspectGlyphs(unit) or glyphs
+        glyphs, glyphCount = CollectInspectGlyphs(unit)
+        glyphs = glyphs or {}
+        glyphCount = glyphCount or 0
     end
 
-    glyphUI.hasData = #glyphs > 0
+    glyphUI.hasData = glyphCount > 0
 
     if glyphUI.tab then
         if glyphUI.hasData then glyphUI.tab:Show() else glyphUI.tab:Hide() end
@@ -127,14 +167,23 @@ local function RefreshInspectGlyphs(requestData)
     for i = 1, MAX_GLYPH_SOCKETS do
         local row = glyphUI.rows[i]
         local glyph = glyphs[i]
-        if row and glyph then
-            row.spellID = glyph.spellID
-            row.icon:SetTexture(glyph.icon)
-            row.name:SetText(glyph.name)
+        if row then
+            local minor = row.glyphType == GLYPH_TYPE_MINOR
+            row.spellID = glyph and glyph.spellID or nil
+            row.name:SetText(glyph and glyph.name or EllesmereUI.L("Empty slot"))
+            row.name:SetTextColor(1, 1, 1, glyph and 0.92 or 0.58)
+            if glyph then
+                row.icon:SetTexture(glyph.icon)
+                row.icon:Show()
+                row.emptyMark:Hide()
+            else
+                row.icon:SetTexture(nil)
+                row.icon:Hide()
+                row.emptyMark:SetText("+")
+                row.emptyMark:Show()
+            end
+            row.typeLabel:SetText(minor and EllesmereUI.L("MINOR GLYPH") or EllesmereUI.L("MAJOR GLYPH"))
             row:Show()
-        elseif row then
-            row.spellID = nil
-            row:Hide()
         end
     end
 
@@ -1432,56 +1481,97 @@ local function SkinInspectSheet()
         surface:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -70)
         surface:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 39)
         surface:SetFrameLevel(panel:GetFrameLevel() + 1)
-        if WSkin and WSkin.ApplyRetailSurface then
-            WSkin:ApplyRetailSurface(surface, "card", 0.025, 0.035, 0.04, 0.78)
-        end
         glyphUI.surface = surface
 
-        local heading = surface:CreateFontString(nil, "OVERLAY")
-        heading:SetFont(fontPath, 13, "")
-        heading:SetTextColor(1, 1, 1, 0.95)
-        heading:SetPoint("TOP", surface, "TOP", 0, -16)
-        heading:SetText(EllesmereUI.L("Glyphs"))
+        local ar, ag, ab = 0.05, 0.82, 0.62
+        if WSkin and WSkin.GetRetailAccent then
+            ar, ag, ab = WSkin:GetRetailAccent()
+        end
 
-        local note = surface:CreateFontString(nil, "OVERLAY")
-        note:SetFont(fontPath, 10, "")
-        note:SetTextColor(1, 1, 1, 0.48)
-        note:SetPoint("TOP", heading, "BOTTOM", 0, -5)
-        note:SetText(EllesmereUI.L("Shared glyph data for this character"))
+        local majorHeader = surface:CreateFontString(nil, "OVERLAY")
+        majorHeader:SetFont(fontPath, 11, "")
+        majorHeader:SetTextColor(ar, ag, ab, 0.95)
+        majorHeader:SetJustifyH("LEFT")
+        majorHeader:SetPoint("TOPLEFT", surface, "TOPLEFT", 10, -6)
+        majorHeader:SetWidth(184)
+        majorHeader:SetText(EllesmereUI.L("MAJOR GLYPHS"))
 
-        for i = 1, MAX_GLYPH_SOCKETS do
+        local minorHeader = surface:CreateFontString(nil, "OVERLAY")
+        minorHeader:SetFont(fontPath, 11, "")
+        minorHeader:SetTextColor(0.52, 0.70, 1.00, 0.90)
+        minorHeader:SetJustifyH("LEFT")
+        minorHeader:SetPoint("TOPLEFT", surface, "TOPLEFT", 204, -6)
+        minorHeader:SetWidth(184)
+        minorHeader:SetText(EllesmereUI.L("MINOR GLYPHS"))
+
+        local majorRule = surface:CreateTexture(nil, "ARTWORK")
+        majorRule:SetPoint("TOPLEFT", surface, "TOPLEFT", 10, -25)
+        majorRule:SetSize(184, 1)
+        majorRule:SetTexture(ar, ag, ab, 0.48)
+
+        local minorRule = surface:CreateTexture(nil, "ARTWORK")
+        minorRule:SetPoint("TOPLEFT", surface, "TOPLEFT", 204, -25)
+        minorRule:SetSize(184, 1)
+        minorRule:SetTexture(0.35, 0.58, 1.00, 0.42)
+
+        local typeRows = { [GLYPH_TYPE_MAJOR] = 0, [GLYPH_TYPE_MINOR] = 0 }
+        for socket = 1, MAX_GLYPH_SOCKETS do
+            local glyphType = GetInspectGlyphType(socket)
+            typeRows[glyphType] = typeRows[glyphType] + 1
+            local minor = glyphType == GLYPH_TYPE_MINOR
             local row = EllesmereUI.SafeCreateFrame("Button", nil, surface)
-            row:SetSize(184, 70)
-            row:SetPoint("TOPLEFT", surface, "TOPLEFT",
-                (i % 2 == 1) and 10 or 204,
-                -62 - (math.floor((i - 1) / 2) * 76))
+            row:SetSize(184, 68)
+            row:SetPoint("TOPLEFT", surface, "TOPLEFT", minor and 204 or 10,
+                -38 - ((typeRows[glyphType] - 1) * 84))
             row:SetFrameLevel(surface:GetFrameLevel() + 2)
             if WSkin and WSkin.ApplyRetailSurface then
-                WSkin:ApplyRetailSurface(row, "card", 0.03, 0.043, 0.048, 0.78)
+                WSkin:ApplyRetailSurface(row, "row")
             end
+            row:SetBackdropColor(0.030, 0.043, 0.048, 0.70)
+            row:SetBackdropBorderColor(minor and 0.35 or ar, minor and 0.58 or ag,
+                minor and 1.00 or ab, minor and 0.42 or 0.55)
 
             local iconFrame = EllesmereUI.SafeCreateFrame("Frame", nil, row)
-            iconFrame:SetSize(40, 40)
-            iconFrame:SetPoint("LEFT", row, "LEFT", 10, 0)
+            iconFrame:SetSize(48, 48)
+            iconFrame:SetPoint("LEFT", row, "LEFT", 11, 0)
             iconFrame:SetFrameLevel(row:GetFrameLevel() + 1)
+            if WSkin and WSkin.ApplyRetailSurface then
+                WSkin:ApplyRetailSurface(iconFrame, "input")
+                iconFrame:SetBackdropColor(0.012, 0.018, 0.021, 0.96)
+                iconFrame:SetBackdropBorderColor(1, 1, 1, 0.10)
+            end
             local icon = iconFrame:CreateTexture(nil, "ARTWORK")
             icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 2, -2)
             icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -2, 2)
             icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            if EllesmereUI.PanelPP then
-                EllesmereUI.PanelPP.CreateBorder(iconFrame, 0.32, 0.32, 0.32, 1, 1, "OVERLAY", 7)
-            end
+
+            local emptyMark = iconFrame:CreateFontString(nil, "OVERLAY")
+            emptyMark:SetFont(fontPath, 11, "")
+            emptyMark:SetTextColor(minor and 0.52 or ar, minor and 0.70 or ag,
+                minor and 1.00 or ab, 0.70)
+            emptyMark:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
 
             local name = row:CreateFontString(nil, "OVERLAY")
             name:SetFont(fontPath, 10, "")
             name:SetTextColor(1, 1, 1, 0.88)
             name:SetJustifyH("LEFT")
-            name:SetJustifyV("MIDDLE")
-            name:SetPoint("TOPLEFT", iconFrame, "TOPRIGHT", 9, 3)
-            name:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -7, 7)
+            name:SetJustifyV("TOP")
+            name:SetPoint("TOPLEFT", row, "TOPLEFT", 68, -13)
+            name:SetSize(106, 27)
 
+            local typeLabel = row:CreateFontString(nil, "OVERLAY")
+            typeLabel:SetFont(fontPath, 9, "")
+            typeLabel:SetTextColor(minor and 0.52 or ar, minor and 0.70 or ag,
+                minor and 1.00 or ab, 0.90)
+            typeLabel:SetJustifyH("LEFT")
+            typeLabel:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 68, 12)
+            typeLabel:SetSize(106, 12)
+
+            row.glyphType = glyphType
             row.icon = icon
+            row.emptyMark = emptyMark
             row.name = name
+            row.typeLabel = typeLabel
             row:SetScript("OnEnter", function(self)
                 if not self.spellID then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -1494,7 +1584,7 @@ local function SkinInspectSheet()
             end)
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
             row:Hide()
-            glyphUI.rows[i] = row
+            glyphUI.rows[socket] = row
         end
     end
 
