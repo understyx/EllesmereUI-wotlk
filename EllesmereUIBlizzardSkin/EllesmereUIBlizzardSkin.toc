@@ -13,6 +13,7 @@
 EllesmereUIBlizzardSkin.lua
 EllesmereUIBlizzardSkin_DiminishingReturns.lua
 EllesmereUIBlizzardSkin_CharacterSheet.lua
+EllesmereUIBlizzardSkin_CharacterTabs.lua
 EllesmereUIBlizzardSkin_SocketPanel.lua
 EllesmereUIBlizzardSkin_InspectSheet.lua
 EllesmereUIBlizzardSkin_GroupFinder.lua

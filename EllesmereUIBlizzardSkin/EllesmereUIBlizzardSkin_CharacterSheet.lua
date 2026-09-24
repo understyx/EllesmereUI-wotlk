@@ -830,12 +830,13 @@ local function SkinCharacterSheet()
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
 
     ------------------------------------------------------------------------
-    -- Native CharacterFrame sub-pages
+    -- CharacterFrame sub-pages
     ------------------------------------------------------------------------
     -- The fallback Character skin has treatments for these panes, but it is
     -- intentionally disabled while the themed character sheet is active to
     -- avoid both skins fighting over PaperDollFrame. Keep the themed version
-    -- self-contained and skin only the restored sub-pages here.
+    -- self-contained. Pets retain their native data view; Reputation, Skills,
+    -- and Currency are handed to EUI's purpose-built page renderer below.
     -- The toolkit publishes its methods on the addon's global skin table.
     -- The private addon namespace does not own a WSkin field.
     local WSkin = _G.EllesmereUIBlizzardSkin
@@ -847,10 +848,6 @@ local function SkinCharacterSheet()
             GetFFD(pane)._euiPageSurface = WSkin:CreateRetailPageSurface(pane)
         end
 
-        local function SkinScrollBar(scrollBar)
-            if scrollBar then WSkin:HandleRetailScrollBar(scrollBar) end
-        end
-
         local function SkinButton(button)
             if button then WSkin:HandleRetailButton(button, true) end
         end
@@ -859,11 +856,6 @@ local function SkinCharacterSheet()
             if not frame or GetFFD(frame)._euiSurface then return end
             WSkin:ApplyRetailSurface(frame, "card", r, g, b, a)
             GetFFD(frame)._euiSurface = true
-        end
-
-        local function StyleRegionFonts(frame, size, alpha)
-            if not frame then return end
-            WSkin:ApplyRetailRegionTypography(frame, (size or 10) > 10 and "section" or "row", alpha or 0.82)
         end
 
         -- CharacterFrame is widened by the themed sheet, but Blizzard's
@@ -1339,366 +1331,14 @@ local function SkinCharacterSheet()
         end
 
         local rep = _G.ReputationFrame
-        if rep and not GetFFD(rep)._euiThemedPage then
-            GetFFD(rep)._euiThemedPage = true
-            SizeThemedPane(rep)
-            WSkin:StripTextures(rep, true)
-            AddPageSurface(rep)
-            WSkin:StripTextures(_G.ReputationListScrollFrame)
-            SkinScrollBar(_G.ReputationListScrollFrameScrollBar)
-            if _G.ReputationListScrollFrame then
-                _G.ReputationListScrollFrame:ClearAllPoints()
-                _G.ReputationListScrollFrame:SetPoint("TOPLEFT", rep, "TOPLEFT", 22, -75)
-                _G.ReputationListScrollFrame:SetSize(485, 305)
-            end
-            if _G.ReputationListScrollFrameScrollBar and _G.ReputationListScrollFrame then
-                _G.ReputationListScrollFrameScrollBar:ClearAllPoints()
-                _G.ReputationListScrollFrameScrollBar:SetPoint("TOPLEFT", _G.ReputationListScrollFrame, "TOPRIGHT", 6, 0)
-                _G.ReputationListScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.ReputationListScrollFrame, "BOTTOMRIGHT", 6, 0)
-            end
-            if _G.ReputationFrameFactionLabel then
-                _G.ReputationFrameFactionLabel:ClearAllPoints()
-                _G.ReputationFrameFactionLabel:SetPoint("TOPLEFT", rep, "TOPLEFT", 46, -58)
-            end
-            if _G.ReputationFrameStandingLabel then
-                _G.ReputationFrameStandingLabel:ClearAllPoints()
-                _G.ReputationFrameStandingLabel:SetPoint("TOPRIGHT", rep, "TOPRIGHT", -70, -58)
-            end
-            for i = 1, 15 do
-                local row = _G["ReputationBar" .. i]
-                local bar = _G["ReputationBar" .. i .. "ReputationBar"]
-                local expandButton = _G["ReputationBar" .. i .. "ExpandOrCollapseButton"]
-                if row then
-                    WSkin:StripTextures(row, true)
-                    row:SetWidth(465)
-                    if i == 1 then
-                        row:ClearAllPoints()
-                        row:SetPoint("TOPLEFT", rep, "TOPLEFT", 28, -81)
-                    end
-                end
-                if bar then
-                    WSkin:StripTextures(bar)
-                    bar:SetWidth(425)
-                    bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                    if not bar.backdrop then WSkin:CreateBackdrop(bar, "Default") end
-                end
-                if expandButton then
-                    expandButton:SetNormalTexture("Interface\\Buttons\\UI-PlusButton-UP")
-                    expandButton:SetHighlightTexture(nil)
-                    local normal = expandButton:GetNormalTexture()
-                    if normal then normal:SetSize(15, 15) end
-                end
-            end
-
-            local function RefreshReputationExpandIcons()
-                if not (_G.ReputationListScrollFrame and _G.FauxScrollFrame_GetOffset
-                    and _G.GetNumFactions) then return end
-                local offset = FauxScrollFrame_GetOffset(_G.ReputationListScrollFrame)
-                local count = GetNumFactions()
-                for i = 1, 15 do
-                    local index = offset + i
-                    local row = _G["ReputationBar" .. i]
-                    local button = _G["ReputationBar" .. i .. "ExpandOrCollapseButton"]
-                    if index <= count and row and button then
-                        button:SetNormalTexture(row.isCollapsed
-                            and "Interface\\Buttons\\UI-PlusButton-UP"
-                            or "Interface\\Buttons\\UI-MinusButton-UP")
-                        local normal = button:GetNormalTexture()
-                        if normal then normal:SetSize(15, 15) end
-                    end
-                end
-            end
-            if _G.ReputationFrame_Update then
-                hooksecurefunc("ReputationFrame_Update", RefreshReputationExpandIcons)
-            end
-            RefreshReputationExpandIcons()
-            rep:HookScript("OnShow", function() SizeThemedPane(rep) end)
-
-            local detail = _G.ReputationDetailFrame
-            if detail then
-                WSkin:StripTextures(detail)
-                if not detail.backdrop then WSkin:SetTemplate(detail, "Transparent") end
-                if _G.ReputationDetailCloseButton then
-                    WSkin:HandleCloseButton(_G.ReputationDetailCloseButton, detail)
-                end
-                for _, checkBox in ipairs({
-                    _G.ReputationDetailAtWarCheckBox,
-                    _G.ReputationDetailInactiveCheckBox,
-                    _G.ReputationDetailMainScreenCheckBox,
-                }) do
-                    if checkBox and not checkBox.isSkinned then WSkin:HandleCheckBox(checkBox) end
-                end
-            end
-        end
+        local customTabs = _G.EllesmereUIBlizzardSkin_CustomCharacterTabs
+        if rep and customTabs then customTabs:Build("reputation", rep) end
 
         local skills = _G.SkillFrame
-        if skills and not GetFFD(skills)._euiThemedPage then
-            GetFFD(skills)._euiThemedPage = true
-            SizeThemedPane(skills)
-            WSkin:StripTextures(skills, true)
-            AddPageSurface(skills)
-            if _G.SkillFrameExpandButtonFrame then WSkin:StripTextures(_G.SkillFrameExpandButtonFrame) end
-            if _G.SkillFrameCollapseAllButton then
-                WSkin:HandleCollapseExpandButton(_G.SkillFrameCollapseAllButton, "+")
-            end
-            local function SkinSkillRows()
-                for i = 1, 12 do
-                    local rank = _G["SkillRankFrame" .. i]
-                    local rankBorder = _G["SkillRankFrame" .. i .. "Border"]
-                    local rankBg = _G["SkillRankFrame" .. i .. "Background"]
-                    local typeLabel = _G["SkillTypeLabel" .. i]
-                    if rank then
-                        if not GetFFD(rank)._euiSkillRow then
-                            GetFFD(rank)._euiSkillRow = true
-                            WSkin:StripTextures(rank)
-                            if rankBorder then WSkin:StripTextures(rankBorder) end
-                            if rankBg then rankBg:SetTexture(nil) end
-                            SetSurface(rank, 0.035, 0.050, 0.055, 0.96)
-                            if EllesmereUI and EllesmereUI.RegAccent then
-                                local accentRank = rank
-                                EllesmereUI.RegAccent({
-                                    type = "callback", obj = accentRank,
-                                    fn = function(r, g, b) accentRank:SetStatusBarColor(r, g, b, 0.72) end,
-                                })
-                            end
-                        end
-                        rank:SetWidth(435)
-                        rank:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                        rank:SetStatusBarColor(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 0.72)
-                        StyleRegionFonts(rank, 10, 0.90)
-                    end
-                    if typeLabel then
-                        if not GetFFD(typeLabel)._euiSkillHeader then
-                            GetFFD(typeLabel)._euiSkillHeader = true
-                            WSkin:StripTextures(typeLabel)
-                            WSkin:HandleCollapseExpandButton(typeLabel, "+")
-                            SetSurface(typeLabel, 0.055, 0.075, 0.08, 0.98)
-                        end
-                        typeLabel:SetWidth(465)
-                        StyleRegionFonts(typeLabel, 10, 0.95)
-                    end
-                end
-            end
-            SkinSkillRows()
-            if _G.SkillFrame_Update then hooksecurefunc("SkillFrame_Update", SkinSkillRows) end
-            if _G.SkillDetailStatusBar then
-                WSkin:StripTextures(_G.SkillDetailStatusBar)
-                _G.SkillDetailStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                _G.SkillDetailStatusBar:SetStatusBarColor(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 0.72)
-                if EllesmereUI and EllesmereUI.RegAccent then
-                    EllesmereUI.RegAccent({
-                        type = "callback", obj = _G.SkillDetailStatusBar,
-                        fn = function(r, g, b) _G.SkillDetailStatusBar:SetStatusBarColor(r, g, b, 0.72) end,
-                    })
-                end
-                if not _G.SkillDetailStatusBar.backdrop then
-                    WSkin:CreateBackdrop(_G.SkillDetailStatusBar, "Default")
-                end
-            end
-            if _G.SkillDetailStatusBarUnlearnButton and not _G.SkillDetailStatusBarUnlearnButton.isSkinned then
-                WSkin:HandleCloseButton(_G.SkillDetailStatusBarUnlearnButton)
-            end
-            WSkin:StripTextures(_G.SkillListScrollFrame)
-            WSkin:StripTextures(_G.SkillDetailScrollFrame)
-            SkinScrollBar(_G.SkillListScrollFrameScrollBar)
-            SkinScrollBar(_G.SkillDetailScrollFrameScrollBar)
-            SkinButton(_G.SkillFrameCancelButton)
-            if _G.SkillFrameCancelButton then
-                _G.SkillFrameCancelButton:ClearAllPoints()
-                _G.SkillFrameCancelButton:SetPoint("BOTTOMRIGHT", skills, "BOTTOMRIGHT", -22, 50)
-            end
-            if _G.SkillFrameExpandButtonFrame then
-                _G.SkillFrameExpandButtonFrame:ClearAllPoints()
-                _G.SkillFrameExpandButtonFrame:SetPoint("TOPLEFT", skills, "TOPLEFT", 22, -51)
-            end
-            if _G.SkillListScrollFrame then
-                _G.SkillListScrollFrame:ClearAllPoints()
-                _G.SkillListScrollFrame:SetPoint("TOPLEFT", skills, "TOPLEFT", 22, -75)
-                _G.SkillListScrollFrame:SetSize(485, 225)
-            end
-            if _G.SkillListScrollFrameScrollBar and _G.SkillListScrollFrame then
-                _G.SkillListScrollFrameScrollBar:ClearAllPoints()
-                _G.SkillListScrollFrameScrollBar:SetPoint("TOPLEFT", _G.SkillListScrollFrame, "TOPRIGHT", 6, 0)
-                _G.SkillListScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.SkillListScrollFrame, "BOTTOMRIGHT", 6, 0)
-            end
-            if _G.SkillDetailScrollFrame and _G.SkillListScrollFrame then
-                _G.SkillDetailScrollFrame:ClearAllPoints()
-                _G.SkillDetailScrollFrame:SetPoint("TOPLEFT", _G.SkillListScrollFrame, "BOTTOMLEFT", 0, -8)
-                _G.SkillDetailScrollFrame:SetSize(485, 72)
-            end
-            if _G.SkillDetailScrollFrameScrollBar and _G.SkillDetailScrollFrame then
-                _G.SkillDetailScrollFrameScrollBar:ClearAllPoints()
-                _G.SkillDetailScrollFrameScrollBar:SetPoint("TOPLEFT", _G.SkillDetailScrollFrame, "TOPRIGHT", 6, 0)
-                _G.SkillDetailScrollFrameScrollBar:SetPoint("BOTTOMLEFT", _G.SkillDetailScrollFrame, "BOTTOMRIGHT", 6, 0)
-            end
-            if _G.SkillDetailStatusBar then _G.SkillDetailStatusBar:SetWidth(435) end
-            if _G.SkillDetailScrollFrame and _G.SkillDetailScrollFrame.GetScrollChild then
-                StyleRegionFonts(_G.SkillDetailScrollFrame:GetScrollChild(), 10, 0.76)
-            end
-            skills:HookScript("OnShow", function() SizeThemedPane(skills); SkinSkillRows() end)
-        end
+        if skills and customTabs then customTabs:Build("skills", skills) end
 
         local tokens = _G.TokenFrame
-        if tokens and not GetFFD(tokens)._euiThemedPage then
-            GetFFD(tokens)._euiThemedPage = true
-            SizeThemedPane(tokens)
-            WSkin:StripTextures(tokens, true)
-            AddPageSurface(tokens)
-            SkinScrollBar(_G.TokenFrameContainerScrollBar)
-            if _G.TokenFrameCancelButton then
-                _G.TokenFrameCancelButton:Hide()
-            end
-            if _G.TokenFrameContainer then
-                _G.TokenFrameContainer:ClearAllPoints()
-                _G.TokenFrameContainer:SetPoint("TOPLEFT", tokens, "TOPLEFT", 22, -57)
-                _G.TokenFrameContainer:SetSize(485, 330)
-            end
-            if _G.TokenFrameContainerScrollBar and _G.TokenFrameContainer then
-                _G.TokenFrameContainerScrollBar:ClearAllPoints()
-                _G.TokenFrameContainerScrollBar:SetPoint("TOPLEFT", _G.TokenFrameContainer, "TOPRIGHT", 6, 0)
-                _G.TokenFrameContainerScrollBar:SetPoint("BOTTOMLEFT", _G.TokenFrameContainer, "BOTTOMRIGHT", 6, 0)
-
-                _G.TokenFrameContainerScrollBar.Show = function(self)
-                    if _G.TokenFrameContainer then _G.TokenFrameContainer:SetWidth(485) end
-                    if _G.TokenFrameContainer and _G.TokenFrameContainer.buttons then
-                        for _, button in ipairs(_G.TokenFrameContainer.buttons) do
-                            button:SetWidth(465)
-                        end
-                    end
-                    local mt = getmetatable(self)
-                    if mt and mt.__index and mt.__index.Show then mt.__index.Show(self) end
-                end
-
-                _G.TokenFrameContainerScrollBar.Hide = function(self)
-                    if _G.TokenFrameContainer then _G.TokenFrameContainer:SetWidth(485) end
-                    if _G.TokenFrameContainer and _G.TokenFrameContainer.buttons then
-                        for _, button in ipairs(_G.TokenFrameContainer.buttons) do
-                            button:SetWidth(485)
-                        end
-                    end
-                    local mt = getmetatable(self)
-                    if mt and mt.__index and mt.__index.Hide then mt.__index.Hide(self) end
-                end
-            end
-            if _G.TokenFrameMoneyFrame then
-                _G.TokenFrameMoneyFrame:ClearAllPoints()
-                _G.TokenFrameMoneyFrame:SetPoint("BOTTOMLEFT", tokens, "BOTTOMLEFT", 24, 20)
-            end
-
-            local function SkinTokenRows()
-                local container = _G.TokenFrameContainer
-                if not (container and container.buttons) then return end
-                local offset = _G.HybridScrollFrame_GetOffset and HybridScrollFrame_GetOffset(container) or 0
-                local isScrollShown = _G.TokenFrameContainerScrollBar and _G.TokenFrameContainerScrollBar:IsShown()
-                local targetWidth = isScrollShown and 465 or 485
-                for rowIndex, button in ipairs(container.buttons) do
-                    local currencyIndex = offset + rowIndex
-                    local name, isHeader, isExpanded, _, _, _, extraCurrencyType, icon
-                    if _G.GetCurrencyListInfo then
-                        name, isHeader, isExpanded, _, _, _, extraCurrencyType, icon = GetCurrencyListInfo(currencyIndex)
-                    end
-                    if button.categoryLeft then button.categoryLeft:Hide() end
-                    if button.categoryRight then button.categoryRight:Hide() end
-                    if button.categoryMiddle then button.categoryMiddle:Hide() end
-                    if button.stripe then button.stripe:Hide() end
-                    if not GetFFD(button)._euiThemedRow then
-                        GetFFD(button)._euiThemedRow = true
-                        if button.highlight then
-                            button.highlight:SetTexture(1, 1, 1, 0.07)
-                            button.highlight:SetAllPoints(button)
-                        end
-                        if button.expandIcon then
-                            button.expandIcon:SetTexture(nil)
-                            button.expandIcon:SetAlpha(0)
-                        end
-                        local expandGlyph = button:CreateFontString(nil, "OVERLAY")
-                        expandGlyph:SetFont(fontPath, 15, "")
-                        expandGlyph:SetPoint("LEFT", button, "LEFT", 8, 0)
-                        expandGlyph:SetTextColor(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
-                        GetFFD(button).expandGlyph = expandGlyph
-                        if EllesmereUI and EllesmereUI.RegAccent then
-                            EllesmereUI.RegAccent({
-                                type = "callback", obj = expandGlyph,
-                                fn = function(r, g, b) expandGlyph:SetTextColor(r, g, b, 1) end,
-                            })
-                        end
-                        SetSurface(button, 0.030, 0.043, 0.048, 0.78)
-                        StyleRegionFonts(button, 10, 0.84)
-                        if button.icon then
-                            button.icon:ClearAllPoints()
-                            button.icon:SetPoint("LEFT", button, "LEFT", 24, 0)
-                            WSkin:ApplyRetailIcon(button.icon, button, 24)
-                        end
-                    end
-                    button:SetWidth(targetWidth)
-                    if isHeader then
-                        WSkin:UpdateRetailAccordionHeader(button, GetFFD(button).expandGlyph, isExpanded)
-                    else
-                        WSkin:UpdateRetailRow(button, false, false, rowIndex % 2 == 0)
-                    end
-
-                    if button.expandIcon then
-                        button.expandIcon:SetTexture(nil)
-                        button.expandIcon:SetAlpha(0)
-                    end
-                    if GetFFD(button).expandGlyph then
-                        GetFFD(button).expandGlyph:SetShown(isHeader and true or false)
-                    end
-                    if button.icon and not isHeader then
-                        if extraCurrencyType == 2 then
-                            local faction = UnitFactionGroup("player")
-                            if faction then
-                                button.icon:SetTexture("Interface\\TargetingFrame\\UI-PVP-" .. faction)
-                                button.icon:SetTexCoord(0.0625, 0.625, 0.015625, 0.578125)
-                            end
-                        elseif icon then
-                            button.icon:SetTexture(icon)
-                            button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                        end
-                    end
-
-                    local nameRegion = button.name or button.Name or button.currencyName
-                    if nameRegion and nameRegion.SetFont then
-                        nameRegion:SetFont(fontPath, 10, "")
-                        nameRegion:SetTextColor(1, 1, 1, isHeader and 0.96 or 0.82)
-                        nameRegion:ClearAllPoints()
-                        nameRegion:SetPoint("LEFT", button, "LEFT", isHeader and 25 or 55, 0)
-                        nameRegion:SetPoint("RIGHT", button, "RIGHT", -72, 0)
-                        nameRegion:SetJustifyH("LEFT")
-                    end
-                    local countRegion = button.count or button.Count
-                    if countRegion and countRegion.SetFont then
-                        countRegion:SetFont(fontPath, 10, "")
-                        countRegion:SetTextColor(1, 1, 1, 0.58)
-                    end
-                    if button.icon then WSkin:SetRetailIconShown(button.icon, not isHeader) end
-                end
-            end
-            SkinTokenRows()
-            if _G.TokenFrame_Update then hooksecurefunc("TokenFrame_Update", SkinTokenRows) end
-            if _G.TokenFrameContainer and _G.TokenFrameContainer.update then
-                hooksecurefunc(_G.TokenFrameContainer, "update", SkinTokenRows)
-            end
-            tokens:HookScript("OnShow", function()
-                SizeThemedPane(tokens)
-                SkinTokenRows()
-            end)
-
-            local popup = _G.TokenFramePopup
-            if popup then
-                WSkin:StripTextures(popup)
-                if not popup.backdrop then WSkin:SetTemplate(popup, "Transparent") end
-                if _G.TokenFramePopupCloseButton then
-                    WSkin:HandleCloseButton(_G.TokenFramePopupCloseButton, popup)
-                end
-                for _, checkBox in ipairs({
-                    _G.TokenFramePopupInactiveCheckBox,
-                    _G.TokenFramePopupBackpackCheckBox,
-                }) do
-                    if checkBox and not checkBox.isSkinned then WSkin:HandleCheckBox(checkBox) end
-                end
-            end
-        end
+        if tokens and customTabs then customTabs:Build("currency", tokens) end
     end
 
     SkinThemedCharacterSubPages()
@@ -1818,6 +1458,22 @@ local function SkinCharacterSheet()
     local function ApplyTabVisibility(isCharacterTab)
         UpdateTabVisuals()
         local selectedTab = frame.selectedTab or 1
+        -- Reputation, Skills, and Currency use purpose-built compact pages.
+        -- Keep the full 550px canvas for Character/Pets and trim those three
+        -- data-oriented pages by exactly 20%.
+        local compactPage = selectedTab >= 3 and selectedTab <= 5
+        local targetWidth = compactPage and 440 or 550
+        if frame:GetWidth() ~= targetWidth then frame:SetWidth(targetWidth) end
+        local customTabs = _G.EllesmereUIBlizzardSkin_CustomCharacterTabs
+        if compactPage and customTabs then
+            local compactPanes = {
+                [3] = _G.ReputationFrame,
+                [4] = _G.SkillFrame,
+                [5] = _G.TokenFrame,
+            }
+            customTabs:ResizePane(compactPanes[selectedTab])
+        end
+        LayoutCharacterTabs()
         local pageTitles = {
             [2] = _G.PETS or "Pets",
             [3] = _G.REPUTATION or "Reputation",
