@@ -1116,6 +1116,39 @@ do
         if debuffs then debuffs:UnregisterAllEvents() end
     end
 
+    -- The legacy Blizzard_RaidUI panel exposes one class-filter button per
+    -- class. EUI does not use Blizzard's raid roster, so these controls have
+    -- nothing left to filter. Keep the rest of the panel available for raid
+    -- management while removing only its obsolete class buttons.
+    local raidClassButtonsHooked = {}
+    local function suppressRaidClassButtons()
+        for i = 1, 13 do
+            local button = _G["RaidClassButton" .. i]
+            if button then
+                button:Hide()
+                if not raidClassButtonsHooked[button] then
+                    button:HookScript("OnShow", function(self)
+                        self:Hide()
+                    end)
+                    raidClassButtonsHooked[button] = true
+                end
+            end
+        end
+    end
+
+    suppressRaidClassButtons()
+
+    -- Blizzard_RaidUI is load-on-demand on legacy clients, so its buttons may
+    -- not exist yet when this file runs.
+    local raidUIWatcher = CreateFrame("Frame")
+    raidUIWatcher:RegisterEvent("ADDON_LOADED")
+    raidUIWatcher:SetScript("OnEvent", function(self, event, addonName)
+        if addonName == "Blizzard_RaidUI" then
+            suppressRaidClassButtons()
+            self:UnregisterEvent("ADDON_LOADED")
+        end
+    end)
+
     -- Suppress the Blizzard Edit Mode selection overlay (the dashed, labelled
     -- "Raid Frames" / "Party Frames" mover box). Hiding or reparenting the
     -- system frame is NOT enough: Blizzard Edit Mode force-shows its registered
