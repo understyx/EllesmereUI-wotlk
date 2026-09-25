@@ -2476,7 +2476,6 @@ local function SkinCharacterSheet()
                     { name = "Critical Strike", func = function() return GetRangedCritChance() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_RANGED or 10) or 0 end, tooltip = L("Increases chance for ranged attacks to critically strike") },
                     { name = "Haste", func = function() return GetCombatRatingBonus(CR_HASTE_RANGED or 19) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_RANGED or 19) or 0 end, tooltip = L("Increases ranged attack speed") },
                     { name = "Armor Penetration", func = function() return GetCombatRatingBonus(CR_ARMOR_PENETRATION or 25) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_ARMOR_PENETRATION or 25) or 0 end, tooltip = L("Enemy armor reduced by up to %.2f%%") },
-                    { name = "Expertise", func = function() local exp = GetExpertise(); return exp or 0 end, format = "%d", rawFunc = function() return GetCombatRating(CR_EXPERTISE or 24) or 0 end, tooltip = L("Reduces chance for attacks to be dodged or parried") },
                     { name = "Hit", func = function() return GetCombatRatingBonus(CR_HIT_RANGED or 7) or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HIT_RANGED or 7) or 0 end, tooltip = L("Increases chance to hit with ranged attacks") },
                 }
             },
