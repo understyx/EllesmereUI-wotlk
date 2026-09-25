@@ -5311,11 +5311,21 @@ end
 -------------------------------------------------------------------------------
 --  Group creation: spec picker -> name + icon popup
 -------------------------------------------------------------------------------
+-- Wrath can leave child frames at a low/default render depth when they are
+-- added to a high-strata popup. Regions created directly on the popup still
+-- render, which makes these failures look like disabled/dim controls. Keep
+-- every interactive child explicitly above its owning popup.
+local function SetPopupChildDepth(child, parent, offset)
+    child:SetFrameStrata(parent:GetFrameStrata())
+    child:SetFrameLevel(parent:GetFrameLevel() + (offset or 2))
+end
+
 local nameIconPopup
 
 local function ShowNameIconPopup(specIDs, editing)
     if not nameIconPopup then
         local p = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
+        p:Hide()
         p:SetSize(380, 300)
         p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -5336,6 +5346,7 @@ local function ShowNameIconPopup(specIDs, editing)
         nameLbl:SetText(L("Name"))
 
         local nameBox = EllesmereUI.SafeCreateFrame("EditBox", nil, p)
+        SetPopupChildDepth(nameBox, p)
         nameBox:SetSize(340, 26)
         nameBox:SetPoint("TOPLEFT", p, "TOPLEFT", 20, -62)
         nameBox:SetAutoFocus(false)
@@ -5367,6 +5378,7 @@ local function ShowNameIconPopup(specIDs, editing)
             local col = (i - 1) % PER_ROW
             local rowI = math.floor((i - 1) / PER_ROW)
             local b = EllesmereUI.SafeCreateFrame("Button", nil, p)
+            SetPopupChildDepth(b, p)
             b:SetSize(SZ, SZ)
             b:SetPoint("TOPLEFT", p, "TOPLEFT", 20 + col * (SZ + GAP), -122 - rowI * (SZ + GAP))
             local t = b:CreateTexture(nil, "ARTWORK")
@@ -5392,6 +5404,7 @@ local function ShowNameIconPopup(specIDs, editing)
         end
 
         local create = EllesmereUI.SafeCreateFrame("Button", nil, p)
+        SetPopupChildDepth(create, p)
         create:SetSize(110, 28)
         -- +44 centers the action+cancel pair (110 + 8 gap + 80 = 198 wide).
         create:SetPoint("BOTTOM", p, "BOTTOM", 44, 14)
@@ -5442,6 +5455,7 @@ local function ShowNameIconPopup(specIDs, editing)
         end)
 
         local cancel = EllesmereUI.SafeCreateFrame("Button", nil, p)
+        SetPopupChildDepth(cancel, p)
         cancel:SetSize(80, 28)
         cancel:SetPoint("RIGHT", create, "LEFT", -8, 0)
         EllesmereUI.SolidTex(cancel, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -5517,6 +5531,13 @@ local cardsPopup
 
 local function BuildCardRow(parent, y, opts)
     local row = EllesmereUI.SafeCreateFrame("Button", nil, parent)
+    -- 3.3.5 does not reliably inherit the frame level when a child is
+    -- created after its already-visible parent.  The cards popup lives at a
+    -- deliberately high level, so an inherited/default level here can put
+    -- the entire row behind the popup's own BACKGROUND texture: the direct
+    -- title remains visible, but the cards are dim and cannot receive clicks.
+    -- Pin every dynamic row above the popup on both clients.
+    SetPopupChildDepth(row, parent)
     row:SetSize(parent:GetWidth() - 20, 40)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
     local hl = row:CreateTexture(nil, "HIGHLIGHT")
@@ -6004,6 +6025,7 @@ RefreshCardsPopup = function()
     -- title at the top of the popup.
     do
         local hdr = EllesmereUI.SafeCreateFrame("Frame", nil, p)
+        SetPopupChildDepth(hdr, p)
         hdr:SetSize(p:GetWidth() - 20, 26)
         hdr:SetPoint("TOPLEFT", p, "TOPLEFT", 10, y - 6)
         local hl = EllesmereUI.MakeFont(hdr, 13, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
@@ -6128,6 +6150,7 @@ RefreshCardsPopup = function()
     -- Link to the management list (single link for both systems; the
     -- Conditional Overrides tab sits right next to Spec Overrides).
     local link = EllesmereUI.SafeCreateFrame("Button", nil, p)
+    SetPopupChildDepth(link, p)
     link:SetSize(p:GetWidth() - 20, 22)
     link:SetPoint("TOPLEFT", p, "TOPLEFT", 10, y - 2)
     local ll = EllesmereUI.MakeFont(link, 12, nil, ACCENT_R, ACCENT_G, ACCENT_B, 0.9)
@@ -6172,39 +6195,55 @@ function EllesmereUI.SpecOverrides_ToggleCardsPopup(anchorBtn)
         title:SetPoint("TOP", p, "TOP", 0, -12)
         title:SetText(L("Spec Overrides"))
 
-        -- Click-anywhere-to-close, same pattern as the dropdown widgets:
-        -- a global mouse-down listener (non-blocking, world clicks pass
-        -- through). Clicks on the spec button / indicator are excluded so
+        -- Click-anywhere-to-close. GLOBAL_MOUSE_DOWN is Retail-only and
+        -- RegisterEvent raises on 3.3.5, so edge-detect the mouse buttons in
+        -- an OnUpdate driver (the same compatibility path as the color
+        -- picker). Clicks on the spec button / indicator are excluded so
         -- their own OnClick handles the toggle instead of close-then-reopen.
         local clickOff = EllesmereUI.SafeCreateFrame("Frame")
         clickOff:Hide()
-        clickOff:SetScript("OnEvent", function()
+        local mouseWasDown = false
+        clickOff:SetScript("OnUpdate", function()
+            local mouseDown = IsMouseButtonDown("LeftButton")
+                or IsMouseButtonDown("RightButton")
+            if not mouseDown or mouseWasDown then
+                mouseWasDown = mouseDown
+                return
+            end
             -- A modal dialog (delete confirm / spec picker) owns clicks while
             -- shown; interacting with it must not close the cards popup.
             local confirmDim = _G.EUIConfirmDimmer
-            if confirmDim and confirmDim:IsShown() then return end
+            if confirmDim and confirmDim:IsShown() then
+                mouseWasDown = mouseDown
+                return
+            end
             local assignDim = _G.EUISpecAssignDimmer
-            if assignDim and assignDim:IsShown() then return end
+            if assignDim and assignDim:IsShown() then
+                mouseWasDown = mouseDown
+                return
+            end
             if p:IsShown() and not p:IsMouseOver()
                and not (specBtn and specBtn:IsMouseOver())
                and not (Cond._btn and Cond._btn:IsMouseOver())
                and not (indicatorBtn and indicatorBtn:IsShown() and indicatorBtn:IsMouseOver()) then
                 p:Hide()
             end
+            mouseWasDown = mouseDown
         end)
         p:HookScript("OnShow", function()
-            -- Defer registration by one frame so the mouse-down that opened
-            -- the popup doesn't immediately close it.
+            -- Seed after the opening click so that click is not mistaken for
+            -- a new outside click on the next frame.
             C_Timer.After(0, function()
                 if p:IsShown() then
-                    clickOff:RegisterEvent("GLOBAL_MOUSE_DOWN")
+                    mouseWasDown = IsMouseButtonDown("LeftButton")
+                        or IsMouseButtonDown("RightButton")
                     clickOff:Show()
                 end
             end)
         end)
         p:HookScript("OnHide", function()
-            clickOff:UnregisterEvent("GLOBAL_MOUSE_DOWN")
             clickOff:Hide()
+            mouseWasDown = false
         end)
 
         cardsPopup = p
@@ -6254,6 +6293,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
     local p = Cond._namePopup
     if not p then
         p = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
+        p:Hide()
         p:SetSize(380, 300)
         p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -6273,6 +6313,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
         nameLbl:SetText(L("Name"))
 
         local nameBox = EllesmereUI.SafeCreateFrame("EditBox", nil, p)
+        SetPopupChildDepth(nameBox, p)
         nameBox:SetSize(340, 26)
         nameBox:SetPoint("TOPLEFT", p, "TOPLEFT", 20, -62)
         nameBox:SetAutoFocus(false)
@@ -6303,6 +6344,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
             local col = (i - 1) % PER_ROW
             local rowI = math.floor((i - 1) / PER_ROW)
             local b = EllesmereUI.SafeCreateFrame("Button", nil, p)
+            SetPopupChildDepth(b, p)
             b:SetSize(SZ, SZ)
             b:SetPoint("TOPLEFT", p, "TOPLEFT", 20 + col * (SZ + GAP), -122 - rowI * (SZ + GAP))
             local t = b:CreateTexture(nil, "ARTWORK")
@@ -6328,6 +6370,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
         end
 
         local create = EllesmereUI.SafeCreateFrame("Button", nil, p)
+        SetPopupChildDepth(create, p)
         create:SetSize(110, 28)
         -- +44 centers the action+cancel pair (110 + 8 gap + 80 = 198 wide).
         create:SetPoint("BOTTOM", p, "BOTTOM", 44, 14)
@@ -6389,6 +6432,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
         end)
 
         local cancel = EllesmereUI.SafeCreateFrame("Button", nil, p)
+        SetPopupChildDepth(cancel, p)
         cancel:SetSize(80, 28)
         cancel:SetPoint("RIGHT", create, "LEFT", -8, 0)
         EllesmereUI.SolidTex(cancel, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -6443,6 +6487,7 @@ function Cond.ShowPickerPopup(existing)
     local p = Cond._pickerPopup
     if not p then
         p = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
+        p:Hide()
         p:SetSize(340, 100)
         p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -6464,6 +6509,7 @@ function Cond.ShowPickerPopup(existing)
         local y = -52
         for _, def in ipairs(EllesmereUI.CONDITIONS) do
             local row = EllesmereUI.SafeCreateFrame("Button", nil, p)
+            SetPopupChildDepth(row, p)
             row:SetSize(300, 24)
             row:SetPoint("TOPLEFT", p, "TOPLEFT", 20, y)
             local box = row:CreateTexture(nil, "ARTWORK")
@@ -6539,12 +6585,14 @@ function Cond.ShowPickerPopup(existing)
         -- Keybind capture row (shown only while the keybind condition is
         -- checked). Standard capture: click, press a key (ESC cancels).
         local keyRow = EllesmereUI.SafeCreateFrame("Frame", nil, p)
+        SetPopupChildDepth(keyRow, p)
         keyRow:SetSize(300, 26)
         keyRow:SetPoint("TOPLEFT", p, "TOPLEFT", 20, y - 4)
         local keyLbl = EllesmereUI.MakeFont(keyRow, 12, nil, 1, 1, 1, 0.6)
         keyLbl:SetPoint("LEFT", keyRow, "LEFT", 0, 0)
         keyLbl:SetText(L("Toggle Key"))
         local keyBtn = EllesmereUI.SafeCreateFrame("Button", nil, keyRow)
+        SetPopupChildDepth(keyBtn, keyRow)
         keyBtn:SetSize(150, 22)
         keyBtn:SetPoint("LEFT", keyLbl, "RIGHT", 12, 0)
         EllesmereUI.SolidTex(keyBtn, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -6587,6 +6635,7 @@ function Cond.ShowPickerPopup(existing)
             ShowKeyText()
         end)
         local keyClear = EllesmereUI.SafeCreateFrame("Button", nil, keyRow)
+        SetPopupChildDepth(keyClear, keyRow)
         keyClear:SetSize(20, 20)
         keyClear:SetPoint("LEFT", keyBtn, "RIGHT", 6, 0)
         local kx = EllesmereUI.MakeFont(keyClear, 13, nil, 1, 1, 1, 0.6)
@@ -6607,6 +6656,7 @@ function Cond.ShowPickerPopup(existing)
         end
 
         local nextBtn = EllesmereUI.SafeCreateFrame("Button", nil, p)
+        SetPopupChildDepth(nextBtn, p)
         nextBtn:SetSize(110, 28)
         -- +44 centers the action+cancel pair (110 + 8 gap + 80 = 198 wide).
         nextBtn:SetPoint("BOTTOM", p, "BOTTOM", 44, 14)
@@ -6632,6 +6682,7 @@ function Cond.ShowPickerPopup(existing)
         end)
 
         local cancel = EllesmereUI.SafeCreateFrame("Button", nil, p)
+        SetPopupChildDepth(cancel, p)
         cancel:SetSize(80, 28)
         cancel:SetPoint("RIGHT", nextBtn, "LEFT", -8, 0)
         EllesmereUI.SolidTex(cancel, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
