@@ -11,6 +11,8 @@ _G.EllesmereUIBlizzardSkin_CustomCharacterTabs = CustomTabs
 local PAGE_WIDTH = 440
 local ROW_HEIGHT = 30
 local ROW_COUNT = 7
+local REPUTATION_ROW_COUNT = 13
+local REPUTATION_DETAIL_ROWS = 2
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local panels = setmetatable({}, { __mode = "k" })
@@ -83,6 +85,27 @@ local function SuppressNative(kind)
     end
     for _, name in ipairs(names) do HideNative(_G[name]) end
 
+    -- Wrath parents the visible faction buttons directly to ReputationFrame,
+    -- not to ReputationListScrollFrame. The former opaque custom body happened
+    -- to cover them; a transparent retail-style page must suppress every row
+    -- explicitly, including its bar, tree lines, and expand button children.
+    if kind == "reputation" then
+        local index = 1
+        while index <= 32 do
+            local row = _G["ReputationBar" .. index]
+            if row then HideNative(row) end
+            index = index + 1
+        end
+    elseif kind == "skills" then
+        -- SkillRankFrame and SkillTypeLabel are also direct SkillFrame
+        -- children, so they need the same explicit treatment as reputation.
+        for index = 1, 12 do
+            HideNative(_G["SkillRankFrame" .. index])
+            HideNative(_G["SkillTypeLabel" .. index])
+        end
+        HideNative(_G.SkillFrameCollapseAllButton)
+    end
+
     -- Wrath's TokenFrame also owns an anonymous UIPanelCloseButton as its
     -- fourth child. It closes only the currency pane, so the themed sheet's
     -- CharacterFrame close button is the sole close control we retain.
@@ -149,11 +172,12 @@ local function CreateCheck(parent, labelText)
     return check
 end
 
-local function CreateRow(parent, index)
+local function CreateRow(parent, index, rowHeight)
+    rowHeight = rowHeight or ROW_HEIGHT
     local row = EllesmereUI.SafeCreateFrame("Button", nil, parent)
-    row:SetHeight(ROW_HEIGHT - 1)
-    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -((index - 1) * ROW_HEIGHT))
-    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -12, -((index - 1) * ROW_HEIGHT))
+    row:SetHeight(rowHeight - 1)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -((index - 1) * rowHeight))
+    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -12, -((index - 1) * rowHeight))
 
     row.glyph = CreateLabel(row, "OVERLAY", 14, 1)
     row.glyph:SetPoint("LEFT", 9, 0)
@@ -189,6 +213,10 @@ local function CreateRow(parent, index)
     row.bar.bg = row.bar:CreateTexture(nil, "BACKGROUND")
     row.bar.bg:SetAllPoints()
     row.bar.bg:SetTexture(1, 1, 1, 0.08)
+    row.bar.standing = CreateLabel(row.bar, "OVERLAY", 9, 0.94)
+    row.bar.standing:SetPoint("CENTER", 0, 0)
+    row.bar.standing:SetJustifyH("CENTER")
+    row.bar.standing:Hide()
 
     local hover = row:CreateTexture(nil, "HIGHLIGHT")
     hover:SetAllPoints()
@@ -196,8 +224,9 @@ local function CreateRow(parent, index)
     return row
 end
 
-local function CreateBase(pane, kind, sectionTitle)
+local function CreateBase(pane, kind, sectionTitle, rowCount)
     if panels[pane] then return panels[pane] end
+    rowCount = rowCount or ROW_COUNT
     pane:ClearAllPoints()
     pane:SetWidth(PAGE_WIDTH)
     pane:SetPoint("TOPLEFT", CharacterFrame, "TOPLEFT", 0, 0)
@@ -215,6 +244,8 @@ local function CreateBase(pane, kind, sectionTitle)
     panel.kind = kind
     panel.offset = 0
     panel.selectedIndex = nil
+    panel.rowCount = rowCount
+    panel.visibleRowCount = rowCount
 
     panel.section = CreateLabel(panel, "OVERLAY", 10, 0.92)
     panel.section:SetPoint("TOPLEFT", 10, -10)
@@ -225,7 +256,7 @@ local function CreateBase(pane, kind, sectionTitle)
     panel.list = EllesmereUI.SafeCreateFrame("Frame", nil, panel)
     panel.list:SetPoint("TOPLEFT", 8, -35)
     panel.list:SetPoint("TOPRIGHT", -8, -35)
-    panel.list:SetHeight(ROW_COUNT * ROW_HEIGHT)
+    panel.list:SetHeight(rowCount * ROW_HEIGHT)
     panel.list:EnableMouseWheel(true)
 
     panel.slider = EllesmereUI.SafeCreateFrame("Slider", nil, panel.list)
@@ -242,8 +273,8 @@ local function CreateBase(pane, kind, sectionTitle)
     if skin and skin.HandleRetailScrollBar then skin:HandleRetailScrollBar(panel.slider) end
 
     panel.rows = {}
-    for i = 1, ROW_COUNT do
-        panel.rows[i] = CreateRow(panel.list, i)
+    for i = 1, rowCount do
+        panel.rows[i] = CreateRow(panel.list, i, ROW_HEIGHT)
     end
 
     panel.detail = EllesmereUI.SafeCreateFrame("Frame", nil, panel)
@@ -286,8 +317,10 @@ local function CreateBase(pane, kind, sectionTitle)
     return panel
 end
 
-local function FinishRows(panel, total)
-    local maximum = math.max(0, total - ROW_COUNT)
+local function FinishRows(panel, total, visibleRowCount)
+    visibleRowCount = visibleRowCount or panel.rowCount or ROW_COUNT
+    panel.visibleRowCount = visibleRowCount
+    local maximum = math.max(0, total - visibleRowCount)
     panel.slider:SetMinMaxValues(0, maximum)
     if panel.offset > maximum then
         panel.offset = maximum
@@ -313,10 +346,96 @@ local function RowTooltip(row, title, body)
     GameTooltip:Show()
 end
 
+local function SetupGroupedPanel(panel, listTopInset)
+    panel.section:Hide()
+    panel.summary:Hide()
+    panel:SetBackdrop(nil)
+    if listTopInset then
+        panel.list:ClearAllPoints()
+        panel.list:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -listTopInset)
+        panel.list:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -listTopInset)
+        panel.list:SetHeight(panel.rowCount * ROW_HEIGHT)
+    end
+
+    if panel.groupBackgrounds then return end
+    panel.groupBackgrounds = {}
+    for i = 1, panel.rowCount do
+        local background = panel.list:CreateTexture(nil, "BACKGROUND")
+        background:SetTexture(0, 0, 0, 0.22)
+        background:Hide()
+        panel.groupBackgrounds[i] = background
+    end
+
+    function panel:RefreshGroupBackgrounds(visibleRows)
+        local used = 0
+        local groupTopRow, lastChildRow, startsWithHeader
+        local function FinishGroup()
+            if groupTopRow and lastChildRow then
+                used = used + 1
+                local background = self.groupBackgrounds[used]
+                background:ClearAllPoints()
+                if startsWithHeader then
+                    background:SetPoint("TOPLEFT", groupTopRow, "BOTTOMLEFT", 0, 0)
+                else
+                    -- The header may have scrolled just above the viewport;
+                    -- continue its backplate behind the remaining child rows.
+                    background:SetPoint("TOPLEFT", groupTopRow, "TOPLEFT", 0, 0)
+                end
+                background:SetPoint("BOTTOMRIGHT", lastChildRow, "BOTTOMRIGHT", 0, 0)
+                background:Show()
+            end
+            groupTopRow = nil
+            lastChildRow = nil
+            startsWithHeader = nil
+        end
+        for rowNumber = 1, visibleRows do
+            local row = self.rows[rowNumber]
+            if row and row.data then
+                if row.data.isHeader then
+                    FinishGroup()
+                    groupTopRow = row
+                    startsWithHeader = true
+                else
+                    if not groupTopRow then
+                        groupTopRow = row
+                        startsWithHeader = false
+                    end
+                    lastChildRow = row
+                end
+            end
+        end
+        FinishGroup()
+        for i = used + 1, #self.groupBackgrounds do
+            self.groupBackgrounds[i]:Hide()
+        end
+    end
+end
+
+local function StyleGroupedRow(row, selected, isHeader, alternate)
+    StyleRow(row, selected, isHeader, alternate)
+    if isHeader then
+        row:SetBackdropColor(0.12, 0.12, 0.11, 0.94)
+        row:SetBackdropBorderColor(1, 1, 1, 0.08)
+    elseif not selected then
+        row:SetBackdropColor(0, 0, 0, 0)
+        row:SetBackdropBorderColor(0, 0, 0, 0)
+    end
+end
+
 local function BuildReputation(pane)
-    local panel = CreateBase(pane, "reputation", _G.FACTIONS or _G.REPUTATION or EllesmereUI.L("Reputation"))
+    local panel = CreateBase(
+        pane,
+        "reputation",
+        _G.FACTIONS or _G.REPUTATION or EllesmereUI.L("Reputation"),
+        REPUTATION_ROW_COUNT
+    )
     if panel.built then return panel end
     panel.built = true
+    -- Reputation uses the character window artwork as its canvas. The shared
+    -- section label and body surface made this page look like a panel nested
+    -- inside another panel, unlike the retail accordion list.
+    SetupGroupedPanel(panel, 8)
+
     panel.detail.empty:SetText(EllesmereUI.L("Select a faction to view reputation options"))
     panel.detail.atWar = CreateCheck(panel.detail, _G.AT_WAR or EllesmereUI.L("At War"))
     panel.detail.atWar:SetPoint("BOTTOMLEFT", 10, 8)
@@ -324,16 +443,76 @@ local function BuildReputation(pane)
     panel.detail.inactive:SetPoint("LEFT", panel.detail.atWar, "RIGHT", 15, 0)
     panel.detail.watched = CreateCheck(panel.detail, _G.SHOW_FACTION_ON_MAINSCREEN or _G.SHOW_AS_XP or EllesmereUI.L("Show as XP Bar"))
     panel.detail.watched:SetPoint("LEFT", panel.detail.inactive, "RIGHT", 15, 0)
+    panel.detail:EnableMouse(true)
+    panel.detail.close = EllesmereUI.SafeCreateFrame("Button", nil, panel.detail)
+    panel.detail.close:SetSize(18, 18)
+    panel.detail.close:SetPoint("TOPRIGHT", -5, -5)
+    panel.detail.close.icon = panel.detail.close:CreateTexture(nil, "OVERLAY")
+    panel.detail.close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
+    panel.detail.close.icon:SetSize(10, 10)
+    panel.detail.close.icon:SetPoint("CENTER")
+    panel.detail.close.icon:SetVertexColor(1, 1, 1, 0.65)
+    panel.detail.close:SetScript("OnEnter", function(self)
+        self.icon:SetVertexColor(1, 1, 1, 1)
+    end)
+    panel.detail.close:SetScript("OnLeave", function(self)
+        self.icon:SetVertexColor(1, 1, 1, 0.65)
+    end)
+    panel.detail.close:SetScript("OnClick", function()
+        panel.selectedIndex = nil
+        panel.selectedName = nil
+        panel:Refresh()
+    end)
+    panel.detail.title:ClearAllPoints()
+    panel.detail.title:SetPoint("TOPLEFT", 10, -9)
+    panel.detail.title:SetPoint("TOPRIGHT", -28, -9)
+    panel.detail:Hide()
 
     function panel:Refresh()
         SuppressNative("reputation")
         local total = GetNumFactions and (GetNumFactions() or 0) or 0
-        FinishRows(self, total)
+        local selected, selectedData
+        if self.selectedIndex and self.selectedIndex <= total and GetFactionInfo then
+            local name, description, standingID, barMin, barMax, barValue,
+                atWar, canToggleAtWar, isHeader, _, _, isWatched = GetFactionInfo(self.selectedIndex)
+            if name and not isHeader and (not self.selectedName or name == self.selectedName) then
+                selected = true
+                selectedData = {
+                    name = name, description = description, standingID = standingID,
+                    barMin = barMin, barMax = barMax, barValue = barValue,
+                    atWar = atWar, canToggleAtWar = canToggleAtWar, isWatched = isWatched,
+                }
+            else
+                self.selectedIndex = nil
+                self.selectedName = nil
+            end
+        end
+        local visibleRows = selected and (REPUTATION_ROW_COUNT - REPUTATION_DETAIL_ROWS)
+            or REPUTATION_ROW_COUNT
+        FinishRows(self, total, visibleRows)
+        self.list:SetHeight(visibleRows * ROW_HEIGHT)
+        -- When a row from the bottom of the expanded list is selected, the
+        -- options card consumes two row slots. Keep that faction in view
+        -- rather than letting the card appear after its source row vanishes.
+        if selected then
+            local nextOffset = self.offset
+            if self.selectedIndex <= nextOffset then
+                nextOffset = math.max(0, self.selectedIndex - 1)
+            elseif self.selectedIndex > nextOffset + visibleRows then
+                nextOffset = self.selectedIndex - visibleRows
+            end
+            local _, maximum = self.slider:GetMinMaxValues()
+            nextOffset = math.max(0, math.min(maximum or 0, nextOffset))
+            if nextOffset ~= self.offset then
+                self.offset = nextOffset
+                self.slider:SetValue(nextOffset)
+            end
+        end
         for rowNumber, row in ipairs(self.rows) do
             local index = self.offset + rowNumber
             local name, description, standingID, barMin, barMax, barValue,
                 atWar, canToggleAtWar, isHeader, isCollapsed, hasRep, isWatched, isChild
-            if index <= total and GetFactionInfo then
+            if rowNumber <= visibleRows and index <= total and GetFactionInfo then
                 name, description, standingID, barMin, barMax, barValue,
                     atWar, canToggleAtWar, isHeader, isCollapsed, hasRep, isWatched, isChild = GetFactionInfo(index)
             end
@@ -345,50 +524,72 @@ local function BuildReputation(pane)
                     canToggleAtWar = canToggleAtWar, isHeader = isHeader, isCollapsed = isCollapsed,
                     hasRep = hasRep, isWatched = isWatched, isChild = isChild,
                 }
-                StyleRow(row, self.selectedIndex == index, isHeader, rowNumber % 2 == 0)
+                StyleGroupedRow(row, self.selectedIndex == index, isHeader, rowNumber % 2 == 0)
                 row.glyph:SetShown(isHeader and true or false)
                 row.glyph:SetText(isCollapsed and "+" or "-")
+                row.glyph:ClearAllPoints()
+                row.glyph:SetPoint("RIGHT", -10, 0)
                 row.icon:Hide()
+                -- CreateRow initially places the thin Skills-style bar relative
+                -- to row.name. Break that relationship before anchoring the
+                -- reputation name back to the bar, or WoW rejects the cycle.
+                row.bar:ClearAllPoints()
+                row.bar:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+                row.bar:SetSize(126, 14)
                 row.name:ClearAllPoints()
-                row.name:SetPoint("LEFT", isHeader and 29 or (isChild and 38 or 16), 0)
-                row.name:SetPoint("RIGHT", -90, 0)
+                row.name:SetPoint("LEFT", isHeader and 16 or (isChild and 38 or 20), 0)
+                if isHeader then
+                    row.name:SetPoint("RIGHT", -36, 0)
+                else
+                    row.name:SetPoint("RIGHT", row.bar, "LEFT", -10, 0)
+                end
                 row.name:SetText(name)
                 row.name:SetTextColor(1, 1, 1, isHeader and 0.94 or 0.82)
                 local standing = standingID and _G["FACTION_STANDING_LABEL" .. standingID] or ""
-                row.value:SetText(isHeader and "" or standing)
+                row.value:SetText("")
                 row.bar:SetShown(not isHeader and barMax and barMax > barMin)
+                row.bar.standing:SetShown(not isHeader and barMax and barMax > barMin)
                 if not isHeader and barMax and barMax > barMin then
+                    if not row.repBarStyled then
+                        Surface(row.bar, "input", 0.08, 0.08, 0.08, 0.94)
+                        row.repBarStyled = true
+                    end
                     row.bar:SetMinMaxValues(barMin, barMax)
                     row.bar:SetValue(barValue or barMin)
                     local c = FACTION_BAR_COLORS and FACTION_BAR_COLORS[standingID]
-                    row.bar:SetStatusBarColor((c and c.r) or 0.3, (c and c.g) or 0.7, (c and c.b) or 0.9, 0.8)
+                    row.bar:SetStatusBarColor((c and c.r) or 0.3, (c and c.g) or 0.7, (c and c.b) or 0.9, 0.9)
+                    row.bar.standing:SetText(standing)
                 end
             else
                 row.data = nil
+                row.bar.standing:Hide()
             end
         end
+        self:RefreshGroupBackgrounds(visibleRows)
 
-        local selected
-        if self.selectedIndex and self.selectedIndex <= total and GetFactionInfo then
-            local name, description, standingID, barMin, barMax, barValue,
-                atWar, canToggleAtWar, isHeader, _, _, isWatched = GetFactionInfo(self.selectedIndex)
-            if name and not isHeader and (not self.selectedName or name == self.selectedName) then
-                selected = true
-                self.detail.title:SetText(name .. (standingID and ("  |cffaaaaaa" .. (_G["FACTION_STANDING_LABEL" .. standingID] or "") .. "|r") or ""))
-                self.detail.description:SetText(description or string.format("%s / %s", Number((barValue or 0) - (barMin or 0)), Number((barMax or 0) - (barMin or 0))))
-                self.detail.atWar:SetChecked(atWar)
-                self.detail.atWar:SetEnabledState(canToggleAtWar)
-                self.detail.inactive:SetChecked(IsFactionInactive and IsFactionInactive(self.selectedIndex))
-                self.detail.inactive:SetEnabledState(SetFactionInactive ~= nil)
-                self.detail.watched:SetChecked(isWatched)
-            end
+        if selected and selectedData then
+            local standing = selectedData.standingID
+                and (_G["FACTION_STANDING_LABEL" .. selectedData.standingID] or "") or ""
+            local progress = string.format(
+                "%s / %s",
+                Number((selectedData.barValue or 0) - (selectedData.barMin or 0)),
+                Number((selectedData.barMax or 0) - (selectedData.barMin or 0))
+            )
+            self.detail.title:SetText(selectedData.name .. (standing ~= "" and ("  |cffaaaaaa" .. standing .. "|r") or ""))
+            self.detail.description:SetText(selectedData.description or progress)
+            self.detail.atWar:SetChecked(selectedData.atWar)
+            self.detail.atWar:SetEnabledState(selectedData.canToggleAtWar)
+            self.detail.inactive:SetChecked(IsFactionInactive and IsFactionInactive(self.selectedIndex))
+            self.detail.inactive:SetEnabledState(SetFactionInactive ~= nil)
+            self.detail.watched:SetChecked(selectedData.isWatched)
         end
+        self.detail:SetShown(selected and true or false)
         self.detail.title:SetShown(selected and true or false)
         self.detail.description:SetShown(selected and true or false)
         self.detail.atWar:SetShown(selected and true or false)
         self.detail.inactive:SetShown(selected and true or false)
         self.detail.watched:SetShown(selected and true or false)
-        self.detail.empty:SetShown(not selected)
+        self.detail.empty:Hide()
     end
 
     for _, row in ipairs(panel.rows) do
@@ -401,8 +602,13 @@ local function BuildReputation(pane)
                 if data.isCollapsed and ExpandFactionHeader then ExpandFactionHeader(data.index)
                 elseif CollapseFactionHeader then CollapseFactionHeader(data.index) end
             else
-                panel.selectedIndex = data.index
-                panel.selectedName = data.name
+                if panel.selectedIndex == data.index and panel.selectedName == data.name then
+                    panel.selectedIndex = nil
+                    panel.selectedName = nil
+                else
+                    panel.selectedIndex = data.index
+                    panel.selectedName = data.name
+                end
             end
             panel:Refresh()
         end)
@@ -440,6 +646,7 @@ local function BuildSkills(pane)
     local panel = CreateBase(pane, "skills", _G.SKILLS or EllesmereUI.L("Skills"))
     if panel.built then return panel end
     panel.built = true
+    SetupGroupedPanel(panel)
     panel.detail.empty:SetText(EllesmereUI.L("Select a skill to view its details"))
     panel.collapse = CreateTextButton(panel, _G.COLLAPSE_ALL_BUTTON or EllesmereUI.L("Collapse All"), 86)
     panel.collapse:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -6)
@@ -465,13 +672,15 @@ local function BuildSkills(pane)
                     rank = rank, temporary = temporary, modifier = modifier, maxRank = maxRank,
                     isAbandonable = isAbandonable, description = description,
                 }
-                StyleRow(row, self.selectedIndex == index, isHeader, rowNumber % 2 == 0)
+                StyleGroupedRow(row, self.selectedIndex == index, isHeader, rowNumber % 2 == 0)
                 row.glyph:SetShown(isHeader and true or false)
                 row.glyph:SetText(isExpanded and "-" or "+")
+                row.glyph:ClearAllPoints()
+                row.glyph:SetPoint("RIGHT", -10, 0)
                 row.icon:Hide()
                 row.name:ClearAllPoints()
-                row.name:SetPoint("LEFT", isHeader and 29 or 16, 0)
-                row.name:SetPoint("RIGHT", -90, 0)
+                row.name:SetPoint("LEFT", 16, 0)
+                row.name:SetPoint("RIGHT", isHeader and -36 or -90, 0)
                 row.name:SetText(name)
                 row.name:SetTextColor(1, 1, 1, isHeader and 0.94 or 0.82)
                 local effective = (tonumber(rank) or 0) + (tonumber(temporary) or 0) + (tonumber(modifier) or 0)
@@ -487,6 +696,7 @@ local function BuildSkills(pane)
                 row.data = nil
             end
         end
+        self:RefreshGroupBackgrounds(self.visibleRowCount)
         local selected
         if self.selectedIndex and self.selectedIndex <= total and GetSkillLineInfo then
             local name, isHeader, _, rank, temporary, modifier, maxRank, isAbandonable,
@@ -562,6 +772,7 @@ local function BuildCurrency(pane)
     local panel = CreateBase(pane, "currency", _G.CURRENCY or EllesmereUI.L("Currency"))
     if panel.built then return panel end
     panel.built = true
+    SetupGroupedPanel(panel)
     panel.detail.empty:SetText(EllesmereUI.L("Select a currency to view its options"))
     panel.money = CreateLabel(panel, "OVERLAY", 9, 0.58)
     panel.money:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -10)
@@ -591,9 +802,11 @@ local function BuildCurrency(pane)
                     isUnused = isUnused, isWatched = isWatched, quantity = quantity,
                     extraCurrencyType = extraCurrencyType, icon = icon, itemID = itemID,
                 }
-                StyleRow(row, self.selectedIndex == index, isHeader, rowNumber % 2 == 0)
+                StyleGroupedRow(row, self.selectedIndex == index, isHeader, rowNumber % 2 == 0)
                 row.glyph:SetShown(isHeader and true or false)
                 row.glyph:SetText(isExpanded and "-" or "+")
+                row.glyph:ClearAllPoints()
+                row.glyph:SetPoint("RIGHT", -10, 0)
                 row.icon:SetShown(not isHeader)
                 if not isHeader then
                     if extraCurrencyType == 1 and not icon then icon = "Interface\\PVPFrame\\PVP-ArenaPoints-Icon" end
@@ -604,8 +817,8 @@ local function BuildCurrency(pane)
                     row.icon:SetTexture(icon or 134400)
                 end
                 row.name:ClearAllPoints()
-                row.name:SetPoint("LEFT", isHeader and 29 or 53, 0)
-                row.name:SetPoint("RIGHT", -90, 0)
+                row.name:SetPoint("LEFT", isHeader and 16 or 53, 0)
+                row.name:SetPoint("RIGHT", isHeader and -36 or -90, 0)
                 row.name:SetText(name)
                 row.name:SetTextColor(1, 1, 1, isHeader and 0.94 or (isUnused and 0.42 or 0.82))
                 row.value:SetText(isHeader and "" or Number(quantity))
@@ -614,6 +827,7 @@ local function BuildCurrency(pane)
                 row.data = nil
             end
         end
+        self:RefreshGroupBackgrounds(self.visibleRowCount)
         local selected
         if self.selectedIndex and self.selectedIndex <= total then
             local name, isHeader, _, isUnused, isWatched, quantity, _, _, itemID = CurrencyInfo(self.selectedIndex)

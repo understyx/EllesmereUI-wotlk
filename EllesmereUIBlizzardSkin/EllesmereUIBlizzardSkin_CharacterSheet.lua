@@ -843,11 +843,6 @@ local function SkinCharacterSheet()
     local function SkinThemedCharacterSubPages()
         if not WSkin then return end
 
-        local function AddPageSurface(pane)
-            if not pane or GetFFD(pane)._euiPageSurface then return end
-            GetFFD(pane)._euiPageSurface = WSkin:CreateRetailPageSurface(pane)
-        end
-
         local function SkinButton(button)
             if button then WSkin:HandleRetailButton(button, true) end
         end
@@ -875,7 +870,6 @@ local function SkinCharacterSheet()
             GetFFD(pet)._euiThemedPage = true
             SizeThemedPane(pet)
             WSkin:StripTextures(pet, true)
-            AddPageSurface(pet)
             for i = 1, 3 do
                 local tab = _G["PetPaperDollFrameTab" .. i]
                 if tab then WSkin:HandleTab(tab) end
@@ -945,15 +939,14 @@ local function SkinCharacterSheet()
             ----------------------------------------------------------------
             local companionFrame = _G.PetPaperDollFrameCompanionFrame
             if companionFrame and _G.GetNumCompanions and _G.GetCompanionInfo then
+                -- The page itself stays transparent; only functional local
+                -- elements (search, rows, preview, and actions) carry surfaces.
+                WSkin:StripTextures(companionFrame, true)
                 local mountPanel = EllesmereUI.SafeCreateFrame("Frame", "EUI_CharacterMountList", pet)
-                -- Start below the native Pet / Companions / Mounts navigation
-                -- row. The panel still needs to sit above CompanionFrame: its
-                -- old model/grid artwork is refreshed by Blizzard and otherwise
-                -- bleeds through the journal even while its buttons are hidden.
+                -- Start below the native Pet / Companions / Mounts navigation row.
                 mountPanel:SetPoint("TOPLEFT", pet, "TOPLEFT", 17, -73)
                 mountPanel:SetPoint("BOTTOMRIGHT", pet, "BOTTOMRIGHT", -17, 58)
                 mountPanel:SetFrameLevel(companionFrame:GetFrameLevel() + 4)
-                SetSurface(mountPanel, 0.015, 0.02, 0.025, 1.0)
                 mountPanel:Hide()
 
                 local title = mountPanel:CreateFontString(nil, "OVERLAY")
@@ -1431,23 +1424,6 @@ local function SkinCharacterSheet()
         end
     end
 
-    -- Faint atlas background on Reputation + Currency panes. Idempotent via
-    -- _euiBg tag. Anchors to the inner ScrollBox so the texture stays inside
-    -- the list area and doesn't bleed over the tab chrome.
-    local function _ensureTabBg(pane)
-        if not pane or GetFFD(pane).bg then return end
-        local anchor = pane.ScrollBox or pane.scrollFrame or pane
-        local tex = pane:CreateTexture(nil, "BACKGROUND", nil, -7)
-        tex:SetTexture(0, 0, 0, 0.1)
-        tex:SetPoint("TOPLEFT",     anchor, "TOPLEFT",     10, -10)
-        tex:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -10,  0)
-        GetFFD(pane).bg = tex
-    end
-    _ensureTabBg(_G.PetPaperDollFrame)
-    _ensureTabBg(_G.ReputationFrame)
-    _ensureTabBg(_G.SkillFrame)
-    _ensureTabBg(_G.TokenFrame)
-
     -- Tab visibility dispatcher. We hook each sub-pane's OnShow rather than
     -- intercept PanelTemplates_SetTab -- Blizzard drives visibility, we react.
     --
@@ -1538,10 +1514,6 @@ local function SkinCharacterSheet()
         GetFFD(pane)._euiVisibilityHooked = true
         pane:HookScript("OnShow", function()
             if GetFFD(frame).skinThemedSubPages then GetFFD(frame).skinThemedSubPages() end
-            _ensureTabBg(_G.PetPaperDollFrame)
-            _ensureTabBg(_G.ReputationFrame)
-            _ensureTabBg(_G.SkillFrame)
-            _ensureTabBg(_G.TokenFrame)
             ApplyTabVisibility(isChar)
         end)
     end
@@ -1562,7 +1534,6 @@ local function SkinCharacterSheet()
             self:UnregisterAllEvents()
             SkinThemedCharacterSubPages()
             RefreshCharacterTabs()
-            _ensureTabBg(_G.TokenFrame)
             _hookPaneOnShow(_G.TokenFrame, false)
             UpdateTabVisuals()
         end)
