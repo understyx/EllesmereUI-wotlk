@@ -1587,7 +1587,9 @@ local function SkinCharacterSheet()
     -- when switching between Character / Titles / Equipment panels.
     local sidebarBgFrame = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     sidebarBgFrame:SetFrameLevel(statsPanel:GetFrameLevel() - 1)
-    sidebarBgFrame:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", -51, 10)
+    -- Keep the sidebar backdrop confined to the stats column; extending it
+    -- left places the dark fill underneath the right-hand equipment slots.
+    sidebarBgFrame:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, 10)
     sidebarBgFrame:SetPoint("BOTTOMRIGHT", statsPanel, "BOTTOMRIGHT", 0, -10)
     local statsBg = sidebarBgFrame:CreateTexture(nil, "BACKGROUND")
     statsBg:SetTexture(0, 0, 0, 0.2)
