@@ -268,11 +268,16 @@ end
 -------------------------------------------------------------------------------
 WSkin.Retail = {
 	colors = {
-		body      = { 0.015, 0.020, 0.025, 0.72 },
-		card      = { 0.030, 0.043, 0.048, 0.78 },
-		row       = { 0.030, 0.043, 0.048, 0.62 },
-		rowAlt    = { 0.030, 0.043, 0.048, 0.80 },
-		header    = { 0.055, 0.075, 0.080, 0.98 },
+		-- Large surfaces sit on top of the textured window shell.  Keep them
+		-- translucent so Social, PvP, Dungeon Finder, and similar windows do
+		-- not turn into stacks of opaque black rectangles.  This follows the
+		-- CharacterFrame treatment, where the shell remains the visual canvas
+		-- and local surfaces only provide enough contrast to group content.
+		body      = { 0.015, 0.020, 0.025, 0.20 },
+		card      = { 0.030, 0.043, 0.048, 0.28 },
+		row       = { 0.030, 0.043, 0.048, 0.12 },
+		rowAlt    = { 0.030, 0.043, 0.048, 0.20 },
+		header    = { 0.055, 0.075, 0.080, 0.52 },
 		input     = { 0.025, 0.035, 0.040, 1.00 },
 		button    = { 0.070, 0.105, 0.115, 1.00 },
 		tab       = { 0.055, 0.043, 0.039, 1.00 },

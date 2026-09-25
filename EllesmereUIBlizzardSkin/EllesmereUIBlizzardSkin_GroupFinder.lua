@@ -28,6 +28,10 @@ local ADDON_NAME, ns = ...
 local EUI = EllesmereUI
 local issecretvalue = issecretvalue or function() return false end
 
+-- Advertise this before the toolkit and legacy skin callbacks load. The
+-- Group Finder module also owns the modern Wrath PvP presentation.
+EUI._GroupFinderOwnsLegacyPvP = true
+
 -- IsForbidden is not part of the stock 3.3.5 widget API. Some Wrath clients
 -- backport it and others do not, so every shared Group Finder primitive must
 -- treat a missing method as an ordinary, usable frame.
@@ -59,10 +63,12 @@ local Theme = {}
 local function ResolveTheme()
     local EG = (EUI and EUI.ELLESMERE_GREEN) or { r = 0.047, g = 0.824, b = 0.616 }
     Theme.accR, Theme.accG, Theme.accB = EG.r or 0.047, EG.g or 0.824, EG.b or 0.616
-    -- Neutral dark gray glass (no color cast).
-    Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA = 0.08, 0.08, 0.08, 0.92
+    -- Neutral dark gray glass (no color cast). These are intentionally light
+    -- washes: the textured shell, rather than an opaque nested rectangle,
+    -- remains visible behind the content.
+    Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA = 0.08, 0.08, 0.08, 0.28
     -- Darker gray for nested insets so sub-panels melt into the main backdrop.
-    Theme.insetR, Theme.insetG, Theme.insetB, Theme.insetA = 0.04, 0.04, 0.04, 0.85
+    Theme.insetR, Theme.insetG, Theme.insetB, Theme.insetA = 0.04, 0.04, 0.04, 0.22
     -- Panel border (matches CharacterSheet grey).
     Theme.brdR, Theme.brdG, Theme.brdB, Theme.brdA = 0.2, 0.2, 0.2, 1
     Theme.fontPath = (EUI and EUI.GetFontPath and EUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
@@ -1810,18 +1816,52 @@ local function SkinLegacyBattleground()
         S:ApplyRetailTypography(header, "section")
     end
     if _G.WintergraspTimer then
-        _G.WintergraspTimer:ClearAllPoints()
-        _G.WintergraspTimer:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -50)
-        if _G.WintergraspTimer.text then S:ApplyRetailTypography(_G.WintergraspTimer.text, "secondary") end
-        if _G.WintergraspTimer.texture and S.ApplyRetailIcon then
-            S:ApplyRetailIcon(_G.WintergraspTimer.texture, _G.WintergraspTimer, 24)
+        local timer = _G.WintergraspTimer
+        timer:ClearAllPoints()
+        timer:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -50)
+        timer:SetSize(24, 24)
+        if timer.text then S:ApplyRetailTypography(timer.text, "secondary") end
+        if timer.texture then
+            -- PVP-WintergraspTimerIcon contains two 32px states stacked
+            -- vertically. Blizzard switches between its top and bottom halves
+            -- from WintergraspTimer_OnUpdate; ApplyRetailIcon's generic full
+            -- texture crop exposed both states and squeezed them into one icon.
+            timer.texture:ClearAllPoints()
+            timer.texture:SetPoint("RIGHT", timer, "RIGHT", 0, 0)
+            timer.texture:SetSize(24, 24)
+            timer.texture:SetDrawLayer("ARTWORK")
+            if timer.canQueue then
+                timer.texture:SetTexCoord(0, 1, 0.5, 1)
+            else
+                timer.texture:SetTexCoord(0, 1, 0, 0.5)
+            end
         end
     end
     StyleLegacyBattlegroundRows()
 
+    local typeScroll = _G.PVPBattlegroundFrameTypeScrollFrame
+    local typeScrollBar = _G.PVPBattlegroundFrameTypeScrollFrameScrollBar
+    if typeScroll then
+        -- The FauxScrollFrame owns two 30px-wide ornamental scrollbar
+        -- textures in addition to the actual scrollbar. Remove that native
+        -- chrome and reserve a narrow gutter beside the widened list rows.
+        FadeRegions(typeScroll)
+        local first = _G.BattlegroundType1
+        local last = _G.BattlegroundType5
+        if first and last then
+            typeScroll:ClearAllPoints()
+            typeScroll:SetPoint("TOPLEFT", first, "TOPLEFT", 0, 2)
+            typeScroll:SetPoint("BOTTOMRIGHT", last, "BOTTOMRIGHT", 0, -5)
+        end
+    end
     if S.HandleRetailScrollBar then
-        S:HandleRetailScrollBar(_G.PVPBattlegroundFrameTypeScrollFrameScrollBar)
+        S:HandleRetailScrollBar(typeScrollBar)
         S:HandleRetailScrollBar(_G.PVPBattlegroundFrameInfoScrollFrameScrollBar)
+    end
+    if typeScroll and typeScrollBar then
+        typeScrollBar:ClearAllPoints()
+        typeScrollBar:SetPoint("TOPLEFT", typeScroll, "TOPRIGHT", 4, -2)
+        typeScrollBar:SetPoint("BOTTOMLEFT", typeScroll, "BOTTOMRIGHT", 4, 2)
     end
     local info = _G.PVPBattlegroundFrameInfoScrollFrame
     if info then

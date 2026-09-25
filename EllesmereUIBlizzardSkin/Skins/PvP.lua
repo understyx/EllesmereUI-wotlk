@@ -45,6 +45,13 @@ end
 
 local function SkinPvP()
 	if not WSkin:IsSkinEnabled("misc") or not _G.PVPParentFrame then return end
+	-- EllesmereUIBlizzardSkin_GroupFinder.lua owns the modern Wrath PvP shell
+	-- whenever that skin is enabled. Running this legacy callback as well would
+	-- insert a separate 80%-black backdrop below the same controls.
+	if _G.EllesmereUI and _G.EllesmereUI._GroupFinderOwnsLegacyPvP
+		and (not EllesmereUIDB or EllesmereUIDB.reskinLFGMenu ~= false) then
+		return
+	end
 
 	local parentBackdrop = SkinWindow(_G.PVPParentFrame, _G.PVPParentFrameCloseButton, false)
 	if not parentBackdrop then return end
