@@ -955,14 +955,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Show Enchant Names",
                       tooltip="Show each enchant's name as text (colored to match that item's item level) instead of its icon. The name normally appears only when hovering the icon.",
-                      get=function() return EllesmereUIDB and EllesmereUIDB.charSheetEnchantNames or false end,
+                      get=function() return (not EllesmereUIDB) or (EllesmereUIDB.charSheetEnchantNames ~= false) end,
                       set=function(v)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.charSheetEnchantNames = v
                           if EllesmereUI._refreshCharSheetSlotLabels then EllesmereUI._refreshCharSheetSlotLabels() end
                       end },
                     { type="slider", label="Text Size", min=6, max=20, step=1,
-                      disabled=function() return not (EllesmereUIDB and EllesmereUIDB.charSheetEnchantNames) end,
+                      disabled=function() return EllesmereUIDB and EllesmereUIDB.charSheetEnchantNames == false end,
                       disabledTooltip="Show Enchant Names",
                       get=function() return (EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize) or 9 end,
                       set=function(v)

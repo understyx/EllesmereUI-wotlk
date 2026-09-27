@@ -274,18 +274,20 @@ GetInspectItemsFrame = function()
     return _G.InspectPaperDollItemsFrame or _G.InspectPaperDollFrame
 end
 
--- Slots that can have enchants in current expansion (mirrors CharacterSheet)
+-- Slots that can have enchants in WotLK (mirrors CharacterSheet)
 local INSPECT_ENCHANT_SLOTS = {
     [INVSLOT_HEAD] = true,
     [INVSLOT_SHOULDER] = true,
-    [INVSLOT_BACK] = false,
+    [INVSLOT_BACK] = true,
     [INVSLOT_CHEST] = true,
-    [INVSLOT_WRIST] = false,
+    [INVSLOT_WRIST] = true,
+    [INVSLOT_HAND or 10] = true,
     [INVSLOT_LEGS] = true,
     [INVSLOT_FEET] = true,
-    [INVSLOT_FINGER1] = true,
-    [INVSLOT_FINGER2] = true,
     [INVSLOT_MAINHAND] = true,
+    [INVSLOT_SECONDARYHAND] = false,
+    [INVSLOT_FINGER1] = false,
+    [INVSLOT_FINGER2] = false,
 }
 
 local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightColumn)
@@ -354,63 +356,86 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
     end
 
     -- Enchant label (font size matches CharacterSheet)
-    if itemLink and not GetFFD(slot).enchantText and not skipLabels then
+    local enchantLabel = GetFFD(slot).enchantText
+    if itemLink and not skipLabels then
         local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
         local enchantText = EllesmereUI.GetEnchantText(slotID, inspectUnit)
         local canHaveEnchant = INSPECT_ENCHANT_SLOTS[slotID]
         local inspLvl = UnitLevel(inspectUnit)
-        local atEnchantLevel = inspLvl and not (issecretvalue and issecretvalue(inspLvl)) and inspLvl >= 90 or false
+        local atEnchantLevel = inspLvl and not (issecretvalue and issecretvalue(inspLvl)) and inspLvl >= 80 or false
         local isMissing = atEnchantLevel and canHaveEnchant and itemLink and (enchantText == "" or not enchantText)
         local hasEnchant = enchantText and enchantText ~= ""
 
         local iconOnly, tooltipText
         if isMissing then
-            iconOnly    = "|A:Professions-ChatIcon-Quality-Tier5:14:14:0:0:229:73:73|a"
+            iconOnly    = "|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14:0:0|t"
             tooltipText = "Enchant missing"
         elseif hasEnchant then
             local icons = {}
             for atlas in enchantText:gmatch("|A:[^|]+|a") do
                 icons[#icons + 1] = atlas
             end
+            for tex in enchantText:gmatch("|T[^|]+|t") do
+                icons[#icons + 1] = tex
+            end
             iconOnly    = table.concat(icons, "")
-            tooltipText = enchantText:gsub("|A:[^|]+|a", ""):gsub("^%s+", ""):gsub("%s+$", "")
-            tooltipText = tooltipText:gsub("^.-%s*%-%s*", "")
+            tooltipText = enchantText:gsub("|A:[^|]+|a", ""):gsub("|T[^|]+|t", ""):gsub("^%s+", ""):gsub("%s+$", "")
+            tooltipText = tooltipText:gsub("^Enchant%s+[^-]+%s*-%s*", "")
         end
 
         local showEnchants = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowEnchants ~= false)
+        local showNames = (not EllesmereUIDB) or (EllesmereUIDB.charSheetEnchantNames ~= false)
+        local useName = hasEnchant and tooltipText and tooltipText ~= "" and (showNames or not iconOnly or iconOnly == "")
+        local labelText = useName and tooltipText or (iconOnly ~= "" and iconOnly or tooltipText)
 
-        if showEnchants and iconOnly and iconOnly ~= "" then
-            local enchantLabel = textOverlayFrame:CreateFontString(nil, "OVERLAY")
-            enchantLabel:SetFont(fontPath, enchantSize, "")
+        if showEnchants and labelText and labelText ~= "" then
+            if not enchantLabel then
+                enchantLabel = textOverlayFrame:CreateFontString(nil, "OVERLAY")
+                if slotName == "InspectMainHandSlot" then
+                    enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                    enchantLabel:SetJustifyH("RIGHT")
+                elseif slotName == "InspectSecondaryHandSlot" then
+                    enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    enchantLabel:SetJustifyH("LEFT")
+                elseif slotName == "InspectRangedSlot" then
+                    enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    enchantLabel:SetJustifyH("LEFT")
+                elseif isRightColumn then
+                    enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                    enchantLabel:SetJustifyH("RIGHT")
+                else
+                    enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    enchantLabel:SetJustifyH("LEFT")
+                end
+                GetFFD(slot).enchantText = enchantLabel
+            end
+
+            local outlineFlag = EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG") or "OUTLINE"
+            enchantLabel:SetFont(fontPath, enchantSize, useName and outlineFlag or "")
             enchantLabel:SetTextColor(1, 1, 1, 0.8)
+            enchantLabel:SetText(labelText)
+            enchantLabel:Show()
 
-            if slotName == "InspectMainHandSlot" then
-                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
-            elseif slotName == "InspectSecondaryHandSlot" then
-                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
-            elseif isRightColumn then
-                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
-            else
-                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+            local hoverFrame = GetFFD(slot).enchantHoverFrame
+            if not hoverFrame then
+                hoverFrame = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlayFrame)
+                hoverFrame:SetFrameLevel(textOverlayFrame:GetFrameLevel() + 20)
+                if slotName == "InspectMainHandSlot" then
+                    hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                elseif slotName == "InspectSecondaryHandSlot" then
+                    hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                elseif slotName == "InspectRangedSlot" then
+                    hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                elseif isRightColumn then
+                    hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                else
+                    hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                end
+                hoverFrame:EnableMouse(true)
+                GetFFD(slot).enchantHoverFrame = hoverFrame
             end
-
-            enchantLabel:SetText(iconOnly)
-            GetFFD(slot).enchantText = enchantLabel
-
-            local hoverFrame = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlayFrame)
-            hoverFrame:SetSize(20, 20)
-            hoverFrame:SetFrameLevel(textOverlayFrame:GetFrameLevel() + 20)
-            if slotName == "InspectMainHandSlot" then
-                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
-            elseif slotName == "InspectSecondaryHandSlot" then
-                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
-            elseif isRightColumn then
-                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
-            else
-                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
-            end
-            hoverFrame:EnableMouse(true)
-
+            local strW = math.max(20, enchantLabel:GetStringWidth() or 20)
+            hoverFrame:SetSize(strW, 16)
             hoverFrame:SetScript("OnEnter", function()
                 if tooltipText and tooltipText ~= "" and EllesmereUI.ShowWidgetTooltip then
                     EllesmereUI.ShowWidgetTooltip(hoverFrame, tooltipText)
@@ -419,9 +444,14 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             hoverFrame:SetScript("OnLeave", function()
                 if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
             end)
-
-            GetFFD(slot).enchantHoverFrame = hoverFrame
+            hoverFrame:Show()
+        else
+            if enchantLabel then enchantLabel:Hide() end
+            if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Hide() end
         end
+    else
+        if enchantLabel then enchantLabel:Hide() end
+        if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Hide() end
     end
 
 

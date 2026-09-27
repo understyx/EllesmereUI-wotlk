@@ -176,6 +176,14 @@ local EUI_EMPTY_SOCKET_ATLAS = {
     EMPTY_SOCKET_TINKER     = "socket-tinker",
 }
 
+local EUI_EMPTY_SOCKET_TEXTURES = {
+    ["socket-meta"]      = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Meta",
+    ["socket-red"]       = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Red",
+    ["socket-yellow"]    = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Yellow",
+    ["socket-blue"]      = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Blue",
+    ["socket-prismatic"] = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Prismatic",
+}
+
 -- Gem socket icons: one pass over GetItemStats + C_Item.GetItemGem (no tooltip).
 -- Enchants use EUI_ScanInventoryItem; no GameTooltipTemplate (CLAUDE.md).
 
@@ -233,7 +241,7 @@ local function EUI_BuildSocketIconRow(itemLink, paintPasses)
         end
     end
 
-    return row, totalSockets, nGems, gemLinks
+    return row, math.max(totalSockets, nGems), nGems, gemLinks
 end
 
 -- Default the themed character sheet + its sub-displays to enabled on first
@@ -252,6 +260,7 @@ do
             showItemLevel                = true,
             showUpgradeTrack             = true,
             showEnchants                 = true,
+            charSheetEnchantNames        = true,
             showGems                     = true,
             showStatCategory_Attributes  = true,
             showStatCategory_Melee       = true,
@@ -4698,6 +4707,9 @@ local function SkinCharacterSheet()
             elseif slotName == "CharacterSecondaryHandSlot" then
                 -- OffHand: show on right side
                 label:SetPoint("CENTER", slot, "RIGHT", 15, 10)
+            elseif slotName == "CharacterRangedSlot" then
+                -- Ranged: show on right side
+                label:SetPoint("CENTER", slot, "RIGHT", 15, 10)
             end
 
             GetFFD(slot).itemLevelLabel = label
@@ -4726,6 +4738,9 @@ local function SkinCharacterSheet()
             elseif slotName == "CharacterSecondaryHandSlot" then
                 enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
                 enchantLabel:SetJustifyH("LEFT")
+            elseif slotName == "CharacterRangedSlot" then
+                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                enchantLabel:SetJustifyH("LEFT")
             else
                 enchantLabel:SetJustifyH("CENTER")
             end
@@ -4740,6 +4755,8 @@ local function SkinCharacterSheet()
             elseif slotName == "CharacterMainHandSlot" then
                 hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
             elseif slotName == "CharacterSecondaryHandSlot" then
+                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+            elseif slotName == "CharacterRangedSlot" then
                 hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
             end
             hoverFrame:EnableMouse(true)
@@ -4851,14 +4868,15 @@ local function SkinCharacterSheet()
     -- Socket icon creation and display logic. Each socket is a small Frame
     -- (not a raw texture) so we can put a 1px pixel-perfect border on it.
     local function GetOrCreateSocketIcons(slot, side, slotIndex)
-        if GetFFD(slot).charSocketsIcons then return GetFFD(slot).charSocketsIcons end
+        if not GetFFD(slot).charSocketsIcons then
+            GetFFD(slot).charSocketsIcons = {}   -- list of icon textures (gem art)
+            GetFFD(slot).charSocketsFrames = {}  -- list of parent frames (borders live here)
+            GetFFD(slot).charSocketsBtns = GetFFD(slot).charSocketsIcons  -- alias for callers
+            GetFFD(slot).gemLinks = {}
+        end
 
-        GetFFD(slot).charSocketsIcons = {}   -- list of icon textures (gem art)
-        GetFFD(slot).charSocketsFrames = {}  -- list of parent frames (borders live here)
-        GetFFD(slot).charSocketsBtns = GetFFD(slot).charSocketsIcons  -- alias for callers
-        GetFFD(slot).gemLinks = {}
-
-        for i = 1, 2 do  -- max 2 gems displayed per slot
+        local curCount = #(GetFFD(slot).charSocketsFrames or {})
+        for i = curCount + 1, 3 do  -- support up to 3 gems displayed per slot in WotLK
             local gemFrame = EllesmereUI.SafeCreateFrame("Frame", nil, globalSocketContainer)
             gemFrame:SetSize(GEM_SIZE, GEM_SIZE)
             gemFrame:EnableMouse(true)
@@ -4867,8 +4885,8 @@ local function SkinCharacterSheet()
             local icon = gemFrame:CreateTexture(nil, "ARTWORK")
             icon:SetAllPoints(gemFrame)
 
-            -- 2px pixel-perfect border, recolored per-gem in UpdateSocketIcons.
-            PP_GEM.CreateBorder(gemFrame, 1, 1, 1, 1, 2, "OVERLAY", 1)
+            -- 1px pixel-perfect border, recolored per-gem in UpdateSocketIcons.
+            PP_GEM.CreateBorder(gemFrame, 1, 1, 1, 1, 1, "OVERLAY", 1)
             local gemBdr = PP_GEM.GetBorders(gemFrame)
             if gemBdr then gemBdr:SetFrameLevel(gemFrame:GetFrameLevel()) end
 
@@ -4921,25 +4939,30 @@ local function SkinCharacterSheet()
         GetFFD(slot).gemLinks = gemLinks
 
         -- Position and show gem frames inside the slot's bottom-right, with
-        -- extra gems stacking leftward. Border color reflects gem rank:
+        -- extra gems stacking vertically upwards. Border color reflects gem rank:
         -- Rank 2+ (rare+) = gold, Rank 1 (uncommon) = silver.
+        -- Standard slot is 37x37:
+        -- For 1-2 gems: 14px size (14 + 1 + 14 = 29px <= 37px)
+        -- For 3 gems: 10px size (3 * 10 + 2 * 1 = 32px <= 37px, centered cleanly)
         if #socketTextures > 0 then
             local gemFrames = GetFFD(slot).charSocketsFrames or {}
+            local numSockets = math.min(#socketTextures, #socketIcons)
+            local gemSize = (numSockets >= 3) and 10 or 14
+
             for i, icon in ipairs(socketIcons) do
                 local gemFrame = gemFrames[i]
                 if socketTextures[i] and gemFrame then
                     local entry = socketTextures[i]
                     if entry.isAtlas then
-                        -- Empty socket: prefer Blizzard's socket atlas. Avoid a
-                        -- bright red fill on first open — the inventory link can
-                        -- lack gem bytes while GetItemStats still reports sockets,
-                        -- which made solid red read as "missing gem" on gemmed gear.
+                        -- Empty socket: prefer Blizzard's socket atlas or 3.3.5 texture.
                         if icon.SetAtlas then icon:SetAtlas(nil) end
                         icon:SetTexture(nil)
                         if icon.SetVertexColor then icon:SetVertexColor(1, 1, 1, 1) end
                         if icon.SetAtlas and entry.icon then
                             icon:SetTexture(0, 0, 0, 0)
                             icon:SetAtlas(entry.icon)
+                        elseif entry.icon and EUI_EMPTY_SOCKET_TEXTURES[entry.icon] then
+                            icon:SetTexture(EUI_EMPTY_SOCKET_TEXTURES[entry.icon])
                         else
                             if icon.SetAtlas then icon:SetAtlas(nil) end
                             icon:SetTexture(0.22, 0.22, 0.26, 0.85)
@@ -4955,10 +4978,11 @@ local function SkinCharacterSheet()
                         icon:SetTexture(entry.icon)
                     end
 
+                    gemFrame:SetSize(gemSize, gemSize)
                     gemFrame:ClearAllPoints()
                     gemFrame:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT",
                         -GEM_INSET_X,
-                        GEM_INSET_Y + (i - 1) * (GEM_SIZE + GEM_PAD))
+                        GEM_INSET_Y + (i - 1) * (gemSize + GEM_PAD))
 
                     -- Resolve gem rarity for border color.
                     local gemLink = GetFFD(slot).gemLinks and GetFFD(slot).gemLinks[i]
@@ -4982,9 +5006,21 @@ local function SkinCharacterSheet()
 
                     -- Tooltip on hover
                     gemFrame:SetScript("OnEnter", function(self)
-                        if GetFFD(slot).gemLinks[i] then
+                        local link = GetFFD(slot).gemLinks and GetFFD(slot).gemLinks[i]
+                        if link then
                             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                            GameTooltip:SetHyperlink(GetFFD(slot).gemLinks[i])
+                            GameTooltip:SetHyperlink(link)
+                            GameTooltip:Show()
+                        elseif entry.isAtlas then
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            local name = entry.icon and (
+                                entry.icon == "socket-meta" and "Meta Socket" or
+                                entry.icon == "socket-red" and "Red Socket" or
+                                entry.icon == "socket-yellow" and "Yellow Socket" or
+                                entry.icon == "socket-blue" and "Blue Socket" or
+                                entry.icon == "socket-prismatic" and "Prismatic Socket"
+                            ) or "Empty Socket"
+                            GameTooltip:SetText(name, 1, 1, 1)
                             GameTooltip:Show()
                         end
                     end)
@@ -5170,18 +5206,20 @@ local function SkinCharacterSheet()
     -- Cache item info (ID, level, upgrade track) to update when items change
     local itemCache = {}
 
-    -- Slots that can have enchants in current expansion
+    -- Slots that can have enchants in WotLK
     local ENCHANT_SLOTS = {
         [INVSLOT_HEAD] = true,
         [INVSLOT_SHOULDER] = true,
-        [INVSLOT_BACK] = false,
+        [INVSLOT_BACK] = true,
         [INVSLOT_CHEST] = true,
-        [INVSLOT_WRIST] = false,
+        [INVSLOT_WRIST] = true,
+        [INVSLOT_HAND or 10] = true,
         [INVSLOT_LEGS] = true,
         [INVSLOT_FEET] = true,
-        [INVSLOT_FINGER1] = true,
-        [INVSLOT_FINGER2] = true,
         [INVSLOT_MAINHAND] = true,
+        [INVSLOT_SECONDARYHAND] = false,
+        [INVSLOT_FINGER1] = false,
+        [INVSLOT_FINGER2] = false,
     }
 
     -- Function to update enchant text and upgrade track for a slot
@@ -5226,7 +5264,7 @@ local function SkinCharacterSheet()
 
         elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
             local r, g, b = GetItemQualityColor(itemQuality)
-            ilvlColor = { r = r, g = g, b = b }
+            ilvlColor = { r = r, g = b, b = b }
         else
             ilvlColor = { r = 1, g = 1, b = 1 }
         end
@@ -5250,82 +5288,75 @@ local function SkinCharacterSheet()
         -- full original text behind a hover tooltip on an overlapping frame.
         if GetFFD(slot).enchantLabel then
             local showEnchants = (not EllesmereUIDB) or (EllesmereUIDB.showEnchants ~= false)
-            -- Only flag missing enchants for level 90+ characters: leveling
+            -- Only flag missing enchants for level 80+ characters: leveling
             -- gear churn means the red icon and pulse would constantly fire
             -- on every replacement. Endgame players are the audience.
             local playerLvl = UnitLevel("player")
-            local atEnchantLevel = playerLvl and not (issecretvalue and issecretvalue(playerLvl)) and playerLvl >= 90 or false
+            local atEnchantLevel = playerLvl and not (issecretvalue and issecretvalue(playerLvl)) and playerLvl >= 80 or false
             local isMissing    = atEnchantLevel and canHaveEnchant and itemLink and (enchantText == "" or not enchantText)
             local hasEnchant   = enchantText and enchantText ~= ""
 
             local iconOnly, tooltipText
             if isMissing then
-                -- Same hex atlas the enchanted items show, tinted red
-                -- (#e54949 → RGB 229, 73, 73 in the atlas-escape color fields).
-                iconOnly    = "|A:Professions-ChatIcon-Quality-Tier5:14:14:0:0:229:73:73|a"
+                iconOnly    = "|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14:0:0|t"
                 tooltipText = "Enchant missing"
             elseif hasEnchant then
-                -- Concatenate every |A:...|a atlas escape, drop everything else.
+                -- Concatenate every |A:...|a and |T...|t escape, extract clean readable name.
                 local icons = {}
                 for atlas in enchantText:gmatch("|A:[^|]+|a") do
                     icons[#icons + 1] = atlas
                 end
+                for tex in enchantText:gmatch("|T[^|]+|t") do
+                    icons[#icons + 1] = tex
+                end
                 iconOnly    = table.concat(icons, "")
-                tooltipText = enchantText:gsub("|A:[^|]+|a", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                -- Strip any "prefix - " (e.g. "Enchant Weapon - ") so the
-                -- tooltip shows just the enchant's readable name.
-                tooltipText = tooltipText:gsub("^.-%s*%-%s*", "")
+                tooltipText = enchantText:gsub("|A:[^|]+|a", ""):gsub("|T[^|]+|t", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                -- Strip any "Enchant <slot> - " prefix so the tooltip shows just the readable name.
+                tooltipText = tooltipText:gsub("^Enchant%s+[^-]+%s*-%s*", "")
             end
 
             -- "Show Enchant Names": render the readable enchant name as text
-            -- (colored to match the item level) instead of its icon. The
-            -- missing-enchant warning always keeps its red icon (no name to
-            -- show). Falls back to the icon for any item without a real enchant.
-            local showNames = EllesmereUIDB and EllesmereUIDB.charSheetEnchantNames
-            local useName = showNames and hasEnchant and tooltipText and tooltipText ~= ""
-            local labelText = useName and tooltipText or iconOnly
+            -- (colored to match the item level) instead of its icon. In WotLK
+            -- enchant names default to shown since there are no retail quality tier icons.
+            local showNames = (not EllesmereUIDB) or (EllesmereUIDB.charSheetEnchantNames ~= false)
+            local useName = hasEnchant and tooltipText and tooltipText ~= "" and (showNames or not iconOnly or iconOnly == "")
+            local labelText = useName and tooltipText or (iconOnly ~= "" and iconOnly or tooltipText)
 
             if showEnchants and labelText and labelText ~= "" then
                 GetFFD(slot).enchantLabel:SetText(labelText)
                 local enchFontSize = (EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize) or 9
+                local maxW = 130
+                local leftRef, rightRef = _G.CharacterHeadSlot, _G.CharacterHandsSlot
+                if leftRef and rightRef and leftRef.GetRight and rightRef.GetLeft then
+                    local lr, rl = leftRef:GetRight(), rightRef:GetLeft()
+                    if lr and rl and rl > lr then maxW = (rl - lr) * 0.45 end
+                end
+
                 if useName then
-                    -- Enchant names always render OUTLINE, SLUG for legibility over
-                    -- the model (hardcoded; matches the char-sheet outline standard).
-                    GetFFD(slot).enchantLabel:SetFont(fontPath, enchFontSize, "OUTLINE, SLUG")
+                    -- Enchant names render OUTLINE for legibility over the model.
+                    local outlineFlag = EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG") or "OUTLINE"
+                    GetFFD(slot).enchantLabel:SetFont(fontPath, enchFontSize, outlineFlag)
                     -- Item-level color, blended 50% toward white so the name reads
                     -- softer than the ilvl number.
                     GetFFD(slot).enchantLabel:SetTextColor(
                         ilvlColor.r + (1 - ilvlColor.r) * 0.5,
                         ilvlColor.g + (1 - ilvlColor.g) * 0.5,
                         ilvlColor.b + (1 - ilvlColor.b) * 0.5, 0.9)
-                    -- Cap the name at 45% of the gap between the two equipment
-                    -- columns (right edge of the left icons -> left edge of the
-                    -- right icons) so a long enchant never bleeds across the
-                    -- model or into the far column. Overflow truncates with an
-                    -- ellipsis; the full name is still on the hover tooltip.
-                    -- textOverlayFrame (the label's parent) shares the slots'
-                    -- effective scale, so the edge delta is already in the
-                    -- label's own width units.
-                    local maxW
-                    local leftRef, rightRef = _G.CharacterHeadSlot, _G.CharacterHandsSlot
-                    if leftRef and rightRef then
-                        local lr, rl = leftRef:GetRight(), rightRef:GetLeft()
-                        if lr and rl and rl > lr then maxW = (rl - lr) * 0.45 end
-                    end
+                    -- Cap the name at 45% of the gap between the two equipment columns.
                     GetFFD(slot).enchantLabel:SetWordWrap(false)
-                    GetFFD(slot).enchantLabel:SetWidth(maxW or 0)
+                    GetFFD(slot).enchantLabel:SetWidth(maxW)
                 else
-                    -- Icon mode: no outline (matches the label's creation default),
-                    -- default white tint so a prior name-mode color never bleeds
-                    -- onto the atlas icons, and clear the width cap.
+                    -- Icon mode: no outline, default white tint, width for icon.
                     GetFFD(slot).enchantLabel:SetFont(fontPath, enchFontSize, "")
                     GetFFD(slot).enchantLabel:SetTextColor(1, 1, 1, 0.8)
-                    GetFFD(slot).enchantLabel:SetWidth(0)
+                    GetFFD(slot).enchantLabel:SetWidth(20)
                 end
                 if isCharTab then GetFFD(slot).enchantLabel:Show() else GetFFD(slot).enchantLabel:Hide() end
 
                 if GetFFD(slot).enchantHoverFrame then
                     if isCharTab then GetFFD(slot).enchantHoverFrame:Show() else GetFFD(slot).enchantHoverFrame:Hide() end
+                    local strW = math.max(20, math.min(maxW, GetFFD(slot).enchantLabel:GetStringWidth() or 20))
+                    GetFFD(slot).enchantHoverFrame:SetSize(strW, 16)
                     GetFFD(slot).enchantHoverFrame:SetScript("OnEnter", function(self)
                         if not tooltipText or tooltipText == "" then return end
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
