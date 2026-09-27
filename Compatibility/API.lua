@@ -17,6 +17,29 @@ if not securecallfunction then
     end
 end
 
+-- Standard Inventory Slot constants (shimming modern names if missing)
+INVSLOT_HEAD          = INVSLOT_HEAD or 1
+INVSLOT_NECK          = INVSLOT_NECK or 2
+INVSLOT_SHOULDER      = INVSLOT_SHOULDER or 3
+INVSLOT_BODY          = INVSLOT_BODY or 4
+INVSLOT_CHEST         = INVSLOT_CHEST or 5
+INVSLOT_WAIST         = INVSLOT_WAIST or 6
+INVSLOT_LEGS          = INVSLOT_LEGS or 7
+INVSLOT_FEET          = INVSLOT_FEET or 8
+INVSLOT_WRIST         = INVSLOT_WRIST or 9
+INVSLOT_HAND          = INVSLOT_HAND or 10
+INVSLOT_HANDS         = INVSLOT_HANDS or INVSLOT_HAND or 10
+INVSLOT_FINGER1       = INVSLOT_FINGER1 or 11
+INVSLOT_FINGER2       = INVSLOT_FINGER2 or 12
+INVSLOT_TRINKET1      = INVSLOT_TRINKET1 or 13
+INVSLOT_TRINKET2      = INVSLOT_TRINKET2 or 14
+INVSLOT_BACK          = INVSLOT_BACK or 15
+INVSLOT_MAINHAND      = INVSLOT_MAINHAND or 16
+INVSLOT_OFFHAND       = INVSLOT_OFFHAND or 17
+INVSLOT_SECONDARYHAND = INVSLOT_SECONDARYHAND or INVSLOT_OFFHAND or 17
+INVSLOT_RANGED        = INVSLOT_RANGED or 18
+INVSLOT_TABARD        = INVSLOT_TABARD or 19
+
 -- Retail's friend-list namespace replaced the legacy global APIs.  Keep the
 -- modern call sites usable on 3.3.5 while preserving Retail's implementation
 -- when it exists.

@@ -5208,18 +5208,15 @@ local function SkinCharacterSheet()
 
     -- Slots that can have enchants in WotLK
     local ENCHANT_SLOTS = {
-        [INVSLOT_HEAD] = true,
-        [INVSLOT_SHOULDER] = true,
-        [INVSLOT_BACK] = true,
-        [INVSLOT_CHEST] = true,
-        [INVSLOT_WRIST] = true,
-        [INVSLOT_HAND or 10] = true,
-        [INVSLOT_LEGS] = true,
-        [INVSLOT_FEET] = true,
-        [INVSLOT_MAINHAND] = true,
-        [INVSLOT_SECONDARYHAND] = false,
-        [INVSLOT_FINGER1] = false,
-        [INVSLOT_FINGER2] = false,
+        [INVSLOT_HEAD or 1]         = true,
+        [INVSLOT_SHOULDER or 3]     = true,
+        [INVSLOT_BACK or 15]        = true,
+        [INVSLOT_CHEST or 5]        = true,
+        [INVSLOT_WRIST or 9]        = true,
+        [INVSLOT_HAND or 10]        = true,
+        [INVSLOT_LEGS or 7]         = true,
+        [INVSLOT_FEET or 8]         = true,
+        [INVSLOT_MAINHAND or 16]    = true,
     }
 
     -- Function to update enchant text and upgrade track for a slot
