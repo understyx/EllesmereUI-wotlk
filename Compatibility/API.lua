@@ -1344,8 +1344,18 @@ if not C_Item then
         local parts = { itemLink:match("item:(%d*):(%d*):(%d*):(%d*):(%d*):(%d*)") }
         local gemID = tonumber(parts[2 + index])
         if gemID and gemID > 0 then
-            local gemLink = select(2, GetItemInfo(gemID))
-            return nil, gemLink
+            local itemID = EllesmereUI and EllesmereUI.GetGemItemID and EllesmereUI.GetGemItemID(gemID) or gemID
+            local gemName, gemLink = GetItemInfo(itemID)
+            if not gemLink and EllesmereUI and EllesmereUI.GetGemData then
+                local meta = EllesmereUI.GetGemData(itemID)
+                if meta then
+                    gemName = meta.name
+                    local color = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[meta.quality]
+                    local hex = color and color.hex or "|cffffffff"
+                    gemLink = string.format("%s|Hitem:%d:0:0:0:0:0:0:0:80:0|h[%s]|h|r", hex, itemID, meta.name)
+                end
+            end
+            return gemName, gemLink
         end
         return nil
     end

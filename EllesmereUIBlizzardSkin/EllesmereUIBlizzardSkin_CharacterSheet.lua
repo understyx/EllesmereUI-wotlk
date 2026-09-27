@@ -100,15 +100,34 @@ end
 
 local function EUI_GetEnchantText(slotID, unit)
     if not slotID then return "" end
-    local link = GetInventoryItemLink(unit or "player", slotID)
+    local link
+    if type(slotID) == "string" and slotID:find("item:") then
+        link = slotID
+    else
+        link = GetInventoryItemLink(unit or "player", slotID)
+    end
     if not link then return "" end
 
     -- Item link format: "item:<itemID>:<enchantID>:..."
     local enchantID = tonumber(link:match("item:%d+:(%d+)"))
     if not enchantID or enchantID == 0 then return "" end
 
+    -- Both gems and enchants use enchant IDs for effects; filter out gems so they
+    -- are not treated as equipment enchants.
+    if EllesmereUI and EllesmereUI.IsGemEnchant and EllesmereUI.IsGemEnchant(enchantID) then
+        return ""
+    end
+
     local cached = _enchantNameCache[enchantID]
     if cached ~= nil then return cached end
+
+    if EllesmereUI and EllesmereUI.GetEnchantName then
+        local name = EllesmereUI.GetEnchantName(enchantID)
+        if name and name ~= "" then
+            _enchantNameCache[enchantID] = name
+            return name
+        end
+    end
 
     local data = EUI_ScanInventoryItem(slotID, unit)
     if not (data and data.lines) then
@@ -189,6 +208,13 @@ local function EUI_BuildSocketIconRow(itemLink, paintPasses)
             local icon = C_Item.GetItemIconByID(gemLink)
             if not icon and GetItemInfoInstant then
                 icon = select(5, GetItemInfoInstant(gemLink))
+            end
+            if not icon and EllesmereUI and EllesmereUI.GetGemData then
+                local gID = gemLink:match("item:(%d+)")
+                local meta = gID and EllesmereUI.GetGemData(gID)
+                if meta and meta.icon and meta.icon ~= "" then
+                    icon = "Interface\\Icons\\" .. meta.icon
+                end
             end
             row[#row + 1] = { icon = icon or 134400, isAtlas = false }
         end
@@ -4939,7 +4965,15 @@ local function SkinCharacterSheet()
                     local rarity = 2
                     if gemLink then
                         local _, _, r = GetItemInfo(gemLink)
-                        if r then rarity = r end
+                        if r then
+                            rarity = r
+                        elseif EllesmereUI and EllesmereUI.GetGemData then
+                            local gID = gemLink:match("item:(%d+)")
+                            local meta = gID and EllesmereUI.GetGemData(gID)
+                            if meta and meta.quality then
+                                rarity = meta.quality
+                            end
+                        end
                     end
                     local r, g, b, a = GemBorderColor(rarity)
                     PP_GEM.SetBorderColor(gemFrame, r, g, b, a)

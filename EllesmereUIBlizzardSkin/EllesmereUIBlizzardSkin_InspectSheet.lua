@@ -55,8 +55,17 @@ local function CollectInspectGlyphs(unit)
         local spellID = spellIDs[socket]
         if type(spellID) == "number" and spellID > 0 then
             local spellName, _, icon = GetSpellInfo(spellID)
+            local itemID = EllesmereUI and EllesmereUI.GetGlyphItemID and (EllesmereUI.GetGlyphItemID(spellID) or (spellName and EllesmereUI.GetGlyphItemID(spellName)))
+            local glyphMeta = itemID and EllesmereUI and EllesmereUI.GetGlyphData and EllesmereUI.GetGlyphData(itemID)
+            if glyphMeta then
+                if not spellName or spellName == "" then spellName = glyphMeta.name end
+                if (not icon or icon == "" or icon == "Interface\\Icons\\INV_Misc_QuestionMark") and glyphMeta.icon and glyphMeta.icon ~= "" then
+                    icon = "Interface\\Icons\\" .. glyphMeta.icon
+                end
+            end
             glyphs[socket] = {
                 spellID = spellID,
+                itemID = itemID,
                 name = spellName or EllesmereUI.Lf("Spell ID %d", spellID),
                 icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark",
             }
@@ -170,6 +179,7 @@ local function RefreshInspectGlyphs(requestData)
         if row then
             local minor = row.glyphType == GLYPH_TYPE_MINOR
             row.spellID = glyph and glyph.spellID or nil
+            row.itemID = glyph and glyph.itemID or nil
             row.name:SetText(glyph and glyph.name or EllesmereUI.L("Empty slot"))
             row.name:SetTextColor(1, 1, 1, glyph and 0.92 or 0.58)
             if glyph then
@@ -1573,14 +1583,33 @@ local function SkinInspectSheet()
             row.name = name
             row.typeLabel = typeLabel
             row:SetScript("OnEnter", function(self)
-                if not self.spellID then return end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                if GameTooltip.SetSpellByID then
-                    GameTooltip:SetSpellByID(self.spellID)
-                else
-                    GameTooltip:SetHyperlink("spell:" .. tostring(self.spellID))
+                if self.itemID then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetHyperlink("item:" .. tostring(self.itemID))
+                    GameTooltip:Show()
+                elseif self.spellID then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    if GameTooltip.SetSpellByID then
+                        GameTooltip:SetSpellByID(self.spellID)
+                    else
+                        GameTooltip:SetHyperlink("spell:" .. tostring(self.spellID))
+                    end
+                    GameTooltip:Show()
                 end
-                GameTooltip:Show()
+            end)
+            row:SetScript("OnClick", function(self)
+                if self.itemID and IsModifiedClick and IsModifiedClick("CHATLINK") then
+                    local _, link = GetItemInfo(self.itemID)
+                    if not link and EllesmereUI and EllesmereUI.GetGlyphData then
+                        local meta = EllesmereUI.GetGlyphData(self.itemID)
+                        if meta then
+                            link = string.format("|cffffffff|Hitem:%d:0:0:0:0:0:0:0:80:0|h[%s]|h|r", self.itemID, meta.name)
+                        end
+                    end
+                    if link and ChatEdit_InsertLink then
+                        ChatEdit_InsertLink(link)
+                    end
+                end
             end)
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
             row:Hide()
