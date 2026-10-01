@@ -2477,17 +2477,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        if ns.isLegacyNameplates then
-            local noteRow
-            noteRow, h = W:DualRow(parent, y,
-                { type="label",
-                  text="Wrath limit observed: roughly 150-170 x 25 px; native elements may alter it.",
-                  tooltip="The preview shows the requested size, but the actual clickable area has client-enforced maximum and minimum sizes. Level, boss, and other native elements may change the result; please report reproducible differences." });  y = y - h
-            if noteRow._leftRegion and noteRow._leftRegion._label then
-                noteRow._leftRegion._label:SetAlpha(0.55)
-            end
-        end
-
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
@@ -5662,6 +5651,15 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
                 UpdatePreview()
               end });  y = y - h
+
+        local hitboxLimitNote
+        hitboxLimitNote, h = W:DualRow(parent, y,
+            { type="label",
+              text="Wrath limit observed: roughly 150-170 x 25 px; native elements may alter it.",
+              tooltip="The preview shows the requested size, but the actual clickable area has client-enforced maximum and minimum sizes. Level, boss, and other native elements may change the result; please report reproducible differences." });  y = y - h
+        if hitboxLimitNote._leftRegion and hitboxLimitNote._leftRegion._label then
+            hitboxLimitNote._leftRegion._label:SetAlpha(0.55)
+        end
 
         local function castIconOff() return DB() and DB().showCastIcon == false end
 
