@@ -52,6 +52,9 @@ Locales\ruRU.lua
 Locales\zhCN.lua
 Locales\zhTW.lua
 
+# Reference data (enchants, gems, glyphs)
+EllesmereUI_ReferenceData.lua
+
 # Translation harvester (/euiloc dev tool; inert until invoked)
 EllesmereUI_LocaleDev.lua
 

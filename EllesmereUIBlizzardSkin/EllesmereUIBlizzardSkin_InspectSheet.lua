@@ -55,8 +55,17 @@ local function CollectInspectGlyphs(unit)
         local spellID = spellIDs[socket]
         if type(spellID) == "number" and spellID > 0 then
             local spellName, _, icon = GetSpellInfo(spellID)
+            local itemID = EllesmereUI and EllesmereUI.GetGlyphItemID and (EllesmereUI.GetGlyphItemID(spellID) or (spellName and EllesmereUI.GetGlyphItemID(spellName)))
+            local glyphMeta = itemID and EllesmereUI and EllesmereUI.GetGlyphData and EllesmereUI.GetGlyphData(itemID)
+            if glyphMeta then
+                if not spellName or spellName == "" then spellName = glyphMeta.name end
+                if (not icon or icon == "" or icon == "Interface\\Icons\\INV_Misc_QuestionMark") and glyphMeta.icon and glyphMeta.icon ~= "" then
+                    icon = "Interface\\Icons\\" .. glyphMeta.icon
+                end
+            end
             glyphs[socket] = {
                 spellID = spellID,
+                itemID = itemID,
                 name = spellName or EllesmereUI.Lf("Spell ID %d", spellID),
                 icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark",
             }
@@ -170,6 +179,7 @@ local function RefreshInspectGlyphs(requestData)
         if row then
             local minor = row.glyphType == GLYPH_TYPE_MINOR
             row.spellID = glyph and glyph.spellID or nil
+            row.itemID = glyph and glyph.itemID or nil
             row.name:SetText(glyph and glyph.name or EllesmereUI.L("Empty slot"))
             row.name:SetTextColor(1, 1, 1, glyph and 0.92 or 0.58)
             if glyph then
@@ -264,18 +274,17 @@ GetInspectItemsFrame = function()
     return _G.InspectPaperDollItemsFrame or _G.InspectPaperDollFrame
 end
 
--- Slots that can have enchants in current expansion (mirrors CharacterSheet)
+-- Slots that can have enchants in WotLK (mirrors CharacterSheet)
 local INSPECT_ENCHANT_SLOTS = {
-    [INVSLOT_HEAD] = true,
-    [INVSLOT_SHOULDER] = true,
-    [INVSLOT_BACK] = false,
-    [INVSLOT_CHEST] = true,
-    [INVSLOT_WRIST] = false,
-    [INVSLOT_LEGS] = true,
-    [INVSLOT_FEET] = true,
-    [INVSLOT_FINGER1] = true,
-    [INVSLOT_FINGER2] = true,
-    [INVSLOT_MAINHAND] = true,
+    [INVSLOT_HEAD or 1]         = true,
+    [INVSLOT_SHOULDER or 3]     = true,
+    [INVSLOT_BACK or 15]        = true,
+    [INVSLOT_CHEST or 5]        = true,
+    [INVSLOT_WRIST or 9]        = true,
+    [INVSLOT_HAND or 10]        = true,
+    [INVSLOT_LEGS or 7]         = true,
+    [INVSLOT_FEET or 8]         = true,
+    [INVSLOT_MAINHAND or 16]    = true,
 }
 
 local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightColumn)
@@ -304,6 +313,20 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
     end
     GetFFD(slot).border = true
 
+    -- Keep inspect item levels and readable enchant names on the same color
+    -- path as the character sheet (custom override > item rarity > white).
+    local ilvlColor
+    if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
+        ilvlColor = EllesmereUIDB.charSheetItemLevelColor
+    elseif itemLink and (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) then
+        local _, _, quality = GetItemInfo(itemLink)
+        if quality then
+            local r, g, b = GetItemQualityColor(quality)
+            ilvlColor = { r = r, g = g, b = b }
+        end
+    end
+    ilvlColor = ilvlColor or { r = 1, g = 1, b = 1 }
+
     -- Item level label (font size matches CharacterSheet)
     if itemLink and not GetFFD(slot).iLvlText and not skipLabels then
         local ilvl = select(4, GetItemInfo(itemLink))
@@ -325,82 +348,100 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             end
 
             ilvlText:SetText(ilvl)
-
-            local displayColor
-            if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
-                displayColor = EllesmereUIDB.charSheetItemLevelColor
-            elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) then
-                local _, _, quality = GetItemInfo(itemLink)
-                if quality then
-                    local r, g, b = GetItemQualityColor(quality)
-                    displayColor = { r = r, g = g, b = b }
-                end
-            end
-            displayColor = displayColor or { r = 1, g = 1, b = 1 }
-            ilvlText:SetTextColor(displayColor.r, displayColor.g, displayColor.b, 0.9)
+            ilvlText:SetTextColor(ilvlColor.r, ilvlColor.g, ilvlColor.b, 0.9)
 
             GetFFD(slot).iLvlText = ilvlText
         end
     end
 
     -- Enchant label (font size matches CharacterSheet)
-    if itemLink and not GetFFD(slot).enchantText and not skipLabels then
+    local enchantLabel = GetFFD(slot).enchantText
+    if itemLink and not skipLabels then
         local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
         local enchantText = EllesmereUI.GetEnchantText(slotID, inspectUnit)
         local canHaveEnchant = INSPECT_ENCHANT_SLOTS[slotID]
         local inspLvl = UnitLevel(inspectUnit)
-        local atEnchantLevel = inspLvl and not (issecretvalue and issecretvalue(inspLvl)) and inspLvl >= 90 or false
+        local atEnchantLevel = inspLvl and not (issecretvalue and issecretvalue(inspLvl)) and inspLvl >= 80 or false
         local isMissing = atEnchantLevel and canHaveEnchant and itemLink and (enchantText == "" or not enchantText)
         local hasEnchant = enchantText and enchantText ~= ""
 
         local iconOnly, tooltipText
         if isMissing then
-            iconOnly    = "|A:Professions-ChatIcon-Quality-Tier5:14:14:0:0:229:73:73|a"
+            iconOnly    = "|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14:0:0|t"
             tooltipText = "Enchant missing"
         elseif hasEnchant then
             local icons = {}
             for atlas in enchantText:gmatch("|A:[^|]+|a") do
                 icons[#icons + 1] = atlas
             end
+            for tex in enchantText:gmatch("|T[^|]+|t") do
+                icons[#icons + 1] = tex
+            end
             iconOnly    = table.concat(icons, "")
-            tooltipText = enchantText:gsub("|A:[^|]+|a", ""):gsub("^%s+", ""):gsub("%s+$", "")
-            tooltipText = tooltipText:gsub("^.-%s*%-%s*", "")
+            tooltipText = enchantText:gsub("|A:[^|]+|a", ""):gsub("|T[^|]+|t", ""):gsub("^%s+", ""):gsub("%s+$", "")
+            tooltipText = tooltipText:gsub("^Enchant%s+[^-]+%s*-%s*", "")
         end
 
         local showEnchants = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowEnchants ~= false)
+        local showNames = (not EllesmereUIDB) or (EllesmereUIDB.charSheetEnchantNames ~= false)
+        local useName = hasEnchant and tooltipText and tooltipText ~= "" and (showNames or not iconOnly or iconOnly == "")
+        local labelText = useName and tooltipText or (iconOnly ~= "" and iconOnly or tooltipText)
 
-        if showEnchants and iconOnly and iconOnly ~= "" then
-            local enchantLabel = textOverlayFrame:CreateFontString(nil, "OVERLAY")
-            enchantLabel:SetFont(fontPath, enchantSize, "")
-            enchantLabel:SetTextColor(1, 1, 1, 0.8)
-
-            if slotName == "InspectMainHandSlot" then
-                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
-            elseif slotName == "InspectSecondaryHandSlot" then
-                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
-            elseif isRightColumn then
-                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
-            else
-                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+        if showEnchants and labelText and labelText ~= "" then
+            if not enchantLabel then
+                enchantLabel = textOverlayFrame:CreateFontString(nil, "OVERLAY")
+                if slotName == "InspectMainHandSlot" then
+                    enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                    enchantLabel:SetJustifyH("RIGHT")
+                elseif slotName == "InspectSecondaryHandSlot" then
+                    enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    enchantLabel:SetJustifyH("LEFT")
+                elseif slotName == "InspectRangedSlot" then
+                    enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    enchantLabel:SetJustifyH("LEFT")
+                elseif isRightColumn then
+                    enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                    enchantLabel:SetJustifyH("RIGHT")
+                else
+                    enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    enchantLabel:SetJustifyH("LEFT")
+                end
+                GetFFD(slot).enchantText = enchantLabel
             end
 
-            enchantLabel:SetText(iconOnly)
-            GetFFD(slot).enchantText = enchantLabel
-
-            local hoverFrame = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlayFrame)
-            hoverFrame:SetSize(20, 20)
-            hoverFrame:SetFrameLevel(textOverlayFrame:GetFrameLevel() + 20)
-            if slotName == "InspectMainHandSlot" then
-                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
-            elseif slotName == "InspectSecondaryHandSlot" then
-                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
-            elseif isRightColumn then
-                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+            local outlineFlag = EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG") or "OUTLINE"
+            enchantLabel:SetFont(fontPath, enchantSize, useName and outlineFlag or "")
+            if useName then
+                enchantLabel:SetTextColor(
+                    ilvlColor.r + (1 - ilvlColor.r) * 0.5,
+                    ilvlColor.g + (1 - ilvlColor.g) * 0.5,
+                    ilvlColor.b + (1 - ilvlColor.b) * 0.5, 0.9)
             else
-                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                enchantLabel:SetTextColor(1, 1, 1, 0.8)
             end
-            hoverFrame:EnableMouse(true)
+            enchantLabel:SetText(labelText)
+            enchantLabel:Show()
 
+            local hoverFrame = GetFFD(slot).enchantHoverFrame
+            if not hoverFrame then
+                hoverFrame = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlayFrame)
+                hoverFrame:SetFrameLevel(textOverlayFrame:GetFrameLevel() + 20)
+                if slotName == "InspectMainHandSlot" then
+                    hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                elseif slotName == "InspectSecondaryHandSlot" then
+                    hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                elseif slotName == "InspectRangedSlot" then
+                    hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                elseif isRightColumn then
+                    hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                else
+                    hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                end
+                hoverFrame:EnableMouse(true)
+                GetFFD(slot).enchantHoverFrame = hoverFrame
+            end
+            local strW = math.max(20, enchantLabel:GetStringWidth() or 20)
+            hoverFrame:SetSize(strW, 16)
             hoverFrame:SetScript("OnEnter", function()
                 if tooltipText and tooltipText ~= "" and EllesmereUI.ShowWidgetTooltip then
                     EllesmereUI.ShowWidgetTooltip(hoverFrame, tooltipText)
@@ -409,9 +450,14 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             hoverFrame:SetScript("OnLeave", function()
                 if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
             end)
-
-            GetFFD(slot).enchantHoverFrame = hoverFrame
+            hoverFrame:Show()
+        else
+            if enchantLabel then enchantLabel:Hide() end
+            if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Hide() end
         end
+    else
+        if enchantLabel then enchantLabel:Hide() end
+        if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Hide() end
     end
 
 
@@ -1573,14 +1619,33 @@ local function SkinInspectSheet()
             row.name = name
             row.typeLabel = typeLabel
             row:SetScript("OnEnter", function(self)
-                if not self.spellID then return end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                if GameTooltip.SetSpellByID then
-                    GameTooltip:SetSpellByID(self.spellID)
-                else
-                    GameTooltip:SetHyperlink("spell:" .. tostring(self.spellID))
+                if self.itemID then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetHyperlink("item:" .. tostring(self.itemID))
+                    GameTooltip:Show()
+                elseif self.spellID then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    if GameTooltip.SetSpellByID then
+                        GameTooltip:SetSpellByID(self.spellID)
+                    else
+                        GameTooltip:SetHyperlink("spell:" .. tostring(self.spellID))
+                    end
+                    GameTooltip:Show()
                 end
-                GameTooltip:Show()
+            end)
+            row:SetScript("OnClick", function(self)
+                if self.itemID and IsModifiedClick and IsModifiedClick("CHATLINK") then
+                    local _, link = GetItemInfo(self.itemID)
+                    if not link and EllesmereUI and EllesmereUI.GetGlyphData then
+                        local meta = EllesmereUI.GetGlyphData(self.itemID)
+                        if meta then
+                            link = string.format("|cffffffff|Hitem:%d:0:0:0:0:0:0:0:80:0|h[%s]|h|r", self.itemID, meta.name)
+                        end
+                    end
+                    if link and ChatEdit_InsertLink then
+                        ChatEdit_InsertLink(link)
+                    end
+                end
             end)
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
             row:Hide()
