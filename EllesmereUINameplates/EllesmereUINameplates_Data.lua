@@ -397,7 +397,7 @@ ns.defaults = {
     dpsNoAggroEnabled = false,
     dpsNoAggroOverrideMiniBoss = false,
     dpsNoAggroOverrideCaster = false,
-    interruptReady = { r = 0.92, g = 0.35, b = 0.20 },  
+    interruptReady = { r = 0.92, g = 0.35, b = 0.20 },
     castBar = { r = 0.70, g = 0.40, b = 0.90 },
     interruptMidCastEnabled = false,
     interruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },

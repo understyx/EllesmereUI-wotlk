@@ -2341,6 +2341,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetAlpha(nameOnlyOff() and 0.15 or 0.4)
         end
 
+        if not ns.isLegacyNameplates then
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
@@ -2460,6 +2461,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
+        end
 
         -----------------------------------------------------------------------
         --  EXTRA AURA OPTIONS
@@ -3812,7 +3814,7 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().bgAlpha = v / 100
                 local c = (DB() and DB().bgColor) or defaults.bgColor
                 for _, plate in pairs(plates) do
-                    plate.healthBG:SetTexture(c.r, c.g, c.b, v / 100)
+                    plate.healthBG:SetVertexColor(c.r, c.g, c.b, v / 100)
                 end
                 UpdatePreview()
               end },
@@ -3840,7 +3842,7 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().bgColor = { r = r, g = g, b = b }
                 local a = DBVal("bgAlpha") or defaults.bgAlpha
                 for _, plate in pairs(plates) do
-                    plate.healthBG:SetTexture(r, g, b, a)
+                    plate.healthBG:SetVertexColor(r, g, b, a)
                 end
                 UpdatePreview()
             end
@@ -5573,7 +5575,7 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().healthBarWidth = extra
                 for _, plate in pairs(plates) do
                     PP.Width(plate.health, v)
-                    PP.Width(plate.absorb, v)
+                    if plate.absorb then PP.Width(plate.absorb, v) end
                     PP.Width(plate.cast, v)
                     plate:UpdateNameWidth()
                 end
@@ -5740,7 +5742,7 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().castBgAlpha = v / 100
                 local c = (DB() and DB().castBgColor) or defaults.castBgColor
                 for _, plate in pairs(plates) do
-                    plate.castBG:SetTexture(c.r, c.g, c.b, v / 100)
+                    plate.castBG:SetVertexColor(c.r, c.g, c.b, v / 100)
                 end
                 UpdatePreview()
               end },
@@ -5762,7 +5764,7 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().castBgColor = { r = r, g = g, b = b }
                 local a = DBVal("castBgAlpha") or defaults.castBgAlpha
                 for _, plate in pairs(plates) do
-                    plate.castBG:SetTexture(r, g, b, a)
+                    plate.castBG:SetVertexColor(r, g, b, a)
                 end
                 UpdatePreview()
             end

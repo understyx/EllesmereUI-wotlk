@@ -593,6 +593,7 @@ end
 -- Nameplate Frame Construction & Methods
 --------------------------------------------------------------------------------
 local PlateMethods = {}
+local StyleAuraSlots
 
 function PlateMethods:IsShown()
     return self.frame and self.frame:IsShown() and true or false
@@ -635,11 +636,31 @@ function PlateMethods:UpdateNameWidth()
 end
 
 function PlateMethods:RefreshNamePosition(localOnly)
-    self:UpdateNameWidth()
-    if self.nameText then
-        self.nameText:ClearAllPoints()
-        local yOff = DB().nameYOffset or (ns.defaults and ns.defaults.nameYOffset) or 3
-        self.nameText:SetPoint("BOTTOMLEFT", self.health, "TOPLEFT", 0, yOff)
+    local anchors = {
+        textSlotTop = { "BOTTOM", "TOP", 0, 3 },
+        textSlotRight = { "RIGHT", "RIGHT", -2, 0 },
+        textSlotLeft = { "LEFT", "LEFT", 2, 0 },
+        textSlotCenter = { "CENTER", "CENTER", 0, 0 },
+    }
+    for _, slotKey in ipairs(ns.textSlotKeys) do
+        local fs = self[slotKey]
+        local cfg = anchors[slotKey]
+        if fs and cfg then
+            local xOff, yOff = GetTextSlotOffsets(slotKey)
+            if slotKey == "textSlotTop" then yOff = yOff + GetNameYOffset() end
+            if self.nameOnly and GetTextSlot(slotKey) == "enemyName" then
+                yOff = yOff + (DB().friendlyNameOnlyYOffset or 0)
+            end
+            fs:ClearAllPoints()
+            fs:SetPoint(cfg[1], self.health, cfg[2], cfg[3] + xOff, cfg[4] + yOff)
+            if GetTextSlot(slotKey) == "enemyName" then
+                local barW = ns.GetHealthBarWidth()
+                local pct = DB().enemyNameWidthPct or 100
+                fs:SetWidth(max(1, barW * pct / 100))
+            else
+                fs:SetWidth(ns.GetHealthBarWidth())
+            end
+        end
     end
 end
 
@@ -654,11 +675,49 @@ function PlateMethods:UpdateRaidIcon()
     local sz = ns.GetRaidMarkerSize and ns.GetRaidMarkerSize() or 24
     icon:SetSize(sz, sz)
     icon:ClearAllPoints()
-    icon:SetPoint("BOTTOM", self.health, "TOP", 0, 16)
+    local xOff, yOff = GetSlotOffsets(pos)
+    if pos == "left" then
+        icon:SetPoint("RIGHT", self.health, "LEFT", -3 + xOff, yOff)
+    elseif pos == "right" then
+        icon:SetPoint("LEFT", self.health, "RIGHT", 3 + xOff, yOff)
+    elseif pos == "bottom" then
+        icon:SetPoint("TOP", self.cast or self.health, "BOTTOM", xOff, -3 + yOff)
+    elseif pos == "topleft" then
+        icon:SetPoint("BOTTOMRIGHT", self.health, "TOPLEFT", xOff, 3 + yOff)
+    elseif pos == "topright" then
+        icon:SetPoint("BOTTOMLEFT", self.health, "TOPRIGHT", xOff, 3 + yOff)
+    else
+        icon:SetPoint("BOTTOM", self.health, "TOP", xOff, 3 + yOff)
+    end
 end
 
 function PlateMethods:UpdateClassification()
-    -- Native classification updates
+    local pos = GetClassificationSlot()
+    local size = GetRareEliteIconSize()
+    for _, icon in ipairs({ self.bossIcon, self.eliteIcon }) do
+        if icon then
+            if pos == "none" then
+                icon:Hide()
+            else
+                icon:SetSize(size, size)
+                icon:ClearAllPoints()
+                local xOff, yOff = GetSlotOffsets(pos)
+                if pos == "left" then
+                    icon:SetPoint("RIGHT", self.health, "LEFT", -3 + xOff, yOff)
+                elseif pos == "right" then
+                    icon:SetPoint("LEFT", self.health, "RIGHT", 3 + xOff, yOff)
+                elseif pos == "bottom" then
+                    icon:SetPoint("TOP", self.cast or self.health, "BOTTOM", xOff, -3 + yOff)
+                elseif pos == "topleft" then
+                    icon:SetPoint("BOTTOMRIGHT", self.health, "TOPLEFT", xOff, 3 + yOff)
+                elseif pos == "topright" then
+                    icon:SetPoint("BOTTOMLEFT", self.health, "TOPRIGHT", xOff, 3 + yOff)
+                else
+                    icon:SetPoint("BOTTOM", self.health, "TOP", xOff, 3 + yOff)
+                end
+            end
+        end
+    end
 end
 
 function PlateMethods:GetNameText()
@@ -701,8 +760,10 @@ function PlateMethods:ApplyAppearance()
     end
 
     -- Border
-    local bSize = db.borderSize or 1
-    local bColor = db.borderColor or ns.defaults.borderColor
+    local customBorder = db.customBorderEnabled == true
+    local bSize = customBorder and (db.customBorderSize or 1) or (db.borderSize or 1)
+    local bColor = customBorder and (db.customBorderColor or ns.defaults.borderColor)
+        or (db.borderColor or ns.defaults.borderColor)
     SetBorder(self.border, db.showBorder ~= false, bColor, bSize)
 
     -- Fonts
@@ -720,6 +781,11 @@ function PlateMethods:ApplyAppearance()
             fs:SetTextColor(r, g, b, 1)
         end
     end
+    self:RefreshNamePosition()
+    self:UpdateRaidIcon()
+    self:UpdateClassification()
+    if StyleAuraSlots then StyleAuraSlots(self) end
+    if ns.ApplySlotStrata then ns.ApplySlotStrata(self) end
 
     -- Target arrows
     local st = ns.ResolveTargetArrowStyle(db)
@@ -770,6 +836,9 @@ function PlateMethods:UpdateHealthValues()
             else
                 fs:SetText("")
             end
+            local show = el and el ~= "none"
+            if self.nameOnly and el ~= "enemyName" then show = false end
+            if show then fs:Show() else fs:Hide() end
         end
     end
 end
@@ -779,7 +848,10 @@ function PlateMethods:UpdateHealthColor()
     self.applyingColor = true
 
     local db = DB()
-    local r, g, b = self.health:GetStatusBarColor()
+    local r = self.nativeHealthR
+    local g = self.nativeHealthG
+    local b = self.nativeHealthB
+    if not r then r, g, b = self.health:GetStatusBarColor() end
     local isTarget = ns.MatchTracker and ns.MatchTracker:IsTarget(self)
     local isFocus = ns.MatchTracker and ns.MatchTracker:IsFocus(self)
 
@@ -788,6 +860,20 @@ function PlateMethods:UpdateHealthColor()
     local isNeutral = r > 0.75 and g > 0.65 and b < 0.35
     local isTapped  = abs(r - g) < 0.08 and abs(g - b) < 0.08 and r < 0.7
     local isFriendly = not isHostile and not isNeutral and not isTapped
+    local wasNameOnly = self.nameOnly
+    self.isFriendly = isFriendly
+    self.isFriendlyPlayer = isFriendly and not (r < 0.05 and g > 0.95 and b < 0.05)
+    self.nameOnly = self.isFriendlyPlayer and db.friendlyNameOnly ~= false
+    if wasNameOnly ~= self.nameOnly then
+        for _, slotKey in ipairs(ns.textSlotKeys) do
+            local fs = self[slotKey]
+            if fs and GetTextSlot(slotKey) == "enemyName" then
+                local size = self.nameOnly and (db.friendlyNameSize or 15) or GetTextSlotSize(slotKey)
+                SetFSFont(fs, size, GetNPOutline())
+            end
+        end
+        self:RefreshNamePosition()
+    end
 
     local finalR, finalG, finalB = r, g, b
 
@@ -847,20 +933,24 @@ function PlateMethods:UpdateHealthColor()
 end
 
 function PlateMethods:UpdateHealth()
-    self:UpdateHealthValues()
     self:UpdateHealthColor()
+    self:UpdateHealthValues()
 end
 
 function PlateMethods:ApplyScale()
     local isTarget = ns.MatchTracker and ns.MatchTracker:IsTarget(self)
     local targetScale = ns.GetTargetScale()
     local scale = isTarget and targetScale or 1.0
+    local castScale = scale * ((DB().castScale or 100) / 100)
 
     if self.currentScale ~= scale then
         self.currentScale = scale
         self.health:SetScale(scale)
-        if self.cast then self.cast:SetScale(scale) end
         if self.targetGlowFrame then self.targetGlowFrame:SetScale(scale) end
+    end
+    if self.cast and self.currentCastScale ~= castScale then
+        self.currentCastScale = castScale
+        self.cast:SetScale(castScale)
     end
 end
 
@@ -902,16 +992,64 @@ function PlateMethods:ApplyTarget()
     end
 
     -- Target Border Tint
+    local customBorder = db.customBorderEnabled == true
+    local borderColor = customBorder and (db.customBorderColor or ns.defaults.borderColor)
+        or (db.borderColor or ns.defaults.borderColor)
+    local borderSize = customBorder and (db.customBorderSize or 1) or (db.borderSize or 1)
     if isTarget and ns.GetTargetGlowBorderColor() then
-        local tc = ns.GetTargetBorderColor()
-        for _, edge in ipairs(self.border) do
-            edge:SetVertexColor(tc.r, tc.g, tc.b, 1)
+        borderColor = ns.GetTargetBorderColor()
+    end
+    if isTarget and ns.GetTargetGlowBorderSize() then
+        borderSize = ns.GetTargetBorderSizeValue() or borderSize
+    end
+    SetBorder(self.border, db.showBorder ~= false and borderSize > 0, borderColor, borderSize)
+
+    -- Target/focus texture overlays.
+    local isFocus = ns.MatchTracker and ns.MatchTracker:IsFocus(self)
+    local overlayKey, overlayAlpha, overlayColor, noTint
+    if isTarget and db.targetOverlayTexture and db.targetOverlayTexture ~= "none" then
+        overlayKey = db.targetOverlayTexture
+        overlayAlpha = db.targetOverlayAlpha or 1
+        overlayColor = db.targetOverlayColor or { r = 1, g = 1, b = 1 }
+        noTint = db.targetOverlayNoTint == true
+    elseif isFocus and (db.focusOverlayTexture or "striped-v2") ~= "none" then
+        overlayKey = db.focusOverlayTexture or "striped-v2"
+        overlayAlpha = db.focusOverlayAlpha or 1
+        overlayColor = db.focusOverlayColor or { r = 1, g = 1, b = 1 }
+        noTint = db.focusOverlayNoTint == true
+    end
+    if overlayKey then
+        self.specialOverlay:SetTexture(ns.ResolveOverlayTexPath(overlayKey) or WHITE)
+        if noTint then
+            local r, g, b = self.health:GetStatusBarColor()
+            self.specialOverlay:SetVertexColor(r, g, b, overlayAlpha)
+        else
+            self.specialOverlay:SetVertexColor(overlayColor.r, overlayColor.g, overlayColor.b, overlayAlpha)
         end
+        self.specialOverlay:Show()
     else
-        local bc = db.borderColor or ns.defaults.borderColor
-        for _, edge in ipairs(self.border) do
-            edge:SetVertexColor(bc.r, bc.g, bc.b, 1)
-        end
+        self.specialOverlay:Hide()
+    end
+
+    local isMouseover = ns.MatchTracker and ns.MatchTracker:IsMouseover(self)
+    local hoverKey = db.hoverOverlayTexture or "none"
+    if isMouseover and hoverKey ~= "none" then
+        local color = db.hoverColor or ns.defaults.hoverColor
+        self.hoverOverlay:SetTexture(ns.ResolveOverlayTexPath(hoverKey) or WHITE)
+        self.hoverOverlay:SetVertexColor(color.r, color.g, color.b, db.hoverAlpha or 0.3)
+        self.hoverOverlay:Show()
+    else
+        self.hoverOverlay:Hide()
+    end
+
+    if isFocus and db.focusLetterEnabled then
+        local anchor = db.focusLetterAnchor or "CENTER"
+        self.focusLetter:ClearAllPoints()
+        self.focusLetter:SetPoint(anchor, self.health, anchor, db.focusLetterX or 0, db.focusLetterY or 0)
+        SetFSFont(self.focusLetter, db.focusLetterSize or 18, GetNPOutline())
+        self.focusLetter:Show()
+    else
+        self.focusLetter:Hide()
     end
 
     -- Non-target opacity
@@ -920,47 +1058,86 @@ end
 
 function PlateMethods:UpdateAuras()
     if not ns.AuraTracker then return end
-    local auras, count = ns.AuraTracker:GetAurasForPlate(self, "HARMFUL")
     local db = DB()
-    local maxD = min(db.maxDebuffs or 5, #self.debuffSlots)
+    local harmful = ns.AuraTracker:GetAurasForPlate(self, "HARMFUL")
+    local helpful = ns.AuraTracker:GetAurasForPlate(self, "HELPFUL")
+    local playerGUID = UnitGUID("player")
+    local petGUID = UnitGUID("pet")
 
-    for i = 1, maxD do
-        local slot = self.debuffSlots[i]
-        local aura = auras and auras[i]
-        if aura then
-            slot.icon:SetTexture(aura.icon)
-            if aura.count and aura.count > 1 then
-                slot.countText:SetText(aura.count)
-                slot.countText:Show()
-            else
-                slot.countText:Hide()
-            end
-
-            if aura.expirationTime and aura.expirationTime < math.huge then
-                local rem = max(0, aura.expirationTime - GetTime())
-                slot.durationText:SetFormattedText(rem < 10 and "%.1f" or "%.0f", rem)
-                slot.durationText:Show()
-            else
-                slot.durationText:Hide()
-            end
-            slot:Show()
+    local function SetSlot(slot, aura)
+        slot.icon:SetTexture(aura.icon)
+        if aura.count and aura.count > 1 then
+            slot.countText:SetText(aura.count)
+            if slot.countEnabled ~= false then slot.countText:Show() else slot.countText:Hide() end
         else
-            slot:Hide()
+            slot.countText:SetText("")
+            slot.countText:Hide()
+        end
+        if aura.expirationTime and aura.expirationTime < math.huge then
+            local rem = max(0, aura.expirationTime - GetTime())
+            slot.durationText:SetFormattedText(rem < 10 and "%.1f" or "%.0f", rem)
+            if slot.durationEnabled ~= false then slot.durationText:Show() else slot.durationText:Hide() end
+        else
+            slot.durationText:SetText("")
+            slot.durationText:Hide()
+        end
+        slot:Show()
+    end
+
+    local debuffCount, ccCount, buffCount = 0, 0, 0
+    local maxDebuffs = min(db.maxDebuffs or 5, #self.debuffSlots)
+    for i = 1, #self.debuffSlots do self.debuffSlots[i]:Hide() end
+    for i = 1, #self.cc do self.cc[i]:Hide() end
+    for i = 1, #self.buffs do self.buffs[i]:Hide() end
+
+    if harmful then
+        for _, aura in ipairs(harmful) do
+            local isCC = ns.DiminishingReturnsSpells and ns.DiminishingReturnsSpells[aura.spellId]
+            if isCC and ccCount < #self.cc then
+                ccCount = ccCount + 1
+                SetSlot(self.cc[ccCount], aura)
+            end
+            local isMine = aura.casterGUID == playerGUID or (petGUID and aura.casterGUID == petGUID)
+            if isMine and debuffCount < maxDebuffs and (not isCC or db.debuffIncludeCC) then
+                debuffCount = debuffCount + 1
+                SetSlot(self.debuffSlots[debuffCount], aura)
+            end
         end
     end
+    if helpful then
+        for _, aura in ipairs(helpful) do
+            if buffCount >= #self.buffs then break end
+            buffCount = buffCount + 1
+            SetSlot(self.buffs[buffCount], aura)
+        end
+    end
+
+    local ds, bs, cs = GetAuraSlots()
+    local dx, dy = GetAuraSlotOffsets("debuffSlot")
+    local bx, by = GetAuraSlotOffsets("buffSlot")
+    local cx, cy = GetAuraSlotOffsets("ccSlot")
+    local dsz, bsz, csz = GetDebuffIconSize(), GetBuffIconSize(), GetCCIconSize()
+    ns.PositionAuraSlot(self.debuffSlots, debuffCount, ds, self, dsz,
+        ns.GetAuraCropHeight(ns.GetAuraCrop("debuffs"), dsz), GetAuraSpacing("debuffs"), dx, dy)
+    ns.PositionAuraSlot(self.buffs, buffCount, bs, self, bsz,
+        ns.GetAuraCropHeight(ns.GetAuraCrop("buffs"), bsz), GetAuraSpacing("buffs"), bx, by)
+    ns.PositionAuraSlot(self.cc, ccCount, cs, self, csz,
+        ns.GetAuraCropHeight(ns.GetAuraCrop("ccs"), csz), GetAuraSpacing("ccs"), cx, cy)
 end
 
 --------------------------------------------------------------------------------
 -- Plate Factory & Skinner
 --------------------------------------------------------------------------------
-local function CreateAuraSlots(parent, anchor, count)
+local function CreateAuraSlots(parent, anchor, count, element)
     local slots = {}
-    local sz = ns.GetDebuffIconSize()
-    local crop = ns.GetAuraCrop("debuffs")
+    local sz = element == "buffs" and ns.GetBuffIconSize()
+        or element == "ccs" and ns.GetCCIconSize() or ns.GetDebuffIconSize()
+    local crop = ns.GetAuraCrop(element)
     local h = ns.GetAuraCropHeight(crop, sz)
 
     for i = 1, count do
         local slot = CreateFrame("Frame", nil, parent)
+        slot.auraElement = element
         slot:SetSize(sz, h)
         slot.border = CreateBorder(slot)
 
@@ -973,6 +1150,7 @@ local function CreateAuraSlots(parent, anchor, count)
         local countText = slot:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         countText:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", 2, -2)
         slot.countText = countText
+        slot.count = countText
 
         local durText = slot:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         durText:SetPoint("TOPLEFT", slot, "TOPLEFT", -2, 2)
@@ -990,17 +1168,75 @@ local function CreateAuraSlots(parent, anchor, count)
     return slots
 end
 
+
+StyleAuraSlots = function(plate)
+    local db = DB()
+    local groups = {
+        { slots = plate.debuffSlots, element = "debuffs", size = GetDebuffIconSize(), pos = db.debuffSlot or ns.defaults.debuffSlot },
+        { slots = plate.buffs, element = "buffs", size = GetBuffIconSize(), pos = db.buffSlot or ns.defaults.buffSlot },
+        { slots = plate.cc, element = "ccs", size = GetCCIconSize(), pos = db.ccSlot or ns.defaults.ccSlot },
+    }
+    for _, group in ipairs(groups) do
+        local crop = ns.GetAuraCrop(group.element)
+        local height = ns.GetAuraCropHeight(crop, group.size)
+        for _, slot in ipairs(group.slots) do
+            ns.ApplyAuraSlotCrop(slot, crop, group.size)
+            SetFSFont(slot.countText, db.auraStackTextSize or 11, GetNPOutline())
+            local stackColor = db.auraStackTextColor or ns.defaults.auraStackTextColor
+            slot.countText:SetTextColor(stackColor.r, stackColor.g, stackColor.b, 1)
+            local prefix = group.element == "ccs" and "cc" or group.element == "buffs" and "buff" or "debuff"
+            SetFSFont(slot.durationText, db[prefix .. "DurationTextSize"] or db.auraDurationTextSize or 11, GetNPOutline())
+            local durationColor = db[prefix .. "DurationTextColor"] or db.auraDurationTextColor or ns.defaults.auraDurationTextColor
+            slot.durationText:SetTextColor(durationColor.r, durationColor.g, durationColor.b, 1)
+            local durationPos = db[prefix .. "TimerPosition"] or db.auraTextPosition or "topleft"
+            local durationX = db[prefix .. "DurationTextX"] or db.auraDurationTextX or 0
+            local durationY = db[prefix .. "DurationTextY"] or db.auraDurationTextY or 0
+            slot.durationEnabled = durationPos ~= "none"
+            if not slot.durationEnabled then slot.durationText:Hide() end
+            slot.durationText:ClearAllPoints()
+            if durationPos == "center" then
+                slot.durationText:SetPoint("CENTER", slot, "CENTER", durationX, durationY)
+            elseif durationPos == "topright" then
+                slot.durationText:SetPoint("TOPRIGHT", slot, "TOPRIGHT", 3 + durationX, 4 + durationY)
+            elseif durationPos == "bottomleft" then
+                slot.durationText:SetPoint("BOTTOMLEFT", slot, "BOTTOMLEFT", -3 + durationX, -4 + durationY)
+            elseif durationPos == "bottomright" then
+                slot.durationText:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", 3 + durationX, -4 + durationY)
+            else
+                slot.durationText:SetPoint("TOPLEFT", slot, "TOPLEFT", -3 + durationX, 4 + durationY)
+            end
+            local stackPos = db.auraStackTextPosition or "bottomright"
+            local stackX, stackY = db.auraStackTextX or 0, db.auraStackTextY or 0
+            slot.countEnabled = stackPos ~= "none"
+            if not slot.countEnabled then slot.countText:Hide() end
+            slot.countText:ClearAllPoints()
+            if stackPos == "center" then
+                slot.countText:SetPoint("CENTER", slot, "CENTER", stackX, stackY)
+            elseif stackPos == "topright" then
+                slot.countText:SetPoint("TOPRIGHT", slot, "TOPRIGHT", 3 + stackX, 4 + stackY)
+            elseif stackPos == "bottomleft" then
+                slot.countText:SetPoint("BOTTOMLEFT", slot, "BOTTOMLEFT", -3 + stackX, -4 + stackY)
+            elseif stackPos == "topleft" then
+                slot.countText:SetPoint("TOPLEFT", slot, "TOPLEFT", -3 + stackX, 4 + stackY)
+            else
+                slot.countText:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", 3 + stackX, -4 + stackY)
+            end
+            SetBorder(slot.border, true, db.auraBorderColor or { r = 0, g = 0, b = 0 }, 1)
+        end
+    end
+end
+
 local function SkinPlate(frame)
     if plates[frame] then return plates[frame] end
 
     -- Extract Blizzard parts
-    local health, nativeGlow, highlight
+    local health, nativeCast, nativeGlow, highlight
     local fonts = {}
 
     for i = 1, select("#", frame:GetChildren()) do
         local child = select(i, frame:GetChildren())
         if child and child.GetObjectType and child:GetObjectType() == "StatusBar" then
-            if not health then health = child end
+            if not health then health = child elseif not nativeCast then nativeCast = child end
         end
     end
 
@@ -1016,7 +1252,7 @@ local function SkinPlate(frame)
                 SuppressSourceFont(r)
             elseif kind == "Texture" then
                 local path = r:GetTexture()
-                local isRaid = false
+                local keepNative = false
                 if path and type(path) == "string" then
                     path = lower(path)
                     if find(path, "nameplate-glow", 1, true) then
@@ -1025,14 +1261,16 @@ local function SkinPlate(frame)
                         highlight = r
                     elseif find(path, "ui-raidtargetingicons", 1, true) then
                         raidIcon = r
-                        isRaid = true
+                        keepNative = true
                     elseif find(path, "ui-targetingframe-skull", 1, true) then
                         bossIcon = r
+                        keepNative = true
                     elseif find(path, "elitedragon", 1, true) then
                         eliteIcon = r
+                        keepNative = true
                     end
                 end
-                if not isRaid then
+                if not keepNative then
                     SuppressTexture(r)
                 end
             end
@@ -1055,6 +1293,7 @@ local function SkinPlate(frame)
     local plate = setmetatable({}, { __index = PlateMethods })
     plate.frame = frame
     plate.health = health
+    plate.nativeCast = nativeCast
     plate.nameSource = nameSource
     plate.levelSource = levelSource
     plate.nativeGlow = nativeGlow
@@ -1063,11 +1302,34 @@ local function SkinPlate(frame)
     plate.bossIcon = bossIcon
     plate.eliteIcon = eliteIcon
 
+    -- Keep the stock cast StatusBar as the physical cast source. Anonymous
+    -- Wrath plates cannot otherwise be associated with most CLEU source GUIDs.
+    -- Hide only its stock chrome; Cast:CreateCastBar adds EUI replacements.
+    if nativeCast then
+        local fill = nativeCast.GetStatusBarTexture and nativeCast:GetStatusBarTexture()
+        for i = 1, select("#", nativeCast:GetRegions()) do
+            local region = select(i, nativeCast:GetRegions())
+            if region and region ~= fill and region.GetObjectType then
+                if region:GetObjectType() == "FontString" then
+                    plate.nativeCastTextSource = plate.nativeCastTextSource or region
+                    SuppressSourceFont(region)
+                elseif region:GetObjectType() == "Texture" then
+                    local path = region:GetTexture()
+                    if type(path) == "string" and find(lower(path), "shield", 1, true) then
+                        plate.nativeCastShieldSource = region
+                    end
+                    SuppressTexture(region)
+                end
+            end
+        end
+    end
+
     -- Health Background
     local healthBg = health:CreateTexture(nil, "BACKGROUND")
     healthBg:SetTexture(WHITE)
     healthBg:SetAllPoints(health)
     plate.healthBg = healthBg
+    plate.healthBG = healthBg -- options compatibility
 
     -- Border
     plate.border = CreateBorder(health)
@@ -1079,6 +1341,16 @@ local function SkinPlate(frame)
     plate.targetHighlight:SetAllPoints(health)
     plate.targetHighlight:Hide()
 
+    plate.specialOverlay = health:CreateTexture(nil, "OVERLAY")
+    plate.specialOverlay:SetAllPoints(health)
+    plate.specialOverlay:Hide()
+    plate.hoverOverlay = health:CreateTexture(nil, "OVERLAY")
+    plate.hoverOverlay:SetAllPoints(health)
+    plate.hoverOverlay:Hide()
+    plate.focusLetter = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    plate.focusLetter:SetText("F")
+    plate.focusLetter:Hide()
+
     -- Target Arrows
     plate.leftArrow = frame:CreateTexture(nil, "OVERLAY")
     plate.rightArrow = frame:CreateTexture(nil, "OVERLAY")
@@ -1086,20 +1358,20 @@ local function SkinPlate(frame)
     plate.rightArrow:Hide()
 
     -- Text Slots
-    local nameText = health:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local nameText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     nameText:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 3)
     plate.nameText = nameText
     plate.textSlotTop = nameText
 
-    local textSlotRight = health:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local textSlotRight = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     textSlotRight:SetPoint("RIGHT", health, "RIGHT", -2, 0)
     plate.textSlotRight = textSlotRight
 
-    local textSlotLeft = health:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local textSlotLeft = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     textSlotLeft:SetPoint("LEFT", health, "LEFT", 2, 0)
     plate.textSlotLeft = textSlotLeft
 
-    local textSlotCenter = health:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local textSlotCenter = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     textSlotCenter:SetPoint("CENTER", health, "CENTER", 0, 0)
     plate.textSlotCenter = textSlotCenter
 
@@ -1109,10 +1381,10 @@ local function SkinPlate(frame)
     end
 
     -- Aura Slots
-    plate.debuffSlots = CreateAuraSlots(frame, health, 5)
+    plate.debuffSlots = CreateAuraSlots(frame, health, 10, "debuffs")
     plate.debuffs     = plate.debuffSlots           -- alias for options compat
-    plate.buffs       = CreateAuraSlots(frame, health, 4)
-    plate.cc          = CreateAuraSlots(frame, health, 2)
+    plate.buffs       = CreateAuraSlots(frame, health, 4, "buffs")
+    plate.cc          = CreateAuraSlots(frame, health, 2, "ccs")
 
     -- Scripts & Lifecycle Hooks
     frame:HookScript("OnShow", function(self)
@@ -1127,13 +1399,26 @@ local function SkinPlate(frame)
         ns.MatchTracker:RegisterPlate(plate)
     end
 
-    plate:ApplyAppearance()
+    plate.nativeHealthR, plate.nativeHealthG, plate.nativeHealthB = health:GetStatusBarColor()
+    if hooksecurefunc then
+        hooksecurefunc(health, "SetStatusBarColor", function(_, r, g, b)
+            if not plate.applyingColor then
+                plate.nativeHealthR, plate.nativeHealthG, plate.nativeHealthB = r, g, b
+                plate:UpdateHealthColor()
+            end
+        end)
+    end
+
+    if frame:IsShown() then plate:OnShow() else plate:ApplyAppearance() end
     return plate
 end
 ns.CreateNameplate = SkinPlate
 ns.SkinPlate = SkinPlate
 
 function PlateMethods:OnShow()
+    if not self.nativeHealthR then
+        self.nativeHealthR, self.nativeHealthG, self.nativeHealthB = self.health:GetStatusBarColor()
+    end
     if ns.MatchTracker then
         ns.MatchTracker:OnPlateShow(self)
     end
@@ -1146,6 +1431,9 @@ function PlateMethods:OnHide()
     end
     if self.cast then self.cast:Hide() end
     for _, slot in ipairs(self.debuffSlots) do slot:Hide() end
+    for _, slot in ipairs(self.buffs) do slot:Hide() end
+    for _, slot in ipairs(self.cc) do slot:Hide() end
+    self.nativeHealthR, self.nativeHealthG, self.nativeHealthB = nil, nil, nil
 end
 
 --------------------------------------------------------------------------------
@@ -1200,10 +1488,10 @@ local scanElapsed = 0
 
 driver:SetScript("OnUpdate", function(self, elapsed)
     scanElapsed = scanElapsed + elapsed
-    if scanElapsed >= 0.1 then
-        scanElapsed = 0
-        ScanWorldFrame()
-    end
+    if scanElapsed < 0.05 then return end
+    scanElapsed = 0
+    ScanWorldFrame()
+    if ns.MatchTracker then ns.MatchTracker:UpdateSpecialUnits() end
 
     -- Update active plates
     for _, plate in pairs(plates) do
@@ -1232,8 +1520,10 @@ ns.LegacyRefreshAll = ns.RefreshAllSettings
 
 function ns.RefreshBorder()
     local db = DB()
-    local bSize = db.borderSize or 1
-    local bColor = db.borderColor or ns.defaults.borderColor
+    local customBorder = db.customBorderEnabled == true
+    local bSize = customBorder and (db.customBorderSize or 1) or (db.borderSize or 1)
+    local bColor = customBorder and (db.customBorderColor or ns.defaults.borderColor)
+        or (db.borderColor or ns.defaults.borderColor)
     for _, plate in pairs(plates) do
         SetBorder(plate.border, db.showBorder ~= false, bColor, bSize)
     end
@@ -1241,7 +1531,8 @@ end
 
 function ns.RefreshBorderColor()
     local db = DB()
-    local bColor = db.borderColor or ns.defaults.borderColor
+    local bColor = db.customBorderEnabled and (db.customBorderColor or ns.defaults.borderColor)
+        or (db.borderColor or ns.defaults.borderColor)
     for _, plate in pairs(plates) do
         for _, edge in ipairs(plate.border) do
             edge:SetVertexColor(bColor.r, bColor.g, bColor.b, 1)
@@ -1261,18 +1552,39 @@ function ns.NT_Apply(plate)
     if not plate or not plate.frame then return end
     local db = DB()
     local configured = tonumber(db.nonTargetAlpha) or 100
-    if configured >= 100 or not UnitExists("target") then
-        plate.frame:SetAlpha(1.0)
-        return
-    end
+    if configured < 0 then configured = 0 elseif configured > 100 then configured = 100 end
 
     local isTarget = ns.MatchTracker and ns.MatchTracker:IsTarget(plate)
     local isFocus = ns.MatchTracker and ns.MatchTracker:IsFocus(plate)
+    local wanted = 1
+    if configured < 100 and UnitExists("target") and not isTarget
+        and not (db.nonTargetKeepFocus ~= false and isFocus) then
+        wanted = configured / 100
+    end
 
-    if not isTarget and not (db.nonTargetKeepFocus ~= false and isFocus) then
-        plate.frame:SetAlpha(configured / 100)
-    else
-        plate.frame:SetAlpha(1.0)
+    -- Never write the stock root alpha: it is the authoritative WotLK target
+    -- marker and also carries Blizzard's distance fade. Compensate child alpha
+    -- so the configured value acts as a cap on the final rendered opacity.
+    local native = plate.frame:GetAlpha() or 1
+    local alpha = wanted
+    if native > 0 then alpha = min(1, wanted / native) end
+    if plate.visualAlpha == alpha and plate.visualNameOnly == plate.nameOnly then return end
+    plate.visualAlpha = alpha
+    plate.visualNameOnly = plate.nameOnly
+
+    plate.health:SetAlpha(plate.nameOnly and 0 or alpha)
+    if plate.cast then plate.cast:SetAlpha(alpha) end
+    if plate.targetGlowFrame then plate.targetGlowFrame:SetAlpha(alpha) end
+    if plate.targetHighlight then plate.targetHighlight:SetAlpha(alpha) end
+    if plate.leftArrow then plate.leftArrow:SetAlpha(alpha) end
+    if plate.rightArrow then plate.rightArrow:SetAlpha(alpha) end
+    if plate.focusLetter then plate.focusLetter:SetAlpha(alpha) end
+    for _, slotKey in ipairs(ns.textSlotKeys) do
+        local fs = plate[slotKey]
+        if fs then fs:SetAlpha(alpha) end
+    end
+    for _, slots in ipairs({ plate.debuffSlots, plate.buffs, plate.cc }) do
+        for _, slot in ipairs(slots or {}) do slot:SetAlpha(alpha) end
     end
 end
 
@@ -1293,7 +1605,13 @@ ns.ApplyNamePlateClickArea = function() end
 ns.SetHitboxOverlayShown = function() end
 ns.RefreshStackingMotion = function() end
 ns.RefreshStackingBounds = function() end
-ns.UpdateClassificationIcon = function() end
+function ns.UpdateClassificationIcon(plate)
+    if plate and plate.UpdateClassification then
+        plate:UpdateClassification()
+        return
+    end
+    for _, activePlate in pairs(plates) do activePlate:UpdateClassification() end
+end
 ns.UpdateFriendlyNameplateSystem = function() end
 ns.ForceFriendlyPlayerCVarsOn = function() end
 
@@ -1316,7 +1634,7 @@ ns.RefreshQuestObjective = function() end
 -- Hover effect refresh – iterate plates and re-apply appearance.
 function ns.RefreshHoverEffect()
     for _, plate in pairs(plates) do
-        if plate.ApplyAppearance then plate:ApplyAppearance() end
+        if plate.ApplyTarget then plate:ApplyTarget() end
     end
 end
 
@@ -1333,7 +1651,14 @@ function ns.IsCustomBorderEnabled()
 end
 
 -- Absorb overlay texture resolution (stripe overlays not available in 3.3.5).
-ns.OVERLAY_STRIPE_KEYS = {}   -- empty: no stripe system in WotLK
+ns.OVERLAY_STRIPE_KEYS = {
+    ["striped-v2"] = true,
+    ["striped-wide-v2"] = true,
+    ["stripes-medium"] = true,
+    ["stripes-small-close"] = true,
+    ["stripes-small-spread"] = true,
+    ["striped-tiny"] = true,
+}
 
 function ns.ResolveOverlayTexPath(key)
     if not key or key == "none" or key == "---" then return nil end
@@ -1341,7 +1666,9 @@ function ns.ResolveOverlayTexPath(key)
     if ns.OVERLAY_STRIPE_KEYS[key] then
         return "Interface\\AddOns\\EllesmereUINameplates\\Media\\" .. key .. ".tga"
     end
-    -- Health-bar textures resolve through the texture registry.
+    if EllesmereUI and EllesmereUI.ResolveTexturePath then
+        return EllesmereUI.ResolveTexturePath(ns.healthBarTextures, key, WHITE)
+    end
     return ns.healthBarTextures and ns.healthBarTextures[key]
 end
 
@@ -1355,8 +1682,10 @@ end
 function ns.ApplyHealthBarTexture(plate)
     if plate and plate.health and ns.healthBarTextures then
         local key = DB().healthBarTexture or (ns.defaults and ns.defaults.healthBarTexture)
-        local tex = key and ns.healthBarTextures[key]
-        if tex then plate.health:SetStatusBarTexture(tex) end
+        local tex = EllesmereUI and EllesmereUI.ResolveTexturePath
+            and EllesmereUI.ResolveTexturePath(ns.healthBarTextures, key, WHITE)
+            or (key and ns.healthBarTextures[key]) or WHITE
+        plate.health:SetStatusBarTexture(tex)
     end
 end
 
@@ -1364,54 +1693,68 @@ function ns.ApplyCastBarTexture(plate)
     if plate and plate.cast and ns.healthBarTextures then
         local key = DB().castBarTexture or DB().healthBarTexture or
                     (ns.defaults and (ns.defaults.castBarTexture or ns.defaults.healthBarTexture))
-        local tex = key and ns.healthBarTextures[key]
-        if tex then plate.cast:SetStatusBarTexture(tex) end
+        local tex = EllesmereUI and EllesmereUI.ResolveTexturePath
+            and EllesmereUI.ResolveTexturePath(ns.healthBarTextures, key, WHITE)
+            or (key and ns.healthBarTextures[key]) or WHITE
+        plate.cast:SetStatusBarTexture(tex)
     end
 end
 
 -- Slot strata refresh – re-raise aura frames that need it.
 function ns.ApplySlotStrata(plate)
-    -- GetSlotRaiseStrata returns whether each position-key's icons should be
-    -- raised above everything else; skip if not implemented in this skin.
     if not plate then return end
+    local db = DB()
+    local base = plate.frame:GetFrameLevel()
+    local groups = {
+        { slots = plate.debuffSlots, pos = db.debuffSlot or ns.defaults.debuffSlot },
+        { slots = plate.buffs, pos = db.buffSlot or ns.defaults.buffSlot },
+        { slots = plate.cc, pos = db.ccSlot or ns.defaults.ccSlot },
+    }
+    for _, group in ipairs(groups) do
+        local level = base + (GetSlotRaiseStrata(group.pos) and 20 or 2)
+        for _, slot in ipairs(group.slots or {}) do slot:SetFrameLevel(level) end
+    end
 end
 
 -- PositionAuraSlot – reanchor `count` icon slots to their position key.
 -- Signature: (slots, maxCount, posKey, plate, sz, h, spacing, xOff, yOff)
 do
-    local SLOT_ANCHOR = {
-        top      = { pt = "BOTTOM",      xDir =  1, yDir =  1, vertical = false },
-        bottom   = { pt = "TOP",         xDir =  1, yDir = -1, vertical = false },
-        left     = { pt = "RIGHT",       xDir = -1, yDir =  1, vertical = true  },
-        right    = { pt = "LEFT",        xDir =  1, yDir =  1, vertical = true  },
-        topleft  = { pt = "BOTTOMRIGHT", xDir = -1, yDir =  1, vertical = false },
-        topright = { pt = "BOTTOMLEFT",  xDir =  1, yDir =  1, vertical = false },
-    }
     function ns.PositionAuraSlot(slots, count, posKey, plate, sz, h, spacing, xOff, yOff)
         if not slots or not plate or not plate.health then return end
-        local cfg = SLOT_ANCHOR[posKey]
-        if not cfg then
+        if posKey == "none" or not posKey then
             for i = 1, count do if slots[i] then slots[i]:Hide() end end
             return
         end
-        local anchorPt = cfg.pt
-        local isVert   = cfg.vertical
-        local step     = (sz + (spacing or 2))
+        xOff, yOff = xOff or 0, yOff or 0
+        spacing = spacing or 2
+        local stepX, stepY = sz + spacing, h + spacing
+        local bottomAnchor = plate.cast or plate.health
         for i = 1, count do
             local slot = slots[i]
             if not slot then break end
             slot:SetSize(sz, h)
             slot:ClearAllPoints()
-            if i == 1 then
-                slot:SetPoint(anchorPt, plate.health, anchorPt, xOff, yOff)
+            if posKey == "left" then
+                slot:SetPoint("RIGHT", plate.health, "LEFT", -GetSideAuraXOffset() - (i - 1) * stepX + xOff, yOff)
+            elseif posKey == "right" then
+                slot:SetPoint("LEFT", plate.health, "RIGHT", GetSideAuraXOffset() + (i - 1) * stepX + xOff, yOff)
+            elseif posKey == "bottom" then
+                slot:SetPoint("TOP", bottomAnchor, "BOTTOM", (i - (count + 1) / 2) * stepX + xOff, -2 + yOff)
+            elseif posKey == "topleft" then
+                local growth = DB().topleftSlotGrowth or "left"
+                local dx, dy = -(i - 1) * stepX, 0
+                if growth == "right" then dx = (i - 1) * stepX end
+                if growth == "up" then dx, dy = 0, (i - 1) * stepY end
+                slot:SetPoint("BOTTOMLEFT", plate.health, "TOPLEFT", xOff + dx, GetDebuffYOffset() + yOff + dy)
+            elseif posKey == "topright" then
+                local growth = DB().toprightSlotGrowth or "right"
+                local dx, dy = (i - 1) * stepX, 0
+                if growth == "left" then dx = -(i - 1) * stepX end
+                if growth == "up" then dx, dy = 0, (i - 1) * stepY end
+                slot:SetPoint("BOTTOMRIGHT", plate.health, "TOPRIGHT", xOff + dx, GetDebuffYOffset() + yOff + dy)
             else
-                if isVert then
-                    slot:SetPoint("TOP", slots[i - 1], "BOTTOM", 0, -(spacing or 2))
-                else
-                    slot:SetPoint("LEFT", slots[i - 1], "RIGHT", (spacing or 2), 0)
-                end
+                slot:SetPoint("BOTTOM", plate.health, "TOP", (i - (count + 1) / 2) * stepX + xOff, GetDebuffYOffset() + yOff)
             end
-            slot:Show()
         end
     end
 end

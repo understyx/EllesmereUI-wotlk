@@ -10,6 +10,7 @@ local UnitHealth = UnitHealth
 local UnitHealthMax = UnitHealthMax
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
 local UnitCanAttack = UnitCanAttack
+local UnitIsUnit = UnitIsUnit
 local MouseIsOver = MouseIsOver
 local GetTime = GetTime
 
@@ -95,11 +96,12 @@ end
 
 function MatchTracker:ClearPlateMatch(plate)
     if not plate then return end
-    local oldUnit = plate.unit
     local oldGuid = plate.guid
 
-    if oldUnit and self.unitToPlate[oldUnit] == plate then
-        self.unitToPlate[oldUnit] = nil
+    for unit, owner in pairs(self.unitToPlate) do
+        if owner == plate then
+            self.unitToPlate[unit] = nil
+        end
     end
     if oldGuid and self.guidToPlate[oldGuid] == plate then
         self.guidToPlate[oldGuid] = nil
@@ -108,6 +110,31 @@ function MatchTracker:ClearPlateMatch(plate)
     plate.unit = nil
     plate.guid = nil
     plate.isAmbiguous = false
+end
+
+local function RefreshPrimaryUnit(self, plate)
+    if not plate then return end
+    local preferred = { "target", "focus", "mouseover" }
+    for _, unit in ipairs(preferred) do
+        if self.unitToPlate[unit] == plate then
+            plate.unit = unit
+            return
+        end
+    end
+    for unit, owner in pairs(self.unitToPlate) do
+        if owner == plate then
+            plate.unit = unit
+            return
+        end
+    end
+    plate.unit = nil
+end
+
+function MatchTracker:ReleaseUnit(unit)
+    local plate = unit and self.unitToPlate[unit]
+    if not plate then return end
+    self.unitToPlate[unit] = nil
+    RefreshPrimaryUnit(self, plate)
 end
 
 function MatchTracker:BindPlateGUID(plate, guid, unit)
@@ -120,10 +147,12 @@ function MatchTracker:BindPlateGUID(plate, guid, unit)
     end
 
     if plate.guid and plate.guid ~= guid then
-        -- Frame was bound to a different GUID; release old
-        if self.guidToPlate[plate.guid] == plate then
-            self.guidToPlate[plate.guid] = nil
-        end
+        -- A visible anonymous plate keeps its established identity. Rebinding
+        -- it during the one-frame target/alpha transition would clone the new
+        -- unit's casts and auras onto the old physical plate. Frame recycling
+        -- goes through OnHide, which clears the GUID safely.
+        if PlateIsShown(plate) then return false end
+        if self.guidToPlate[plate.guid] == plate then self.guidToPlate[plate.guid] = nil end
     end
 
     plate.guid = guid
@@ -131,11 +160,13 @@ function MatchTracker:BindPlateGUID(plate, guid, unit)
     plate.isAmbiguous = false
 
     if unit then
-        if plate.unit and plate.unit ~= unit and self.unitToPlate[plate.unit] == plate then
-            self.unitToPlate[plate.unit] = nil
+        local previous = self.unitToPlate[unit]
+        if previous and previous ~= plate then
+            self.unitToPlate[unit] = nil
+            RefreshPrimaryUnit(self, previous)
         end
-        plate.unit = unit
         self.unitToPlate[unit] = plate
+        RefreshPrimaryUnit(self, plate)
     end
 
     -- Notify modules (Cast, Aura) of confirmed GUID binding
@@ -151,21 +182,15 @@ end
 
 function MatchTracker:IsTarget(plate)
     if not UnitExists("target") then return false end
-    if plate.unit == "target" then return true end
+    if self.unitToPlate["target"] == plate then return true end
     local targetGUID = UnitGUID("target")
     if targetGUID and plate.guid == targetGUID then return true end
-    if plate.frame and plate.frame:GetAlpha() >= 0.99 then
-        local pName = plate:GetNameText()
-        if pName and pName == UnitName("target") then
-            return true
-        end
-    end
     return false
 end
 
 function MatchTracker:IsMouseover(plate)
     if not UnitExists("mouseover") then return false end
-    if plate.unit == "mouseover" then return true end
+    if self.unitToPlate["mouseover"] == plate then return true end
     local mouseoverGUID = UnitGUID("mouseover")
     if mouseoverGUID and plate.guid == mouseoverGUID then return true end
     if plate.nativeHighlight and plate.nativeHighlight:IsShown() then
@@ -179,7 +204,7 @@ end
 
 function MatchTracker:IsFocus(plate)
     if not UnitExists("focus") then return false end
-    if plate.unit == "focus" then return true end
+    if self.unitToPlate["focus"] == plate then return true end
     local focusGUID = UnitGUID("focus")
     if focusGUID and plate.guid == focusGUID then return true end
     return false
@@ -208,56 +233,88 @@ end
 
 -- Resolve active special tokens (target, mouseover, focus) with physical certainty
 function MatchTracker:UpdateSpecialUnits()
-    -- 1. Target
-    if UnitExists("target") then
-        local targetGUID = UnitGUID("target")
+    local function UniqueIdentity(unit)
+        local candidate, count
+        count = 0
         for plate in pairs(self.plates) do
-            if PlateIsShown(plate) and self:IsTarget(plate) then
-                self:BindPlateGUID(plate, targetGUID, "target")
-                break
+            if PlateIsShown(plate) and PlateMatchesUnit(plate, unit) then
+                candidate = plate
+                count = count + 1
             end
         end
-    else
-        if self.unitToPlate["target"] then
-            local p = self.unitToPlate["target"]
-            if p.unit == "target" then p.unit = nil end
-            self.unitToPlate["target"] = nil
-        end
+        return count == 1 and candidate or nil
     end
 
-    -- 2. Mouseover
+    local function KnownGUID(unit)
+        local guid = UnitGUID(unit)
+        local plate = guid and self.guidToPlate[guid]
+        return plate and PlateIsShown(plate) and plate or nil
+    end
+
+    local targetOwner, mouseoverOwner, focusOwner
+
     if UnitExists("mouseover") then
-        local mouseoverGUID = UnitGUID("mouseover")
-        for plate in pairs(self.plates) do
-            if PlateIsShown(plate) and self:IsMouseover(plate) then
-                self:BindPlateGUID(plate, mouseoverGUID, "mouseover")
-                break
+        mouseoverOwner = KnownGUID("mouseover")
+        if not mouseoverOwner then
+            local highlighted, count = nil, 0
+            for plate in pairs(self.plates) do
+                if PlateIsShown(plate) and PlateNameMatches(plate, "mouseover")
+                    and ((plate.nativeHighlight and plate.nativeHighlight:IsShown())
+                        or (plate.frame and MouseIsOver(plate.frame))) then
+                    highlighted = plate
+                    count = count + 1
+                end
             end
-        end
-    else
-        if self.unitToPlate["mouseover"] then
-            local p = self.unitToPlate["mouseover"]
-            if p.unit == "mouseover" then p.unit = nil end
-            self.unitToPlate["mouseover"] = nil
+            mouseoverOwner = count == 1 and highlighted or UniqueIdentity("mouseover")
         end
     end
 
-    -- 3. Focus
-    if UnitExists("focus") then
-        local focusGUID = UnitGUID("focus")
-        for plate in pairs(self.plates) do
-            if PlateIsShown(plate) and PlateMatchesUnit(plate, "focus") then
-                self:BindPlateGUID(plate, focusGUID, "focus")
-                break
+    if UnitExists("target") then
+        targetOwner = KnownGUID("target")
+        if not targetOwner and UnitIsUnit and mouseoverOwner
+            and UnitExists("mouseover") and UnitIsUnit("target", "mouseover") then
+            targetOwner = mouseoverOwner
+        end
+        if not targetOwner then
+            local alphaOwner, alphaCount = nil, 0
+            for plate in pairs(self.plates) do
+                if PlateIsShown(plate) then
+                    local alpha = plate.frame and plate.frame:GetAlpha()
+                    if alpha and alpha >= 0.999 then
+                        alphaOwner = plate
+                        alphaCount = alphaCount + 1
+                    end
+                end
+            end
+            if alphaCount == 1 and alphaOwner and PlateMatchesUnit(alphaOwner, "target") then
+                targetOwner = alphaOwner
+            else
+                targetOwner = UniqueIdentity("target")
             end
         end
-    else
-        if self.unitToPlate["focus"] then
-            local p = self.unitToPlate["focus"]
-            if p.unit == "focus" then p.unit = nil end
-            self.unitToPlate["focus"] = nil
+    end
+
+    if UnitExists("focus") then
+        focusOwner = KnownGUID("focus")
+        if not focusOwner and UnitIsUnit and targetOwner and UnitIsUnit("focus", "target") then
+            focusOwner = targetOwner
+        elseif not focusOwner and UnitIsUnit and mouseoverOwner
+            and UnitExists("mouseover") and UnitIsUnit("focus", "mouseover") then
+            focusOwner = mouseoverOwner
+        end
+        focusOwner = focusOwner or UniqueIdentity("focus")
+    end
+
+    local function ApplyOwner(unit, owner)
+        local current = self.unitToPlate[unit]
+        if current ~= owner then
+            if current then self:ReleaseUnit(unit) end
+            if owner then self:BindPlateGUID(owner, UnitGUID(unit), unit) end
         end
     end
+    ApplyOwner("target", targetOwner)
+    ApplyOwner("mouseover", mouseoverOwner)
+    ApplyOwner("focus", focusOwner)
 end
 
 -- Scan group target tokens with fail-closed ambiguity guard
@@ -265,7 +322,12 @@ function MatchTracker:UpdateGroupUnits()
     for _, unit in ipairs(GROUP_UNITS) do
         if UnitExists(unit) and not UnitIsDeadOrGhost(unit) then
             local uGUID = UnitGUID(unit)
-            if uGUID and not self.guidToPlate[uGUID] then
+            local current = self.unitToPlate[unit]
+            if current and current.guid ~= uGUID then self:ReleaseUnit(unit) end
+            local known = uGUID and self.guidToPlate[uGUID]
+            if known and PlateIsShown(known) then
+                self:BindPlateGUID(known, uGUID, unit)
+            elseif uGUID then
                 -- Count candidate plates matching this unit
                 local candidate = nil
                 local count = 0
@@ -288,6 +350,8 @@ function MatchTracker:UpdateGroupUnits()
                     end
                 end
             end
+        else
+            self:ReleaseUnit(unit)
         end
     end
 end
@@ -295,6 +359,7 @@ end
 function MatchTracker:OnPlateShow(plate)
     self:ClearPlateMatch(plate)
     self:UpdateSpecialUnits()
+    self:UpdateGroupUnits()
 end
 
 function MatchTracker:OnPlateHide(plate)

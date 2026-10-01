@@ -187,7 +187,11 @@ end
 -- Plate Aura Query Helper
 --------------------------------------------------------------------------------
 -- Returns an array of active auras for a plate, sorted by expiration time
-local tempAuraList = {}
+local tempAuraLists = {
+    HARMFUL = {},
+    HELPFUL = {},
+    ALL = {},
+}
 
 function AuraTracker:GetAurasForPlate(plate, filterType)
     local guid = plate and plate.guid
@@ -197,6 +201,7 @@ function AuraTracker:GetAurasForPlate(plate, filterType)
     if not entries then return nil, 0 end
 
     local now = GetTime()
+    local tempAuraList = tempAuraLists[filterType] or tempAuraLists.ALL
     local n = 0
 
     for key, aura in pairs(entries) do
@@ -219,6 +224,14 @@ function AuraTracker:GetAurasForPlate(plate, filterType)
     for i = n + 1, #tempAuraList do
         tempAuraList[i] = nil
     end
+
+    table.sort(tempAuraList, function(a, b)
+        local ae = a.expirationTime or math.huge
+        local be = b.expirationTime or math.huge
+        if ae ~= be then return ae < be end
+        if a.spellId ~= b.spellId then return (a.spellId or 0) < (b.spellId or 0) end
+        return (a.name or "") < (b.name or "")
+    end)
 
     return tempAuraList, n
 end
@@ -243,23 +256,27 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     end
 
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        -- 3.3.5 direct parameter unpack without intermediate tables
-        local timestamp, subEvent, hideCaster,
-              sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
-              destGUID, destName, destFlags, destRaidFlags,
+        -- 3.3.5 has no hideCaster or raid-flag fields in the CLEU payload.
+        local timestamp, subEvent,
+              sourceGUID, sourceName, sourceFlags,
+              destGUID, destName, destFlags,
               spellId, spellName, spellSchool,
               auraType, amount = ...
 
         if not destGUID or not ns.MatchTracker then return end
 
         local plate = ns.MatchTracker:GetPlateByGUID(destGUID)
+        if subEvent == "UNIT_DIED" then
+            guidAuras[destGUID] = nil
+            guidDR[destGUID] = nil
+            if plate and plate.UpdateAuras then plate:UpdateAuras() end
+            return
+        end
         if not plate or ns.MatchTracker:IsAmbiguous(plate) then
             -- FAIL-CLOSED: do not snapshot CLEU auras onto ambiguous plates
             return
         end
 
-        local isDebuff = (auraType == "DEBUFF")
-        local key = BuildAuraKey(spellId, sourceGUID, isDebuff)
         local entries = guidAuras[destGUID]
 
         if subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH" then
@@ -269,8 +286,17 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             end
 
             local now = GetTime()
+            local isDebuff = (auraType == "DEBUFF")
+            local key = BuildAuraKey(spellId, sourceGUID, isDebuff)
             local drType = ns.DiminishingReturnsSpells and ns.DiminishingReturnsSpells[spellId]
-            local drFactor = drType and AuraTracker:ApplyDR(destGUID, drType) or 1.0
+            local drFactor = 1.0
+            if drType then
+                if subEvent == "SPELL_AURA_APPLIED" then
+                    drFactor = AuraTracker:ApplyDR(destGUID, drType)
+                else
+                    drFactor = AuraTracker:GetDRFactor(destGUID, drType)
+                end
+            end
 
             local baseDuration = AuraTracker:GetLearnedDuration(spellId)
             local duration = nil
@@ -286,7 +312,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             aura.spellId = spellId
             aura.name = spellName
             aura.icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark"
-            aura.count = (subEvent == "SPELL_AURA_APPLIED_DOSE") and amount or 0
+            aura.count = aura.count or 0
             aura.isDebuff = isDebuff
             aura.casterGUID = sourceGUID
             aura.duration = duration
@@ -296,21 +322,28 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if plate.UpdateAuras then plate:UpdateAuras() end
 
         elseif subEvent == "SPELL_AURA_APPLIED_DOSE" then
+            local isDebuff = (auraType == "DEBUFF")
+            local key = BuildAuraKey(spellId, sourceGUID, isDebuff)
             if entries and entries[key] then
                 entries[key].count = amount or ((entries[key].count or 0) + 1)
                 if plate.UpdateAuras then plate:UpdateAuras() end
             end
 
-        elseif subEvent == "SPELL_AURA_REMOVED" or subEvent == "SPELL_AURA_DISPELLED" then
+        elseif subEvent == "SPELL_AURA_REMOVED_DOSE" then
+            local isDebuff = (auraType == "DEBUFF")
+            local key = BuildAuraKey(spellId, sourceGUID, isDebuff)
+            if entries and entries[key] then
+                entries[key].count = amount or math.max(0, (entries[key].count or 1) - 1)
+                if plate.UpdateAuras then plate:UpdateAuras() end
+            end
+
+        elseif subEvent == "SPELL_AURA_REMOVED" then
+            local isDebuff = (auraType == "DEBUFF")
+            local key = BuildAuraKey(spellId, sourceGUID, isDebuff)
             if entries and entries[key] then
                 entries[key] = nil
                 if plate.UpdateAuras then plate:UpdateAuras() end
             end
-
-        elseif subEvent == "UNIT_DIED" then
-            guidAuras[destGUID] = nil
-            guidDR[destGUID] = nil
-            if plate.UpdateAuras then plate:UpdateAuras() end
         end
     end
 end)
