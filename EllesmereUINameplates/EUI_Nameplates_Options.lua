@@ -2341,14 +2341,15 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetAlpha(nameOnlyOff() and 0.15 or 0.4)
         end
 
-        if not ns.isLegacyNameplates then
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
         --  ENEMY NAMEPLATE SPACING
         -----------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, SECTION_ENEMY_NP, y);  y = y - h
+        _, h = W:SectionHeader(parent,
+            ns.isLegacyNameplates and "CLICKABLE AREA" or SECTION_ENEMY_NP, y);  y = y - h
 
+        if not ns.isLegacyNameplates then
         local stackingRow
         stackingRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Stacking Nameplates",
@@ -2397,6 +2398,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
         end
 
         local hitboxRow
@@ -2461,7 +2463,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
-        end
 
         -----------------------------------------------------------------------
         --  EXTRA AURA OPTIONS
@@ -5574,9 +5575,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local extra = v - BAR_W
                 DB().healthBarWidth = extra
                 for _, plate in pairs(plates) do
-                    PP.Width(plate.health, v)
+                    plate:LayoutHealthBar(v, ns.GetHealthBarHeight())
                     if plate.absorb then PP.Width(plate.absorb, v) end
-                    PP.Width(plate.cast, v)
+                    ns.LayoutCastBar(plate, v, ns.GetCastBarHeight())
                     plate:UpdateNameWidth()
                 end
                 if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
@@ -5586,7 +5587,10 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return DBVal("healthBarHeight") end,
               setValue=function(v)
                 DB().healthBarHeight = v
-                for _, plate in pairs(plates) do PP.Height(plate.health, v) end
+                for _, plate in pairs(plates) do
+                    plate:LayoutHealthBar(ns.GetHealthBarWidth(), v)
+                    ns.LayoutCastIcon(plate, ns.GetCastBarHeight())
+                end
                 if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
                 UpdatePreview()
               end });  y = y - h

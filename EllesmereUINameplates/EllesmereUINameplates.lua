@@ -738,12 +738,29 @@ function PlateMethods:GetHealthValues()
     return val, maxVal or 0
 end
 
+function PlateMethods:LayoutHealthBar(width, height)
+    local health = self.health
+    if not health then return end
+
+    -- Stock 3.3.5 nameplates anchor the health bar by an edge on some client
+    -- builds. Changing its width/height then makes the bar grow to one side.
+    -- Re-anchor the bar by its original centre so custom sizes (and target
+    -- scaling) expand evenly in every direction.
+    if self.nativeHealthRelativePoint then
+        health:ClearAllPoints()
+        health:SetPoint("CENTER", self.nativeHealthRelativeTo,
+            self.nativeHealthRelativePoint,
+            self.nativeHealthCenterX or 0, self.nativeHealthCenterY or 0)
+    end
+    health:SetSize(width, height)
+end
+
 function PlateMethods:ApplyAppearance()
     local db = DB()
     local barW = ns.GetHealthBarWidth()
     local barH = ns.GetHealthBarHeight()
 
-    self.health:SetSize(barW, barH)
+    self:LayoutHealthBar(barW, barH)
 
     -- Status Bar Texture
     local texKey = db.healthBarTexture or "none"
@@ -809,6 +826,7 @@ function PlateMethods:ApplyAppearance()
     self:UpdateHealth()
     self:ApplyScale()
     self:ApplyTarget()
+    if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea(self) end
 end
 
 function PlateMethods:UpdateHealthValues()
@@ -943,14 +961,19 @@ function PlateMethods:ApplyScale()
     local scale = isTarget and targetScale or 1.0
     local castScale = scale * ((DB().castScale or 100) / 100)
 
+    local changed = false
     if self.currentScale ~= scale then
         self.currentScale = scale
         self.health:SetScale(scale)
         if self.targetGlowFrame then self.targetGlowFrame:SetScale(scale) end
+        changed = true
     end
     if self.cast and self.currentCastScale ~= castScale then
         self.currentCastScale = castScale
         self.cast:SetScale(castScale)
+    end
+    if changed and ns.ApplyNamePlateClickArea then
+        ns.ApplyNamePlateClickArea(self)
     end
 end
 
@@ -1302,6 +1325,34 @@ local function SkinPlate(frame)
     plate.bossIcon = bossIcon
     plate.eliteIcon = eliteIcon
 
+    -- Preserve the stock health bar's visual centre before replacing its
+    -- dimensions. Keeping the relative anchor also avoids depending on
+    -- screen coordinates, which are unavailable while a plate is hidden.
+    do
+        local point, relativeTo, relativePoint, x, y = health:GetPoint(1)
+        local nativeW = health:GetWidth() or 0
+        local nativeH = health:GetHeight() or 0
+        if point then
+            x, y = x or 0, y or 0
+            if find(point, "LEFT", 1, true) then
+                x = x + nativeW * 0.5
+            elseif find(point, "RIGHT", 1, true) then
+                x = x - nativeW * 0.5
+            end
+            if find(point, "TOP", 1, true) then
+                y = y - nativeH * 0.5
+            elseif find(point, "BOTTOM", 1, true) then
+                y = y + nativeH * 0.5
+            end
+            plate.nativeHealthRelativeTo = relativeTo or frame
+            plate.nativeHealthRelativePoint = relativePoint or point
+            plate.nativeHealthCenterX = x
+            plate.nativeHealthCenterY = y
+        end
+        plate.nativeHealthWidth = nativeW
+        plate.nativeHealthHeight = nativeH
+    end
+
     -- Keep the stock cast StatusBar as the physical cast source. Anonymous
     -- Wrath plates cannot otherwise be associated with most CLEU source GUIDs.
     -- Hide only its stock chrome; Cast:CreateCastBar adds EUI replacements.
@@ -1600,9 +1651,119 @@ end
 ns.RefreshFriendlyNameSize = ns.RefreshFriendlySize
 ns.RefreshFriendlyColors = ns.RefreshFriendlySize
 ns.RefreshFriendlyPlateOffset = ns.RefreshFriendlySize
-ns.RefreshHitboxSize = function() end
-ns.ApplyNamePlateClickArea = function() end
-ns.SetHitboxOverlayShown = function() end
+
+local function GetEffectiveScale(frame)
+    if frame and frame.GetEffectiveScale then
+        local scale = frame:GetEffectiveScale()
+        if scale and scale > 0 then return scale end
+    end
+    if frame and frame.GetScale then
+        local scale = frame:GetScale()
+        if scale and scale > 0 then return scale end
+    end
+    return 1
+end
+
+local function EnsureHitboxOverlay(plate)
+    if plate.hitboxOverlay then return plate.hitboxOverlay end
+    local overlay = plate.frame:CreateTexture(nil, "OVERLAY")
+    overlay:SetTexture(0.1, 0.65, 1, 0.22)
+    overlay:SetBlendMode("ADD")
+    overlay:Hide()
+    plate.hitboxOverlay = overlay
+    return overlay
+end
+
+function ns.ApplyNamePlateClickArea(targetPlate)
+    local db = DB()
+    local scaleX = max(0.01, (db.hitboxScaleX or 100) / 100)
+    local scaleY = max(0.01, (db.hitboxScaleY or 100) / 100)
+
+    local function Apply(plate)
+        local frame, health = plate.frame, plate.health
+        if not (frame and health) then return end
+
+        if plate.isFriendly then
+            if frame.SetHitRectInsets then
+                pcall(frame.SetHitRectInsets, frame, 0, 0, 0, 0)
+            end
+            if plate.hitboxOverlay then plate.hitboxOverlay:Hide() end
+            return
+        end
+
+        local frameScale = GetEffectiveScale(frame)
+        local healthScale = GetEffectiveScale(health)
+        local relativeScale = healthScale / frameScale
+        local desiredW = max(1, (health:GetWidth() or 1) * relativeScale * scaleX)
+        local desiredH = max(1, (health:GetHeight() or 1) * relativeScale * scaleY)
+
+        -- SetHitRectInsets is available on Wrath Frames/Buttons. Negative
+        -- values expand the clickable region; positive values shrink it.
+        -- Align the region with the health bar rather than assuming the stock
+        -- nameplate root and bar share the same vertical centre.
+        if frame.SetHitRectInsets then
+            local frameW = frame:GetWidth() or 0
+            local frameH = frame:GetHeight() or 0
+            local offsetX, offsetY = 0, 0
+            if plate.nativeHealthRelativeTo == frame and plate.nativeHealthRelativePoint then
+                local relativePoint = plate.nativeHealthRelativePoint
+                if find(relativePoint, "LEFT", 1, true) then
+                    offsetX = -frameW * 0.5
+                elseif find(relativePoint, "RIGHT", 1, true) then
+                    offsetX = frameW * 0.5
+                end
+                if find(relativePoint, "TOP", 1, true) then
+                    offsetY = frameH * 0.5
+                elseif find(relativePoint, "BOTTOM", 1, true) then
+                    offsetY = -frameH * 0.5
+                end
+                offsetX = offsetX + (plate.nativeHealthCenterX or 0)
+                offsetY = offsetY + (plate.nativeHealthCenterY or 0)
+            elseif frame.GetCenter and health.GetCenter then
+                local frameX, frameY = frame:GetCenter()
+                local healthX, healthY = health:GetCenter()
+                if frameX and healthX then
+                    offsetX = healthX * healthScale / frameScale - frameX
+                end
+                if frameY and healthY then
+                    offsetY = healthY * healthScale / frameScale - frameY
+                end
+            end
+            local left = frameW * 0.5 + offsetX - desiredW * 0.5
+            local right = frameW * 0.5 - offsetX - desiredW * 0.5
+            local top = frameH * 0.5 - offsetY - desiredH * 0.5
+            local bottom = frameH * 0.5 + offsetY - desiredH * 0.5
+            local ok = pcall(frame.SetHitRectInsets, frame, left, right, top, bottom)
+            plate.hitboxInsetsSupported = ok
+        end
+
+        local overlay = plate.hitboxOverlay
+        if ns._hitboxOverlayShown then
+            overlay = overlay or EnsureHitboxOverlay(plate)
+            overlay:ClearAllPoints()
+            overlay:SetPoint("CENTER", health, "CENTER", 0, 0)
+            overlay:SetSize(desiredW, desiredH)
+            overlay:Show()
+        elseif overlay then
+            overlay:Hide()
+        end
+    end
+
+    if targetPlate then
+        Apply(targetPlate)
+    else
+        for _, plate in pairs(plates) do Apply(plate) end
+    end
+end
+
+function ns.RefreshHitboxSize()
+    ns.ApplyNamePlateClickArea()
+end
+
+function ns.SetHitboxOverlayShown(shown)
+    ns._hitboxOverlayShown = shown == true
+    ns.ApplyNamePlateClickArea()
+end
 ns.RefreshStackingMotion = function() end
 ns.RefreshStackingBounds = function() end
 function ns.UpdateClassificationIcon(plate)
