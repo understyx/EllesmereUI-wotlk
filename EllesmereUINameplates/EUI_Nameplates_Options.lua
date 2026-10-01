@@ -5652,13 +5652,50 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdatePreview()
               end });  y = y - h
 
-        local hitboxLimitNote
-        hitboxLimitNote, h = W:DualRow(parent, y,
-            { type="label",
-              text="Wrath limit observed: roughly 150-170 x 25 px; native elements may alter it.",
-              tooltip="The preview shows the requested size, but the actual clickable area has client-enforced maximum and minimum sizes. Level, boss, and other native elements may change the result; please report reproducible differences." });  y = y - h
-        if hitboxLimitNote._leftRegion and hitboxLimitNote._leftRegion._label then
-            hitboxLimitNote._leftRegion._label:SetAlpha(0.55)
+        local clickAreaNotesHeader
+        clickAreaNotesHeader, h = W:DualRow(parent, y,
+            { type="label", text="Notes on click-area" });  y = y - h
+        do
+            local region = clickAreaNotesHeader._leftRegion
+            local arrow = region:CreateTexture(nil, "OVERLAY")
+            arrow:SetSize(12, 12)
+            arrow:SetPoint("RIGHT", region, "RIGHT", -20, 0)
+            arrow:SetTexture(ns._clickAreaNotesExpanded
+                and "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.tga"
+                or "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga")
+            arrow:SetAlpha(0.7)
+
+            local button = EllesmereUI.SafeCreateFrame("Button", nil, region)
+            button:SetAllPoints()
+            button:SetFrameLevel(region:GetFrameLevel() + 5)
+            button:SetScript("OnClick", function()
+                ns._clickAreaNotesExpanded = not ns._clickAreaNotesExpanded
+                EllesmereUI:RefreshPage(true)
+            end)
+            button:SetScript("OnEnter", function()
+                arrow:SetAlpha(1)
+                if region._label then region._label:SetAlpha(1) end
+            end)
+            button:SetScript("OnLeave", function()
+                arrow:SetAlpha(0.7)
+                if region._label then region._label:SetAlpha(0.7) end
+            end)
+            if region._label then region._label:SetAlpha(0.7) end
+        end
+
+        if ns._clickAreaNotesExpanded then
+            local hitboxLimitNote
+            hitboxLimitNote, h = W:DualRow(parent, y,
+                { type="label",
+                  text="On the stock Wrath client, nameplate health bars have a fixed clickable area of roughly 150 x 25 px that addons cannot modify. Its exact dimensions depend on the target type, so not every target has the same clickable area." });  y = y - h
+            if hitboxLimitNote._leftRegion and hitboxLimitNote._leftRegion._label then
+                local label = hitboxLimitNote._leftRegion._label
+                label:SetWidth(hitboxLimitNote._leftRegion:GetWidth() - 40)
+                label:SetWordWrap(true)
+                label:SetMaxLines(3)
+                label:SetJustifyH("LEFT")
+                label:SetAlpha(0.6)
+            end
         end
 
         local function castIconOff() return DB() and DB().showCastIcon == false end
