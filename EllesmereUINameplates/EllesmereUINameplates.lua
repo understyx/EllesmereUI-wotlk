@@ -694,9 +694,10 @@ end
 function PlateMethods:UpdateClassification()
     local pos = GetClassificationSlot()
     local size = GetRareEliteIconSize()
+    local enabled = DB().showClassificationIndicator == true
     for _, icon in ipairs({ self.bossIcon, self.eliteIcon }) do
         if icon then
-            if pos == "none" then
+            if not enabled or pos == "none" then
                 icon:Hide()
             else
                 icon:SetSize(size, size)
@@ -715,6 +716,7 @@ function PlateMethods:UpdateClassification()
                 else
                     icon:SetPoint("BOTTOM", self.health, "TOP", xOff, 3 + yOff)
                 end
+                icon:Show()
             end
         end
     end
@@ -830,6 +832,15 @@ function PlateMethods:ApplyAppearance()
 end
 
 function PlateMethods:UpdateHealthValues()
+    -- The Wrath client can re-show its stock name/level strings after our
+    -- initial skin pass. Keep those source regions suppressed; EUI renders
+    -- their text through its own configurable slots.
+    for _, source in ipairs(self.nativeFonts or {}) do
+        SuppressSourceFont(source)
+    end
+
+    local db = DB()
+    local showLevel = db.showLevelText == true
     local val, maxVal = self:GetHealthValues()
     local pct = maxVal > 0 and (val / maxVal * 100) or 0
     local pctText = floor(pct + 0.5) .. "%"
@@ -849,12 +860,13 @@ function PlateMethods:UpdateHealthValues()
                 fs:SetText(numText)
             elseif ns.IsComboHealthText(el) then
                 ns.SetCombinedHealthText(fs, el, pctText, numText)
-            elseif el == "level" then
+            elseif el == "level" and showLevel then
                 fs:SetText(self:GetLevelText())
             else
                 fs:SetText("")
             end
             local show = el and el ~= "none"
+            if el == "level" and not showLevel then show = false end
             if self.nameOnly and el ~= "enemyName" then show = false end
             if show then fs:Show() else fs:Hide() end
         end
@@ -953,6 +965,9 @@ end
 function PlateMethods:UpdateHealth()
     self:UpdateHealthColor()
     self:UpdateHealthValues()
+    -- Classification textures are native regions and the client may restore
+    -- their visibility/anchors after a unit changes. Reassert EUI's setting.
+    self:UpdateClassification()
 end
 
 function PlateMethods:ApplyScale()
@@ -1288,7 +1303,12 @@ local function SkinPlate(frame)
                     elseif find(path, "ui-targetingframe-skull", 1, true) then
                         bossIcon = r
                         keepNative = true
-                    elseif find(path, "elitedragon", 1, true) then
+                    elseif find(path, "elitedragon", 1, true)
+                        or find(path, "rareelite", 1, true)
+                        or find(path, "rare-elite", 1, true)
+                        or find(path, "rare_elite", 1, true)
+                        or find(path, "targetingframe-elite", 1, true)
+                        or find(path, "nameplate-elite", 1, true) then
                         eliteIcon = r
                         keepNative = true
                     end
@@ -1304,7 +1324,7 @@ local function SkinPlate(frame)
     local nameSource, levelSource
     for _, fs in ipairs(fonts) do
         local txt = fs:GetText()
-        if txt and tostring(txt):match("^%??%d+[%+%-]?$") then
+        if txt and (tostring(txt) == "??" or tostring(txt):match("^%??%d+[%+%-]?$")) then
             levelSource = levelSource or fs
         elseif txt and txt ~= "" then
             nameSource = nameSource or fs
@@ -1319,6 +1339,7 @@ local function SkinPlate(frame)
     plate.nativeCast = nativeCast
     plate.nameSource = nameSource
     plate.levelSource = levelSource
+    plate.nativeFonts = fonts
     plate.nativeGlow = nativeGlow
     plate.nativeHighlight = highlight
     plate.raidIcon = raidIcon

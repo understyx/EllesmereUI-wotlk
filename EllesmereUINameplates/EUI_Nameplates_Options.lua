@@ -1103,7 +1103,8 @@ initFrame:SetScript("OnEvent", function(self)
                 clYOff = DBVal(clPos .. "SlotYOffset") or 0
             end
             local reIconSz = (clPos ~= "none") and (DBVal(clPos .. "SlotSize") or defaults[clPos .. "SlotSize"] or 20) or 20
-            local showCL = showClassificationPreview or _sliderDragShowClassification
+            local showCL = DBVal("showClassificationIndicator") == true
+                and (showClassificationPreview or _sliderDragShowClassification)
             classIcon:SetSize(reIconSz, reIconSz)
             if clPos == "none" or not showCL then
                 classIcon:Hide()
@@ -1206,7 +1207,14 @@ initFrame:SetScript("OnEvent", function(self)
             local function PlaceHealthInBar(element, anchor, point, xOff, yOff, fontSize, cr, cg, cb, slotKey)
                 yOff = yOff or 0
                 local dec = slotKey and DBVal(slotKey .. "PctDecimal") == true
-                if element == "healthPercent" or element == "healthPercentNoSign" then
+                if element == "level" and DBVal("showLevelText") == true then
+                    SetPVFont(hpText, fontPath, fontSize, npOutline)
+                    hpText:SetParent(healthTextFrame)
+                    hpText:SetText("70")
+                    hpText:SetPoint(point, health, anchor, xOff, yOff)
+                    hpText:SetTextColor(cr, cg, cb, 1)
+                    hpText:Show()
+                elseif element == "healthPercent" or element == "healthPercentNoSign" then
                     SetPVFont(hpText, fontPath, fontSize, npOutline)
                     hpText:SetParent(healthTextFrame)
                     hpText:SetText(element == "healthPercentNoSign" and (dec and pctNoSignStrDec or pctNoSignStr) or (dec and pctStrDec or pctStr))
@@ -1250,7 +1258,14 @@ initFrame:SetScript("OnEvent", function(self)
                 txOff = txOff or 0
                 tyOff = tyOff or 0
                 local dec = slotKey and DBVal(slotKey .. "PctDecimal") == true
-                if element == "healthPercent" or element == "healthPercentNoSign" then
+                if element == "level" and DBVal("showLevelText") == true then
+                    SetPVFont(hpText, fontPath, fontSize, npOutline)
+                    hpText:SetText("70")
+                    hpText:SetParent(topTextFrame)
+                    hpText:SetPoint("BOTTOM", health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
+                    hpText:SetTextColor(cr, cg, cb, 1)
+                    hpText:Show()
+                elseif element == "healthPercent" or element == "healthPercentNoSign" then
                     SetPVFont(hpText, fontPath, fontSize, npOutline)
                     hpText:SetText(element == "healthPercentNoSign" and (dec and pctNoSignStrDec or pctNoSignStr) or (dec and pctStrDec or pctStr))
                     hpText:SetParent(topTextFrame)
@@ -2463,19 +2478,40 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if ns.isLegacyNameplates then
-            local noteFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-            PP.Size(noteFrame, parent:GetWidth() - 40, 42)
-            PP.Point(noteFrame, "TOPLEFT", parent, "TOPLEFT", 20, y)
-            local note = noteFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            note:SetAllPoints()
-            note:SetJustifyH("LEFT")
-            note:SetJustifyV("TOP")
-            note:SetWordWrap(true)
-            note:SetTextColor(1, 1, 1, 0.45)
-            note:SetText(EllesmereUI.L(
-                "Wrath client note: the preview shows the requested size, but the actual clickable area appears capped at roughly 150-170 px wide and 25 px high, with client-enforced minimums. Level, boss, or other native elements may change the result; please report reproducible differences."))
-            y = y - 42
+            local noteRow
+            noteRow, h = W:DualRow(parent, y,
+                { type="label",
+                  text="Wrath limit observed: roughly 150-170 x 25 px; native elements may alter it.",
+                  tooltip="The preview shows the requested size, but the actual clickable area has client-enforced maximum and minimum sizes. Level, boss, and other native elements may change the result; please report reproducible differences." });  y = y - h
+            if noteRow._leftRegion and noteRow._leftRegion._label then
+                noteRow._leftRegion._label:SetAlpha(0.55)
+            end
         end
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  INDICATORS
+        -----------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "INDICATORS", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Level Text",
+              getValue=function() return DBVal("showLevelText") == true end,
+              setValue=function(v)
+                DB().showLevelText = v
+                ns.RefreshAllSettings()
+                UpdatePreview()
+              end,
+              tooltip="Allows Level to render when assigned under Display > Core Text Positions. The stock Wrath level text remains hidden." },
+            { type="toggle", text="Show Rare/Boss Indicator",
+              getValue=function() return DBVal("showClassificationIndicator") == true end,
+              setValue=function(v)
+                DB().showClassificationIndicator = v
+                ns.RefreshAllSettings()
+                UpdatePreview()
+              end,
+              tooltip="Shows rare, elite, and boss indicators at the position assigned under Display > Core Positions." });  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -5386,6 +5422,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local textElementValues = {
             enemyName            = "Enemy Name",
+            level                = "Level",
             healthPercent        = "Health %",
             healthPercentNoSign  = "Health % (No Sign)",
             healthNumber         = "Health #",
@@ -5395,7 +5432,13 @@ initFrame:SetScript("OnEvent", function(self)
             healthNumPctDash     = "Health # - %",
             none                 = "None",
         }
-        local textElementOrder = { "none", "---", "enemyName", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash" }
+        local textElementOrder = { "none", "---", "enemyName", "level", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash" }
+
+        local function LevelTextDisabledValue(k)
+            if k == "level" and DBVal("showLevelText") ~= true then
+                return "Enable Show Level Text under General > Indicators"
+            end
+        end
 
         local function TextSlotSetValue(slotKey, v)
             SetTextElementAtSlot(slotKey, v)
@@ -5538,7 +5581,8 @@ initFrame:SetScript("OnEvent", function(self)
               order=textElementOrder,
               disabled=function() return DBVal("textSlotTop") == "none" end,
               disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-              labelOnlyDisabled=true },
+              labelOnlyDisabled=true,
+              disabledValues=LevelTextDisabledValue },
             { type="dropdown", text="Right Text", values=textElementValues,
               getValue=function() return DBVal("textSlotRight") end,
               setValue=function(v) TextSlotSetValue("textSlotRight", v) end,
@@ -5546,7 +5590,11 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=function() return DBVal("textSlotRight") == "none" end,
               disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
               labelOnlyDisabled=true,
-              disabledValues=function(k) if ns.IsComboHealthText(k) and DBVal("textSlotCenter") == "enemyName" then return "Disabled when Enemy Name is centered on the health bar due to overlapping text" end end });  y = y - h
+              disabledValues=function(k)
+                  local reason = LevelTextDisabledValue(k)
+                  if reason then return reason end
+                  if ns.IsComboHealthText(k) and DBVal("textSlotCenter") == "enemyName" then return "Disabled when Enemy Name is centered on the health bar due to overlapping text" end
+              end });  y = y - h
         MakeTextColorSwatch(textRow1, "_leftRegion",  "textSlotTop")
         MakeTextCogIcon(textRow1, "_leftRegion",  "textSlotTop",   "Top Text")
         MakeTextColorSwatch(textRow1, "_rightRegion", "textSlotRight")
@@ -5561,14 +5609,19 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=function() return DBVal("textSlotLeft") == "none" end,
               disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
               labelOnlyDisabled=true,
-              disabledValues=function(k) if ns.IsComboHealthText(k) and DBVal("textSlotCenter") == "enemyName" then return "Disabled when Enemy Name is centered on the health bar due to overlapping text" end end },
+              disabledValues=function(k)
+                  local reason = LevelTextDisabledValue(k)
+                  if reason then return reason end
+                  if ns.IsComboHealthText(k) and DBVal("textSlotCenter") == "enemyName" then return "Disabled when Enemy Name is centered on the health bar due to overlapping text" end
+              end },
             { type="dropdown", text="Center Text", values=textElementValues,
               getValue=function() return DBVal("textSlotCenter") end,
               setValue=function(v) TextSlotSetValue("textSlotCenter", v) end,
               order=textElementOrder,
               disabled=function() return DBVal("textSlotCenter") == "none" end,
               disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-              labelOnlyDisabled=true });  y = y - h
+              labelOnlyDisabled=true,
+              disabledValues=LevelTextDisabledValue });  y = y - h
         MakeTextColorSwatch(textRow2, "_leftRegion",  "textSlotLeft")
         MakeTextCogIcon(textRow2, "_leftRegion",  "textSlotLeft",   "Left Text")
         MakeTextColorSwatch(textRow2, "_rightRegion", "textSlotCenter")
