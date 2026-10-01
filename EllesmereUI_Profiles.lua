@@ -2828,6 +2828,9 @@ function EllesmereUI.ImportProfile(importStr, profileName)
             imported.addons["EllesmereUICooldownManager"].specProfiles = nil
             imported.addons["EllesmereUICooldownManager"].barGlows = nil
         end
+        if imported.addons and imported.addons["EllesmereUINameplates"] and EllesmereUI.SanitizeNameplatesProfile then
+            EllesmereUI.SanitizeNameplatesProfile(imported.addons["EllesmereUINameplates"])
+        end
         imported.spellAssignments = nil
         -- HoverCast (click-cast) bindings live at EllesmereUIDB.clickCast (account-
         -- global), never inside a profile. Strip any stray clickCast from the
