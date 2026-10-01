@@ -313,6 +313,20 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
     end
     GetFFD(slot).border = true
 
+    -- Keep inspect item levels and readable enchant names on the same color
+    -- path as the character sheet (custom override > item rarity > white).
+    local ilvlColor
+    if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
+        ilvlColor = EllesmereUIDB.charSheetItemLevelColor
+    elseif itemLink and (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) then
+        local _, _, quality = GetItemInfo(itemLink)
+        if quality then
+            local r, g, b = GetItemQualityColor(quality)
+            ilvlColor = { r = r, g = g, b = b }
+        end
+    end
+    ilvlColor = ilvlColor or { r = 1, g = 1, b = 1 }
+
     -- Item level label (font size matches CharacterSheet)
     if itemLink and not GetFFD(slot).iLvlText and not skipLabels then
         local ilvl = select(4, GetItemInfo(itemLink))
@@ -334,19 +348,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             end
 
             ilvlText:SetText(ilvl)
-
-            local displayColor
-            if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
-                displayColor = EllesmereUIDB.charSheetItemLevelColor
-            elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) then
-                local _, _, quality = GetItemInfo(itemLink)
-                if quality then
-                    local r, g, b = GetItemQualityColor(quality)
-                    displayColor = { r = r, g = g, b = b }
-                end
-            end
-            displayColor = displayColor or { r = 1, g = 1, b = 1 }
-            ilvlText:SetTextColor(displayColor.r, displayColor.g, displayColor.b, 0.9)
+            ilvlText:SetTextColor(ilvlColor.r, ilvlColor.g, ilvlColor.b, 0.9)
 
             GetFFD(slot).iLvlText = ilvlText
         end
@@ -409,7 +411,14 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
 
             local outlineFlag = EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG") or "OUTLINE"
             enchantLabel:SetFont(fontPath, enchantSize, useName and outlineFlag or "")
-            enchantLabel:SetTextColor(1, 1, 1, 0.8)
+            if useName then
+                enchantLabel:SetTextColor(
+                    ilvlColor.r + (1 - ilvlColor.r) * 0.5,
+                    ilvlColor.g + (1 - ilvlColor.g) * 0.5,
+                    ilvlColor.b + (1 - ilvlColor.b) * 0.5, 0.9)
+            else
+                enchantLabel:SetTextColor(1, 1, 1, 0.8)
+            end
             enchantLabel:SetText(labelText)
             enchantLabel:Show()
 

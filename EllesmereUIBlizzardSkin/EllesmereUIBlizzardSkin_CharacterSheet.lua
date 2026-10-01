@@ -5261,7 +5261,7 @@ local function SkinCharacterSheet()
 
         elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
             local r, g, b = GetItemQualityColor(itemQuality)
-            ilvlColor = { r = r, g = b, b = b }
+            ilvlColor = { r = r, g = g, b = b }
         else
             ilvlColor = { r = 1, g = 1, b = 1 }
         end
