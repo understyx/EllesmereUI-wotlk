@@ -2462,6 +2462,21 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        if ns.isLegacyNameplates then
+            local noteFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
+            PP.Size(noteFrame, parent:GetWidth() - 40, 42)
+            PP.Point(noteFrame, "TOPLEFT", parent, "TOPLEFT", 20, y)
+            local note = noteFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            note:SetAllPoints()
+            note:SetJustifyH("LEFT")
+            note:SetJustifyV("TOP")
+            note:SetWordWrap(true)
+            note:SetTextColor(1, 1, 1, 0.45)
+            note:SetText(EllesmereUI.L(
+                "Wrath client note: the preview shows the requested size, but the actual clickable area appears capped at roughly 150-170 px wide and 25 px high, with client-enforced minimums. Level, boss, or other native elements may change the result; please report reproducible differences."))
+            y = y - 42
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
