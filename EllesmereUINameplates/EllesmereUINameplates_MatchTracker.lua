@@ -24,11 +24,13 @@ MatchTracker.unitToPlate = {}       -- [unit] = plate
 
 -- Static unit tokens list to scan in priority order
 local SPECIAL_UNITS = { "target", "focus", "mouseover" }
-local GROUP_UNITS = {}
+local GROUP_UNITS = { "player" }
 for i = 1, 4 do
+    GROUP_UNITS[#GROUP_UNITS + 1] = "party" .. i
     GROUP_UNITS[#GROUP_UNITS + 1] = "party" .. i .. "target"
 end
 for i = 1, 40 do
+    GROUP_UNITS[#GROUP_UNITS + 1] = "raid" .. i
     GROUP_UNITS[#GROUP_UNITS + 1] = "raid" .. i .. "target"
 end
 for i = 1, 5 do
@@ -155,6 +157,13 @@ end
 function MatchTracker:BindPlateGUID(plate, guid, unit)
     if not plate or not guid then return false end
 
+    -- The 20 Hz mouseover resolver can confirm the same association many
+    -- times. Treat an unchanged plate/GUID/unit tuple as a no-op so aura and
+    -- cast modules do not restart their state every update tick.
+    if plate.guid == guid and (not unit or self.unitToPlate[unit] == plate) then
+        return true
+    end
+
     -- If another shown plate already claims this GUID, ensure no conflict
     local existing = self.guidToPlate[guid]
     if existing and existing ~= plate and PlateIsShown(existing) then
@@ -250,6 +259,21 @@ function MatchTracker:GetPlateByGUID(guid)
         return plate
     end
     return nil
+end
+
+-- Combat-log casts can identify an untargeted plate when exactly one visible
+-- plate has the source name. Duplicate packs deliberately return nil.
+function MatchTracker:GetUniquePlateByName(name)
+    if not name then return nil end
+    local candidate, count = nil, 0
+    for plate in pairs(self.plates) do
+        if PlateIsShown(plate) and plate:GetNameText() == name then
+            candidate = plate
+            count = count + 1
+            if count > 1 then return nil end
+        end
+    end
+    return count == 1 and candidate or nil
 end
 
 function MatchTracker:GetGUID(plate)
@@ -415,6 +439,8 @@ eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
 eventFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 eventFrame:RegisterEvent("UNIT_TARGET")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
+eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 
 eventFrame:SetScript("OnEvent", function(self, event, unitId)
     if event == "PLAYER_TARGET_CHANGED" then
@@ -425,7 +451,8 @@ eventFrame:SetScript("OnEvent", function(self, event, unitId)
         MatchTracker:UpdateSpecialUnits()
     elseif event == "UNIT_TARGET" then
         MatchTracker:UpdateGroupUnits()
-    elseif event == "PLAYER_ENTERING_WORLD" then
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED"
+        or event == "RAID_ROSTER_UPDATE" then
         MatchTracker:UpdateAll()
     end
 end)

@@ -1440,11 +1440,11 @@ local function SkinPlate(frame)
         plate.nativeHealthHeight = nativeH
     end
 
-    -- Keep the stock cast StatusBar as the physical cast source. Anonymous
-    -- Wrath plates cannot otherwise be associated with most CLEU source GUIDs.
-    -- Hide only its stock chrome; Cast:CreateCastBar adds EUI replacements.
+    -- Keep the stock cast StatusBar alive as a hidden engine source, but never
+    -- render through it. Cast:CreateCastBar builds the EUI-owned display bar.
     if nativeCast then
         local fill = nativeCast.GetStatusBarTexture and nativeCast:GetStatusBarTexture()
+        if fill then SuppressTexture(fill) end
         for i = 1, select("#", nativeCast:GetRegions()) do
             local region = select(i, nativeCast:GetRegions())
             if region and region ~= fill and region.GetObjectType then
@@ -2049,7 +2049,8 @@ function PlateMethods:SyncStrata()
     local base = max(0, depthRank or nativeLevel) * PLATE_LEVEL_STRIDE
     local expectedBarLevel = base + PLATE_LEVEL_BAR
     local levelsIntact = self.health and self.health:GetFrameLevel() == expectedBarLevel
-        and (not self.cast or self.cast:GetFrameLevel() == expectedBarLevel)
+        and (not self.cast or self.cast.isNativeNameplateCast
+            or self.cast:GetFrameLevel() == expectedBarLevel)
         and (not self.contentFrame
             or self.contentFrame:GetFrameLevel() == base + PLATE_LEVEL_ROOT)
         and (not self.overlayFrame
@@ -2060,7 +2061,7 @@ function PlateMethods:SyncStrata()
             or self.borderFrame:GetFrameLevel() == base + PLATE_LEVEL_BORDER)
         and (not self.castBorderFrame
             or self.castBorderFrame:GetFrameLevel() == base + PLATE_LEVEL_BORDER)
-        and (not self.castIconFrame
+        and (not self.castIconFrame or self.cast.isNativeNameplateCast
             or self.castIconFrame:GetFrameLevel() == base + PLATE_LEVEL_CONTENT)
     if nativeLevel == self._lastNativeFrameLevel
         and depthRank == self._lastDepthRank and levelsIntact then return end
@@ -2076,7 +2077,9 @@ function PlateMethods:SyncStrata()
         self.overlayFrame:SetFrameLevel(base + PLATE_LEVEL_CONTENT)
     end
     if self.health then self.health:SetFrameLevel(expectedBarLevel) end
-    if self.cast then self.cast:SetFrameLevel(expectedBarLevel) end
+    if self.cast and not self.cast.isNativeNameplateCast then
+        self.cast:SetFrameLevel(expectedBarLevel)
+    end
     if self.targetGlowFrame then
         self.targetGlowFrame:SetFrameLevel(base + PLATE_LEVEL_GLOW)
     end
@@ -2086,7 +2089,7 @@ function PlateMethods:SyncStrata()
     if self.castBorderFrame then
         self.castBorderFrame:SetFrameLevel(base + PLATE_LEVEL_BORDER)
     end
-    if self.castIconFrame then
+    if self.castIconFrame and not self.cast.isNativeNameplateCast then
         self.castIconFrame:SetFrameLevel(base + PLATE_LEVEL_CONTENT)
     end
 

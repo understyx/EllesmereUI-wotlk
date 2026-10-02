@@ -109,11 +109,16 @@ end
 function Cast:CreateCastBar(plate)
     if plate.cast then return end
 
+    -- Never render through Blizzard's stock cast StatusBar. This client hides
+    -- that object continuously, so addon-driven Show() calls either flicker or
+    -- disappear on the next engine update. EUI owns a separate display bar;
+    -- plate.nativeCast remains untouched as an optional hidden source.
     local castParent = plate.contentFrame or plate.frame or plate
-    local cast = plate.nativeCast or CreateFrame("StatusBar", nil, castParent)
+    local cast = CreateFrame("StatusBar", nil, castParent)
     plate.cast = cast
-    cast.isNativeNameplateCast = plate.nativeCast ~= nil
-    if not cast.isNativeNameplateCast then cast:Hide() end
+    plate.nativeCastSource = plate.nativeCast
+    cast.isNativeNameplateCast = false
+    cast:Hide()
 
     -- Cast Background
     local castBg = cast:CreateTexture(nil, "BACKGROUND")
@@ -124,7 +129,7 @@ function Cast:CreateCastBar(plate)
 
     -- Cast Border – lives on a dedicated frame under the plate's depth-band
     -- root so SyncStrata can order it with the rest of the plate chrome.
-    local castBorderFrame = CreateFrame("Frame", nil, castParent)
+    local castBorderFrame = CreateFrame("Frame", nil, plate.contentFrame or plate.frame or plate)
     castBorderFrame:SetAllPoints(cast)
     plate.castBorderFrame = castBorderFrame
     plate.castBorder = CreateBorder(cast, castBorderFrame)
@@ -165,27 +170,10 @@ function Cast:CreateCastBar(plate)
     local timerText = cast:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     plate.castTimer = timerText
 
-    -- Never replace the stock cast bar's engine script. Hook it so its physical
-    -- show/value lifecycle remains authoritative for anonymous nameplates.
+    -- EUI owns the display lifecycle; unit events and CLEU feed this update.
     cast:HookScript("OnUpdate", function(self, elapsed)
         Cast:OnCastUpdate(plate, elapsed)
     end)
-    if cast.isNativeNameplateCast then
-        cast:HookScript("OnShow", function()
-            Cast:ApplyStyle(plate)
-            Cast:UpdateCastColor(plate)
-        end)
-        cast:HookScript("OnHide", function()
-            cast.spellName = nil
-            cast.startTime = nil
-            cast.endTime = nil
-            cast.flashTimer = nil
-            cast.interrupted = false
-            cast.failed = false
-            cast.lastNativeValue = nil
-            cast.nativeIsChannel = nil
-        end)
-    end
 
     self:ApplyStyle(plate)
 end
@@ -598,6 +586,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         local plateGUID = (subEvent == "SPELL_INTERRUPT" or subEvent == "UNIT_DIED")
             and destGUID or sourceGUID
         local plate = ns.MatchTracker:GetPlateByGUID(plateGUID)
+        if not plate and subEvent ~= "UNIT_DIED" and plateGUID then
+            local plateName = subEvent == "SPELL_INTERRUPT" and destName or sourceName
+            local uniquePlate = ns.MatchTracker:GetUniquePlateByName(plateName)
+            if uniquePlate and ns.MatchTracker:BindPlateGUID(uniquePlate, plateGUID) then
+                plate = uniquePlate
+            end
+        end
         if not plate or ns.MatchTracker:IsAmbiguous(plate) then
             -- FAIL-CLOSED: never clone CLEU casts onto ambiguous plates
             return
