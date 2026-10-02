@@ -1568,6 +1568,7 @@ driver:SetScript("OnUpdate", function(self, elapsed)
     -- Update active plates
     for _, plate in pairs(plates) do
         if plate.frame:IsShown() then
+            plate:SyncStrata()
             plate:UpdateHealth()
             plate:ApplyScale()
             plate:ApplyTarget()
@@ -1896,6 +1897,25 @@ function ns.ApplySlotStrata(plate)
         local level = base + (GetSlotRaiseStrata(group.pos) and 20 or 2)
         for _, slot in ipairs(group.slots or {}) do slot:SetFrameLevel(level) end
     end
+end
+
+-- SyncStrata – called every OnUpdate tick to track engine-driven frame-level
+-- changes on the nameplate root frame (WoW adjusts these by 3-D depth so that
+-- closer units render on top).  When the level changes we re-apply all EUI
+-- child frame levels so depth ordering is preserved across plates.
+function PlateMethods:SyncStrata()
+    local base = self.frame:GetFrameLevel()
+    if base == self._lastFrameLevel then return end
+    self._lastFrameLevel = base
+
+    -- Glow frame sits just above the health bar region of our plate.
+    if self.targetGlowFrame then
+        self.targetGlowFrame:SetFrameLevel(base + 1)
+    end
+
+    -- Re-raise aura slot frames (handles debuffs / buffs / cc via the
+    -- existing helper which already reads the per-slot "raise strata" pref).
+    if ns.ApplySlotStrata then ns.ApplySlotStrata(self) end
 end
 
 -- PositionAuraSlot – reanchor `count` icon slots to their position key.
