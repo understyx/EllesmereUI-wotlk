@@ -494,12 +494,13 @@ local function AddEdge(parent, first, second, vertical)
     return edge
 end
 
-local function CreateBorder(bar)
+local function CreateBorder(bar, texParent)
+    texParent = texParent or bar
     return {
-        AddEdge(bar, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }),
-        AddEdge(bar, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }),
-        AddEdge(bar, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, true),
-        AddEdge(bar, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }, true),
+        AddEdge(texParent, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }),
+        AddEdge(texParent, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }),
+        AddEdge(texParent, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, true),
+        AddEdge(texParent, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }, true),
     }
 end
 
@@ -1403,8 +1404,14 @@ local function SkinPlate(frame)
     plate.healthBg = healthBg
     plate.healthBG = healthBg -- options compatibility
 
-    -- Border
-    plate.border = CreateBorder(health)
+    -- Border lives on a dedicated child frame so its frame level can be
+    -- managed independently of the health StatusBar.  This prevents border
+    -- edge textures from one nameplate bleeding over the health-bar fill of
+    -- another nameplate that shares the same engine-assigned frame level.
+    local borderFrame = CreateFrame("Frame", nil, frame)
+    borderFrame:SetAllPoints(health)
+    plate.borderFrame = borderFrame
+    plate.border = CreateBorder(health, borderFrame)
 
     -- EUI Target Glow & Highlight
     plate.targetGlowFrame = CreateTargetGlowFrame(frame, health)
@@ -1884,6 +1891,9 @@ function ns.ApplyCastBarTexture(plate)
 end
 
 -- Slot strata refresh – re-raise aura frames that need it.
+-- Level offsets relative to the root frame level:
+--   base + 3  normal aura slots  (above borderFrame at base+2)
+--   base + 21 raised aura slots  (for positions that need to clear the plate chrome)
 function ns.ApplySlotStrata(plate)
     if not plate then return end
     local db = DB()
@@ -1894,7 +1904,7 @@ function ns.ApplySlotStrata(plate)
         { slots = plate.cc, pos = db.ccSlot or ns.defaults.ccSlot },
     }
     for _, group in ipairs(groups) do
-        local level = base + (GetSlotRaiseStrata(group.pos) and 20 or 2)
+        local level = base + (GetSlotRaiseStrata(group.pos) and 21 or 3)
         for _, slot in ipairs(group.slots or {}) do slot:SetFrameLevel(level) end
     end
 end
@@ -1908,9 +1918,19 @@ function PlateMethods:SyncStrata()
     if base == self._lastFrameLevel then return end
     self._lastFrameLevel = base
 
-    -- Glow frame sits just above the health bar region of our plate.
+    -- Frame-level hierarchy within one plate (all relative to the engine-set
+    -- root level so depth ordering is preserved across overlapping plates):
+    --   base + 1  targetGlowFrame             – ADD-blend glow behind health fill
+    --   base + 2  borderFrame / castBorderFrame – edge lines above bar fills
+    --   base + 3 … +22  aura slots             – icons above the plate chrome
     if self.targetGlowFrame then
         self.targetGlowFrame:SetFrameLevel(base + 1)
+    end
+    if self.borderFrame then
+        self.borderFrame:SetFrameLevel(base + 2)
+    end
+    if self.castBorderFrame then
+        self.castBorderFrame:SetFrameLevel(base + 2)
     end
 
     -- Re-raise aura slot frames (handles debuffs / buffs / cc via the

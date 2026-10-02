@@ -80,12 +80,13 @@ local function AddEdge(parent, first, second, vertical)
     return edge
 end
 
-local function CreateBorder(bar)
+local function CreateBorder(bar, texParent)
+    texParent = texParent or bar
     return {
-        AddEdge(bar, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }),
-        AddEdge(bar, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }),
-        AddEdge(bar, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, true),
-        AddEdge(bar, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }, true),
+        AddEdge(texParent, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }),
+        AddEdge(texParent, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }),
+        AddEdge(texParent, { "TOPLEFT", bar, "TOPLEFT", -1, 1 }, { "BOTTOMLEFT", bar, "BOTTOMLEFT", -1, -1 }, true),
+        AddEdge(texParent, { "TOPRIGHT", bar, "TOPRIGHT", 1, 1 }, { "BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1 }, true),
     }
 end
 
@@ -120,8 +121,12 @@ function Cast:CreateCastBar(plate)
     plate.castBg = castBg
     plate.castBG = castBg -- options compatibility
 
-    -- Cast Border
-    plate.castBorder = CreateBorder(cast)
+    -- Cast Border – lives on a dedicated frame (child of plate.frame) so its
+    -- level can be controlled by SyncStrata, matching how health borders work.
+    local castBorderFrame = CreateFrame("Frame", nil, plate.frame or plate)
+    castBorderFrame:SetAllPoints(cast)
+    plate.castBorderFrame = castBorderFrame
+    plate.castBorder = CreateBorder(cast, castBorderFrame)
 
     -- Cast Spark
     local spark = cast:CreateTexture(nil, "OVERLAY")
