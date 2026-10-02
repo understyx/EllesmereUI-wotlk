@@ -2034,8 +2034,11 @@ initFrame:SetScript("OnEvent", function(self)
                                 "ShowClassColorInFriendlyNameplate",
                                 "nameplateUseClassColorForFriendlyPlayerUnitNames",
                             }) do
-                                local d = GetCVarDefault(cvar)
-                                if d ~= nil then pcall(SetCVar, cvar, d) end
+                                -- GetCVarDefault throws on legacy clients when
+                                -- a Retail-only CVar is unknown, so probe each
+                                -- default without letting the options UI fail.
+                                local ok, d = pcall(GetCVarDefault, cvar)
+                                if ok and d ~= nil then pcall(SetCVar, cvar, d) end
                             end
                         end
                     end
