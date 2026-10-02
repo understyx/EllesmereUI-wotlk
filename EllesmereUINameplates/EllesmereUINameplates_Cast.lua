@@ -109,7 +109,8 @@ end
 function Cast:CreateCastBar(plate)
     if plate.cast then return end
 
-    local cast = plate.nativeCast or CreateFrame("StatusBar", nil, plate.frame or plate)
+    local castParent = plate.contentFrame or plate.frame or plate
+    local cast = plate.nativeCast or CreateFrame("StatusBar", nil, castParent)
     plate.cast = cast
     cast.isNativeNameplateCast = plate.nativeCast ~= nil
     if not cast.isNativeNameplateCast then cast:Hide() end
@@ -121,9 +122,9 @@ function Cast:CreateCastBar(plate)
     plate.castBg = castBg
     plate.castBG = castBg -- options compatibility
 
-    -- Cast Border – lives on a dedicated frame (child of plate.frame) so its
-    -- level can be controlled by SyncStrata, matching how health borders work.
-    local castBorderFrame = CreateFrame("Frame", nil, plate.frame or plate)
+    -- Cast Border – lives on a dedicated frame under the plate's depth-band
+    -- root so SyncStrata can order it with the rest of the plate chrome.
+    local castBorderFrame = CreateFrame("Frame", nil, castParent)
     castBorderFrame:SetAllPoints(cast)
     plate.castBorderFrame = castBorderFrame
     plate.castBorder = CreateBorder(cast, castBorderFrame)

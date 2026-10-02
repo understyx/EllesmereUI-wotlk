@@ -54,7 +54,11 @@ local function PlateNameMatches(plate, unit)
     return pName and uName and pName == uName
 end
 
-local function PlateMatchesUnit(plate, unit)
+-- Name and level are the only stable identity fields exposed by anonymous
+-- 3.3.5 nameplates. Health is intentionally excluded from ambiguity checks:
+-- native bar values and UnitHealth update on different frames, so damage can
+-- make the wrong identical plate look temporarily unique.
+local function PlateIdentityMatches(plate, unit)
     if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false end
     if not PlateNameMatches(plate, unit) then return false end
 
@@ -67,6 +71,12 @@ local function PlateMatchesUnit(plate, unit)
             return false
         end
     end
+
+    return true
+end
+
+local function PlateMatchesUnit(plate, unit)
+    if not PlateIdentityMatches(plate, unit) then return false end
 
     -- Health comparison
     local pHealth, pMax = plate:GetHealthValues()
@@ -110,6 +120,11 @@ function MatchTracker:ClearPlateMatch(plate)
     plate.unit = nil
     plate.guid = nil
     plate.isAmbiguous = false
+
+    -- A GUID can be invalidated while its physical plate remains visible
+    -- (for example when authoritative mouseover evidence repairs an older
+    -- bad association). Remove its aura display immediately.
+    if oldGuid and plate.UpdateAuras then plate:UpdateAuras() end
 end
 
 local function RefreshPrimaryUnit(self, plate)
@@ -180,6 +195,24 @@ function MatchTracker:BindPlateGUID(plate, guid, unit)
     return true
 end
 
+-- Mouseover plus one unique physical hit-test is the only WotLK signal that
+-- identifies an otherwise identical plate directly. It is strong enough to
+-- repair a stale association instead of allowing KnownGUID to make the bad
+-- mapping permanent.
+function MatchTracker:BindAuthoritativePlateGUID(plate, guid, unit)
+    if not plate or not guid then return false end
+
+    local existing = self.guidToPlate[guid]
+    if existing and existing ~= plate then
+        self:ClearPlateMatch(existing)
+    end
+    if plate.guid and plate.guid ~= guid then
+        self:ClearPlateMatch(plate)
+    end
+
+    return self:BindPlateGUID(plate, guid, unit)
+end
+
 function MatchTracker:IsTarget(plate)
     if not UnitExists("target") then return false end
     if self.unitToPlate["target"] == plate then return true end
@@ -237,12 +270,13 @@ function MatchTracker:UpdateSpecialUnits()
         local candidate, count
         count = 0
         for plate in pairs(self.plates) do
-            if PlateIsShown(plate) and PlateMatchesUnit(plate, unit) then
+            if PlateIsShown(plate) and PlateIdentityMatches(plate, unit) then
                 candidate = plate
                 count = count + 1
             end
         end
-        return count == 1 and candidate or nil
+        return count == 1 and candidate and PlateMatchesUnit(candidate, unit)
+            and candidate or nil
     end
 
     local function KnownGUID(unit)
@@ -254,44 +288,37 @@ function MatchTracker:UpdateSpecialUnits()
     local targetOwner, mouseoverOwner, focusOwner
 
     if UnitExists("mouseover") then
-        mouseoverOwner = KnownGUID("mouseover")
-        if not mouseoverOwner then
-            local highlighted, count = nil, 0
-            for plate in pairs(self.plates) do
-                if PlateIsShown(plate) and PlateNameMatches(plate, "mouseover")
-                    and ((plate.nativeHighlight and plate.nativeHighlight:IsShown())
-                        or (plate.frame and MouseIsOver(plate.frame))) then
-                    highlighted = plate
-                    count = count + 1
-                end
+        local hovered, hoverCount = nil, 0
+        for plate in pairs(self.plates) do
+            -- Native highlight visibility can lag UPDATE_MOUSEOVER_UNIT by a
+            -- frame. A unique physical hit-test does not make that stale-frame
+            -- guess and fails closed when overlapping hit boxes both match.
+            if PlateIsShown(plate) and PlateNameMatches(plate, "mouseover")
+                and plate.frame and MouseIsOver(plate.frame) then
+                hovered = plate
+                hoverCount = hoverCount + 1
             end
-            mouseoverOwner = count == 1 and highlighted or UniqueIdentity("mouseover")
+        end
+        if hoverCount == 1 and hovered then
+            local mouseoverGUID = UnitGUID("mouseover")
+            if mouseoverGUID then
+                self:BindAuthoritativePlateGUID(hovered, mouseoverGUID, "mouseover")
+            end
+            mouseoverOwner = hovered
+        else
+            mouseoverOwner = KnownGUID("mouseover") or UniqueIdentity("mouseover")
         end
     end
 
     if UnitExists("target") then
-        targetOwner = KnownGUID("target")
-        if not targetOwner and UnitIsUnit and mouseoverOwner
+        if UnitIsUnit and mouseoverOwner
             and UnitExists("mouseover") and UnitIsUnit("target", "mouseover") then
             targetOwner = mouseoverOwner
         end
-        if not targetOwner then
-            local alphaOwner, alphaCount = nil, 0
-            for plate in pairs(self.plates) do
-                if PlateIsShown(plate) then
-                    local alpha = plate.frame and plate.frame:GetAlpha()
-                    if alpha and alpha >= 0.999 then
-                        alphaOwner = plate
-                        alphaCount = alphaCount + 1
-                    end
-                end
-            end
-            if alphaCount == 1 and alphaOwner and PlateMatchesUnit(alphaOwner, "target") then
-                targetOwner = alphaOwner
-            else
-                targetOwner = UniqueIdentity("target")
-            end
-        end
+        -- Never infer identity from root alpha or a momentarily unique health
+        -- value. Duplicate name/level identities stay unresolved unless direct
+        -- mouseover evidence (or an existing verified GUID) identifies them.
+        targetOwner = targetOwner or KnownGUID("target") or UniqueIdentity("target")
     end
 
     if UnitExists("focus") then
@@ -328,23 +355,28 @@ function MatchTracker:UpdateGroupUnits()
             if known and PlateIsShown(known) then
                 self:BindPlateGUID(known, uGUID, unit)
             elseif uGUID then
-                -- Count candidate plates matching this unit
+                -- Count every visible plate with the same stable identity.
+                -- Do not let asynchronous health changes make one identical
+                -- plate look unique, even if another candidate is already
+                -- bound through a different token.
                 local candidate = nil
                 local count = 0
                 for plate in pairs(self.plates) do
-                    if PlateIsShown(plate) and not plate.guid and PlateMatchesUnit(plate, unit) then
+                    if PlateIsShown(plate) and PlateIdentityMatches(plate, unit) then
                         count = count + 1
                         candidate = plate
                     end
                 end
 
-                if count == 1 and candidate then
+                if count == 1 and candidate and not candidate.guid
+                    and PlateMatchesUnit(candidate, unit) then
                     -- Unambiguous unique match: bind safely
                     self:BindPlateGUID(candidate, uGUID, unit)
                 elseif count > 1 then
                     -- Multiple candidates share the same stats: FAIL CLOSED
                     for plate in pairs(self.plates) do
-                        if PlateIsShown(plate) and not plate.guid and PlateMatchesUnit(plate, unit) then
+                        if PlateIsShown(plate) and not plate.guid
+                            and PlateIdentityMatches(plate, unit) then
                             plate.isAmbiguous = true
                         end
                     end
@@ -358,8 +390,11 @@ end
 
 function MatchTracker:OnPlateShow(plate)
     self:ClearPlateMatch(plate)
-    self:UpdateSpecialUnits()
-    self:UpdateGroupUnits()
+    -- SkinPlate discovers already-visible WorldFrame children one at a time.
+    -- Resolving here would let the first of several identical plates look
+    -- unique before the rest have been registered. The main driver consumes
+    -- this flag only after the complete WorldFrame scan.
+    self.pendingFullUpdate = true
 end
 
 function MatchTracker:OnPlateHide(plate)

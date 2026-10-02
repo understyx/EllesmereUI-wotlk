@@ -29,6 +29,7 @@ end
 ns.plates = {}
 ns.legacyPlates = ns.plates
 local plates = ns.plates
+local nextPlateSortID = 0
 
 --------------------------------------------------------------------------------
 -- Font & Outline Helpers
@@ -590,6 +591,36 @@ local function SuppressTexture(region)
     end)
 end
 
+-- The stock raid/classification textures are regions of the native root frame,
+-- so they cannot be assigned an independent frame level. Mirror them onto the
+-- EUI content frame and leave the native regions alive (at alpha zero) as the
+-- authoritative texture/visibility source.
+local function CreateNativeIconMirror(source, parent)
+    if not source or not parent then return nil end
+    local mirror = parent:CreateTexture(nil, "OVERLAY")
+    mirror._nativeSource = source
+    mirror:SetTexture(source:GetTexture())
+    local ulx, uly, llx, lly, urx, ury, lrx, lry = source:GetTexCoord()
+    if ulx then mirror:SetTexCoord(ulx, uly, llx, lly, urx, ury, lrx, lry) end
+    if not source:IsShown() then mirror:Hide() end
+    SuppressTexture(source)
+    return mirror
+end
+
+local function SyncNativeIconMirror(mirror, enabled)
+    if not mirror then return end
+    local source = mirror._nativeSource
+    if not source or not enabled or not source:IsShown() then
+        mirror:Hide()
+        return
+    end
+    local texture = source:GetTexture()
+    if texture then mirror:SetTexture(texture) end
+    local ulx, uly, llx, lly, urx, ury, lrx, lry = source:GetTexCoord()
+    if ulx then mirror:SetTexCoord(ulx, uly, llx, lly, urx, ury, lrx, lry) end
+    mirror:Show()
+end
+
 --------------------------------------------------------------------------------
 -- Nameplate Frame Construction & Methods
 --------------------------------------------------------------------------------
@@ -692,13 +723,24 @@ function PlateMethods:UpdateRaidIcon()
     end
 end
 
+function PlateMethods:SyncNativeIndicators()
+    local raidPos = ns.GetRaidMarkerPos and ns.GetRaidMarkerPos() or "topright"
+    SyncNativeIconMirror(self.raidIcon, raidPos ~= "none")
+
+    local classPos = GetClassificationSlot()
+    local classEnabled = DB().showClassificationIndicator == true and classPos ~= "none"
+    SyncNativeIconMirror(self.bossIcon, classEnabled)
+    SyncNativeIconMirror(self.eliteIcon, classEnabled)
+end
+
 function PlateMethods:UpdateClassification()
     local pos = GetClassificationSlot()
     local size = GetRareEliteIconSize()
     local enabled = DB().showClassificationIndicator == true
     for _, icon in ipairs({ self.bossIcon, self.eliteIcon }) do
         if icon then
-            if not enabled or pos == "none" then
+            local source = icon._nativeSource
+            if not enabled or pos == "none" or (source and not source:IsShown()) then
                 icon:Hide()
             else
                 icon:SetSize(size, size)
@@ -804,6 +846,7 @@ function PlateMethods:ApplyAppearance()
     self:RefreshNamePosition()
     self:UpdateRaidIcon()
     self:UpdateClassification()
+    self:SyncNativeIndicators()
     if StyleAuraSlots then StyleAuraSlots(self) end
     if ns.ApplySlotStrata then ns.ApplySlotStrata(self) end
 
@@ -829,6 +872,7 @@ function PlateMethods:ApplyAppearance()
     self:UpdateHealth()
     self:ApplyScale()
     self:ApplyTarget()
+    self:SyncStrata()
     if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea(self) end
 end
 
@@ -1335,6 +1379,8 @@ local function SkinPlate(frame)
 
     -- Build plate object
     local plate = setmetatable({}, { __index = PlateMethods })
+    nextPlateSortID = nextPlateSortID + 1
+    plate.depthSortID = nextPlateSortID
     plate.frame = frame
     plate.health = health
     plate.nativeCast = nativeCast
@@ -1343,9 +1389,28 @@ local function SkinPlate(frame)
     plate.nativeFonts = fonts
     plate.nativeGlow = nativeGlow
     plate.nativeHighlight = highlight
-    plate.raidIcon = raidIcon
-    plate.bossIcon = bossIcon
-    plate.eliteIcon = eliteIcon
+    plate.nativeRaidIcon = raidIcon
+    plate.nativeBossIcon = bossIcon
+    plate.nativeEliteIcon = eliteIcon
+
+    -- All visible EUI regions that used to live directly on the native root
+    -- are hosted here. SyncStrata can therefore move the whole custom plate
+    -- into a non-overlapping depth band without modifying Blizzard's root
+    -- level (which remains our depth signal).
+    local contentFrame = CreateFrame("Frame", nil, frame)
+    contentFrame:SetAllPoints(frame)
+    plate.contentFrame = contentFrame
+
+    -- Regions share their owner's frame level, so text/arrows/indicators use
+    -- a separate overlay host while child frames remain parented to the low
+    -- band root. This keeps every child level at or above its parent's level.
+    local overlayFrame = CreateFrame("Frame", nil, contentFrame)
+    overlayFrame:SetAllPoints(frame)
+    plate.overlayFrame = overlayFrame
+
+    plate.raidIcon = CreateNativeIconMirror(raidIcon, overlayFrame)
+    plate.bossIcon = CreateNativeIconMirror(bossIcon, overlayFrame)
+    plate.eliteIcon = CreateNativeIconMirror(eliteIcon, overlayFrame)
 
     -- Preserve the stock health bar's visual centre before replacing its
     -- dimensions. Keeping the relative anchor also avoids depending on
@@ -1408,13 +1473,13 @@ local function SkinPlate(frame)
     -- managed independently of the health StatusBar.  This prevents border
     -- edge textures from one nameplate bleeding over the health-bar fill of
     -- another nameplate that shares the same engine-assigned frame level.
-    local borderFrame = CreateFrame("Frame", nil, frame)
+    local borderFrame = CreateFrame("Frame", nil, contentFrame)
     borderFrame:SetAllPoints(health)
     plate.borderFrame = borderFrame
     plate.border = CreateBorder(health, borderFrame)
 
     -- EUI Target Glow & Highlight
-    plate.targetGlowFrame = CreateTargetGlowFrame(frame, health)
+    plate.targetGlowFrame = CreateTargetGlowFrame(contentFrame, health)
     plate.targetHighlight = health:CreateTexture(nil, "OVERLAY")
     plate.targetHighlight:SetTexture(WHITE)
     plate.targetHighlight:SetAllPoints(health)
@@ -1426,31 +1491,31 @@ local function SkinPlate(frame)
     plate.hoverOverlay = health:CreateTexture(nil, "OVERLAY")
     plate.hoverOverlay:SetAllPoints(health)
     plate.hoverOverlay:Hide()
-    plate.focusLetter = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    plate.focusLetter = overlayFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     plate.focusLetter:SetText("F")
     plate.focusLetter:Hide()
 
     -- Target Arrows
-    plate.leftArrow = frame:CreateTexture(nil, "OVERLAY")
-    plate.rightArrow = frame:CreateTexture(nil, "OVERLAY")
+    plate.leftArrow = overlayFrame:CreateTexture(nil, "OVERLAY")
+    plate.rightArrow = overlayFrame:CreateTexture(nil, "OVERLAY")
     plate.leftArrow:Hide()
     plate.rightArrow:Hide()
 
     -- Text Slots
-    local nameText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local nameText = overlayFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     nameText:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 3)
     plate.nameText = nameText
     plate.textSlotTop = nameText
 
-    local textSlotRight = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local textSlotRight = overlayFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     textSlotRight:SetPoint("RIGHT", health, "RIGHT", -2, 0)
     plate.textSlotRight = textSlotRight
 
-    local textSlotLeft = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local textSlotLeft = overlayFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     textSlotLeft:SetPoint("LEFT", health, "LEFT", 2, 0)
     plate.textSlotLeft = textSlotLeft
 
-    local textSlotCenter = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local textSlotCenter = overlayFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     textSlotCenter:SetPoint("CENTER", health, "CENTER", 0, 0)
     plate.textSlotCenter = textSlotCenter
 
@@ -1460,10 +1525,10 @@ local function SkinPlate(frame)
     end
 
     -- Aura Slots
-    plate.debuffSlots = CreateAuraSlots(frame, health, 10, "debuffs")
+    plate.debuffSlots = CreateAuraSlots(contentFrame, health, 10, "debuffs")
     plate.debuffs     = plate.debuffSlots           -- alias for options compat
-    plate.buffs       = CreateAuraSlots(frame, health, 4, "buffs")
-    plate.cc          = CreateAuraSlots(frame, health, 2, "ccs")
+    plate.buffs       = CreateAuraSlots(contentFrame, health, 4, "buffs")
+    plate.cc          = CreateAuraSlots(contentFrame, health, 2, "ccs")
 
     -- Scripts & Lifecycle Hooks
     frame:HookScript("OnShow", function(self)
@@ -1564,18 +1629,64 @@ end
 local driver = CreateFrame("Frame")
 driver:Hide()
 local scanElapsed = 0
+local depthSortScratch = {}
+
+-- Native WotLK frame levels are depth-aware but are not unique: nearby units
+-- can receive the same level. Rank every visible plate so equal native levels
+-- get deterministic, non-overlapping bands. Within a native-level tie, a lower
+-- screen anchor is treated as nearer; that matches the projected ordering of
+-- ordinary ground units and, importantly, produces one whole-plate winner.
+local function UpdatePlateDepthRanks()
+    local count = 0
+    for _, plate in pairs(plates) do
+        if plate.frame:IsShown() then
+            count = count + 1
+            depthSortScratch[count] = plate
+            plate.depthNativeLevel = plate.frame:GetFrameLevel() or 0
+            local _, screenY = plate.frame:GetCenter()
+            plate.depthScreenY = screenY
+        end
+    end
+    for i = count + 1, #depthSortScratch do depthSortScratch[i] = nil end
+
+    table.sort(depthSortScratch, function(a, b)
+        local aNative = a.depthNativeLevel or 0
+        local bNative = b.depthNativeLevel or 0
+        if aNative ~= bNative then return aNative < bNative end
+
+        local aY = a.depthScreenY
+        local bY = b.depthScreenY
+        if aY and bY and aY ~= bY then return aY > bY end
+        if aY ~= nil and bY == nil then return false end
+        if aY == nil and bY ~= nil then return true end
+        return (a.depthSortID or 0) < (b.depthSortID or 0)
+    end)
+
+    for rank = 1, count do
+        depthSortScratch[rank].depthRank = rank
+    end
+end
 
 driver:SetScript("OnUpdate", function(self, elapsed)
     scanElapsed = scanElapsed + elapsed
     if scanElapsed < 0.05 then return end
     scanElapsed = 0
     ScanWorldFrame()
-    if ns.MatchTracker then ns.MatchTracker:UpdateSpecialUnits() end
+    if ns.MatchTracker then
+        if ns.MatchTracker.pendingFullUpdate then
+            ns.MatchTracker.pendingFullUpdate = nil
+            ns.MatchTracker:UpdateAll()
+        else
+            ns.MatchTracker:UpdateSpecialUnits()
+        end
+    end
+    UpdatePlateDepthRanks()
 
     -- Update active plates
     for _, plate in pairs(plates) do
         if plate.frame:IsShown() then
             plate:SyncStrata()
+            plate:SyncNativeIndicators()
             plate:UpdateHealth()
             plate:ApplyScale()
             plate:ApplyTarget()
@@ -1695,7 +1806,7 @@ end
 
 local function EnsureHitboxOverlay(plate)
     if plate.hitboxOverlay then return plate.hitboxOverlay end
-    local overlay = plate.frame:CreateTexture(nil, "OVERLAY")
+    local overlay = (plate.overlayFrame or plate.contentFrame or plate.frame):CreateTexture(nil, "OVERLAY")
     overlay:SetTexture(0.1, 0.65, 1, 0.22)
     overlay:SetBlendMode("ADD")
     overlay:Hide()
@@ -1890,51 +2001,92 @@ function ns.ApplyCastBarTexture(plate)
     end
 end
 
--- Slot strata refresh – re-raise aura frames that need it.
--- Level offsets relative to the root frame level:
---   base + 3  normal aura slots  (above borderFrame at base+2)
---   base + 21 raised aura slots  (for positions that need to clear the plate chrome)
+-- Each native depth level receives a private range of child frame levels.
+-- Without this expansion, a raised element at native base+21 can draw over a
+-- closer plate whose root is only base+1. Keep every offset below the stride.
+local PLATE_LEVEL_STRIDE = 32
+local PLATE_LEVEL_ROOT = 1
+local PLATE_LEVEL_GLOW = 3
+local PLATE_LEVEL_BAR = 4
+local PLATE_LEVEL_BORDER = 5
+local PLATE_LEVEL_CONTENT = 6
+local PLATE_LEVEL_AURA = 7
+local PLATE_LEVEL_RAISED_AURA = 24
+
+local function GetPlateDepthBase(plate)
+    local nativeLevel = plate and plate.frame and plate.frame:GetFrameLevel() or 0
+    local depthRank = plate and plate.depthRank
+    return max(0, depthRank or nativeLevel or 0) * PLATE_LEVEL_STRIDE
+end
+
+-- Slot strata refresh – re-raise aura frames that need it inside the plate's
+-- isolated depth band.
 function ns.ApplySlotStrata(plate)
     if not plate then return end
     local db = DB()
-    local base = plate.frame:GetFrameLevel()
+    local base = plate.depthFrameLevel or GetPlateDepthBase(plate)
     local groups = {
         { slots = plate.debuffSlots, pos = db.debuffSlot or ns.defaults.debuffSlot },
         { slots = plate.buffs, pos = db.buffSlot or ns.defaults.buffSlot },
         { slots = plate.cc, pos = db.ccSlot or ns.defaults.ccSlot },
     }
     for _, group in ipairs(groups) do
-        local level = base + (GetSlotRaiseStrata(group.pos) and 21 or 3)
+        local level = base + (GetSlotRaiseStrata(group.pos)
+            and PLATE_LEVEL_RAISED_AURA or PLATE_LEVEL_AURA)
         for _, slot in ipairs(group.slots or {}) do slot:SetFrameLevel(level) end
     end
 end
 
--- SyncStrata – called every OnUpdate tick to track engine-driven frame-level
--- changes on the nameplate root frame (WoW adjusts these by 3-D depth so that
--- closer units render on top).  When the level changes we re-apply all EUI
--- child frame levels so depth ordering is preserved across plates.
+-- SyncStrata – track the engine-driven native root level (WoW changes it by
+-- 3-D depth) and expand it into an isolated band. The root itself is never
+-- changed: it remains the authoritative depth signal for future updates.
 function PlateMethods:SyncStrata()
-    local base = self.frame:GetFrameLevel()
-    if base == self._lastFrameLevel then return end
-    self._lastFrameLevel = base
+    local nativeLevel = self.frame:GetFrameLevel() or 0
+    local depthRank = self.depthRank
+    local base = max(0, depthRank or nativeLevel) * PLATE_LEVEL_STRIDE
+    local expectedBarLevel = base + PLATE_LEVEL_BAR
+    local levelsIntact = self.health and self.health:GetFrameLevel() == expectedBarLevel
+        and (not self.cast or self.cast:GetFrameLevel() == expectedBarLevel)
+        and (not self.contentFrame
+            or self.contentFrame:GetFrameLevel() == base + PLATE_LEVEL_ROOT)
+        and (not self.overlayFrame
+            or self.overlayFrame:GetFrameLevel() == base + PLATE_LEVEL_CONTENT)
+        and (not self.targetGlowFrame
+            or self.targetGlowFrame:GetFrameLevel() == base + PLATE_LEVEL_GLOW)
+        and (not self.borderFrame
+            or self.borderFrame:GetFrameLevel() == base + PLATE_LEVEL_BORDER)
+        and (not self.castBorderFrame
+            or self.castBorderFrame:GetFrameLevel() == base + PLATE_LEVEL_BORDER)
+        and (not self.castIconFrame
+            or self.castIconFrame:GetFrameLevel() == base + PLATE_LEVEL_CONTENT)
+    if nativeLevel == self._lastNativeFrameLevel
+        and depthRank == self._lastDepthRank and levelsIntact then return end
 
-    -- Frame-level hierarchy within one plate (all relative to the engine-set
-    -- root level so depth ordering is preserved across overlapping plates):
-    --   base + 1  targetGlowFrame             – ADD-blend glow behind health fill
-    --   base + 2  borderFrame / castBorderFrame – edge lines above bar fills
-    --   base + 3 … +22  aura slots             – icons above the plate chrome
+    self._lastNativeFrameLevel = nativeLevel
+    self._lastDepthRank = depthRank
+    self.depthFrameLevel = base
+
+    if self.contentFrame then
+        self.contentFrame:SetFrameLevel(base + PLATE_LEVEL_ROOT)
+    end
+    if self.overlayFrame then
+        self.overlayFrame:SetFrameLevel(base + PLATE_LEVEL_CONTENT)
+    end
+    if self.health then self.health:SetFrameLevel(expectedBarLevel) end
+    if self.cast then self.cast:SetFrameLevel(expectedBarLevel) end
     if self.targetGlowFrame then
-        self.targetGlowFrame:SetFrameLevel(base + 1)
+        self.targetGlowFrame:SetFrameLevel(base + PLATE_LEVEL_GLOW)
     end
     if self.borderFrame then
-        self.borderFrame:SetFrameLevel(base + 2)
+        self.borderFrame:SetFrameLevel(base + PLATE_LEVEL_BORDER)
     end
     if self.castBorderFrame then
-        self.castBorderFrame:SetFrameLevel(base + 2)
+        self.castBorderFrame:SetFrameLevel(base + PLATE_LEVEL_BORDER)
+    end
+    if self.castIconFrame then
+        self.castIconFrame:SetFrameLevel(base + PLATE_LEVEL_CONTENT)
     end
 
-    -- Re-raise aura slot frames (handles debuffs / buffs / cc via the
-    -- existing helper which already reads the per-slot "raise strata" pref).
     if ns.ApplySlotStrata then ns.ApplySlotStrata(self) end
 end
 
