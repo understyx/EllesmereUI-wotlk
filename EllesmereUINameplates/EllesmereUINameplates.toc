@@ -9,12 +9,9 @@
 ## SavedVariables: EllesmereUINameplatesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
-# Main Luas
+EllesmereUINameplates_Data.lua
+EllesmereUINameplates_MatchTracker.lua
+EllesmereUINameplates_Cast.lua
+EllesmereUINameplates_AuraTracker.lua
 EllesmereUINameplates.lua
-EllesmereUINameplates_Legacy.lua
-EUI_Nameplates_AuraContainers.lua
-EllesmereUINameplatesFriendly.lua
-EllesmereUINameplates_CastOverlay.lua
-
-# Options
 EUI_Nameplates_Options.lua

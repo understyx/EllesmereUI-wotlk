@@ -4166,3 +4166,72 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+--------------------------------------------------------------------------------
+--  Purge retail-only Nameplates keys (WotLK 3.3.5 migration)
+--------------------------------------------------------------------------------
+local RETAIL_NP_KEYS = {
+    "questMobColorEnabled",
+    "questMobColor",
+    "replaceQuestIconWithObjective",
+    "questObjectiveTextSize",
+    "showClassPower",
+    "classPowerPos",
+    "classPowerYOffset",
+    "classPowerXOffset",
+    "classPowerScale",
+    "classPowerClassColors",
+    "classPowerCustomColor",
+    "classPowerBgColor",
+    "classPowerEmptyColor",
+    "classPowerGap",
+    "classPowerShape",
+    "classPowerBorder",
+    "classPowerBorderColor",
+    "classPowerBorderSize",
+    "owBasicColoring",
+    "showCastLockoutAsCrowdControl",
+    "friendlyNamesNotClickable",
+    "lineOfSightOpacity",
+    "fullColoringMPlusOnly",
+    "miniColoringMPlusOnly",
+}
+
+function EllesmereUI.SanitizeNameplatesProfile(np)
+    if type(np) ~= "table" then return end
+    for _, k in ipairs(RETAIL_NP_KEYS) do
+        np[k] = nil
+    end
+    if type(np._presets) == "table" then
+        for _, preset in pairs(np._presets) do
+            if type(preset) == "table" then
+                for _, k in ipairs(RETAIL_NP_KEYS) do
+                    preset[k] = nil
+                end
+            end
+        end
+    end
+    if type(np._color_presets) == "table" then
+        for _, preset in pairs(np._color_presets) do
+            if type(preset) == "table" then
+                for _, k in ipairs(RETAIL_NP_KEYS) do
+                    preset[k] = nil
+                end
+            end
+        end
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "nameplates_wotlk_purge_retail_keys_v1",
+    scope       = "profile",
+    description = "Prune retired retail keys from EllesmereUINameplates in all profiles.",
+    body        = function(ctx)
+        local profData = ctx.profile
+        if not profData or type(profData.addons) ~= "table" then return end
+        local np = profData.addons["EllesmereUINameplates"]
+        if type(np) == "table" then
+            EllesmereUI.SanitizeNameplatesProfile(np)
+        end
+    end,
+})
