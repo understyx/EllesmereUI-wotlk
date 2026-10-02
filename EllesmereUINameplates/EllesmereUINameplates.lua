@@ -1764,6 +1764,9 @@ function ns.NT_Apply(plate)
     plate.visualNameOnly = plate.nameOnly
 
     plate.health:SetAlpha(plate.nameOnly and 0 or alpha)
+    if plate.borderFrame then
+        plate.borderFrame:SetAlpha(plate.nameOnly and 0 or alpha)
+    end
     if plate.cast then plate.cast:SetAlpha(alpha) end
     if plate.targetGlowFrame then plate.targetGlowFrame:SetAlpha(alpha) end
     if plate.targetHighlight then plate.targetHighlight:SetAlpha(alpha) end
