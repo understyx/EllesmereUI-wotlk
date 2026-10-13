@@ -50,6 +50,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 20,
     spellID = 48477,
+    spellIDs = { 20484, 20739, 20742, 20747, 20748, 26994, 48477 },
     iconSpellID = 48477,
     trackingType = "cooldown",
 })
@@ -107,7 +108,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 60,
     spellID = 61384,
-    spellIDs = { 50516, 53223, 53225, 61384 },
+    spellIDs = { 50516, 53223, 53225, 53226, 61384 },
     iconSpellID = 61384,
     trackingType = "cooldown",
     resolvers = {
@@ -227,6 +228,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 130,
     spellID = 48447,
+    spellIDs = { 740, 8918, 9862, 9863, 26983, 48446, 48447 },
     iconSpellID = 48447,
     trackingType = "cooldown",
 })
@@ -274,6 +276,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 30,
     spellID = 33357,
+    spellIDs = { 1850, 9821, 33357 },
     iconSpellID = 33357,
     trackingType = "cooldown",
 })
@@ -284,6 +287,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 40,
     spellID = 8983,
+    spellIDs = { 5211, 6798, 8983 },
     iconSpellID = 8983,
     trackingType = "cooldown",
 })
@@ -324,6 +328,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 80,
     spellID = 50213,
+    spellIDs = { 5217, 6793, 9845, 9846, 50212, 50213 },
     iconSpellID = 50213,
     trackingType = "cooldown",
 })
@@ -334,6 +339,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 90,
     spellID = 49802,
+    spellIDs = { 22570, 49802 },
     iconSpellID = 49802,
     trackingType = "cooldown",
 })
@@ -422,6 +428,7 @@ Register({
     category = CDM_CATEGORY_BUFF_BAR,
     order = 10,
     spellID = 48469,
+    spellIDs = { 1126, 5232, 6756, 5234, 8907, 9884, 9885, 26990, 48469 },
     auraSpellID = 48469,
     iconSpellID = 48469,
     trackingType = "aura",
@@ -435,6 +442,7 @@ Register({
     category = CDM_CATEGORY_BUFF_BAR,
     order = 20,
     spellID = 53307,
+    spellIDs = { 467, 782, 1075, 8914, 9756, 9910, 26992, 53307 },
     auraSpellID = 53307,
     iconSpellID = 53307,
     trackingType = "aura",

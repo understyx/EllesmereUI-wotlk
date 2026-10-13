@@ -903,6 +903,26 @@ function C_CooldownViewer.RegisterDefinition(def)
         return
     end
 
+    -- When the tracked aura is the cast spell itself, every rank in spellIDs
+    -- is an equivalent aura identity. Without this a character still on a
+    -- lower rank (or buffed by someone who is) never matches the aura.
+    local tracksAura = def.trackingType == "aura" or def.trackingType == "debuff"
+        or def.trackingType == "cooldown_and_aura"
+        or def.trackingType == "cooldown_and_debuff"
+    if tracksAura and def.spellIDs
+        and (def.auraSpellID == nil or def.auraSpellID == def.spellID) then
+        local merged, seen = {}, {}
+        for _, list in ipairs({ def.auraSpellIDs or {}, def.spellIDs }) do
+            for _, id in ipairs(list) do
+                if not seen[id] then
+                    seen[id] = true
+                    merged[#merged + 1] = id
+                end
+            end
+        end
+        def.auraSpellIDs = merged
+    end
+
     local raidCatalog = EllesmereUI and EllesmereUI.RaidCooldownCatalog
     if raidCatalog and raidCatalog.MergeCDMDefinition then
         raidCatalog:MergeCDMDefinition(def)
@@ -1419,15 +1439,32 @@ local function BuildLearnedSpellbookIndex()
     return learnedIDs, fallbackKeys, learnedTalentNames
 end
 
-local function IsDefinitionSpellKnown(spellID, learnedIDs, fallbackKeys, learnedTalentNames)
+local function IsDefinitionSpellKnown(spellID, learnedIDs, fallbackKeys, learnedTalentNames, strict)
     if IsSpellKnown and IsSpellKnown(spellID) then return true end
     if learnedIDs[spellID] then return true end
     local name, rank
     if GetSpellInfo then name, rank = GetSpellInfo(spellID) end
     if not name then return false end
     local key = rank and (name .. "\31" .. rank) or name
-    return fallbackKeys[key] == true or fallbackKeys[name] == true
-        or learnedTalentNames[name] == true
+    if fallbackKeys[key] == true then return true end
+    -- Name-only matches cannot tell ranks apart; rank walks skip them on
+    -- their first (strict) pass.
+    if strict then return false end
+    return fallbackKeys[name] == true or learnedTalentNames[name] == true
+end
+
+-- Highest learned rank in a newest-last spellIDs list. The strict pass picks
+-- the exact rank; the loose pass keeps talent-only clients working.
+local function FindHighestKnownRank(spellIDs, learnedIDs, fallbackKeys, learnedTalentNames)
+    for _, strict in ipairs({ true, false }) do
+        for i = #spellIDs, 1, -1 do
+            local sID = spellIDs[i]
+            if IsDefinitionSpellKnown(sID, learnedIDs, fallbackKeys, learnedTalentNames, strict) then
+                return sID
+            end
+        end
+    end
+    return nil
 end
 
 local function ReevaluateAvailability()
@@ -1452,15 +1489,20 @@ local function ReevaluateAvailability()
                 if resolved then
                     isKnown = true
                     activeSpellID = resolved
+                    -- Resolvers gate on the talent but return a fixed (max)
+                    -- rank. Prefer the highest rank actually learned so
+                    -- characters below max level track the spell they cast.
+                    if def.spellIDs then
+                        activeSpellID = FindHighestKnownRank(def.spellIDs,
+                            learnedIDs, fallbackKeys, learnedTalentNames) or resolved
+                    end
                 end
             elseif def.spellIDs then
-                for i = #def.spellIDs, 1, -1 do
-                    local sID = def.spellIDs[i]
-                    if IsDefinitionSpellKnown(sID, learnedIDs, fallbackKeys, learnedTalentNames) then
-                        isKnown = true
-                        activeSpellID = sID
-                        break
-                    end
+                local sID = FindHighestKnownRank(def.spellIDs,
+                    learnedIDs, fallbackKeys, learnedTalentNames)
+                if sID then
+                    isKnown = true
+                    activeSpellID = sID
                 end
             elseif def.spellID then
                 if IsDefinitionSpellKnown(def.spellID, learnedIDs, fallbackKeys, learnedTalentNames) then

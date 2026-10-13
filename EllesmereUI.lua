@@ -6863,8 +6863,12 @@ local function CreateMainFrame()
     bgFrame:EnableMouse(false)
     bgFrame:SetAlpha(1)  -- mainFrame controls overall window opacity
 
+    -- Wrath's CreateTexture ignores the sub-level argument, so equal draw
+    -- layers have no guaranteed order and the opaque shadow could cover the
+    -- theme artwork. Separate layers fix the order: shadow BACKGROUND, idle
+    -- art BORDER, incoming art ARTWORK.
     -- Permanent base background: backdrop shadow (always visible behind everything)
-    local bgBase = bgFrame:CreateTexture(nil, "BACKGROUND", nil, -1)
+    local bgBase = bgFrame:CreateTexture(nil, "BACKGROUND")
     bgBase:SetTexture(MEDIA_PATH .. "backgrounds\\eui-bg-wotlk.tga")
     bgBase:SetTexCoord(0, 1, 0, 788 / 1024)
     bgBase:SetAllPoints()
@@ -6873,12 +6877,12 @@ local function CreateMainFrame()
     -- Two background layers for crossfading (A = current, B = incoming)
     -- Only the active layer has a texture set; the idle layer is cleared
     -- after each transition to free GPU memory.
-    local bgA = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 0)
+    local bgA = bgFrame:CreateTexture(nil, "ARTWORK")
     bgA:SetAllPoints()
     bgA:SetTexCoord(0, 1, 0, 788 / 1024)
     bgA:SetAlpha(1)
 
-    local bgB = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
+    local bgB = bgFrame:CreateTexture(nil, "BORDER")
     bgB:SetAllPoints()
     bgB:SetTexCoord(0, 1, 0, 788 / 1024)
     bgB:SetAlpha(0)
@@ -6951,11 +6955,11 @@ local function CreateMainFrame()
         -- idle layer -- SetTexture here replaces whatever was left over.
         bgFront:SetTexture(newPath)
         ApplyBgTintToLayer(bgFront, theme, r, g, b)
-        bgFront:SetDrawLayer("BACKGROUND", 1)
+        bgFront:SetDrawLayer("ARTWORK")
         bgFront:SetAlpha(0)
 
         -- Old layer stays fully solid underneath
-        bgBack:SetDrawLayer("BACKGROUND", 0)
+        bgBack:SetDrawLayer("BORDER")
         bgBack:SetAlpha(1)
 
         -- Start crossfade

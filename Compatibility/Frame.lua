@@ -721,8 +721,41 @@ function EUI.API.FireEvent(event, ...)
     end
 end
 
+-- Retail's CreateTexture takes a draw sub-level as its fourth argument; when
+-- the client drops it, equal draw layers have no defined order and textures
+-- meant to sit underneath can render on top. If SetDrawLayer still honors
+-- sub-levels, apply the requested one after creation. Installed per EUI frame
+-- only, so Blizzard code never runs through the wrapper.
+local TextureSubLevelCompat
+do
+    local probeFrame = CreateFrame("Frame")
+    local native = probeFrame:CreateTexture(nil, "BACKGROUND", nil, 3)
+    local _, nativeSub = native:GetDrawLayer()
+    if nativeSub ~= 3 and native.SetDrawLayer then
+        native:SetDrawLayer("BACKGROUND", 3)
+        local _, appliedSub = native:GetDrawLayer()
+        if appliedSub == 3 then
+            TextureSubLevelCompat = function(self, name, layer, inheritsFrom, subLevel)
+                local methods = getmetatable(self).__index
+                local tex = methods.CreateTexture(self, name, layer, inheritsFrom)
+                if tex and subLevel then
+                    if subLevel < -8 then subLevel = -8 elseif subLevel > 7 then subLevel = 7 end
+                    tex:SetDrawLayer(layer or "ARTWORK", subLevel)
+                end
+                return tex
+            end
+        end
+    end
+    native:Hide()
+    probeFrame:Hide()
+end
+
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
+
+    if TextureSubLevelCompat and rawget(frame, "CreateTexture") == nil then
+        frame.CreateTexture = TextureSubLevelCompat
+    end
 
     if not frame.CreateLine then
         frame.CreateLine = function(self, name, layer, inheritsFrom, subLayer)
@@ -1412,6 +1445,48 @@ local function PatchWidgetMetatable(obj)
         if isCooldown or obj.SetCooldown then
             ApplyCooldownCompat(obj)
         end
+    end
+end
+
+-- Probe before the StatusBar metatable gains the SetReverseFill stub below.
+local nativeReverseFill
+do
+    local probe = CreateFrame("StatusBar")
+    nativeReverseFill = probe.SetReverseFill ~= nil
+    probe:Hide()
+end
+EUI.API.NativeReverseFill = nativeReverseFill
+
+-- Show `value` of `maxValue` on a StatusBar anchored on ONE horizontal side
+-- (e.g. TOPRIGHT + BOTTOMRIGHT) whose full extent is `fullWidth` pixels.
+-- Retail-era overlay code (absorbs, heal absorbs) relies on SetReverseFill and
+-- SetClipsChildren, neither of which renders on 3.3.5: a "reverse" bar still
+-- fills from its LEFT edge, which sits outside the health bar, and the clip
+-- frames do not clip, so the segment spills past the frame. On legacy clients
+-- the bar itself is sized to the segment and filled completely, so it grows
+-- from the anchored side exactly like a native reverse fill. Callers clamp
+-- `value` to the space the segment may occupy.
+function EUI.API.SetBarSegment(bar, value, maxValue, fullWidth)
+    if not bar then return end
+    value = tonumber(value) or 0
+    maxValue = tonumber(maxValue) or 0
+    if nativeReverseFill then
+        bar:SetWidth(fullWidth)
+        bar:SetMinMaxValues(0, maxValue)
+        bar:SetValue(value)
+        return
+    end
+    local width = 0
+    if maxValue > 0 and value > 0 and fullWidth and fullWidth > 0 then
+        width = fullWidth * math.min(value, maxValue) / maxValue
+    end
+    bar:SetMinMaxValues(0, 1)
+    if width < 0.5 then
+        bar:SetWidth(1)
+        bar:SetValue(0)
+    else
+        bar:SetWidth(width)
+        bar:SetValue(1)
     end
 end
 

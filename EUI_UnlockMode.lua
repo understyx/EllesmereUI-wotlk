@@ -164,9 +164,11 @@ if not EllesmereUI.ReapplyOwnAnchor then
             end
         end
 
+        -- Offsets are in UIParent units; convert into the child's own scale.
         local uiW, uiH = UIParent:GetSize()
-        local centerX = cx - uiW / 2
-        local centerY = cy - uiH / 2
+        local toChild = cS > 0 and uiS / cS or 1
+        local centerX = (cx - uiW / 2) * toChild
+        local centerY = (cy - uiH / 2) * toChild
 
         -- No explicit snap: the center was computed from pixel-aligned target
         -- edges and pixel-aligned child dimensions. Snapping here introduces

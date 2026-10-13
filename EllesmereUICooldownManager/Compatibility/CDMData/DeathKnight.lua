@@ -443,6 +443,7 @@ C_CooldownViewer.RegisterDefinition({
     order = 10,
 
     spellID = 57623,
+    spellIDs = { 57330, 57623 },
     auraSpellID = 57623,
     iconSpellID = 57623,
 

@@ -176,6 +176,7 @@ C_CooldownViewer.RegisterDefinition({
     order = 10,
 
     spellID = 11578,
+    spellIDs = { 100, 6178, 11578 },
     iconSpellID = 11578,
     trackingType = "cooldown",
 
@@ -349,6 +350,7 @@ C_CooldownViewer.RegisterDefinition({
 
     spellID = 12970,
     auraSpellID = 12970,
+    auraSpellIDs = { 12966, 12967, 12968, 12969, 12970 },
     iconSpellID = 12970,
 
     trackingType = "aura",
@@ -399,6 +401,7 @@ C_CooldownViewer.RegisterDefinition({
     order = 10,
 
     spellID = 47436,
+    spellIDs = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 2048, 47436 },
     auraSpellID = 47436,
     iconSpellID = 47436,
 
@@ -416,6 +419,7 @@ C_CooldownViewer.RegisterDefinition({
     order = 20,
 
     spellID = 47440,
+    spellIDs = { 469, 47439, 47440 },
     auraSpellID = 47440,
     iconSpellID = 47440,
 
@@ -457,4 +461,4 @@ RegisterBasic("retaliation",      101032, 170, { 20230 }, CDM_CATEGORY_ESSENTIAL
 RegisterBasic("sweeping_strikes", 101033, 180, { 12328 })
 RegisterBasic("heroic_fury",      101034, 130, { 60970 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("taunt",            101035, 140, { 355 }, CDM_CATEGORY_UTILITY)
-RegisterBasic("shield_bash",      101036, 150, { 72, 1671, 1672, 29704 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("shield_bash",      101036, 150, { 72 }, CDM_CATEGORY_UTILITY)

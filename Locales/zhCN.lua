@@ -5444,7 +5444,7 @@ L["This will create a fully unique Buff Manager for this override group. Your cu
 
 --专精覆盖鼠标提示（tooltip）
 L["Switch to a spec in this group to customize its Unlock Mode"] = "切换到此组中的某个专精进行自定义"
-L["Edit normally: changes apply to your current spec"] = "正常编辑：更改将应用于你当前的专精。"
+L["Edit the shared baseline: changes apply to every spec without its own override"] = "编辑共享基准：更改将应用于所有没有自身覆盖设置的专精。"
 L["Settings Overrides"] = "设置覆盖"
 L["Edit Override Group"] = "编辑覆盖组"
 L["Delete Override Group"] = "删除覆盖组"

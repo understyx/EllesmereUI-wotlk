@@ -57,22 +57,59 @@ local function CollectInspectGlyphs(unit)
             local spellName, _, icon = GetSpellInfo(spellID)
             local itemID = EllesmereUI and EllesmereUI.GetGlyphItemID and (EllesmereUI.GetGlyphItemID(spellID) or (spellName and EllesmereUI.GetGlyphItemID(spellName)))
             local glyphMeta = itemID and EllesmereUI and EllesmereUI.GetGlyphData and EllesmereUI.GetGlyphData(itemID)
+            local glyphType
             if glyphMeta then
                 if not spellName or spellName == "" then spellName = glyphMeta.name end
-                if (not icon or icon == "" or icon == "Interface\\Icons\\INV_Misc_QuestionMark") and glyphMeta.icon and glyphMeta.icon ~= "" then
+                -- Glyph spells use a generic cog icon; the glyph item icon is
+                -- the recognisable major/minor glyph art.
+                if glyphMeta.icon and glyphMeta.icon ~= "" then
                     icon = "Interface\\Icons\\" .. glyphMeta.icon
                 end
+                if glyphMeta.type == "minor" then
+                    glyphType = GLYPH_TYPE_MINOR
+                elseif glyphMeta.type == "major" then
+                    glyphType = GLYPH_TYPE_MAJOR
+                end
             end
-            glyphs[socket] = {
+            if itemID and type(_G.GetItemIcon) == "function" and not (glyphMeta and glyphMeta.icon) then
+                icon = _G.GetItemIcon(itemID) or icon
+            end
+            glyphs[#glyphs + 1] = {
                 spellID = spellID,
                 itemID = itemID,
+                glyphType = glyphType,
                 name = spellName or EllesmereUI.Lf("Spell ID %d", spellID),
                 icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark",
             }
             count = count + 1
         end
     end
-    return glyphs, count
+
+    -- LibGroupTalents sends glyphs as a packed list without socket positions,
+    -- so assign them to sockets by glyph type instead of list order.
+    local bySocket, pending = {}, {}
+    for _, glyph in ipairs(glyphs) do
+        local placed = false
+        if glyph.glyphType then
+            for socket = 1, MAX_GLYPH_SOCKETS do
+                if not bySocket[socket] and GetInspectGlyphType(socket) == glyph.glyphType then
+                    bySocket[socket] = glyph
+                    placed = true
+                    break
+                end
+            end
+        end
+        if not placed then pending[#pending + 1] = glyph end
+    end
+    for _, glyph in ipairs(pending) do
+        for socket = 1, MAX_GLYPH_SOCKETS do
+            if not bySocket[socket] then
+                bySocket[socket] = glyph
+                break
+            end
+        end
+    end
+    return bySocket, count
 end
 
 local function HideNativeInspectPages()

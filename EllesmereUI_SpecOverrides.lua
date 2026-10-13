@@ -76,8 +76,6 @@ local FOLDER_BLACKLIST = {
     EllesmereUIQoL               = true,
     EllesmereUIRaidCooldowns     = true,
     EllesmereUIAuraBuffReminders = true,
-    EllesmereUISwingBars         = true,
-    EllesmereUICooldownManager   = true, -- owns its profile-layout/spec-content split
     -- Minimap + Chat remain override-eligible; their engine-coupled settings
     -- are excluded per-path via SETTING_BLACKLIST below.
 }
@@ -92,6 +90,7 @@ local FOLDER_BLACKLIST = {
 -- overrode a Minimap setting.
 local REFRESH_FNS = {
     EllesmereUICooldownManager   = { "_ECME_Apply" },
+    EllesmereUISwingBars         = { "_ESB_Apply" },
     EllesmereUIMinimap           = { "_EMM_FullRebuildMinimap" },
     EllesmereUIResourceBars      = { "_ERB_Apply" },
     EllesmereUIActionBars        = { "_EAB_Apply" },
@@ -310,7 +309,16 @@ local function DBFor(folder)
     local reg = EllesmereUI.Lite and EllesmereUI.Lite._dbRegistry
     if not reg then return nil end
     for _, db in ipairs(reg) do
-        if db.folder == folder then return db.profile end
+        if db.folder == folder then
+            if folder == "EllesmereUICooldownManager" then
+                local ecme = _G.ECME
+                local cdmBars = ecme and ecme.GetActiveCDMConfig and ecme:GetActiveCDMConfig()
+                if cdmBars and db.profile then
+                    db.profile.cdmBars = cdmBars
+                end
+            end
+            return db.profile
+        end
     end
     return nil
 end
@@ -518,7 +526,15 @@ local function HasRegisteredDefault(fkey)
     if not reg then return false end
     local t
     for _, db in ipairs(reg) do
-        if db.folder == folder then t = db._profileDefaults; break end
+        if db.folder == folder then
+            t = db._profileDefaults
+            if folder == "EllesmereUICooldownManager" and t and not t.cdmBars then
+                if _G._ECME_SpecDefaults then
+                    t.cdmBars = _G._ECME_SpecDefaults.cdmBars
+                end
+            end
+            break
+        end
     end
     if type(t) ~= "table" then return false end
     local segs = { strsplit(PS, path) }
@@ -1461,20 +1477,18 @@ end
 
 local function LayerSkipsKey(key)
     if type(key) ~= "string" then return true end
-    if key:sub(1, 4) == "CDM_" or key:sub(1, 4) == "TBB_"
-       or key:sub(1, 5) == "TBBG_" then
+    if key:sub(1, 4) == "TBB_" or key:sub(1, 5) == "TBBG_" then
         return true
     end
     local abk = EllesmereUI._abBarKeys
     return (abk and abk[key]) and true or false
 end
 
--- CDM and Tracking Bar CHILD-role link entries are per-spec data owned by
+-- TBB Tracking Bar CHILD-role link entries are per-spec data owned by
 -- CDM's link buckets. Layers never carry or wipe them. Entries where one of
 -- these keys is only the TARGET live under the child's key and remain managed.
 local function IsSpecOwnedCDMKey(key)
-    return type(key) == "string"
-        and (key:find("^TBB_%d+$") ~= nil or key:find("^CDM_.+$") ~= nil)
+    return type(key) == "string" and key:find("^TBB_%d+$") ~= nil
 end
 
 local function HarvestLayer()
@@ -2707,8 +2721,10 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIQoL"]               = true,   -- whole module (supersedes the old page scopes)
     ["EllesmereUIRaidCooldowns"]     = true,   -- owns group visibility by class/spec/role
     ["EllesmereUIAuraBuffReminders"] = true,
-    ["EllesmereUISwingBars"]         = true,
-    ["EllesmereUICooldownManager"] = true,
+    ["EllesmereUICooldownManager"] = {
+        ["Bar Glows"] = true,
+        ["Tracking Bars"] = true,
+    },
     -- Raid Frames: HoverCast bindings live in the account-global clickCast
     -- store (never per-profile), so overrides can't apply to them.
     ["EllesmereUIRaidFrames"] = {
@@ -3708,6 +3724,13 @@ local function SnapshotProfiles()
     if not reg then return snap end
     for _, db in ipairs(reg) do
         if db.folder and type(db.profile) == "table" then
+            if db.folder == "EllesmereUICooldownManager" then
+                local ecme = _G.ECME
+                local cdmBars = ecme and ecme.GetActiveCDMConfig and ecme:GetActiveCDMConfig()
+                if cdmBars then
+                    db.profile.cdmBars = cdmBars
+                end
+            end
             snap[db.folder] = DeepCopy(db.profile)
         end
     end
@@ -4295,9 +4318,7 @@ local function AutoCapture(changes)
     end
     if #paths == 0 then
         if skippedBlack then
-            if skippedBlack == "EllesmereUICooldownManager" then
-                SetEditStatus(L("Cooldown Manager has its own per-spec system and can't be overridden here."), 1, 0.55, 0.35)
-            elseif FOLDER_BLACKLIST[skippedBlack] then
+            if FOLDER_BLACKLIST[skippedBlack] then
                 SetEditStatus(L("This module is excluded from Spec Overrides."), 1, 0.55, 0.35)
             else
                 -- Setting-level exclusion (SETTING_BLACKLIST hit).
@@ -5861,7 +5882,7 @@ RefreshCardsPopup = function()
         name = L("Default Editing Mode"),
         active = not _editGroup and not Cond._edit,
         iconApply = function(tex) ApplyGroupIcon(tex, nil) end,
-        tooltip = L("Edit normally: changes apply to your current spec"),
+        tooltip = L("Edit the shared baseline: changes apply to every spec without its own override"),
         onClick = function()
             ExitGroupEdit()
             if Cond.ExitEdit then Cond.ExitEdit() end

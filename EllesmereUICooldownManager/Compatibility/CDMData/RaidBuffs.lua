@@ -92,6 +92,7 @@ local function Register(providerClass, key, spellID, auraSpellIDs, recipients, o
         linkedSpellIDs = auraSpellIDs,
         iconSpellID = options.iconSpellID or spellID,
         displayName = options.displayName,
+        pickerHidden = options.pickerHidden,
 
         trackingType = "aura",
         hasAura = true,
@@ -114,130 +115,196 @@ end
 
 -------------------------------------------------------------------------------
 -- Core raid buffs
+--
+-- WotLK raid bonuses from different classes often do not stack with each
+-- other. Each such effect is one row whose aura list holds every provider and
+-- rank, so the row follows whatever the raid actually supplied. Rows that a
+-- group row has absorbed stay registered (cooldownIDs are sequential and saved
+-- bar assignments must keep resolving) but are hidden from the picker.
+--
+-- Totem rows list the recipient-side buff auras, not the summon spells: the
+-- summon never appears on the player.
 -------------------------------------------------------------------------------
 
+local MARK_OF_THE_WILD = { 1126, 5232, 6756, 5234, 8907, 9884, 9885, 26990, 48469 }
+local GIFT_OF_THE_WILD = { 21849, 21850, 26991, 48470 }
+local POWER_WORD_FORTITUDE = { 1243, 1244, 1245, 2791, 10937, 10938, 25389, 48161 }
+local PRAYER_OF_FORTITUDE = { 21562, 21564, 25392, 48162 }
+local DIVINE_SPIRIT = { 14752, 14818, 14819, 27841, 25312, 48073 }
+local PRAYER_OF_SPIRIT = { 27681, 32999, 48074 }
+local SHADOW_PROTECTION = { 976, 10957, 10958, 25433, 48169 }
+local PRAYER_OF_SHADOW_PROTECTION = { 27683, 39374, 48170 }
+local ARCANE_INTELLECT = { 1459, 1460, 1461, 10156, 10157, 27126, 42995 }
+local ARCANE_BRILLIANCE = { 23028, 27127, 43002 }
+local DALARAN_INTELLECT = { 61024, 61316 }
+local FEL_INTELLIGENCE = { 54424, 57564, 57565, 57566, 57567 }
+local BLESSING_OF_MIGHT = { 19740, 19834, 19835, 19836, 19837, 19838, 25291, 27140, 48931, 48932 }
+local GREATER_BLESSING_OF_MIGHT = { 25782, 25916, 27141, 48933, 48934 }
+local BLESSING_OF_WISDOM = { 19742, 19850, 19852, 19853, 19854, 25290, 27142, 48935, 48936 }
+local GREATER_BLESSING_OF_WISDOM = { 25894, 25918, 27143, 48937, 48938 }
+local BATTLE_SHOUT = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 2048, 47436 }
+local COMMANDING_SHOUT = { 469, 47439, 47440 }
+local BLOOD_PACT = { 6307, 7804, 7805, 11766, 11767, 27268, 47982 }
+local HORN_OF_WINTER = { 57330, 57623 }
+local STRENGTH_OF_EARTH = { 8076, 8162, 8163, 10441, 25362, 25527, 57621, 58646 }
+local MANA_SPRING = { 5677, 10491, 10493, 10494, 25569, 58775, 58776, 58777 }
+local DEVOTION_AURA = { 465, 10290, 643, 10291, 1032, 10292, 10293, 27149, 48941, 48942 }
+local STONESKIN = { 8072, 8156, 8157, 10403, 10404, 10405, 25506, 25507, 58752, 58754 }
+local SHADOW_RESISTANCE_AURA = { 19876, 19895, 19896, 27151, 48943 }
+local FIRE_RESISTANCE_AURA = { 19891, 19899, 19900, 27153, 48947 }
+local FIRE_RESISTANCE_TOTEM = { 8185, 10534, 10535, 25562, 58738, 58740 }
+local FROST_RESISTANCE_AURA = { 19888, 19897, 19898, 27152, 48945 }
+local FROST_RESISTANCE_TOTEM = { 8182, 10476, 10477, 25559, 58742, 58744 }
+local ASPECT_OF_THE_WILD = { 20043, 20190, 27045, 49071 }
+local NATURE_RESISTANCE_TOTEM = { 10596, 10598, 10599, 25573, 58748, 58750 }
+
+local function Merge(...)
+    local merged = {}
+    for i = 1, select("#", ...) do
+        local list = select(i, ...)
+        if type(list) == "number" then
+            merged[#merged + 1] = list
+        else
+            for _, id in ipairs(list) do merged[#merged + 1] = id end
+        end
+    end
+    return merged
+end
+
+-- Stats, armor, resistances
 Register("DRUID", "mark_of_the_wild", 48469,
-    { 48469, 48470, 1126, 21849, 69381 }, ALL,
+    Merge(MARK_OF_THE_WILD, GIFT_OF_THE_WILD, 69381), ALL,
     { section = "raid", excludeProvider = true })
 
 Register("PRIEST", "power_word_fortitude", 48161,
-    { 48161, 48162, 1243, 21562, 69377 }, ALL,
+    Merge(POWER_WORD_FORTITUDE, PRAYER_OF_FORTITUDE, 69377), ALL,
     { section = "raid" })
 
-Register("PRIEST", "divine_spirit", 48073,
-    { 48073, 48074, 14752, 27681 }, MANA,
-    { section = "raid" })
+-- Fel Intelligence shares a slot with both Divine Spirit and Arcane
+-- Intellect, so it belongs to both rows.
+Register(nil, "divine_spirit", 48073,
+    Merge(DIVINE_SPIRIT, PRAYER_OF_SPIRIT, FEL_INTELLIGENCE), MANA,
+    { section = "raid", displayName = "Spirit" })
 
-Register("PRIEST", "shadow_protection", 48169,
-    { 48169, 48170, 976, 27683 }, ALL,
-    { section = "raid" })
+Register(nil, "shadow_protection", 48169,
+    Merge(SHADOW_PROTECTION, PRAYER_OF_SHADOW_PROTECTION, SHADOW_RESISTANCE_AURA), ALL,
+    { section = "raid", displayName = "Shadow Resistance" })
 
-Register("MAGE", "arcane_intellect", 42995,
-    { 42995, 43002, 1459, 23028, 61024, 61316 }, MANA,
-    { section = "raid", excludeProvider = true })
+Register(nil, "arcane_intellect", 42995,
+    Merge(ARCANE_INTELLECT, ARCANE_BRILLIANCE, DALARAN_INTELLECT, FEL_INTELLIGENCE), MANA,
+    { section = "raid", displayName = "Intellect" })
 
 Register("PALADIN", "blessing_of_kings", 25898,
     { 20217, 25898, 69378 }, ALL,
     { section = "raid", excludeProvider = true })
 
+-- Absorbed by "attack_power".
 Register("PALADIN", "blessing_of_might", 48934,
-    { 48932, 48934, 19740, 25782 }, PHYSICAL,
-    { section = "raid", excludeProvider = true })
+    Merge(BLESSING_OF_MIGHT, GREATER_BLESSING_OF_MIGHT), PHYSICAL,
+    { section = "raid", excludeProvider = true, pickerHidden = true })
 
-Register("PALADIN", "blessing_of_wisdom", 48938,
-    { 48936, 48938, 19742, 25894 }, MANA,
-    { section = "raid", excludeProvider = true })
+Register(nil, "blessing_of_wisdom", 48938,
+    Merge(BLESSING_OF_WISDOM, GREATER_BLESSING_OF_WISDOM, MANA_SPRING), MANA,
+    { section = "raid", displayName = "Mana Regeneration" })
 
 Register("PALADIN", "blessing_of_sanctuary", 25899,
     { 20911, 25899 }, TANK,
     { section = "raid", excludeProvider = true })
 
-Register("WARRIOR", "battle_shout", 47436,
-    { 47436, 27578, 6673 }, PHYSICAL,
-    { section = "raid", excludeProvider = true })
+-- Key kept for saved assignments; this is the Attack Power row.
+Register(nil, "battle_shout", 47436,
+    Merge(BATTLE_SHOUT, BLESSING_OF_MIGHT, GREATER_BLESSING_OF_MIGHT), PHYSICAL,
+    { section = "raid", displayName = "Attack Power" })
 
-Register("WARRIOR", "commanding_shout", 47440,
-    { 47440, 47439, 469 }, ALL,
-    { section = "raid", excludeProvider = true })
+Register(nil, "commanding_shout", 47440,
+    Merge(COMMANDING_SHOUT, BLOOD_PACT), ALL,
+    { section = "raid", displayName = "Max Health" })
 
-Register("DEATHKNIGHT", "horn_of_winter", 57623,
-    { 57623, 57330, 58643, 8075 }, PHYSICAL,
-    { section = "raid", excludeProvider = true })
+Register(nil, "horn_of_winter", 57623,
+    Merge(HORN_OF_WINTER, STRENGTH_OF_EARTH), PHYSICAL,
+    { section = "raid", displayName = "Strength & Agility" })
 
+-- Absorbed by "commanding_shout".
 Register("WARLOCK", "blood_pact", 47982,
-    { 47982, 6307 }, ALL,
-    { section = "raid" })
+    BLOOD_PACT, ALL,
+    { section = "raid", pickerHidden = true })
 
+-- Absorbed by "blessing_of_wisdom".
 Register("SHAMAN", "mana_spring", 58774,
-    { 58774, 5677 }, MANA,
-    { section = "raid" })
+    MANA_SPRING, MANA,
+    { section = "raid", auraSpellID = 58777, pickerHidden = true })
 
 Register(nil, "replenishment", 57669, { 57669 }, MANA,
     { section = "raid" })
 
--- WotLK deliberately shares most raid bonuses between several specs. Keep
--- those equivalent providers on one row so the assignment follows the effect
--- the player actually receives without filling the picker with non-stacking
--- duplicates. Both talent/cast IDs and recipient-side aura IDs are included;
--- legacy cores differ on which identity UnitAura reports for passive effects.
+-- WotLK deliberately shares most raid bonuses between several specs. Both
+-- talent/cast IDs and recipient-side aura IDs are included; legacy cores
+-- differ on which identity UnitAura reports for passive effects.
 Register(nil, "attack_power_percent", 19506,
     { 19506, 53137, 53138, 30802, 30808, 30809 }, PHYSICAL,
-    { section = "raid" })
+    { section = "raid", displayName = "Attack Power %" })
 Register(nil, "damage_percent", 31583,
     { 31579, 31582, 31583, 34455, 34459, 34460, 31869 }, ALL,
-    { section = "raid" })
+    { section = "raid", displayName = "Damage %" })
 Register(nil, "haste_percent", 53648,
     { 48384, 48395, 48396, 53648 }, ALL,
-    { section = "raid" })
+    { section = "raid", displayName = "Haste %" })
 Register(nil, "melee_haste", 55610,
-    { 55610, 8512, 8515 }, PHYSICAL,
-    { section = "raid" })
+    { 55610, 8515 }, PHYSICAL,
+    { section = "raid", displayName = "Melee Haste" })
 Register(nil, "physical_crit", 17007,
     { 17007, 29801 }, PHYSICAL,
-    { section = "raid" })
+    { section = "raid", displayName = "Melee & Ranged Crit" })
 Register(nil, "spell_crit", 24907,
     { 24907, 51466, 51470 }, SPELLCASTER,
-    { section = "raid" })
+    { section = "raid", displayName = "Spell Crit" })
 Register("SHAMAN", "wrath_of_air", 3738,
-    { 3738, 2895, 15447 }, SPELLCASTER,
-    { section = "raid" })
+    { 2895 }, SPELLCASTER,
+    { section = "raid", auraSpellID = 2895 })
 Register(nil, "spell_power", 48090,
-    { 48090, 47240, 58656, 30708, 57662, 57663, 57664, 57722 }, SPELLCASTER,
-    { section = "raid" })
+    { 48090, 47240,
+      52109, 52110, 52111, 52112, 52113, 58651, 58654, 58655, -- Flametongue Totem
+      57658, 57660, 57662, 57663, -- Totem of Wrath
+    }, SPELLCASTER,
+    { section = "raid", displayName = "Spell Power" })
+-- Absorbed by "divine_spirit" and "arcane_intellect".
 Register("WARLOCK", "fel_intelligence", 57567,
-    { 57567, 54424 }, MANA,
-    { section = "raid" })
-Register("PRIEST", "renewed_hope", 63944,
-    { 63944, 68066 }, ALL,
-    { section = "raid" })
+    FEL_INTELLIGENCE, MANA,
+    { section = "raid", pickerHidden = true })
+-- Renewed Hope, Vigilance and Blessing of Sanctuary's 3% damage reduction do
+-- not stack. Sanctuary keeps its own row for the stat bonus as well.
+Register(nil, "renewed_hope", 63944,
+    { 63944, 68066, 50720, 20911, 25899 }, ALL,
+    { section = "raid", displayName = "Damage Reduction" })
 Register(nil, "healing_received", 65139,
     { 34123, 65139 }, ALL,
-    { section = "raid" })
+    { section = "raid", displayName = "Healing Received" })
 
--- Persistent class auras and encounter-specific resist coverage. Paladins
--- already receive their own aura definitions from the class catalogue, so the
--- recipient catalogue omits the duplicate only for that provider class.
-Register("PALADIN", "devotion_aura", 48942,
-    { 465, 10290, 10291, 10292, 10293, 27149, 48941, 48942, 58753 }, ALL,
-    { section = "raid", excludeProvider = true })
+-- Persistent class auras and encounter-specific resist coverage. Paladin-only
+-- rows skip paladins, who receive their own aura definitions from the class
+-- catalogue; rows shared with a totem stay visible to everyone.
+Register(nil, "devotion_aura", 48942,
+    Merge(DEVOTION_AURA, STONESKIN), ALL,
+    { section = "raid", displayName = "Armor" })
 Register("PALADIN", "retribution_aura", 54043,
     { 7294, 10298, 10299, 10300, 10301, 27150, 54043 }, TANK,
     { section = "raid", excludeProvider = true })
 Register("PALADIN", "concentration_aura", 19746,
     { 19746 }, SPELLCASTER,
     { section = "raid", excludeProvider = true })
-Register("PALADIN", "fire_resistance_aura", 48947,
-    { 19891, 19899, 19900, 27153, 48947, 58739 }, ALL,
-    { section = "raid", excludeProvider = true })
-Register("PALADIN", "frost_resistance_aura", 48945,
-    { 19888, 19897, 19898, 27152, 48945, 58745 }, ALL,
-    { section = "raid", excludeProvider = true })
+Register(nil, "fire_resistance_aura", 48947,
+    Merge(FIRE_RESISTANCE_AURA, FIRE_RESISTANCE_TOTEM), ALL,
+    { section = "raid", displayName = "Fire Resistance" })
+Register(nil, "frost_resistance_aura", 48945,
+    Merge(FROST_RESISTANCE_AURA, FROST_RESISTANCE_TOTEM), ALL,
+    { section = "raid", displayName = "Frost Resistance" })
+-- Absorbed by "shadow_protection".
 Register("PALADIN", "shadow_resistance_aura", 48943,
-    { 19876, 19895, 19896, 27151, 48943 }, ALL,
-    { section = "raid", excludeProvider = true })
+    SHADOW_RESISTANCE_AURA, ALL,
+    { section = "raid", excludeProvider = true, pickerHidden = true })
 Register(nil, "nature_resistance", 49071,
-    { 20043, 20190, 27045, 49071, 58749 }, ALL,
-    { section = "raid", auraTags = { defensive = true } })
+    Merge(ASPECT_OF_THE_WILD, NATURE_RESISTANCE_TOTEM), ALL,
+    { section = "raid", displayName = "Nature Resistance", auraTags = { defensive = true } })
 
 -------------------------------------------------------------------------------
 -- Targeted raid externals and utility
@@ -264,14 +331,14 @@ Register("MAGE", "focus_magic", 54646, { 54646 }, SPELLCASTER,
 
 Register("PALADIN", "hand_of_freedom", 1044, { 1044 }, ALL,
     { excludeProvider = true })
-Register("PALADIN", "hand_of_protection", 10278, { 10278 }, ALL,
+Register("PALADIN", "hand_of_protection", 10278, { 1022, 5599, 10278 }, ALL,
     { excludeProvider = true, auraTags = { defensive = true } })
 Register("PALADIN", "hand_of_sacrifice", 6940, { 6940 }, ALL,
     { excludeProvider = true, auraTags = { defensive = true } })
 Register("PALADIN", "hand_of_salvation", 1038, { 1038 }, ALL,
     { excludeProvider = true })
 Register("PALADIN", "divine_sacrifice", 64205,
-    { 53530, 64205 }, ALL,
+    { 64205, 70940 }, ALL,
     { excludeProvider = true, auraTags = { defensive = true } })
 Register("PALADIN", "aura_mastery", 31821, { 31821 }, ALL,
     { excludeProvider = true, auraTags = { defensive = true } })
@@ -294,7 +361,7 @@ Register("ROGUE", "tricks_of_the_trade", 57934,
     { excludeProvider = true })
 
 Register("SHAMAN", "earth_shield", 49284,
-    { 49284, 974 }, TANK,
+    { 974, 32593, 32594, 49283, 49284 }, TANK,
     { excludeProvider = true, section = "healing", auraTags = { defensive = true } })
 Register("SHAMAN", "mana_tide", 16191, { 16191 }, MANA)
 
@@ -313,32 +380,36 @@ Register("WARRIOR", "vigilance", 50725,
 -- Healing buffs that live on the recipient
 -------------------------------------------------------------------------------
 
-Register("DRUID", "rejuvenation", 48441, { 48441, 774 }, ALL,
+Register("DRUID", "rejuvenation", 48441,
+    { 774, 1058, 1430, 2090, 2091, 3627, 8910, 9839, 9840, 9841, 25299, 26981, 26982, 48440, 48441 }, ALL,
     { section = "healing" })
-Register("DRUID", "regrowth", 48443, { 48443, 8936 }, ALL,
+Register("DRUID", "regrowth", 48443,
+    { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858, 26980, 48442, 48443 }, ALL,
     { section = "healing" })
-Register("DRUID", "lifebloom", 48451, { 48451, 33763 }, ALL,
+Register("DRUID", "lifebloom", 48451, { 33763, 48450, 48451 }, ALL,
     { section = "healing" })
-Register("DRUID", "wild_growth", 53251, { 53251, 48438 }, ALL,
+Register("DRUID", "wild_growth", 53251, { 48438, 53248, 53249, 53251 }, ALL,
     { section = "healing" })
 
-Register("PRIEST", "power_word_shield", 48066, { 48066, 17 }, ALL,
+Register("PRIEST", "power_word_shield", 48066,
+    { 17, 592, 600, 3747, 6065, 6066, 10898, 10899, 10900, 10901, 25217, 25218, 48065, 48066 }, ALL,
     { section = "healing" })
 Register("PRIEST", "divine_aegis", 47753, { 47753 }, ALL,
     { section = "healing", auraTags = { defensive = true } })
 Register("PRIEST", "prayer_of_mending", 48113,
-    { 48111, 48113, 33076 }, ALL,
+    { 41635, 48110, 48111 }, ALL,
     { section = "healing" })
-Register("PRIEST", "renew", 48068, { 48068, 139 }, ALL,
+Register("PRIEST", "renew", 48068,
+    { 139, 6074, 6075, 6076, 6077, 6078, 10927, 10928, 10929, 25315, 25221, 25222, 48067, 48068 }, ALL,
     { section = "healing" })
 Register("PRIEST", "inspiration", 15363, { 15363 }, ALL,
     { section = "healing", auraTags = { defensive = true } })
 Register("PRIEST", "grace", 47930, { 47930 }, ALL,
     { section = "healing" })
 
-Register("SHAMAN", "riptide", 61301, { 61301, 61295 }, ALL,
+Register("SHAMAN", "riptide", 61301, { 61295, 61299, 61300, 61301 }, ALL,
     { section = "healing" })
-Register("SHAMAN", "earthliving", 52000, { 52000, 51945 }, ALL,
+Register("SHAMAN", "earthliving", 52000, { 51945, 51990, 51997, 51998, 51999, 52000 }, ALL,
     { section = "healing" })
 Register("SHAMAN", "ancestral_fortitude", 16237, { 16237 }, ALL,
     { section = "healing" })

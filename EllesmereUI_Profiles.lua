@@ -1414,6 +1414,8 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EDB_Apply then _G._EDB_Apply() end
     -- Swingbars (visibility, appearance, layout and position)
     if _G._ESB_Apply then _G._ESB_Apply() end
+    -- Raid Cooldowns (enable state, groups, appearance)
+    if _G._EUI_RaidCooldowns_Apply then _G._EUI_RaidCooldowns_Apply() end
     -- Quickdraw (enable state + palette count drive the override bindings)
     if _G._EQD_Apply then _G._EQD_Apply() end
     -- Dragon Riding HUD
