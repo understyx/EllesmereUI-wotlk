@@ -65,13 +65,6 @@ local CLASS_IDS = {
     DEATHKNIGHT = 6, SHAMAN = 7, MAGE = 8, WARLOCK = 9, DRUID = 11,
 }
 
--- These checks are intentionally empty for now.  They provide a stable place
--- for class-specific talent checks to distinguish the roles available from a
--- single talent tree.
-Spec.RoleChecks = Spec.RoleChecks or {
-    DEATHKNIGHT = { [1] = nil, [2] = nil, [3] = nil },
-    DRUID = { [2] = nil },
-}
 
 local BY_ID = {}
 for classToken, specs in pairs(CLASS_SPECS) do
@@ -95,6 +88,77 @@ local function TalentTabInfo(index, group)
     if not GetTalentTabInfo then return end
     return GetTalentTabInfo(index, false, false, group)
 end
+
+-- Index of the tree holding the most points in a talent group (the player's
+-- spec on legacy clients), or nil before any point is spent.
+local function ActiveIndex(classToken, group)
+    local specs = CLASS_SPECS[classToken]
+    if not specs or not GetTalentTabInfo then return end
+    local bestIndex, bestPoints = nil, 0
+    for index = 1, #specs do
+        local _, _, points = TalentTabInfo(index, group)
+        points = tonumber(points) or 0
+        if points > bestPoints then
+            bestIndex, bestPoints = index, points
+        end
+    end
+    return bestIndex
+end
+
+-- Tank-only talents inside trees that also field DPS builds. Same markers and
+-- threshold LibGroupTalents uses for other group members, read synchronously
+-- here because the library fills in the player's data asynchronously.
+local TANK_TALENTS = {
+    DEATHKNIGHT = { need = 2, 49182, 49042, 55129 }, -- Blade Barrier, Toughness, Anticipation
+    DRUID       = { need = 2, 33853, 57873 },        -- Survival of the Fittest, Protector of the Pack
+}
+
+local function HasTankTalents(classToken, group)
+    local def = TANK_TALENTS[classToken]
+    if not def or not GetTalentInfo or not GetNumTalentTabs or not GetSpellInfo then
+        return false
+    end
+    local wanted = {}
+    for i = 1, #def do
+        local name = GetSpellInfo(def[i])
+        if name then wanted[name] = true end
+    end
+    local count = 0
+    for tab = 1, GetNumTalentTabs(false, false) do
+        for index = 1, GetNumTalents(tab, false, false) do
+            local name, _, _, _, rank = GetTalentInfo(tab, index, false, false, group)
+            if name and wanted[name] and (rank or 0) > 0 then count = count + 1 end
+        end
+    end
+    return count >= def.need
+end
+
+-- Role of the player's ACTIVE spec in a tree that can tank or deal damage
+-- (every Death Knight tree, Feral). A manual role override or a Dungeon Finder
+-- assignment wins when the spec allows it; otherwise tank talents decide.
+-- Presence and form are deliberately not inputs: a tank in the wrong presence
+-- must stay a tank so reminders can flag the presence. Inactive specs and the
+-- inactive talent group keep their template role.
+local function LiveRoleCheck(classToken, index, group, template)
+    if classToken ~= PlayerClass() or group ~= ActiveTalentGroup()
+       or index ~= ActiveIndex(classToken, group) then
+        return nil
+    end
+    local allowed = {}
+    for _, role in ipairs(template.roles or { template.role }) do allowed[role] = true end
+    local detector = _G.EllesmereUI and _G.EllesmereUI.RoleDetector
+    if detector then
+        local chosen = detector:GetOverride("player")
+            or (detector.GetAssignedRole and detector:GetAssignedRole("player"))
+        if chosen and allowed[chosen] then return chosen end
+    end
+    return HasTankTalents(classToken, group) and "TANK" or "DAMAGER"
+end
+
+Spec.RoleChecks = Spec.RoleChecks or {
+    DEATHKNIGHT = { [1] = LiveRoleCheck, [2] = LiveRoleCheck, [3] = LiveRoleCheck },
+    DRUID = { [2] = LiveRoleCheck },
+}
 
 local function ResolveRole(template, classToken, index, group)
     local checks = Spec.RoleChecks[classToken]
@@ -128,14 +192,7 @@ local function CurrentLegacy()
     if not specs or not GetTalentTabInfo then return end
 
     local group = ActiveTalentGroup()
-    local bestIndex, bestPoints = nil, 0
-    for index = 1, #specs do
-        local _, _, points = TalentTabInfo(index, group)
-        points = tonumber(points) or 0
-        if points > bestPoints then
-            bestIndex, bestPoints = index, points
-        end
-    end
+    local bestIndex = ActiveIndex(classToken, group)
     if not bestIndex then return end
     return LegacyInfo(classToken, bestIndex, group)
 end
@@ -162,7 +219,13 @@ end
 function Spec:GetInfoByID(id)
     id = tonumber(id) or id
     local info = BY_ID[id]
-    if not info then return end
+    if not info then
+        -- Role layout IDs resolve to their layout info (see GetLayoutInfo).
+        if self.GetLayoutInfo and type(id) == "number" and id > 10000 then
+            return self:GetLayoutInfo(id)
+        end
+        return
+    end
     if info.classToken == PlayerClass() then
         return LegacyInfo(info.classToken, info.index, ActiveTalentGroup())
     end
@@ -192,6 +255,87 @@ end
 
 function Spec:GetNum()
     return #self:GetList()
+end
+
+-------------------------------------------------------------------------------
+-- Role layouts. A tree that can both tank and deal damage (every Death Knight
+-- tree, Feral) keeps its spec ID for its usual role and gets a stable layout
+-- ID for the other one, so per-spec data (cooldown layouts) can hold one copy
+-- per role. Layout IDs never replace the spec ID used by profiles, spec
+-- overrides or anything else that means "the talent tree".
+--   layoutID = 10000 + specID * 10 + role code   (Blood DPS = 12502)
+-------------------------------------------------------------------------------
+local ROLE_CODES = { TANK = 1, DAMAGER = 2, HEALER = 3 }
+local ROLE_LABELS = { TANK = "Tank", DAMAGER = "DPS", HEALER = "Healer" }
+local ROLE_LAYOUTS = {} -- layoutID -> { spec = template, role = role }
+
+for _, specs in pairs(CLASS_SPECS) do
+    for _, template in ipairs(specs) do
+        for _, role in ipairs(template.roles or {}) do
+            if role ~= template.role and ROLE_CODES[role] then
+                ROLE_LAYOUTS[10000 + template.id * 10 + ROLE_CODES[role]] =
+                    { spec = template, role = role }
+            end
+        end
+    end
+end
+
+local function IsMultiRole(template)
+    return template and template.roles and #template.roles > 1
+end
+
+-- Layout ID for a spec info table (as returned by GetCurrent/GetInfo).
+function Spec:GetLayoutID(info)
+    if not info or not info.id then return nil end
+    local template = BY_ID[info.id]
+    if not IsMultiRole(template) or info.role == template.role then return info.id end
+    local code = ROLE_CODES[info.role]
+    local layoutID = code and (10000 + info.id * 10 + code)
+    return (layoutID and ROLE_LAYOUTS[layoutID]) and layoutID or info.id
+end
+
+-- Layout ID for the player's active spec and current role.
+function Spec:GetCurrentLayoutID()
+    return self:GetLayoutID(self:GetCurrent())
+end
+
+-- Spec info for a layout ID: the spec's own info for a plain spec ID, or a
+-- copy carrying the layout's role and ID for a role layout. Name includes the
+-- role for any multi-role tree ("Blood (Tank)", "Blood (DPS)").
+function Spec:GetLayoutInfo(layoutID)
+    layoutID = tonumber(layoutID) or layoutID
+    local variant = ROLE_LAYOUTS[layoutID]
+    local template = variant and variant.spec or BY_ID[layoutID]
+    if not template then return nil end
+    local base = self:GetInfoByID(template.id) or template
+    local role = variant and variant.role or template.role
+    local info = {}
+    for k, v in pairs(base) do info[k] = v end
+    info.id = layoutID
+    info.specID = template.id
+    info.role = role
+    if IsMultiRole(template) then
+        info.name = (base.name or template.name) .. " (" .. ROLE_LABELS[role] .. ")"
+    end
+    return info
+end
+
+-- Every layout for the player's class: each spec, plus the other role of a
+-- multi-role tree, in tree order.
+function Spec:GetLayoutList()
+    local classToken = PlayerClass()
+    local result = {}
+    for _, template in ipairs(CLASS_SPECS[classToken] or {}) do
+        result[#result + 1] = self:GetLayoutInfo(template.id)
+        for _, role in ipairs(template.roles or {}) do
+            local code = ROLE_CODES[role]
+            local layoutID = code and (10000 + template.id * 10 + code)
+            if layoutID and ROLE_LAYOUTS[layoutID] then
+                result[#result + 1] = self:GetLayoutInfo(layoutID)
+            end
+        end
+    end
+    return result
 end
 
 EllesmereUI.Spec = Spec

@@ -1467,15 +1467,15 @@ function ns.RF_AnchorHostFor(d)
     return ns.RF_AnchorHost(d.health, s)
 end
 
--- Resolve a unit's role for POWER-BAR gating. UnitGroupRolesAssigned returns
--- "NONE" for the player when SOLO (no group role is assigned outside a group);
--- that would fall through to the DPS toggle and wrongly hide a solo healer's
--- mana bar. For the player, fall back to the spec's role so a solo Resto Druid
--- resolves to HEALER (a Blood DK to TANK, etc). Only the player is resolved this
--- way -- arbitrary group units have no reliable spec role, and in a real group
--- Blizzard assigns roles so "NONE" does not occur there.
+-- Resolve a unit's role for POWER-BAR gating, through the same role detector
+-- as the role icon (override, Dungeon Finder assignment, talents). Raw
+-- UnitGroupRolesAssigned returns three booleans on 3.3.5 and nothing outside
+-- Dungeon Finder groups, which hid power bars for every role. If the detector
+-- still has no answer for the player, fall back to the spec's role so a solo
+-- Resto Druid resolves to HEALER.
 ns._ResolvePowerRole = function(unit)
-    local role = UnitGroupRolesAssigned(unit)
+    local detector = EllesmereUI.RoleDetector
+    local role = (detector and detector:GetRole(unit)) or "NONE"
     if role == "NONE" and UnitIsUnit(unit, "player") then
         local spec = GetSpecialization and GetSpecialization()
         local specRole = spec and GetSpecializationRole and GetSpecializationRole(spec)

@@ -24,6 +24,14 @@ local UnitRace      = UnitRace
 local UnitSex       = UnitSex
 local tremove       = table.remove
 local UnitGroupRolesAssigned = UnitGroupRolesAssigned
+-- 3.3.5 returns three booleans rather than a role string; the role
+-- detector normalizes both client shapes.
+local function AssignedRole(unit)
+    local detector = EllesmereUI and EllesmereUI.RoleDetector
+    if detector and detector.GetAssignedRole then return detector:GetAssignedRole(unit) end
+    local role = UnitGroupRolesAssigned(unit)
+    return type(role) == "string" and role or nil
+end
 local UnitCanAttack = UnitCanAttack
 local IsInGroup     = IsInGroup
 local IsInRaid      = IsInRaid
@@ -96,7 +104,7 @@ local function RebuildRoster()
                 if not list then list = {}; rosterByClass[token] = list end
                 list[#list + 1] = u
             end
-            local role = UnitGroupRolesAssigned(u)
+            local role = AssignedRole(u)
             if not issecret(role) and type(role) == "string" and role ~= "NONE" then
                 rosterRole[u] = role
             end
@@ -168,7 +176,7 @@ local function Classify(caster)
     -- happen to single out one member (e.g. you + the tank both Paladins, role
     -- = TANK) would show that member without ever checking its race/sex matched
     -- -- which is how same-class twins started false-flagging onto the tank.
-    local role = UnitGroupRolesAssigned(tgt)
+    local role = AssignedRole(tgt)
     if issecret(role) or role == "NONE" then role = nil end
     Narrow(role, rosterRole)
 

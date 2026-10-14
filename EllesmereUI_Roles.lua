@@ -67,11 +67,16 @@ local function OverrideTable(create)
     return EllesmereUIDB.roleOverrides
 end
 
+local playerRoleCallbacks = RoleDetector._playerRoleCallbacks or {}
+RoleDetector._playerRoleCallbacks = playerRoleCallbacks
+local CheckPlayerRole -- defined after GetRole
+
 local function Notify(unit, guid, role)
     for i = 1, #callbacks do
         local fn = callbacks[i]
         if fn then pcall(fn, unit, guid, role) end
     end
+    CheckPlayerRole()
 end
 
 function RoleDetector:RegisterCallback(fn)
@@ -138,6 +143,19 @@ local function FindUnitByGUID(guid)
     return nil
 end
 
+-- The group role the game assigned (Dungeon Finder), or nil. 3.3.5 returns
+-- isTank, isHealer, isDamage booleans; newer clients return a role string.
+-- Callers must use this instead of UnitGroupRolesAssigned directly.
+function RoleDetector:GetAssignedRole(unit)
+    if not UnitGroupRolesAssigned or not unit then return nil end
+    local first, isHealer, isDamage = UnitGroupRolesAssigned(unit)
+    if type(first) == "string" then return NormalizeRole(first) end
+    if first then return "TANK" end
+    if isHealer then return "HEALER" end
+    if isDamage then return "DAMAGER" end
+    return nil
+end
+
 -- Returns ROLE, SOURCE. Source is useful in tooltips/debugging and is one of
 -- override, assigned, talents, class, or unknown.
 function RoleDetector:GetRole(unit)
@@ -148,10 +166,16 @@ function RoleDetector:GetRole(unit)
     local override = self:GetOverride(unit)
     if override then return override, "override" end
 
-    if UnitGroupRolesAssigned then
-        local assigned = UnitGroupRolesAssigned(unit)
-        assigned = NormalizeRole(assigned)
-        if assigned then return assigned, "assigned" end
+    local assigned = self:GetAssignedRole(unit)
+    if assigned then return assigned, "assigned" end
+
+    -- The player's own role comes from the active spec, resolved synchronously
+    -- from local talents (Compatibility/Spec.lua), so the role icon, spec role
+    -- and every role-driven feature agree.
+    if UnitIsUnit(unit, "player") then
+        local spec = EUI.Spec and EUI.Spec:GetCurrent()
+        local role = spec and NormalizeRole(spec.role)
+        if role then return role, "spec" end
     end
 
     if LGT then
@@ -162,6 +186,31 @@ function RoleDetector:GetRole(unit)
     local _, class = UnitClass(unit)
     if PURE_DPS[class] then return "DAMAGER", "class" end
     return "NONE", "unknown"
+end
+
+-- Player role changes (talents, talent group swap, override, Dungeon Finder
+-- assignment). fn(newRole, oldRole) runs only when the role actually changes;
+-- read RoleDetector:GetRole("player") for the current value at setup.
+function RoleDetector:RegisterPlayerRoleCallback(fn)
+    if type(fn) ~= "function" then return end
+    for i = 1, #playerRoleCallbacks do
+        if playerRoleCallbacks[i] == fn then return end
+    end
+    playerRoleCallbacks[#playerRoleCallbacks + 1] = fn
+end
+
+local lastPlayerRole
+CheckPlayerRole = function()
+    if not UnitExists("player") then return end
+    local role = RoleDetector:GetRole("player")
+    if role == lastPlayerRole then return end
+    local old = lastPlayerRole
+    lastPlayerRole = role
+    if old == nil then return end -- first resolution, not a change
+    for i = 1, #playerRoleCallbacks do
+        local fn = playerRoleCallbacks[i]
+        if fn then pcall(fn, role, old) end
+    end
 end
 
 function RoleDetector:GetRoleByGUID(guid)
@@ -195,8 +244,11 @@ eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+-- Dungeon Finder role assignment; guarded in case a core lacks the event.
+pcall(eventFrame.RegisterEvent, eventFrame, "PLAYER_ROLES_ASSIGNED")
 eventFrame:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_TALENT_UPDATE" then
+    if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
         RoleDetector:Refresh("player")
     else
         Notify(nil, nil, nil)
@@ -256,15 +308,29 @@ do
         AddBeforeCancel(UnitPopupMenus.PARTY, ROOT)
         AddBeforeCancel(UnitPopupMenus.RAID_PLAYER, ROOT)
 
+        -- 3.3.5 has no UIDropDownMenu_CheckButton, so drive the row's check
+        -- texture directly. The UnCheck box only exists in newer templates.
+        local function SetRowChecked(row, checked)
+            row.checked = checked or nil
+            local name = row:GetName()
+            local check = name and _G[name .. "Check"]
+            if check then if checked then check:Show() else check:Hide() end end
+            local uncheck = name and _G[name .. "UnCheck"]
+            if uncheck then if checked then uncheck:Hide() else uncheck:Show() end end
+        end
+
         hooksecurefunc("UnitPopup_ShowMenu", function(dropdown)
             if UIDROPDOWNMENU_MENU_LEVEL ~= 2 or UIDROPDOWNMENU_MENU_VALUE ~= ROOT then return end
-            local override = dropdown and dropdown.unit and RoleDetector:GetOverride(dropdown.unit)
-            for i = 1, #CHOICES do
+            local unit = dropdown and dropdown.unit
+            local override = unit and RoleDetector:GetOverride(unit)
+            local list = _G.DropDownList2
+            local count = (list and list.numButtons) or #CHOICES
+            for i = 1, count do
                 local row = _G["DropDownList2Button" .. i]
-                if row then row._euiRoleUnit = dropdown and dropdown.unit end
-                if UIDropDownMenu_UncheckButton then UIDropDownMenu_UncheckButton(2, i) end
-                if override == CHOICES[i].role and UIDropDownMenu_CheckButton then
-                    UIDropDownMenu_CheckButton(2, i)
+                local role = row and ROLE_BY_BUTTON[row.value]
+                if role then
+                    row._euiRoleUnit = unit
+                    SetRowChecked(row, override == role)
                 end
             end
         end)
