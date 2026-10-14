@@ -34,8 +34,13 @@ local function SkinPanel(frame, closeButton, left, top, right, bottom)
 	frame.backdrop:ClearAllPoints()
 	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", left or 4, top or -6)
 	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", right or -2, bottom or 0)
+	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
 	WSkin:SetBackdropHitRect(frame)
-	WSkin:HandleCloseButton(closeButton, frame.backdrop)
+end
+
+local function Card(frame, kind)
+	if not frame then return end
+	WSkin:ApplyRetailSurface(frame, kind or "input")
 end
 
 local function StyleInput(frame)
@@ -252,31 +257,44 @@ local function SkinSocial()
 	SkinPanel(_G.GuildMemberDetailFrame, _G.GuildMemberDetailCloseButton, 0, 0, 0, 0)
 	WSkin:HandleNextPrevButton(_G.GuildFramePromoteButton)
 	WSkin:HandleNextPrevButton(_G.GuildFrameDemoteButton)
-	WSkin:SetTemplate(_G.GuildMemberNoteBackground, "Default")
-	WSkin:SetTemplate(_G.GuildMemberOfficerNoteBackground, "Default")
-	WSkin:HandleButton(_G.GuildMemberRemoveButton)
-	WSkin:HandleButton(_G.GuildMemberGroupInviteButton)
+	Card(_G.GuildMemberNoteBackground)
+	Card(_G.GuildMemberOfficerNoteBackground)
+	WSkin:HandleRetailButton(_G.GuildMemberRemoveButton)
+	WSkin:HandleRetailButton(_G.GuildMemberGroupInviteButton, true)
 
 	SkinPanel(_G.GuildInfoFrame, _G.GuildInfoCloseButton)
-	WSkin:SetTemplate(_G.GuildInfoTextBackground, "Default")
-	WSkin:HandleScrollBar(_G.GuildInfoFrameScrollFrameScrollBar)
-	Each({ "GuildInfoSaveButton", "GuildInfoCancelButton", "GuildInfoGuildEventButton" }, WSkin.HandleButton)
+	Card(_G.GuildInfoTextBackground)
+	WSkin:HandleRetailScrollBar(_G.GuildInfoFrameScrollFrameScrollBar)
+	Each({ "GuildInfoCancelButton", "GuildInfoGuildEventButton" }, WSkin.HandleRetailButton)
+	WSkin:HandleRetailButton(_G.GuildInfoSaveButton, true)
 
 	SkinPanel(_G.GuildEventLogFrame, _G.GuildEventLogCloseButton)
-	WSkin:SetTemplate(_G.GuildEventFrame, "Default")
-	WSkin:HandleScrollBar(_G.GuildEventLogScrollFrameScrollBar)
-	WSkin:HandleButton(_G.GuildEventLogCancelButton)
+	Card(_G.GuildEventFrame, "card")
+	WSkin:HandleRetailScrollBar(_G.GuildEventLogScrollFrameScrollBar)
+	WSkin:HandleRetailButton(_G.GuildEventLogCancelButton)
 
 	SkinPanel(_G.GuildControlPopupFrame, nil, 4, -6, -27, 27)
 	WSkin:HandleDropDownBox(_G.GuildControlPopupFrameDropDown, 185)
-	WSkin:HandleEditBox(_G.GuildControlPopupFrameEditBox)
-	WSkin:HandleEditBox(_G.GuildControlWithdrawGoldEditBox)
-	WSkin:HandleEditBox(_G.GuildControlWithdrawItemsEditBox)
-	for i = 1, 17 do WSkin:HandleCheckBox(_G["GuildControlPopupFrameCheckbox" .. i]) end
-	Each({ "GuildControlPopupAcceptButton", "GuildControlPopupFrameCancelButton" }, WSkin.HandleButton)
+	StyleInput(_G.GuildControlPopupFrameDropDown)
+	for _, name in ipairs({
+		"GuildControlPopupFrameEditBox", "GuildControlWithdrawGoldEditBox", "GuildControlWithdrawItemsEditBox",
+	}) do
+		WSkin:HandleEditBox(_G[name])
+		StyleInput(_G[name])
+	end
+	for i = 1, 17 do
+		local check = _G["GuildControlPopupFrameCheckbox" .. i]
+		WSkin:HandleCheckBox(check)
+		if check and check.backdrop then WSkin:ApplyRetailSurface(check.backdrop, "input") end
+	end
+	WSkin:HandleRetailButton(_G.GuildControlPopupFrameCancelButton)
+	WSkin:HandleRetailButton(_G.GuildControlPopupAcceptButton, true)
 
-	WSkin:HandleCheckBox(_G.ChannelFrameAutoJoinParty)
-	WSkin:HandleCheckBox(_G.ChannelFrameAutoJoinBattleground)
+	for _, name in ipairs({ "ChannelFrameAutoJoinParty", "ChannelFrameAutoJoinBattleground" }) do
+		local check = _G[name]
+		WSkin:HandleCheckBox(check)
+		if check and check.backdrop then WSkin:ApplyRetailSurface(check.backdrop, "input") end
+	end
 	for i = 1, Count(_G.MAX_DISPLAY_CHANNEL_BUTTONS, 20) do WSkin:HandleButtonHighlight(_G["ChannelButton" .. i]) end
 	for i = 1, 22 do WSkin:HandleButtonHighlight(_G["ChannelMemberButton" .. i]) end
 	WSkin:StripTextures(_G.ChannelListScrollFrame)
@@ -287,12 +305,14 @@ local function SkinSocial()
 
 	if _G.ChannelFrameDaughterFrame then
 		WSkin:StripTextures(_G.ChannelFrameDaughterFrame)
-		WSkin:SetTemplate(_G.ChannelFrameDaughterFrame, "Transparent")
-		WSkin:HandleCloseButton(_G.ChannelFrameDaughterFrameDetailCloseButton, _G.ChannelFrameDaughterFrame)
-		WSkin:HandleEditBox(_G.ChannelFrameDaughterFrameChannelName)
-		WSkin:HandleEditBox(_G.ChannelFrameDaughterFrameChannelPassword)
-		WSkin:HandleButton(_G.ChannelFrameDaughterFrameOkayButton)
-		WSkin:HandleButton(_G.ChannelFrameDaughterFrameCancelButton)
+		WSkin:CreateRetailWindowShell(_G.ChannelFrameDaughterFrame, nil, _G.ChannelFrameDaughterFrameTitle,
+			_G.ChannelFrameDaughterFrameDetailCloseButton, { content = false })
+		for _, name in ipairs({ "ChannelFrameDaughterFrameChannelName", "ChannelFrameDaughterFrameChannelPassword" }) do
+			WSkin:HandleEditBox(_G[name])
+			StyleInput(_G[name])
+		end
+		WSkin:HandleRetailButton(_G.ChannelFrameDaughterFrameCancelButton)
+		WSkin:HandleRetailButton(_G.ChannelFrameDaughterFrameOkayButton, true)
 	end
 
 	for i = 1, 5 do

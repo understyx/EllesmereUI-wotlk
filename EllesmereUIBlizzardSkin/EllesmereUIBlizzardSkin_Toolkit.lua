@@ -465,6 +465,9 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 			hooksecurefunc(frame, "SetWidth", UpdateTexCoords)
 			hooksecurefunc(frame, "SetHeight", UpdateTexCoords)
 		end
+		-- Shells built on an anchored backdrop are sized by their points, not
+		-- by SetSize, so also follow the resolved rect.
+		if frame.HookScript then frame:HookScript("OnSizeChanged", UpdateTexCoords) end
 		UpdateTexCoords()
 
 		local pixel = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
@@ -486,7 +489,10 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 		)
 	end
 	self:SetRetailPageTitle(frame, title, titleRegion)
-	if closeButton then
+	-- Callers pass globals by name; skip ones that are missing or are not
+	-- frames on the 3.3.5 client.
+	local closeType = type(closeButton)
+	if (closeType == "table" or closeType == "userdata") and closeButton.ClearAllPoints and closeButton.SetSize then
 		self:HandleCloseButton(closeButton)
 		closeButton:ClearAllPoints()
 		closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -3)
@@ -501,7 +507,7 @@ function WSkin:SetRetailPageTitle(frame, title, titleRegion)
 	titleRegion = titleRegion or frame.TitleText
 	local frameName = frame.GetName and frame:GetName()
 	if not titleRegion and frameName then titleRegion = _G[frameName .. "TitleText"] end
-	if not titleRegion then return end
+	if not titleRegion or type(titleRegion) == "string" or not titleRegion.SetText or not titleRegion.ClearAllPoints then return end
 	if title ~= nil then titleRegion:SetText(title) end
 	titleRegion:ClearAllPoints()
 	titleRegion:SetPoint("TOP", frame, "TOP", 0, -6)
@@ -511,7 +517,7 @@ function WSkin:SetRetailPageTitle(frame, title, titleRegion)
 end
 
 function WSkin:UpdateRetailRow(frame, selected, isHeader, alternate)
-	if not frame then return end
+	if not frame or not frame.SetBackdrop then return end
 	local kind = isHeader and "header" or (alternate and "rowAlt" or "row")
 	self:ApplyRetailSurface(frame, kind)
 	local state = RetailState(frame)
@@ -575,7 +581,7 @@ function WSkin:SetRetailIconShown(icon, shown)
 end
 
 function WSkin:HandleRetailScrollBar(frame, horizontal)
-	if not frame then return end
+	if not frame or not frame.CreateTexture or not frame.GetRegions then return end
 	local state = RetailState(frame)
 	local frameName = frame.GetName and frame:GetName()
 	local parent = frame.GetParent and frame:GetParent()
@@ -658,7 +664,12 @@ local function UpdateRetailButtonVisual(button)
 end
 
 function WSkin:HandleRetailButton(button, primary)
-	if not button then return end
+	-- Callers resolve globals by name; on 3.3.5 a few of those names are
+	-- regions or are absent, so skip anything that is not a real frame.
+	local objectType = type(button)
+	if (objectType ~= "table" and objectType ~= "userdata") or not button.HookScript or not button.SetBackdrop then
+		return
+	end
 	local state = RetailState(button)
 	state.primary = primary and true or false
 	if button.SetNormalTexture then button:SetNormalTexture("") end
@@ -686,7 +697,7 @@ function WSkin:HandleRetailButton(button, primary)
 end
 
 function WSkin:StyleRetailTab(tab)
-	if not tab then return end
+	if not tab or not tab.GetRegions or not tab.CreateTexture then return end
 	local state = RetailState(tab)
 	for i = 1, select("#", tab:GetRegions()) do
 		local region = select(i, tab:GetRegions())

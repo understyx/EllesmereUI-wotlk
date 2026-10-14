@@ -8,7 +8,11 @@ local unpack = unpack
 local skinned = setmetatable({}, { __mode = "k" })
 
 local function Object(name)
-	return type(name) == "string" and _G[name] or name
+	local object = type(name) == "string" and _G[name] or name
+	local objectType = type(object)
+	-- Some names resolve to strings or are absent on the 3.3.5 client.
+	if objectType ~= "table" and objectType ~= "userdata" then return nil end
+	return object
 end
 
 local function Each(names, handler, ...)
@@ -34,18 +38,48 @@ local function SkinWindow(frame, closeButton, topLeftX, topLeftY, bottomRightX, 
 		frame.backdrop:ClearAllPoints()
 		frame.backdrop:SetPoint("TOPLEFT", frame, "TOPLEFT", topLeftX or 11, topLeftY or -12)
 		frame.backdrop:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bottomRightX or -32, bottomRightY or 76)
+		-- These windows keep Blizzard's layout, which is anchored against the
+		-- old artwork rect; the shared shell lives on that visible backdrop.
+		WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, Object(closeButton), { content = false })
+		local frameName = frame.GetName and frame:GetName()
+		local title = frameName and (_G[frameName .. "TitleText"] or _G[frameName .. "HeaderText"])
+		if title then WSkin:SetRetailPageTitle(frame.backdrop, nil, title) end
 		WSkin:SetUIPanelWindowInfo(frame, "width")
 		WSkin:SetBackdropHitRect(frame, frame.backdrop)
-		WSkin:HandleCloseButton(Object(closeButton), frame.backdrop)
 	end
 	return frame
 end
 
-local function SkinTabs(prefix, count)
+-- Tab owners whose retail tab state follows PanelTemplates_SetTab. Tabs stay
+-- at Blizzard's anchors (several of these windows keep them along the top).
+local tabOwners = {}
+local function UpdateOwnerTabs(owner)
+	local tabs = tabOwners[owner]
+	if not tabs then return end
+	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
+		and _G.PanelTemplates_GetSelectedTab(owner) or owner.selectedTab or 1
+	for i, tab in ipairs(tabs) do WSkin:UpdateRetailTab(tab, i == selected) end
+end
+
+local function SkinTabs(prefix, count, owner)
+	owner = Object(owner)
+	local tabs = {}
 	for i = 1, (count or 0) do
 		local tab = _G[prefix .. i]
-		if tab then WSkin:HandleTab(tab) end
+		if tab then
+			WSkin:StyleRetailTab(tab)
+			tab:SetHeight(WSkin.Retail.geometry.tabHeight)
+			tab:SetHitRectInsets(0, 0, 0, 0)
+			tabs[#tabs + 1] = tab
+		end
 	end
+	if not owner then return end
+	if not next(tabOwners) and hooksecurefunc then
+		hooksecurefunc("PanelTemplates_SetTab", UpdateOwnerTabs)
+	end
+	tabOwners[owner] = tabs
+	if owner.HookScript then owner:HookScript("OnShow", UpdateOwnerTabs) end
+	UpdateOwnerTabs(owner)
 end
 
 local function SkinHighlights(prefix, count)
@@ -66,7 +100,7 @@ local function SkinItem(button, icon)
 		-- globals. Non-standard buttons are handled inline below.
 		local texture = icon.GetTexture and icon:GetTexture()
 		WSkin:StripTextures(button)
-		WSkin:SetTemplate(button, "Default")
+		WSkin:ApplyRetailSurface(button, "input")
 		WSkin:StyleButton(button)
 		if texture then icon:SetTexture(texture) end
 		icon:SetAlpha(1)
@@ -74,50 +108,51 @@ local function SkinItem(button, icon)
 		WSkin:SetInside(icon, button)
 	else
 		WSkin:HandleItemButton(button, true)
+		if button.backdrop then WSkin:ApplyRetailSurface(button.backdrop, "input") end
 	end
 end
 
--------------------------------------------------------------------------------
--- Mail
--------------------------------------------------------------------------------
-local function SkinMail()
-	if not WSkin:IsSkinEnabled("mail") or not _G.MailFrame then return end
-	SkinWindow("MailFrame", "InboxCloseButton")
-	Strip("InboxFrame")
-	Strip("SendMailFrame")
-	SkinTabs("MailFrameTab", 2)
+local function Buttons(names, primary)
+	Each(names, WSkin.HandleRetailButton, primary)
+end
 
-	WSkin:HandleNextPrevButton(_G.InboxPrevPageButton, "left", nil, true)
-	WSkin:HandleNextPrevButton(_G.InboxNextPageButton, "right", nil, true)
-	Each({
-		"SendMailMailButton", "SendMailCancelButton", "OpenMailReportSpamButton",
-		"OpenMailReplyButton", "OpenMailDeleteButton", "OpenMailCancelButton",
-	}, WSkin.HandleButton)
-	Each({
-		"SendMailNameEditBox", "SendMailSubjectEditBox", "SendMailMoneyGold",
-		"SendMailMoneySilver", "SendMailMoneyCopper",
-	}, WSkin.HandleEditBox)
-	Each({ "SendMailScrollFrameScrollBar", "OpenMailScrollFrameScrollBar" }, WSkin.HandleScrollBar)
+local function ScrollBars(names)
+	Each(names, WSkin.HandleRetailScrollBar)
+end
 
-	for i = 1, (_G.INBOXITEMS_TO_DISPLAY or 7) do
-		local row = Strip("MailItem" .. i)
-		if row and not skinned[row] then
-			skinned[row] = true
-			WSkin:CreateBackdrop(row, "Transparent")
+local function StyleInput(frame)
+	if frame and frame.backdrop then WSkin:ApplyRetailSurface(frame.backdrop, "input") end
+end
+
+local function EditBoxes(names)
+	for _, name in ipairs(names) do
+		local box = Object(name)
+		if box then
+			WSkin:HandleEditBox(box)
+			StyleInput(box)
 		end
-		SkinItem("MailItem" .. i .. "Button", "MailItem" .. i .. "ButtonIcon")
 	end
-	for i = 1, (_G.ATTACHMENTS_MAX_SEND or 12) do SkinItem("SendMailAttachment" .. i) end
+end
 
-	if _G.OpenMailFrame then
-		SkinWindow("OpenMailFrame", "OpenMailCloseButton")
-		Strip("OpenMailScrollFrame")
-		for i = 1, (_G.ATTACHMENTS_MAX_RECEIVE or 16) do
-			SkinItem("OpenMailAttachmentButton" .. i)
-		end
-		SkinItem("OpenMailLetterButton")
-		SkinItem("OpenMailMoneyButton")
-	end
+local function DropDown(name, width)
+	local frame = Object(name)
+	if not frame then return end
+	WSkin:HandleDropDownBox(frame, width)
+	StyleInput(frame)
+end
+
+local function CheckBox(name)
+	local frame = Object(name)
+	if not frame then return end
+	WSkin:HandleCheckBox(frame)
+	StyleInput(frame)
+end
+
+local function Card(frame)
+	frame = Object(frame)
+	if not frame then return end
+	if not frame.backdrop then WSkin:CreateBackdrop(frame, "Default") end
+	if frame.backdrop then WSkin:ApplyRetailSurface(frame.backdrop, "card") end
 end
 
 -------------------------------------------------------------------------------
@@ -128,8 +163,8 @@ local function SkinDressingRoom()
 	SkinWindow("DressUpFrame", "DressUpFrameCloseButton")
 	if _G.DressUpFramePortrait then WSkin:Kill(_G.DressUpFramePortrait) end
 	Each({ "DressUpModelRotateLeftButton", "DressUpModelRotateRightButton" }, WSkin.HandleRotateButton)
-	Each({ "DressUpFrameCancelButton", "DressUpFrameResetButton" }, WSkin.HandleButton)
-	if _G.DressUpModel and not _G.DressUpModel.backdrop then WSkin:CreateBackdrop(_G.DressUpModel, "Default") end
+	Buttons({ "DressUpFrameCancelButton", "DressUpFrameResetButton" })
+	Card("DressUpModel")
 end
 
 -------------------------------------------------------------------------------
@@ -140,15 +175,26 @@ local function SkinMacro()
 	SkinWindow("MacroFrame", "MacroFrameCloseButton")
 	Strip("MacroButtonScrollFrame")
 	Strip("MacroFrameTextBackground")
-	Each({ "MacroButtonScrollFrameScrollBar", "MacroFrameScrollFrameScrollBar" }, WSkin.HandleScrollBar)
-	Each({ "MacroEditButton", "MacroDeleteButton", "MacroExitButton", "MacroNewButton" }, WSkin.HandleButton)
-	SkinTabs("MacroFrameTab", 2)
+	Card("MacroFrameTextBackground")
+	ScrollBars({ "MacroButtonScrollFrameScrollBar", "MacroFrameScrollFrameScrollBar" })
+	Buttons({ "MacroEditButton", "MacroDeleteButton", "MacroExitButton" })
+	Buttons({ "MacroNewButton" }, true)
+	SkinTabs("MacroFrameTab", 2, "MacroFrame")
 	SkinItem("MacroFrameSelectedMacroButton", "MacroFrameSelectedMacroButtonIcon")
 	for i = 1, (_G.MAX_ACCOUNT_MACROS or 36) do SkinItem("MacroButton" .. i) end
 
 	if _G.MacroPopupFrame then
 		WSkin:HandleIconSelectionFrame(_G.MacroPopupFrame, _G.NUM_MACRO_ICONS_SHOWN or 20, "MacroPopupButton", "MacroPopup")
-		WSkin:HandleScrollBar(_G.MacroPopupScrollFrameScrollBar)
+		if _G.MacroPopupFrame.backdrop then
+			WSkin:CreateRetailWindowShell(_G.MacroPopupFrame.backdrop, nil, nil, nil, { content = false })
+		end
+		Buttons({ "MacroPopupOkayButton", "MacroPopupCancelButton" })
+		StyleInput(_G.MacroPopupEditBox)
+		for i = 1, (_G.NUM_MACRO_ICONS_SHOWN or 20) do
+			local button = _G["MacroPopupButton" .. i]
+			if button then WSkin:ApplyRetailSurface(button, "input") end
+		end
+		WSkin:HandleRetailScrollBar(_G.MacroPopupScrollFrameScrollBar)
 	end
 end
 
@@ -162,13 +208,14 @@ local function SkinTrainer()
 		"ClassTrainerListScrollFrame", "ClassTrainerDetailScrollFrame",
 		"ClassTrainerExpandButtonFrame", "ClassTrainerDetailScrollChildFrame",
 	}, WSkin.StripTextures)
-	WSkin:HandleDropDownBox(_G.ClassTrainerFrameFilterDropDown)
-	Each({ "ClassTrainerListScrollFrameScrollBar", "ClassTrainerDetailScrollFrameScrollBar" }, WSkin.HandleScrollBar)
+	DropDown("ClassTrainerFrameFilterDropDown")
+	ScrollBars({ "ClassTrainerListScrollFrameScrollBar", "ClassTrainerDetailScrollFrameScrollBar" })
 	WSkin:HandleCollapseExpandButton(_G.ClassTrainerCollapseAllButton, "+", nil, nil, 1)
 	for i = 1, (_G.CLASS_TRAINER_SKILLS_DISPLAYED or 11) do
 		WSkin:HandleCollapseExpandButton(_G["ClassTrainerSkill" .. i], "+", nil, nil, 1)
 	end
-	Each({ "ClassTrainerCancelButton", "ClassTrainerTrainButton" }, WSkin.HandleButton)
+	Buttons({ "ClassTrainerCancelButton" })
+	Buttons({ "ClassTrainerTrainButton" }, true)
 	SkinItem("ClassTrainerSkillIcon")
 end
 
@@ -182,94 +229,25 @@ local function SkinTradeSkill()
 	}, WSkin.StripTextures)
 	if _G.TradeSkillRankFrame then
 		WSkin:CreateBackdrop(_G.TradeSkillRankFrame, "Default")
+		StyleInput(_G.TradeSkillRankFrame)
 		_G.TradeSkillRankFrame:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-		_G.TradeSkillRankFrame:SetStatusBarColor(0.22, 0.39, 0.84)
+		_G.TradeSkillRankFrame:SetStatusBarColor(WSkin:GetRetailAccent())
 	end
-	WSkin:HandleCheckBox(_G.TradeSkillFrameAvailableFilterCheckButton)
-	Each({ "TradeSkillFrameEditBox", "TradeSkillInputBox" }, WSkin.HandleEditBox)
-	WSkin:HandleDropDownBox(_G.TradeSkillInvSlotDropDown, 140)
-	WSkin:HandleDropDownBox(_G.TradeSkillSubClassDropDown, 140)
+	CheckBox("TradeSkillFrameAvailableFilterCheckButton")
+	EditBoxes({ "TradeSkillFrameEditBox", "TradeSkillInputBox" })
+	DropDown("TradeSkillInvSlotDropDown", 140)
+	DropDown("TradeSkillSubClassDropDown", 140)
 	WSkin:HandleCollapseExpandButton(_G.TradeSkillCollapseAllButton, "+")
 	for i = 1, (_G.TRADE_SKILLS_DISPLAYED or 8) do
 		WSkin:HandleCollapseExpandButton(_G["TradeSkillSkill" .. i], "+", nil, nil, 1)
 	end
-	Each({ "TradeSkillListScrollFrameScrollBar", "TradeSkillDetailScrollFrameScrollBar" }, WSkin.HandleScrollBar)
+	ScrollBars({ "TradeSkillListScrollFrameScrollBar", "TradeSkillDetailScrollFrameScrollBar" })
 	SkinItem("TradeSkillSkillIcon")
 	for i = 1, (_G.MAX_TRADE_SKILL_REAGENTS or 8) do SkinItem("TradeSkillReagent" .. i) end
 	WSkin:HandleNextPrevButton(_G.TradeSkillDecrementButton, "left")
 	WSkin:HandleNextPrevButton(_G.TradeSkillIncrementButton, "right")
-	Each({ "TradeSkillCancelButton", "TradeSkillCreateButton", "TradeSkillCreateAllButton" }, WSkin.HandleButton)
-end
-
--------------------------------------------------------------------------------
--- Auction house
--------------------------------------------------------------------------------
-local function SkinAuctionHouse()
-	if not WSkin:IsSkinEnabled("auctionhouse") or not _G.AuctionFrame then return end
-	SkinWindow("AuctionFrame", "AuctionFrameCloseButton", 11, 0, 0, 23)
-	Each({
-		"BrowseSearchButton", "BrowseResetButton", "BrowseBidButton", "BrowseBuyoutButton", "BrowseCloseButton",
-		"BidBidButton", "BidBuyoutButton", "BidCloseButton", "AuctionsCreateAuctionButton",
-		"AuctionsCancelAuctionButton", "AuctionsStackSizeMaxButton", "AuctionsNumStacksMaxButton", "AuctionsCloseButton",
-	}, WSkin.HandleButton)
-	Each({ "IsUsableCheckButton", "ShowOnPlayerCheckButton" }, WSkin.HandleCheckBox)
-	Each({
-		"BrowseName", "BrowseMinLevel", "BrowseMaxLevel", "BrowseBidPriceGold", "BrowseBidPriceSilver",
-		"BrowseBidPriceCopper", "BidBidPriceGold", "BidBidPriceSilver", "BidBidPriceCopper",
-		"AuctionsStackSizeEntry", "AuctionsNumStacksEntry", "StartPriceGold", "StartPriceSilver",
-		"StartPriceCopper", "BuyoutPriceGold", "BuyoutPriceSilver", "BuyoutPriceCopper",
-	}, WSkin.HandleEditBox)
-	WSkin:HandleDropDownBox(_G.BrowseDropDown, 155)
-	WSkin:HandleDropDownBox(_G.PriceDropDown)
-	WSkin:HandleDropDownBox(_G.DurationDropDown)
-	Each({
-		"BrowseFilterScrollFrameScrollBar", "BrowseScrollFrameScrollBar", "BidScrollFrameScrollBar",
-		"AuctionsScrollFrameScrollBar",
-	}, WSkin.HandleScrollBar)
-	WSkin:HandleNextPrevButton(_G.BrowsePrevPageButton, "left", nil, true)
-	WSkin:HandleNextPrevButton(_G.BrowseNextPageButton, "right", nil, true)
-	SkinTabs("AuctionFrameTab", _G.AuctionFrame.numTabs or 3)
-	SkinHighlights("AuctionFilterButton", _G.NUM_FILTERS_TO_DISPLAY or 15)
-	for _, prefix in ipairs({ "Browse", "Bid", "Auctions" }) do
-		local count = prefix == "Browse" and (_G.NUM_BROWSE_TO_DISPLAY or 8) or 9
-		for i = 1, count do
-			WSkin:HandleButtonHighlight(_G[prefix .. "Button" .. i])
-			SkinItem(prefix .. "Button" .. i .. "Item")
-		end
-	end
-	SkinItem("AuctionsItemButton")
-	if _G.AuctionProgressFrame then
-		WSkin:StripTextures(_G.AuctionProgressFrame)
-		WSkin:SetTemplate(_G.AuctionProgressFrame, "Transparent")
-		WSkin:HandleStatusBar(_G.AuctionProgressBar, { 1, 0.7, 0 })
-		WSkin:HandleCloseButton(_G.AuctionProgressFrameCancelButton)
-	end
-end
-
--------------------------------------------------------------------------------
--- Friends, Who, and Guild roster
--------------------------------------------------------------------------------
-local function SkinFriendsAndGuild()
-	if not WSkin:IsSkinEnabled("guild") or not _G.FriendsFrame then return end
-	SkinWindow("FriendsFrame", "FriendsFrameCloseButton")
-	WSkin:HandleDropDownBox(_G.FriendsFrameStatusDropDown, 70)
-	WSkin:HandleDropDownBox(_G.WhoFrameDropDown)
-	WSkin:HandleEditBox(_G.FriendsFrameBroadcastInput)
-	WSkin:HandleEditBox(_G.WhoFrameEditBox)
-	SkinTabs("FriendsFrameTab", 5)
-	Each({
-		"FriendsFrameFriendsScrollFrameScrollBar", "FriendsFrameIgnoreScrollFrameScrollBar",
-		"WhoListScrollFrameScrollBar", "GuildListScrollFrameScrollBar",
-	}, WSkin.HandleScrollBar)
-	Each({
-		"FriendsFrameAddFriendButton", "FriendsFrameSendMessageButton", "FriendsFrameIgnorePlayerButton",
-		"FriendsFrameUnsquelchButton", "WhoFrameWhoButton", "WhoFrameAddFriendButton", "WhoFrameGroupInviteButton",
-		"GuildFrameGuildInformationButton", "GuildFrameAddMemberButton", "GuildFrameControlButton",
-	}, WSkin.HandleButton)
-	SkinHighlights("FriendsFrameIgnoreButton", _G.IGNORES_TO_DISPLAY or 19)
-	SkinHighlights("WhoFrameButton", _G.WHOS_TO_DISPLAY or 17)
-	SkinHighlights("GuildFrameButton", _G.GUILDMEMBERS_TO_DISPLAY or 14)
-	if _G.GuildFrameLFGButton then WSkin:HandleCheckBox(_G.GuildFrameLFGButton) end
+	Buttons({ "TradeSkillCancelButton", "TradeSkillCreateAllButton" })
+	Buttons({ "TradeSkillCreateButton" }, true)
 end
 
 -------------------------------------------------------------------------------
@@ -285,25 +263,26 @@ local function SkinCalendar()
 		local button = _G["CalendarDayButton" .. i]
 		if button and not skinned[button] then
 			skinned[button] = true
-			WSkin:SetTemplate(button, "Default")
+			WSkin:ApplyRetailSurface(button, "row")
 			WSkin:StyleButton(button)
 		end
 	end
-	Each({
-		"CalendarCreateEventCreateButton", "CalendarCreateEventMassInviteButton", "CalendarCreateEventInviteButton",
+	Buttons({
+		"CalendarCreateEventMassInviteButton", "CalendarCreateEventInviteButton",
 		"CalendarCreateEventInviteListButton", "CalendarCreateEventRemoveInviteButton", "CalendarCreateEventCloseButton",
-		"CalendarViewEventAcceptButton", "CalendarViewEventTentativeButton", "CalendarViewEventRemoveButton",
+		"CalendarViewEventTentativeButton", "CalendarViewEventRemoveButton",
 		"CalendarViewEventDeclineButton", "CalendarEventPickerCloseButton",
-	}, WSkin.HandleButton)
-	Each({
+	})
+	Buttons({ "CalendarCreateEventCreateButton", "CalendarViewEventAcceptButton" }, true)
+	ScrollBars({
 		"CalendarCreateEventDescriptionScrollFrameScrollBar", "CalendarCreateEventInviteListScrollFrameScrollBar",
 		"CalendarEventPickerScrollBar",
-	}, WSkin.HandleScrollBar)
-	Each({ "CalendarCreateEventTitleEdit", "CalendarCreateEventHourEdit", "CalendarCreateEventMinuteEdit" }, WSkin.HandleEditBox)
-	Each({
+	})
+	EditBoxes({ "CalendarCreateEventTitleEdit", "CalendarCreateEventHourEdit", "CalendarCreateEventMinuteEdit" })
+	for _, name in ipairs({
 		"CalendarCreateEventTypeDropDown", "CalendarCreateEventHourDropDown", "CalendarCreateEventMinuteDropDown",
 		"CalendarCreateEventAMPMDropDown", "CalendarCreateEventRepeatOptionDropDown",
-	}, WSkin.HandleDropDownBox)
+	}) do DropDown(name) end
 end
 
 -------------------------------------------------------------------------------
@@ -313,39 +292,44 @@ local function SkinSettings()
 	if not WSkin:IsSkinEnabled("settings") then return end
 	if _G.InterfaceOptionsFrame then
 		SkinWindow("InterfaceOptionsFrame", "InterfaceOptionsFrameCloseButton", 3, -7, -3, 3)
-		SkinTabs("InterfaceOptionsFrameTab", 2)
-		Each({ "InterfaceOptionsFrameCategoriesListScrollBar", "InterfaceOptionsFrameAddOnsListScrollBar" }, WSkin.HandleScrollBar)
-		Each({ "InterfaceOptionsFrameDefaults", "InterfaceOptionsFrameOkay", "InterfaceOptionsFrameCancel" }, WSkin.HandleButton)
+		SkinTabs("InterfaceOptionsFrameTab", 2, "InterfaceOptionsFrame")
+		ScrollBars({ "InterfaceOptionsFrameCategoriesListScrollBar", "InterfaceOptionsFrameAddOnsListScrollBar" })
+		Buttons({ "InterfaceOptionsFrameDefaults", "InterfaceOptionsFrameCancel" })
+		Buttons({ "InterfaceOptionsFrameOkay" }, true)
 	end
 	if _G.VideoOptionsFrame then
 		SkinWindow("VideoOptionsFrame", "VideoOptionsFrameCloseButton", 3, -7, -3, 3)
-		Each({ "VideoOptionsFrameDefaults", "VideoOptionsFrameOkay", "VideoOptionsFrameCancel" }, WSkin.HandleButton)
+		Buttons({ "VideoOptionsFrameDefaults", "VideoOptionsFrameCancel" })
+		Buttons({ "VideoOptionsFrameOkay" }, true)
 	end
 	if _G.AudioOptionsFrame then
 		SkinWindow("AudioOptionsFrame", "AudioOptionsFrameCloseButton", 3, -7, -3, 3)
-		Each({ "AudioOptionsFrameDefaults", "AudioOptionsFrameOkay", "AudioOptionsFrameCancel" }, WSkin.HandleButton)
+		Buttons({ "AudioOptionsFrameDefaults", "AudioOptionsFrameCancel" })
+		Buttons({ "AudioOptionsFrameOkay" }, true)
 	end
 end
 
 local function SkinAddonList()
 	if not WSkin:IsSkinEnabled("addonlist") or not _G.AddonList then return end
 	SkinWindow("AddonList", "AddonListCloseButton", 8, -12, -8, 8)
-	WSkin:HandleScrollBar(_G.AddonListScrollFrameScrollBar)
-	WSkin:HandleDropDownBox(_G.AddonCharacterDropDown)
-	Each({ "AddonListEnableAllButton", "AddonListDisableAllButton", "AddonListOkayButton", "AddonListCancelButton" }, WSkin.HandleButton)
-	for i = 1, (_G.MAX_ADDONS_DISPLAYED or 19) do WSkin:HandleCheckBox(_G["AddonListEntry" .. i .. "Enabled"]) end
+	WSkin:HandleRetailScrollBar(_G.AddonListScrollFrameScrollBar)
+	DropDown("AddonCharacterDropDown")
+	Buttons({ "AddonListEnableAllButton", "AddonListDisableAllButton", "AddonListCancelButton" })
+	Buttons({ "AddonListOkayButton" }, true)
+	for i = 1, (_G.MAX_ADDONS_DISPLAYED or 19) do CheckBox("AddonListEntry" .. i .. "Enabled") end
 end
 
 -------------------------------------------------------------------------------
--- Smaller Wrath windows which share the same ElvUI-style frame treatment
+-- Smaller Wrath windows which share the same retail window treatment
 -------------------------------------------------------------------------------
 local function SkinTrade()
 	if not WSkin:IsSkinEnabled("misc") or not _G.TradeFrame then return end
 	SkinWindow("TradeFrame", "TradeFrameCloseButton", 11, -12, -21, 49)
-	Each({
+	EditBoxes({
 		"TradePlayerInputMoneyFrameGold", "TradePlayerInputMoneyFrameSilver", "TradePlayerInputMoneyFrameCopper",
-	}, WSkin.HandleEditBox)
-	Each({ "TradeFrameTradeButton", "TradeFrameCancelButton" }, WSkin.HandleButton)
+	})
+	Buttons({ "TradeFrameCancelButton" })
+	Buttons({ "TradeFrameTradeButton" }, true)
 	for i = 1, (_G.MAX_TRADE_ITEMS or 7) do
 		Strip("TradePlayerItem" .. i)
 		Strip("TradeRecipientItem" .. i)
@@ -358,17 +342,18 @@ local function SkinStable()
 	if not WSkin:IsSkinEnabled("collections") or not _G.PetStableFrame then return end
 	SkinWindow("PetStableFrame", "PetStableFrameCloseButton")
 	Each({ "PetStableModelRotateLeftButton", "PetStableModelRotateRightButton" }, WSkin.HandleRotateButton)
-	Each({ "PetStablePurchaseButton", "PetStableFramePetInfoCloseButton" }, WSkin.HandleButton)
+	Buttons({ "PetStableFramePetInfoCloseButton" })
+	Buttons({ "PetStablePurchaseButton" }, true)
 	SkinItem("PetStableCurrentPet")
 	for i = 1, (_G.NUM_PET_STABLE_SLOTS or 4) do SkinItem("PetStableStabledPet" .. i) end
-	if _G.PetStableModel and not _G.PetStableModel.backdrop then WSkin:CreateBackdrop(_G.PetStableModel, "Default") end
+	Card("PetStableModel")
 end
 
 local function SkinTaxi()
 	if not WSkin:IsSkinEnabled("worldmap") or not _G.TaxiFrame then return end
 	SkinWindow("TaxiFrame", "TaxiCloseButton", 11, -12, -32, 76)
 	if _G.TaxiPortrait then WSkin:Kill(_G.TaxiPortrait) end
-	if _G.TaxiRouteMap and not _G.TaxiRouteMap.backdrop then WSkin:CreateBackdrop(_G.TaxiRouteMap, "Default") end
+	Card("TaxiRouteMap")
 end
 
 local function SkinHelp()
@@ -383,41 +368,29 @@ local function SkinHelp()
 		"HelpFrameOpenTicketCancel", "HelpFrameOpenTicketSubmit",
 		"HelpFrameViewResponseCancel", "HelpFrameViewResponseMoreHelp", "HelpFrameViewResponseIssueResolved",
 		"HelpFrameWelcomeGMTalk", "HelpFrameWelcomeReportIssue", "HelpFrameWelcomeStuck", "HelpFrameWelcomeCancel",
-	}, WSkin.HandleButton)
-	Each({
+	}, WSkin.HandleRetailButton)
+	ScrollBars({
 		"HelpFrameOpenTicketScrollFrameScrollBar", "HelpFrameViewResponseIssueScrollFrameScrollBar",
 		"HelpFrameViewResponseMessageScrollFrameScrollBar",
-	}, WSkin.HandleScrollBar)
+	})
 	Each({
 		"KnowledgeBaseFrameDivider", "KnowledgeBaseFrameDivider2",
 		"HelpFrameOpenTicketDivider", "HelpFrameViewResponseDivider",
 	}, WSkin.StripTextures)
 end
 
-local function SkinPvP()
-	if not WSkin:IsSkinEnabled("misc") then return end
-	if _G.PVPParentFrame then
-		SkinWindow("PVPParentFrame", "PVPParentFrameCloseButton")
-		SkinTabs("PVPParentFrameTab", 2)
-		Strip("PVPFrame")
-		Strip("PVPBattlegroundFrame")
-		Each({
-			"PVPTeamDetailsAddTeamMember", "PVPBattlegroundFrameGroupJoinButton",
-			"PVPBattlegroundFrameJoinButton", "PVPBattlegroundFrameCancelButton",
-		}, WSkin.HandleButton)
-		Each({
-			"PVPBattlegroundFrameTypeScrollFrameScrollBar", "PVPBattlegroundFrameInfoScrollFrameScrollBar",
-		}, WSkin.HandleScrollBar)
-		SkinHighlights("BattlegroundType", 5)
-	end
-end
-
 local function SkinRaid()
 	if not WSkin:IsSkinEnabled("misc") then return end
 	if _G.RaidFrame then
 		for i = 1, 8 do Strip("RaidGroup" .. i) end
-		Each({ "RaidFrameRaidBrowserButton", "RaidFrameReadyCheckButton", "RaidFrameRaidInfoButton" }, WSkin.HandleButton)
-		for i = 1, (_G.MAX_RAID_MEMBERS or 40) do WSkin:HandleButton(_G["RaidGroupButton" .. i], true) end
+		Buttons({ "RaidFrameRaidBrowserButton", "RaidFrameReadyCheckButton", "RaidFrameRaidInfoButton" })
+		for i = 1, (_G.MAX_RAID_MEMBERS or 40) do
+			local button = Strip("RaidGroupButton" .. i)
+			if button then
+				WSkin:UpdateRetailRow(button, false)
+				WSkin:HandleButtonHighlight(button)
+			end
+		end
 	end
 end
 
@@ -425,16 +398,19 @@ local function SkinGuildUtilityWindows()
 	if not WSkin:IsSkinEnabled("guild") then return end
 	if _G.GuildRegistrarFrame then
 		SkinWindow("GuildRegistrarFrame", "GuildRegistrarFrameCloseButton")
-		Each({ "GuildRegistrarFramePurchaseButton", "GuildRegistrarFrameCancelButton" }, WSkin.HandleButton)
+		Buttons({ "GuildRegistrarFrameCancelButton" })
+		Buttons({ "GuildRegistrarFramePurchaseButton" }, true)
 	end
 	if _G.PetitionFrame then
 		SkinWindow("PetitionFrame", "PetitionFrameCloseButton")
-		Each({ "PetitionFrameSignButton", "PetitionFrameRequestButton", "PetitionFrameRenameButton", "PetitionFrameCancelButton" }, WSkin.HandleButton)
+		Buttons({ "PetitionFrameRequestButton", "PetitionFrameRenameButton", "PetitionFrameCancelButton" })
+		Buttons({ "PetitionFrameSignButton" }, true)
 	end
 	if _G.TabardFrame then
 		SkinWindow("TabardFrame", "TabardFrameCloseButton")
 		if _G.TabardFramePortrait then WSkin:Kill(_G.TabardFramePortrait) end
-		Each({ "TabardFrameAcceptButton", "TabardFrameCancelButton" }, WSkin.HandleButton)
+		Buttons({ "TabardFrameCancelButton" })
+		Buttons({ "TabardFrameAcceptButton" }, true)
 		Each({ "TabardCharacterModelRotateLeftButton", "TabardCharacterModelRotateRightButton" }, WSkin.HandleRotateButton)
 		for i = 1, 5 do
 			Strip("TabardFrameCustomization" .. i)

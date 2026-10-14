@@ -33,10 +33,41 @@ local function SkinWindow(frame, closeButton, stripFrame)
 	frame.backdrop:ClearAllPoints()
 	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 11, -12)
 	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 76)
+	-- Shared window shell on the visible backdrop rect; Blizzard's content
+	-- layout stays anchored to the native frame.
+	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
 	WSkin:SetUIPanelWindowInfo(frame, "width")
 	WSkin:SetBackdropHitRect(frame)
-	WSkin:HandleCloseButton(closeButton, frame.backdrop)
 	return frame.backdrop
+end
+
+local function Buttons(names, primary)
+	Each(names, WSkin.HandleRetailButton, primary)
+end
+
+local laying = false
+local function LayoutParentTabs()
+	local frame = _G.PVPParentFrame
+	local shell = frame and frame.backdrop
+	if not shell or laying then return end
+	laying = true
+	local tabs = { _G.PVPParentFrameTab1, _G.PVPParentFrameTab2 }
+	WSkin:LayoutRetailTabRow(tabs, shell, 110, 0)
+	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
+		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
+	for i, tab in ipairs(tabs) do WSkin:UpdateRetailTab(tab, i == selected) end
+	laying = false
+end
+
+local function TeamHover(team, hovered)
+	local backdrop = team and team.backdrop
+	if not backdrop then return end
+	if hovered then
+		local ar, ag, ab = WSkin:GetRetailAccent()
+		backdrop:SetBackdropBorderColor(ar, ag, ab, 0.55)
+	else
+		backdrop:SetBackdropBorderColor(1, 1, 1, 0.06)
+	end
 end
 
 local function WhiteText(region)
@@ -57,10 +88,22 @@ local function SkinPvP()
 	if not parentBackdrop then return end
 	WSkin:SetBackdropHitRect(_G.PVPFrame, parentBackdrop)
 	WSkin:SetBackdropHitRect(_G.PVPBattlegroundFrame, parentBackdrop)
-	for i = 1, 2 do WSkin:HandleTab(_G["PVPParentFrameTab" .. i]) end
-	ClearPoints(_G.PVPParentFrameTab1, _G.PVPParentFrameTab2)
-	Point(_G.PVPParentFrameTab1, "BOTTOMLEFT", _G.PVPParentFrame, "BOTTOMLEFT", 11, 46)
-	Point(_G.PVPParentFrameTab2, "LEFT", _G.PVPParentFrameTab1, "RIGHT", -15, 0)
+	for i = 1, 2 do
+		local tab = _G["PVPParentFrameTab" .. i]
+		if tab then
+			WSkin:StyleRetailTab(tab)
+			tab:SetHitRectInsets(0, 0, 0, 0)
+			tab:HookScript("OnShow", LayoutParentTabs)
+		end
+	end
+	hooksecurefunc("PanelTemplates_SetTab", function(owner)
+		if owner == _G.PVPParentFrame then LayoutParentTabs() end
+	end)
+	hooksecurefunc("PanelTemplates_TabResize", function(tab)
+		if tab == _G.PVPParentFrameTab1 or tab == _G.PVPParentFrameTab2 then LayoutParentTabs() end
+	end)
+	_G.PVPParentFrame:HookScript("OnShow", LayoutParentTabs)
+	LayoutParentTabs()
 
 	WSkin:StripTextures(_G.PVPFrame, true)
 	for i = 1, Count(_G.MAX_ARENA_TEAMS, 3) do
@@ -69,25 +112,30 @@ local function SkinPvP()
 			WSkin:StripTextures(team)
 			WSkin:CreateBackdrop(team, "Default")
 			if team.backdrop then
+				WSkin:UpdateRetailRow(team.backdrop, false)
 				team.backdrop:ClearAllPoints()
 				Point(team.backdrop, "TOPLEFT", team, "TOPLEFT", 9, -4)
 				Point(team.backdrop, "BOTTOMRIGHT", team, "BOTTOMRIGHT", -24, 3)
 			end
 			WSkin:SetBackdropHitRect(team)
-			team:HookScript("OnEnter", WSkin.SetModifiedBackdrop)
-			team:HookScript("OnLeave", WSkin.SetOriginalBackdrop)
+			team:HookScript("OnEnter", function(self) TeamHover(self, true) end)
+			team:HookScript("OnLeave", function(self) TeamHover(self, false) end)
 		end
 		WSkin:Kill(_G["PVPTeam" .. i .. "Highlight"])
 	end
 
 	if _G.PVPTeamDetails then
 		WSkin:StripTextures(_G.PVPTeamDetails)
-		WSkin:SetTemplate(_G.PVPTeamDetails, "Transparent")
+		WSkin:CreateRetailWindowShell(_G.PVPTeamDetails, nil, nil, _G.PVPTeamDetailsCloseButton, { content = false })
 		Point(_G.PVPTeamDetails, "TOPLEFT", _G.PVPFrame, "TOPRIGHT", -33, -81)
-		WSkin:HandleCloseButton(_G.PVPTeamDetailsCloseButton, _G.PVPTeamDetails)
-		for i = 1, 5 do WSkin:StripTextures(_G["PVPTeamDetailsFrameColumnHeader" .. i]) end
+		for i = 1, 5 do
+			local header = _G["PVPTeamDetailsFrameColumnHeader" .. i]
+			WSkin:StripTextures(header)
+			WSkin:ApplyRetailSurface(header, "header")
+			WSkin:ApplyRetailRegionTypography(header, "secondary")
+		end
 		for i = 1, Count(_G.MAX_ARENA_TEAM_MEMBERS, 10) do WSkin:HandleButtonHighlight(_G["PVPTeamDetailsButton" .. i]) end
-		WSkin:HandleButton(_G.PVPTeamDetailsAddTeamMember)
+		WSkin:HandleRetailButton(_G.PVPTeamDetailsAddTeamMember)
 		WSkin:HandleNextPrevButton(_G.PVPTeamDetailsToggleButton)
 		Point(_G.PVPTeamDetailsAddTeamMember, "TOPLEFT", _G.PVPTeamDetailsButton10, "BOTTOMLEFT", 5, -8)
 		Point(_G.PVPTeamDetailsToggleButton, "BOTTOMRIGHT", _G.PVPTeamDetails, "BOTTOMRIGHT", -20, 25)
@@ -96,11 +144,10 @@ local function SkinPvP()
 	WSkin:StripTextures(_G.PVPBattlegroundFrame, true)
 	WSkin:StripTextures(_G.PVPBattlegroundFrameTypeScrollFrame)
 	WSkin:StripTextures(_G.PVPBattlegroundFrameInfoScrollFrame)
-	WSkin:HandleScrollBar(_G.PVPBattlegroundFrameTypeScrollFrameScrollBar)
-	WSkin:HandleScrollBar(_G.PVPBattlegroundFrameInfoScrollFrameScrollBar)
-	Each({
-		"PVPBattlegroundFrameGroupJoinButton", "PVPBattlegroundFrameJoinButton", "PVPBattlegroundFrameCancelButton",
-	}, WSkin.HandleButton)
+	WSkin:HandleRetailScrollBar(_G.PVPBattlegroundFrameTypeScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.PVPBattlegroundFrameInfoScrollFrameScrollBar)
+	Buttons({ "PVPBattlegroundFrameGroupJoinButton", "PVPBattlegroundFrameCancelButton" })
+	Buttons({ "PVPBattlegroundFrameJoinButton" }, true)
 	for i = 1, 5 do WSkin:HandleButtonHighlight(_G["BattlegroundType" .. i]) end
 	WhiteText(_G.PVPBattlegroundFrameInfoScrollFrameChildFrameDescription)
 	local rewards = _G.PVPBattlegroundFrameInfoScrollFrameChildFrameRewardsInfo
@@ -118,7 +165,7 @@ local function SkinPvP()
 
 	if _G.WintergraspTimer then
 		WSkin:Size(_G.WintergraspTimer, 24)
-		WSkin:SetTemplate(_G.WintergraspTimer, "Default")
+		WSkin:ApplyRetailSurface(_G.WintergraspTimer, "input")
 		Point(_G.WintergraspTimer, "RIGHT", _G.PVPBattlegroundFrame, "TOPRIGHT", -42, -58)
 		if _G.WintergraspTimer.texture then
 			_G.WintergraspTimer.texture:SetDrawLayer("ARTWORK")
@@ -129,13 +176,12 @@ local function SkinPvP()
 	if _G.BattlefieldFrame then
 		SkinWindow(_G.BattlefieldFrame, _G.BattlefieldFrameCloseButton)
 		WSkin:StripTextures(_G.BattlefieldListScrollFrame)
-		WSkin:HandleScrollBar(_G.BattlefieldListScrollFrameScrollBar)
-		WSkin:HandleScrollBar(_G.BattlefieldFrameInfoScrollFrameScrollBar)
+		WSkin:HandleRetailScrollBar(_G.BattlefieldListScrollFrameScrollBar)
+		WSkin:HandleRetailScrollBar(_G.BattlefieldFrameInfoScrollFrameScrollBar)
 		WhiteText(_G.BattlefieldFrameInfoScrollFrameChildFrameDescription)
 		WhiteText(_G.BattlefieldFrameInfoScrollFrameChildFrameRewardsInfoDescription)
-		Each({
-			"BattlefieldFrameGroupJoinButton", "BattlefieldFrameJoinButton", "BattlefieldFrameCancelButton",
-		}, WSkin.HandleButton)
+		Buttons({ "BattlefieldFrameGroupJoinButton", "BattlefieldFrameCancelButton" })
+		Buttons({ "BattlefieldFrameJoinButton" }, true)
 		for i = 1, Count(_G.BATTLEFIELD_ZONES_DISPLAYED, 5) do WSkin:HandleButtonHighlight(_G["BattlefieldZone" .. i]) end
 		Point(_G.BattlefieldFrameNameHeader, "TOPLEFT", _G.BattlefieldFrame, "TOPLEFT", 73, -57)
 		Point(_G.BattlefieldZone1, "TOPLEFT", _G.BattlefieldFrame, "TOPLEFT", 25, -80)

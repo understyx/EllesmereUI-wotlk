@@ -923,7 +923,7 @@ local function BuildPanel()
     panel:ClearAllPoints()
     panel:SetPoint("BOTTOMRIGHT", CharacterFrame, "BOTTOMRIGHT", -10, 6)
     panel:SetSize(SIZE, SIZE)
-    panel:SetFrameLevel(55)
+    panel:SetFrameLevel(CharacterFrame:GetFrameLevel() + 55)
 
     if not evtFrame then
         evtFrame = EllesmereUI.SafeCreateFrame("Frame")

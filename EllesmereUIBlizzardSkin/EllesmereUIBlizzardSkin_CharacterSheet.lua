@@ -448,7 +448,7 @@ local function PreSkinCharacterSheet()
     -- needed. Backdrop + hover glow live on a sibling frame (3D model draws on top).
     if not GetFFD(frame).modelScene then
         local myModel = EllesmereUI.SafeCreateFrame("PlayerModel", "EUI_CharSheet_ModelScene", frame)
-        myModel:SetFrameLevel(2)
+        myModel:SetFrameLevel(frame:GetFrameLevel() + 2)
         if CharacterHeadSlot then
             myModel:SetPoint("TOPLEFT",  CharacterHeadSlot,  "TOPRIGHT", 0, 0)
         end
@@ -1582,7 +1582,7 @@ local function SkinCharacterSheet()
     statsPanel:SetWidth(190)
     statsPanel:SetPoint("TOPLEFT",    frame, "TOPLEFT",    345, -60)
     statsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 345,  40)
-    statsPanel:SetFrameLevel(50)
+    statsPanel:SetFrameLevel(frame:GetFrameLevel() + 50)
 
     -- Blizzard's paper-doll item flyout is parented to the character sheet at
     -- its default frame level.  The custom stats sidebar is intentionally at
@@ -2209,7 +2209,7 @@ local function SkinCharacterSheet()
     local scrollFrame = EllesmereUI.SafeCreateFrame("ScrollFrame", "EUI_CharSheet_ScrollFrame", statsPanel)
     scrollFrame:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, -HEADER_H)
     scrollFrame:SetPoint("BOTTOMRIGHT", statsPanel, "BOTTOMRIGHT", -12, 2)
-    scrollFrame:SetFrameLevel(51)
+    scrollFrame:SetFrameLevel(statsPanel:GetFrameLevel() + 1)
     GetFFD(frame).scrollFrame = scrollFrame
 
     -- Scroll child: no anchors (scroll frame positions it internally).
@@ -3580,7 +3580,7 @@ local function SkinCharacterSheet()
     titlesPanel:SetWidth(190)
     titlesPanel:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, 0)
     titlesPanel:SetPoint("BOTTOMLEFT", statsPanel, "BOTTOMLEFT", 0, 0)
-    titlesPanel:SetFrameLevel(50)
+    titlesPanel:SetFrameLevel(frame:GetFrameLevel() + 50)
     titlesPanel:Hide()
     GetFFD(frame).titlesPanel = titlesPanel  -- Store reference on frame
 
@@ -3895,7 +3895,7 @@ local function SkinCharacterSheet()
     equipPanel:SetWidth(190)
     equipPanel:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, 0)
     equipPanel:SetPoint("BOTTOMLEFT", statsPanel, "BOTTOMLEFT", 0, 0)
-    equipPanel:SetFrameLevel(50)
+    equipPanel:SetFrameLevel(frame:GetFrameLevel() + 50)
     equipPanel:Hide()
     GetFFD(frame).equipPanel = equipPanel
 
@@ -4625,7 +4625,7 @@ local function SkinCharacterSheet()
 
     -- Create global socket container for all slot icons
     local globalSocketContainer = EllesmereUI.SafeCreateFrame("Frame", "EUI_CharSheet_SocketContainer", frame)
-    globalSocketContainer:SetFrameLevel(100)
+    globalSocketContainer:SetFrameLevel(frame:GetFrameLevel() + 100)
     -- Only show if on character tab
     local isCharacterTab = (frame.selectedTab or 1) == 1
     if isCharacterTab then
@@ -4637,7 +4637,7 @@ local function SkinCharacterSheet()
 
     -- Create overlay frame for text labels (above model, transparent, no mouse input)
     local textOverlayFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_CharSheet_TextOverlay", frame)
-    textOverlayFrame:SetFrameLevel(5)  -- Higher than model (FrameLevel 2)
+    textOverlayFrame:SetFrameLevel(frame:GetFrameLevel() + 5)  -- Higher than model (FrameLevel 2)
     textOverlayFrame:EnableMouse(false)
     textOverlayFrame:Show()
     GetFFD(frame).textOverlayFrame = textOverlayFrame

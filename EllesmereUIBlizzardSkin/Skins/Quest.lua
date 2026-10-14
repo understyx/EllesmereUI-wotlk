@@ -21,6 +21,17 @@ local GetQuestMoneyToGet = GetQuestMoneyToGet
 local MAX_NUM_ITEMS = MAX_NUM_ITEMS
 local MAX_REPUTATIONS = MAX_REPUTATIONS
 
+-- Blizzard lays these windows out against their old artwork rect, so the
+-- shared window shell is built on that visible backdrop, not the frame.
+local function Shell(frame, closeButton, titleRegion)
+	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
+	if titleRegion then WSkin:SetRetailPageTitle(frame.backdrop, nil, titleRegion) end
+end
+
+local function Surface(frame, kind)
+	if frame and frame.backdrop then WSkin:ApplyRetailSurface(frame.backdrop, kind or "card") end
+end
+
 WSkin:AddCallback("Skin_Quest", function()
 	if not WSkin:IsSkinEnabled("quest") then return end
 
@@ -28,44 +39,47 @@ WSkin:AddCallback("Skin_Quest", function()
 	WSkin:CreateBackdrop(QuestLogFrame, "Transparent")
 	WSkin:Point(QuestLogFrame.backdrop, "TOPLEFT", 11, -12)
 	WSkin:Point(QuestLogFrame.backdrop, "BOTTOMRIGHT", -1, 11)
+	Shell(QuestLogFrame, QuestLogFrameCloseButton, _G.QuestLogTitleText)
 
 	WSkin:SetUIPanelWindowInfo(QuestLogFrame, "width")
 	WSkin:SetBackdropHitRect(QuestLogFrame)
-
-	WSkin:HandleCloseButton(QuestLogFrameCloseButton, QuestLogFrame.backdrop)
 
 	WSkin:StripTextures(QuestLogCount)
 	WSkin:CreateBackdrop(QuestLogCount, "Transparent")
 	WSkin:Point(QuestLogCount.backdrop, "TOPLEFT", -1, 0)
 	WSkin:Point(QuestLogCount.backdrop, "BOTTOMRIGHT", 1, -4)
+	Surface(QuestLogCount, "input")
+	WSkin:ApplyRetailRegionTypography(QuestLogCount, "secondary")
 
 	WSkin:StripTextures(QuestLogFrameShowMapButton)
-	WSkin:HandleButton(QuestLogFrameShowMapButton)
+	WSkin:HandleRetailButton(QuestLogFrameShowMapButton)
 
 	WSkin:CreateBackdrop(QuestLogScrollFrame, "Transparent")
 	WSkin:Point(QuestLogScrollFrame.backdrop, "TOPLEFT", 0, 2)
 	WSkin:Point(QuestLogScrollFrame.backdrop, "BOTTOMRIGHT", 0, -2)
+	Surface(QuestLogScrollFrame)
 
 	WSkin:StripTextures(QuestLogDetailScrollFrame)
 	WSkin:CreateBackdrop(QuestLogDetailScrollFrame, "Transparent")
 	WSkin:Point(QuestLogDetailScrollFrame.backdrop, "TOPLEFT", 0, 1)
 	WSkin:Point(QuestLogDetailScrollFrame.backdrop, "BOTTOMRIGHT", 0, -2)
+	Surface(QuestLogDetailScrollFrame)
 
 	WSkin:StripTextures(EmptyQuestLogFrame)
 
-	WSkin:HandleButton(QuestLogFrameAbandonButton)
-	WSkin:HandleButton(QuestLogFramePushQuestButton)
-	WSkin:HandleButton(QuestLogFrameTrackButton)
-	WSkin:HandleButton(QuestLogFrameCancelButton)
+	WSkin:HandleRetailButton(QuestLogFrameAbandonButton)
+	WSkin:HandleRetailButton(QuestLogFramePushQuestButton)
+	WSkin:HandleRetailButton(QuestLogFrameTrackButton, true)
+	WSkin:HandleRetailButton(QuestLogFrameCancelButton)
 
 	QuestLogSkillHighlight:SetTexture("Interface\\Buttons\\WHITE8x8")
 	QuestLogSkillHighlight:SetAlpha(0.35)
 
-	WSkin:HandleScrollBar(QuestLogScrollFrameScrollBar)
-	WSkin:HandleScrollBar(QuestLogDetailScrollFrameScrollBar)
-	WSkin:HandleScrollBar(QuestDetailScrollFrameScrollBar)
-	WSkin:HandleScrollBar(QuestProgressScrollFrameScrollBar)
-	WSkin:HandleScrollBar(QuestRewardScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(QuestLogScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(QuestLogDetailScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(QuestDetailScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(QuestProgressScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(QuestRewardScrollFrameScrollBar)
 
 	QuestLogCount:ClearAllPoints()
 	WSkin:Point(QuestLogCount, "BOTTOMLEFT", QuestLogScrollFrame, "TOPLEFT", 1, 13)
@@ -120,14 +134,12 @@ WSkin:AddCallback("Skin_Quest", function()
 	WSkin:CreateBackdrop(QuestLogDetailFrame, "Transparent")
 	WSkin:Point(QuestLogDetailFrame.backdrop, "TOPLEFT", 11, -12)
 	WSkin:Point(QuestLogDetailFrame.backdrop, "BOTTOMRIGHT", 2, 1)
+	Shell(QuestLogDetailFrame, QuestLogDetailFrameCloseButton, QuestLogDetailTitleText)
 
 	WSkin:SetUIPanelWindowInfo(QuestLogDetailFrame, "height", nil, nil, true)
 	WSkin:SetUIPanelWindowInfo(QuestLogDetailFrame, "width")
 	WSkin:SetBackdropHitRect(QuestLogDetailFrame)
 
-	WSkin:HandleCloseButton(QuestLogDetailFrameCloseButton, QuestLogDetailFrame.backdrop)
-
-	WSkin:Point(QuestLogDetailTitleText, "TOP", QuestLogDetailFrame, "TOP", 0, -18)
 
 	QuestLogDetailFrame:HookScript("OnShow", function()
 		QuestLogDetailScrollFrame.backdrop:Hide()
@@ -146,11 +158,10 @@ WSkin:AddCallback("Skin_Quest", function()
 	WSkin:CreateBackdrop(QuestFrame, "Transparent")
 	WSkin:Point(QuestFrame.backdrop, "TOPLEFT", 11, -12)
 	WSkin:Point(QuestFrame.backdrop, "BOTTOMRIGHT", -32, 0)
+	Shell(QuestFrame, QuestFrameCloseButton, QuestFrameNpcNameText)
 
 	WSkin:SetUIPanelWindowInfo(QuestFrame, "width")
 	WSkin:SetBackdropHitRect(QuestFrame)
-
-	WSkin:HandleCloseButton(QuestFrameCloseButton, QuestFrame.backdrop)
 
 	WSkin:StripTextures(QuestFrameDetailPanel, true)
 	WSkin:StripTextures(QuestDetailScrollFrame, true)
@@ -160,15 +171,12 @@ WSkin:AddCallback("Skin_Quest", function()
 	WSkin:StripTextures(QuestFrameProgressPanel, true)
 	WSkin:StripTextures(QuestFrameRewardPanel, true)
 
-	WSkin:HandleButton(QuestFrameAcceptButton)
-	WSkin:HandleButton(QuestFrameCompleteButton)
-	WSkin:HandleButton(QuestFrameCompleteQuestButton)
-	WSkin:HandleButton(QuestFrameDeclineButton)
-	WSkin:HandleButton(QuestFrameGoodbyeButton)
-	WSkin:HandleButton(QuestFrameCancelButton)
-
-	QuestFrameNpcNameText:ClearAllPoints()
-	WSkin:Point(QuestFrameNpcNameText, "TOP", QuestFrame, "TOP", -6, -15)
+	WSkin:HandleRetailButton(QuestFrameAcceptButton, true)
+	WSkin:HandleRetailButton(QuestFrameCompleteButton, true)
+	WSkin:HandleRetailButton(QuestFrameCompleteQuestButton, true)
+	WSkin:HandleRetailButton(QuestFrameDeclineButton)
+	WSkin:HandleRetailButton(QuestFrameGoodbyeButton)
+	WSkin:HandleRetailButton(QuestFrameCancelButton)
 
 	WSkin:Size(QuestDetailScrollFrame, 304, 402)
 	WSkin:Size(QuestRewardScrollFrame, 304, 402)
@@ -198,8 +206,8 @@ WSkin:AddCallback("Skin_Quest", function()
 	WSkin:StripTextures(QuestFrameGreetingPanel, true)
 	WSkin:Kill(QuestGreetingFrameHorizontalBreak)
 
-	WSkin:HandleButton(QuestFrameGreetingGoodbyeButton, true)
-	WSkin:HandleScrollBar(QuestGreetingScrollFrameScrollBar)
+	WSkin:HandleRetailButton(QuestFrameGreetingGoodbyeButton)
+	WSkin:HandleRetailScrollBar(QuestGreetingScrollFrameScrollBar)
 
 	GreetingText:SetTextColor(1, 1, 1)
 	CurrentQuestsText:SetTextColor(1, 0.80, 0.10)
@@ -210,7 +218,7 @@ WSkin:AddCallback("Skin_Quest", function()
 	AvailableQuestsText.SetTextColor = function() end
 
 	WSkin:Size(QuestGreetingScrollFrame, 304, 402)
-	WSkin:Point(QuestGreetingScrollFrame, "TOPLEFT", GossipFrame, "TOPLEFT", 19, -73)
+	WSkin:Point(QuestGreetingScrollFrame, "TOPLEFT", QuestFrame, "TOPLEFT", 19, -73)
 
 	WSkin:Point(QuestGreetingScrollFrameScrollBar, "TOPLEFT", QuestGreetingScrollFrame, "TOPRIGHT", 3, -19)
 	WSkin:Point(QuestGreetingScrollFrameScrollBar, "BOTTOMLEFT", QuestGreetingScrollFrame, "BOTTOMRIGHT", 3, 19)
@@ -247,7 +255,7 @@ WSkin:AddCallback("Skin_Quest", function()
 			local count = _G[frame..i.."Count"]
 
 			WSkin:StripTextures(item)
-			WSkin:SetTemplate(item, "Default")
+			WSkin:ApplyRetailSurface(item, "row")
 			WSkin:StyleButton(item)
 			WSkin:Size(item, 143, 40)
 			item:SetFrameLevel(item:GetFrameLevel() + 2)
@@ -256,6 +264,7 @@ WSkin:AddCallback("Skin_Quest", function()
 			icon:SetDrawLayer("OVERLAY")
 			WSkin:Point(icon, "TOPLEFT", false and 1 or 4, -(false and 1 or 4))
 			WSkin:HandleIcon(icon)
+			Surface(item, "input")
 
 			count:SetParent(item.backdrop)
 			count:SetDrawLayer("OVERLAY")
@@ -273,8 +282,8 @@ WSkin:AddCallback("Skin_Quest", function()
 
 			text:SetTextColor(r, g, b)
 		else
-			frame:SetBackdropBorderColor(0, 0, 0)
-			frame.backdrop:SetBackdropBorderColor(0, 0, 0)
+			frame:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
+			frame.backdrop:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 
 			text:SetTextColor(1, 1, 1)
 		end

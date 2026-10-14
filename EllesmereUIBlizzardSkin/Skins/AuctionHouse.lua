@@ -27,11 +27,13 @@ local function Each(names, handler, ...)
 	end
 end
 
+local AUCTION_TABS = 3
+
 local function SkinItem(button, icon)
 	if not button then return end
 	local texture = icon and icon.GetTexture and icon:GetTexture()
 	WSkin:StripTextures(button)
-	WSkin:SetTemplate(button, "Default", true)
+	WSkin:ApplyRetailSurface(button, "input")
 	WSkin:StyleButton(button)
 	if icon then
 		if texture then icon:SetTexture(texture) end
@@ -46,12 +48,58 @@ local function CreatePanel(parent, key, topLeftX, topLeftY, bottomRightX, bottom
 	if not panel then
 		panel = CreateFrame("Frame", nil, parent)
 		parent[key] = panel
-		WSkin:SetTemplate(panel, "Transparent")
+		WSkin:ApplyRetailSurface(panel, "card")
 		if parent.GetFrameLevel then panel:SetFrameLevel(math.max(0, parent:GetFrameLevel() - 1)) end
 	end
 	Point(panel, "TOPLEFT", parent, "TOPLEFT", topLeftX, topLeftY)
 	Point(panel, "BOTTOMRIGHT", parent, "BOTTOMRIGHT", bottomRightX, bottomRightY)
 	return panel
+end
+
+local function StyleInput(frame)
+	if frame and frame.backdrop then WSkin:ApplyRetailSurface(frame.backdrop, "input") end
+	WSkin:ApplyRetailRegionTypography(frame, "row")
+end
+
+local function StyleSortHeader(header)
+	if not header then return end
+	local name = header.GetName and header:GetName()
+	local arrow = name and _G[name .. "Arrow"]
+	for i = 1, select("#", header:GetRegions()) do
+		local region = select(i, header:GetRegions())
+		if region ~= arrow and region and region.IsObjectType and region:IsObjectType("Texture") then
+			region:SetTexture("")
+		end
+	end
+	if header.SetHighlightTexture then header:SetHighlightTexture("") end
+	WSkin:ApplyRetailSurface(header, "header")
+	WSkin:ApplyRetailRegionTypography(header, "secondary")
+	local label = header.GetFontString and header:GetFontString()
+	if label then WSkin:ApplyRetailTypography(label, "secondary") end
+end
+
+local function TabList()
+	local tabs = {}
+	local count = Count(_G.AuctionFrame and _G.AuctionFrame.numTabs, AUCTION_TABS)
+	for i = 1, count do tabs[#tabs + 1] = _G["AuctionFrameTab" .. i] end
+	return tabs
+end
+
+-- AuctionTabTemplate runs PanelTemplates_TabResize from its OnShow, so the
+-- retail row is re-laid out after Blizzard sizes the buttons as well as on
+-- every selection change.
+local laying = false
+local function LayoutAuctionTabs()
+	local frame = _G.AuctionFrame
+	local shell = frame and frame.backdrop
+	if not shell or laying then return end
+	laying = true
+	local tabs = TabList()
+	WSkin:LayoutRetailTabRow(tabs, shell, 110, 0)
+	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
+		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
+	for i, tab in ipairs(tabs) do WSkin:UpdateRetailTab(tab, i == selected) end
+	laying = false
 end
 
 local function SkinAuctionHouse()
@@ -64,21 +112,30 @@ local function SkinAuctionHouse()
 	frame.backdrop:ClearAllPoints()
 	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 11, 0)
 	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 23)
+	-- The native frame keeps a transparent margin around its 3.3.5 artwork and
+	-- Blizzard lays the content out against that artwork.  Build the shared
+	-- window shell on the visible backdrop rect instead of resizing the frame.
+	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, _G.AuctionFrameCloseButton, { content = false })
 	WSkin:SetUIPanelWindowInfo(frame, "xoffset", 0, nil, true)
 	WSkin:SetUIPanelWindowInfo(frame, "yoffset", -12, nil, true)
 	WSkin:SetUIPanelWindowInfo(frame, "width")
 	WSkin:SetBackdropHitRect(frame)
-	WSkin:HandleCloseButton(_G.AuctionFrameCloseButton, frame.backdrop)
 
 	Each({
-		"BrowseSearchButton", "BrowseResetButton", "BrowseBidButton", "BrowseBuyoutButton", "BrowseCloseButton",
-		"BidBidButton", "BidBuyoutButton", "BidCloseButton", "AuctionsCreateAuctionButton",
-		"AuctionsCancelAuctionButton", "AuctionsStackSizeMaxButton", "AuctionsNumStacksMaxButton",
-		"AuctionsCloseButton",
-	}, WSkin.HandleButton, true)
+		"BrowseResetButton", "BrowseBidButton", "BrowseCloseButton",
+		"BidBidButton", "BidCloseButton", "AuctionsCancelAuctionButton",
+		"AuctionsStackSizeMaxButton", "AuctionsNumStacksMaxButton", "AuctionsCloseButton",
+	}, WSkin.HandleRetailButton)
+	Each({
+		"BrowseSearchButton", "BrowseBuyoutButton", "BidBuyoutButton", "AuctionsCreateAuctionButton",
+	}, WSkin.HandleRetailButton, true)
 
-	WSkin:HandleCheckBox(_G.IsUsableCheckButton)
-	WSkin:HandleCheckBox(_G.ShowOnPlayerCheckButton)
+	for _, name in ipairs({ "IsUsableCheckButton", "ShowOnPlayerCheckButton" }) do
+		local check = _G[name]
+		WSkin:HandleCheckBox(check)
+		if check and check.backdrop then WSkin:ApplyRetailSurface(check.backdrop, "input") end
+		WSkin:ApplyRetailTypography(_G[name .. "Text"], "secondary")
+	end
 	for _, name in ipairs({
 		"BrowseName", "BrowseMinLevel", "BrowseMaxLevel",
 		"BrowseBidPriceGold", "BrowseBidPriceSilver", "BrowseBidPriceCopper",
@@ -89,6 +146,7 @@ local function SkinAuctionHouse()
 	}) do
 		local editBox = _G[name]
 		WSkin:HandleEditBox(editBox)
+		StyleInput(editBox)
 		if editBox and editBox.SetTextInsets then editBox:SetTextInsets(1, 1, -1, 1) end
 	end
 
@@ -97,25 +155,24 @@ local function SkinAuctionHouse()
 		"BidQualitySort", "BidLevelSort", "BidDurationSort", "BidBuyoutSort", "BidStatusSort", "BidBidSort",
 		"AuctionsQualitySort", "AuctionsDurationSort", "AuctionsHighBidderSort", "AuctionsBidSort",
 	}) do
-		local tab = _G[name]
-		if tab then
-			WSkin:StripTextures(tab)
-			if tab.SetNormalTexture then tab:SetNormalTexture("Interface\\Buttons\\UI-SortArrow") end
-			WSkin:StyleButton(tab)
-		end
+		StyleSortHeader(_G[name])
 	end
 
-	local tabCount = Count(frame.numTabs, 3)
-	for i = 1, tabCount do ClearPoints(_G["AuctionFrameTab" .. i]) end
-	for i = 1, tabCount do
-		local tab = _G["AuctionFrameTab" .. i]
-		WSkin:HandleTab(tab)
-		if i == 1 then
-			Point(tab, "TOPLEFT", frame, "BOTTOMLEFT", 12, 25)
-		else
-			Point(tab, "TOPLEFT", _G["AuctionFrameTab" .. (i - 1)], "TOPRIGHT", -15, 0)
-		end
+	for _, tab in ipairs(TabList()) do
+		WSkin:StyleRetailTab(tab)
+		tab:SetHitRectInsets(0, 0, 0, 0)
+		tab:HookScript("OnShow", LayoutAuctionTabs)
 	end
+	if hooksecurefunc then
+		hooksecurefunc("PanelTemplates_SetTab", function(owner)
+			if owner == frame then LayoutAuctionTabs() end
+		end)
+		hooksecurefunc("PanelTemplates_TabResize", function(tab)
+			if tab and tab.GetParent and tab:GetParent() == frame then LayoutAuctionTabs() end
+		end)
+	end
+	frame:HookScript("OnShow", LayoutAuctionTabs)
+	LayoutAuctionTabs()
 
 	for i = 1, Count(_G.NUM_FILTERS_TO_DISPLAY, 15) do
 		local filter = _G["AuctionFilterButton" .. i]
@@ -149,7 +206,7 @@ local function SkinAuctionHouse()
 
 	Point(_G.AuctionFrameMoneyFrame, "BOTTOMRIGHT", frame, "BOTTOMLEFT", 181, 37)
 	if _G.BrowseTitle and _G.BrowseTitle.ClearAllPoints then _G.BrowseTitle:ClearAllPoints() end
-	Point(_G.BrowseTitle, "TOP", frame, "TOP", 0, -5)
+	WSkin:SetRetailPageTitle(frame.backdrop, nil, _G.BrowseTitle)
 	Point(_G.BrowseNameText, "TOPLEFT", _G.AuctionFrameBrowse, "TOPLEFT", 25, -19)
 	if _G.BrowseName then WSkin:Size(_G.BrowseName, 163, 18) end
 	Point(_G.BrowseName, "TOPLEFT", _G.BrowseNameText, "BOTTOMLEFT", -5, -4)
@@ -159,6 +216,7 @@ local function SkinAuctionHouse()
 	Point(_G.BrowseLevelHyphen, "LEFT", _G.BrowseMinLevel, "RIGHT", 2, 1)
 	Point(_G.BrowseMaxLevel, "LEFT", _G.BrowseMinLevel, "RIGHT", 12, 0)
 	WSkin:HandleDropDownBox(_G.BrowseDropDown, 155)
+	StyleInput(_G.BrowseDropDown)
 	Point(_G.BrowseSearchButton, "TOPRIGHT", _G.AuctionFrameBrowse, "TOPRIGHT", 15, -34)
 
 	WSkin:HandleNextPrevButton(_G.BrowsePrevPageButton, "left", nil, true)
@@ -172,7 +230,7 @@ local function SkinAuctionHouse()
 	if _G.BrowseFilterScrollFrame then WSkin:Size(_G.BrowseFilterScrollFrame, 144, 301) end
 	Point(_G.BrowseFilterScrollFrame, "TOPRIGHT", _G.AuctionFrameBrowse, "TOPLEFT", 163, -86)
 	Point(_G.AuctionFilterButton1, "TOPLEFT", _G.AuctionFrameBrowse, "TOPLEFT", 23, -87)
-	WSkin:HandleScrollBar(_G.BrowseFilterScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.BrowseFilterScrollFrameScrollBar)
 	Point(_G.BrowseFilterScrollFrameScrollBar, "TOPLEFT", _G.BrowseFilterScrollFrame, "TOPRIGHT", 3, -19)
 	Point(_G.BrowseFilterScrollFrameScrollBar, "BOTTOMLEFT", _G.BrowseFilterScrollFrame, "BOTTOMRIGHT", 3, 19)
 
@@ -180,7 +238,7 @@ local function SkinAuctionHouse()
 	if _G.BrowseScrollFrame then WSkin:Size(_G.BrowseScrollFrame, 616, 301) end
 	Point(_G.BrowseScrollFrame, "TOPRIGHT", _G.AuctionFrameBrowse, "TOPRIGHT", 45, -86)
 	Point(_G.BrowseButton1, "TOPLEFT", _G.AuctionFrameBrowse, "TOPLEFT", 191, -89)
-	WSkin:HandleScrollBar(_G.BrowseScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.BrowseScrollFrameScrollBar)
 	Point(_G.BrowseScrollFrameScrollBar, "TOPLEFT", _G.BrowseScrollFrame, "TOPRIGHT", 3, -19)
 	Point(_G.BrowseScrollFrameScrollBar, "BOTTOMLEFT", _G.BrowseScrollFrame, "BOTTOMRIGHT", 3, 19)
 	ClearPoints(_G.BrowseBidButton, _G.BrowseBuyoutButton, _G.BrowseCloseButton)
@@ -189,12 +247,12 @@ local function SkinAuctionHouse()
 	Point(_G.BrowseBidButton, "RIGHT", _G.BrowseBuyoutButton, "LEFT", -5, 0)
 
 	if _G.BidTitle and _G.BidTitle.ClearAllPoints then _G.BidTitle:ClearAllPoints() end
-	Point(_G.BidTitle, "TOP", frame, "TOP", 0, -5)
+	WSkin:SetRetailPageTitle(frame.backdrop, nil, _G.BidTitle)
 	WSkin:StripTextures(_G.BidScrollFrame)
 	if _G.BidScrollFrame then WSkin:Size(_G.BidScrollFrame, 784, 338) end
 	Point(_G.BidScrollFrame, "TOPRIGHT", _G.AuctionFrameBid, "TOPRIGHT", 45, -49)
 	Point(_G.BidButton1, "TOPLEFT", _G.AuctionFrameBid, "TOPLEFT", 23, -52)
-	WSkin:HandleScrollBar(_G.BidScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.BidScrollFrameScrollBar)
 	Point(_G.BidScrollFrameScrollBar, "TOPLEFT", _G.BidScrollFrame, "TOPRIGHT", 3, -19)
 	Point(_G.BidScrollFrameScrollBar, "BOTTOMLEFT", _G.BidScrollFrame, "BOTTOMRIGHT", 3, 19)
 	ClearPoints(_G.BidBidButton, _G.BidBuyoutButton, _G.BidCloseButton)
@@ -203,18 +261,20 @@ local function SkinAuctionHouse()
 	Point(_G.BidBidButton, "RIGHT", _G.BidBuyoutButton, "LEFT", -5, 0)
 
 	if _G.AuctionsTitle and _G.AuctionsTitle.ClearAllPoints then _G.AuctionsTitle:ClearAllPoints() end
-	Point(_G.AuctionsTitle, "TOP", frame, "TOP", 0, -5)
+	WSkin:SetRetailPageTitle(frame.backdrop, nil, _G.AuctionsTitle)
 	if _G.AuctionsBlockFrame then WSkin:Size(_G.AuctionsBlockFrame, 191, 336) end
 	Point(_G.AuctionsBlockFrame, "TOPLEFT", _G.AuctionFrameAuctions, "TOPLEFT", 20, -50)
 	SkinItem(_G.AuctionsItemButton, _G.AuctionsItemButton and _G.AuctionsItemButton:GetNormalTexture())
 	Point(_G.AuctionsItemButton, "TOPLEFT", _G.AuctionFrameAuctions, "TOPLEFT", 30, -71)
 	WSkin:HandleDropDownBox(_G.PriceDropDown)
 	WSkin:HandleDropDownBox(_G.DurationDropDown)
+	StyleInput(_G.PriceDropDown)
+	StyleInput(_G.DurationDropDown)
 	WSkin:StripTextures(_G.AuctionsScrollFrame)
 	if _G.AuctionsScrollFrame then WSkin:Size(_G.AuctionsScrollFrame, 588, 338) end
 	Point(_G.AuctionsScrollFrame, "TOPRIGHT", _G.AuctionFrameAuctions, "TOPRIGHT", 45, -49)
 	Point(_G.AuctionsButton1, "TOPLEFT", _G.AuctionFrameAuctions, "TOPLEFT", 219, -52)
-	WSkin:HandleScrollBar(_G.AuctionsScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.AuctionsScrollFrameScrollBar)
 	Point(_G.AuctionsScrollFrameScrollBar, "TOPLEFT", _G.AuctionsScrollFrame, "TOPRIGHT", 3, -19)
 	Point(_G.AuctionsScrollFrameScrollBar, "BOTTOMLEFT", _G.AuctionsScrollFrame, "BOTTOMRIGHT", 3, 19)
 	ClearPoints(_G.AuctionsCancelAuctionButton, _G.AuctionsCloseButton)
@@ -223,12 +283,14 @@ local function SkinAuctionHouse()
 
 	if _G.AuctionDressUpFrame then
 		WSkin:StripTextures(_G.AuctionDressUpFrame)
-		WSkin:SetTemplate(_G.AuctionDressUpFrame, "Transparent")
-		WSkin:HandleCloseButton(_G.AuctionDressUpFrameCloseButton, _G.AuctionDressUpFrame)
+		WSkin:CreateRetailWindowShell(_G.AuctionDressUpFrame, nil, nil, _G.AuctionDressUpFrameCloseButton, { content = false })
 		WSkin:CreateBackdrop(_G.AuctionDressUpModel, "Default")
+		if _G.AuctionDressUpModel and _G.AuctionDressUpModel.backdrop then
+			WSkin:ApplyRetailSurface(_G.AuctionDressUpModel.backdrop, "card")
+		end
 		WSkin:HandleRotateButton(_G.AuctionDressUpModelRotateLeftButton)
 		WSkin:HandleRotateButton(_G.AuctionDressUpModelRotateRightButton)
-		WSkin:HandleButton(_G.AuctionDressUpFrameResetButton)
+		WSkin:HandleRetailButton(_G.AuctionDressUpFrameResetButton)
 		WSkin:Size(_G.AuctionDressUpFrame, 189, 401)
 		Point(_G.AuctionDressUpFrame, "TOPLEFT", frame, "TOPRIGHT", -1, 0)
 		if _G.AuctionDressUpModel then WSkin:Size(_G.AuctionDressUpModel, 171, 365) end
@@ -237,7 +299,7 @@ local function SkinAuctionHouse()
 
 	if _G.AuctionProgressFrame then
 		WSkin:StripTextures(_G.AuctionProgressFrame)
-		WSkin:SetTemplate(_G.AuctionProgressFrame, "Transparent")
+		WSkin:ApplyRetailSurface(_G.AuctionProgressFrame, "card", 0.03, 0.045, 0.05, 0.95)
 		WSkin:HandleStatusBar(_G.AuctionProgressBar, { 1, 0.7, 0 })
 		if _G.AuctionProgressBar then WSkin:Size(_G.AuctionProgressBar, 190, 18) end
 		Point(_G.AuctionProgressBar, "CENTER", _G.AuctionProgressFrame, "CENTER", 5, 0)

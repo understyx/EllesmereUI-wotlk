@@ -1275,7 +1275,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
 
         local function merchantShowAsListOff()
-            return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == false
+            return not (EllesmereUIDB and EllesmereUIDB.merchantShowAsList == true)
         end
 
         local row

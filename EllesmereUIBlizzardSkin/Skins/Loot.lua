@@ -61,7 +61,7 @@ local function QualityColor(quality)
 		local r, g, b = GetItemQualityColor(quality)
 		if r then return r, g, b end
 	end
-	return 0.2, 0.2, 0.2
+	return unpack(WSkin.Retail.colors.border)
 end
 
 -------------------------------------------------------------------------------
@@ -107,7 +107,7 @@ local function UpdateLootButton(index)
 	if numLootItems > visibleButtons then visibleButtons = visibleButtons - 1 end
 	local slot = (visibleButtons * ((frame.page or 1) - 1)) + index
 
-	button.backdrop:SetBackdropBorderColor(0.2, 0.2, 0.2)
+	button.backdrop:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 	if data.questTexture then data.questTexture:Hide() end
 	if slot > numLootItems or index > visibleButtons or not GetLootSlotInfo then return end
 	if LootSlotIsItem and LootSlotIsCoin
@@ -133,13 +133,14 @@ local function SkinLootButton(index)
 	if not data.skinned then
 		data.skinned = true
 		local icon = WSkin:HandleItemButton(button, true)
+		if button.backdrop then WSkin:ApplyRetailSurface(button.backdrop, "input") end
 		local nameFrame = _G["LootButton" .. index .. "NameFrame"]
 		if nameFrame then
 			if IsTexture(nameFrame) then HideTexture(nameFrame) else nameFrame:Hide() end
 		end
 
 		data.nameBackground = CreateFrame("Frame", nil, button)
-		WSkin:SetTemplate(data.nameBackground, "Default")
+		WSkin:UpdateRetailRow(data.nameBackground, false)
 		data.nameBackground:SetPoint("TOPLEFT", button, "TOPLEFT", 40, 0)
 		data.nameBackground:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 110, 0)
 		data.nameBackground:SetFrameLevel(math.max(0, data.nameBackground:GetFrameLevel() - 1))
@@ -179,13 +180,10 @@ local function SkinLootFrame()
 		frame.backdrop:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -54)
 		frame.backdrop:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -77, 8)
 		WSkin:SetBackdropHitRect(frame, frame.backdrop, true)
-
+		-- Window shell on the visible backdrop; its top bar hosts the title
+		-- and the close button.
 		local close = _G.LootCloseButton or _G.LootFrameCloseButton
-		if close then
-			WSkin:HandleCloseButton(close)
-			close:ClearAllPoints()
-			close:SetPoint("CENTER", frame, "TOPRIGHT", -88, -65)
-		end
+		WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, close, { content = false })
 
 		local up = _G.LootFrameUpButton
 		local down = _G.LootFrameDownButton
@@ -213,11 +211,10 @@ local function SkinLootFrame()
 
 		data.title = FindLootTitle(frame)
 		if data.title then
-			FontOnly(data.title, 12)
-			data.title:SetTextColor(1, 1, 1)
+			WSkin:ApplyRetailTypography(data.title, "title")
 			data.title:ClearAllPoints()
-			data.title:SetPoint("TOPLEFT", frame.backdrop, "TOPLEFT", 4, -4)
-			data.title:SetWidth(142)
+			data.title:SetPoint("TOPLEFT", frame.backdrop, "TOPLEFT", 8, -6)
+			data.title:SetWidth(130)
 			data.title:SetJustifyH("LEFT")
 			data.title:SetWordWrap(false)
 		end
@@ -262,11 +259,10 @@ local function SkinGroupLootFrame(frame, index)
 
 		frame:EnableMouse(true)
 		WSkin:StripTextures(frame)
-		WSkin:SetTemplate(frame, "Transparent")
-		frame:SetBackdropColor(0, 0, 0, 0.78)
+		WSkin:ApplyRetailSurface(frame, "card", 0.03, 0.045, 0.05, 0.92)
 
 		if iconFrame then
-			WSkin:SetTemplate(iconFrame, "Default")
+			WSkin:ApplyRetailSurface(iconFrame, "input")
 			WSkin:StyleButton(iconFrame)
 		end
 		if icon and iconFrame then
@@ -278,22 +274,17 @@ local function SkinGroupLootFrame(frame, index)
 		if timer then
 			WSkin:StripTextures(timer)
 			WSkin:CreateBackdrop(timer, "Default")
+			if timer.backdrop then WSkin:ApplyRetailSurface(timer.backdrop, "input") end
 			timer:SetStatusBarTexture(WHITE_TEXTURE)
 		end
 
-		-- ElvUI's Wrath skin deliberately keeps the familiar gold dragon and
-		-- Blizzard's native roll-choice positions instead of rebuilding the row.
-		if decoration then
-			decoration:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Gold-Dragon")
-			decoration:SetAlpha(1)
-			decoration:SetSize(130, 130)
-			decoration:ClearAllPoints()
-			decoration:SetPoint("TOPLEFT", frame, "TOPLEFT", -37, 20)
-		end
+		-- Keep Blizzard's native roll-choice positions, but drop the gold
+		-- dragon flourish so roll panels match the flat retail surfaces.
+		if decoration then decoration:SetAlpha(0) end
 		if corner then corner:Hide() end
 
 		local name = _G[frameName .. "Name"]
-		if name then FontOnly(name, 11) end
+		if name then WSkin:ApplyRetailTypography(name, "row", 1) end
 	end
 	-- Blizzard may refresh the pass button's native art as a roll is reused.
 	-- Reapply the close treatment on show without replacing any button methods.

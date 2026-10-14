@@ -33,15 +33,42 @@ local function SetQualityBorder(button, quality)
 	if quality and quality > 1 and GetItemQualityColor then
 		target:SetBackdropBorderColor(GetItemQualityColor(quality))
 	else
-		target:SetBackdropBorderColor(0.2, 0.2, 0.2)
+		target:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 	end
+end
+
+local GUILDBANK_TABS = 4
+
+local function StyleInput(frame)
+	if frame and frame.backdrop then WSkin:ApplyRetailSurface(frame.backdrop, "input") end
+	WSkin:ApplyRetailRegionTypography(frame, "row")
+end
+
+local function TabList()
+	local tabs = {}
+	for i = 1, GUILDBANK_TABS do tabs[#tabs + 1] = _G["GuildBankFrameTab" .. i] end
+	return tabs
+end
+
+local laying = false
+local function LayoutGuildBankTabs()
+	local frame = _G.GuildBankFrame
+	local shell = frame and frame.backdrop
+	if not shell or laying then return end
+	laying = true
+	local tabs = TabList()
+	WSkin:LayoutRetailTabRow(tabs, shell, 110, 0)
+	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
+		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
+	for i, tab in ipairs(tabs) do WSkin:UpdateRetailTab(tab, i == selected) end
+	laying = false
 end
 
 local function SkinGuildBankItem(button, icon)
 	if not button then return end
 	local texture = icon and icon.GetTexture and icon:GetTexture()
 	WSkin:StripTextures(button)
-	WSkin:SetTemplate(button, "Default", true)
+	WSkin:ApplyRetailSurface(button, "input")
 	WSkin:StyleButton(button)
 	if icon then
 		if texture then icon:SetTexture(texture) end
@@ -62,31 +89,48 @@ local function SkinGuildBank()
 	frame.backdrop:ClearAllPoints()
 	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 11, -12)
 	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 8)
+	-- Keep Blizzard's top-based content layout and build the shared window
+	-- shell on the visible backdrop rect rather than resizing the frame.
+	local close = _G.GuildBankFrameCloseButton
+	if not close and frame.GetChildren then close = select(13, frame:GetChildren()) end
+	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, close, { content = false })
 	WSkin:SetUIPanelWindowInfo(frame, "width", nil, 35)
 	WSkin:SetBackdropHitRect(frame)
 
 	if not frame.inset then
 		frame.inset = CreateFrame("Frame", nil, frame)
-		WSkin:SetTemplate(frame.inset, "Default")
+		WSkin:ApplyRetailSurface(frame.inset, "card")
 		Point(frame.inset, "TOPLEFT", frame, "TOPLEFT", 19, -64)
 		Point(frame.inset, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 62)
 	end
 
 	WSkin:StripTextures(_G.GuildBankEmblemFrame, true)
-	local close = _G.GuildBankFrameCloseButton
-	if not close and frame.GetChildren then close = select(13, frame:GetChildren()) end
-	WSkin:HandleCloseButton(close, frame.backdrop)
 
-	Each({
-		"GuildBankFrameDepositButton", "GuildBankFrameWithdrawButton",
-		"GuildBankInfoSaveButton", "GuildBankFramePurchaseButton",
-	}, WSkin.HandleButton)
+	Each({ "GuildBankFrameWithdrawButton", "GuildBankInfoSaveButton" }, WSkin.HandleRetailButton)
+	Each({ "GuildBankFrameDepositButton", "GuildBankFramePurchaseButton" }, WSkin.HandleRetailButton, true)
+	WSkin:ApplyRetailTypography(_G.GuildBankLimitLabel, "secondary")
+	WSkin:ApplyRetailTypography(_G.GuildBankTabTitle, "section")
+	WSkin:ApplyRetailTypography(_G.GuildBankFramePurchaseInfoText, "secondary")
 
 	Each({ "GuildBankInfoScrollFrame", "GuildBankTransactionsScrollFrame" }, WSkin.StripTextures)
-	WSkin:HandleScrollBar(_G.GuildBankInfoScrollFrameScrollBar)
-	WSkin:HandleScrollBar(_G.GuildBankTransactionsScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.GuildBankInfoScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.GuildBankTransactionsScrollFrameScrollBar)
 
-	for i = 1, 4 do WSkin:HandleTab(_G["GuildBankFrameTab" .. i]) end
+	for _, tab in ipairs(TabList()) do
+		WSkin:StyleRetailTab(tab)
+		tab:SetHitRectInsets(0, 0, 0, 0)
+		tab:HookScript("OnShow", LayoutGuildBankTabs)
+		tab:HookScript("OnHide", LayoutGuildBankTabs)
+	end
+	if hooksecurefunc then
+		hooksecurefunc("PanelTemplates_SetTab", function(owner)
+			if owner == frame then LayoutGuildBankTabs() end
+		end)
+		hooksecurefunc("PanelTemplates_TabResize", function(tab)
+			if tab and tab.GetParent and tab:GetParent() == frame then LayoutGuildBankTabs() end
+		end)
+	end
+	frame:HookScript("OnShow", LayoutGuildBankTabs)
 
 	local bankTabs = Count(_G.MAX_GUILDBANK_TABS, 6)
 	for i = 1, bankTabs do
@@ -97,7 +141,8 @@ local function SkinGuildBank()
 		SkinGuildBankItem(button, icon)
 		local checked = button and button.GetCheckedTexture and button:GetCheckedTexture()
 		if checked then
-			checked:SetTexture(1, 1, 1, 0.3)
+			local ar, ag, ab = WSkin:GetRetailAccent()
+			checked:SetTexture(ar, ag, ab, 0.3)
 			WSkin:SetInside(checked, button)
 		end
 	end
@@ -140,11 +185,7 @@ local function SkinGuildBank()
 	ClearPoints(_G.GuildBankFrameDepositButton, _G.GuildBankFrameWithdrawButton)
 	Point(_G.GuildBankFrameDepositButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 36)
 	Point(_G.GuildBankFrameWithdrawButton, "RIGHT", _G.GuildBankFrameDepositButton, "LEFT", -3, 0)
-	for i = 1, 4 do ClearPoints(_G["GuildBankFrameTab" .. i]) end
-	Point(_G.GuildBankFrameTab1, "BOTTOMLEFT", frame, "BOTTOMLEFT", 11, -22)
-	for i = 2, 4 do
-		Point(_G["GuildBankFrameTab" .. i], "LEFT", _G["GuildBankFrameTab" .. (i - 1)], "RIGHT", -15, 0)
-	end
+	LayoutGuildBankTabs()
 
 	Point(_G.GuildBankMessageFrame, "TOPLEFT", frame, "TOPLEFT", 27, -72)
 	if _G.GuildBankMessageFrame then WSkin:Size(_G.GuildBankMessageFrame, 575, 302) end
@@ -157,13 +198,26 @@ local function SkinGuildBank()
 	if _G.GuildBankInfoScrollFrame then WSkin:Size(_G.GuildBankInfoScrollFrame, 575, 302) end
 	Point(_G.GuildBankInfoScrollFrameScrollBar, "TOPLEFT", _G.GuildBankInfoScrollFrame, "TOPRIGHT", 12, -11)
 	Point(_G.GuildBankInfoScrollFrameScrollBar, "BOTTOMLEFT", _G.GuildBankInfoScrollFrame, "BOTTOMRIGHT", 12, 11)
-	if _G.GuildBankTabInfoEditBox then WSkin:Width(_G.GuildBankTabInfoEditBox, 575) end
+	if _G.GuildBankTabInfoEditBox then
+		WSkin:Width(_G.GuildBankTabInfoEditBox, 575)
+		WSkin:ApplyRetailTypography(_G.GuildBankTabInfoEditBox, "row")
+	end
 	Point(_G.GuildBankInfoSaveButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", 19, 35)
 
 	if _G.GuildBankPopupFrame then
-		WSkin:HandleIconSelectionFrame(_G.GuildBankPopupFrame, Count(_G.NUM_GUILDBANK_ICONS_SHOWN, 20), "GuildBankPopupButton", "GuildBankPopup")
-		WSkin:SetBackdropHitRect(_G.GuildBankPopupFrame)
-		WSkin:HandleScrollBar(_G.GuildBankPopupScrollFrameScrollBar)
+		local popup = _G.GuildBankPopupFrame
+		WSkin:HandleIconSelectionFrame(popup, Count(_G.NUM_GUILDBANK_ICONS_SHOWN, 20), "GuildBankPopupButton", "GuildBankPopup")
+		if popup.backdrop then
+			WSkin:CreateRetailWindowShell(popup.backdrop, nil, nil, nil, { content = false })
+		end
+		Each({ "GuildBankPopupOkayButton", "GuildBankPopupCancelButton" }, WSkin.HandleRetailButton)
+		StyleInput(_G.GuildBankPopupEditBox)
+		for i = 1, Count(_G.NUM_GUILDBANK_ICONS_SHOWN, 20) do
+			local button = _G["GuildBankPopupButton" .. i]
+			if button then WSkin:ApplyRetailSurface(button, "input") end
+		end
+		WSkin:SetBackdropHitRect(popup)
+		WSkin:HandleRetailScrollBar(_G.GuildBankPopupScrollFrameScrollBar)
 		Point(_G.GuildBankPopupFrame, "TOPLEFT", frame, "TOPRIGHT", 24, 0)
 	end
 

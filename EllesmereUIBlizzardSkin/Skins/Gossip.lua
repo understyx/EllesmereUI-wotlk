@@ -17,16 +17,17 @@ WSkin:AddCallback("Skin_Gossip", function()
 	WSkin:CreateBackdrop(GossipFrame, "Transparent")
 	WSkin:Point(GossipFrame.backdrop, "TOPLEFT", 11, -12)
 	WSkin:Point(GossipFrame.backdrop, "BOTTOMRIGHT", -32, 0)
+	-- Shared window shell on the visible backdrop rect; Blizzard's content
+	-- layout is anchored to the native frame and stays where it is.
+	WSkin:CreateRetailWindowShell(GossipFrame.backdrop, nil, nil, GossipFrameCloseButton, { content = false })
 
 	WSkin:SetUIPanelWindowInfo(GossipFrame, "width")
 	WSkin:SetBackdropHitRect(GossipFrame)
 
 	GossipGreetingText:SetTextColor(1, 1, 1)
 
-	WSkin:HandleCloseButton(GossipFrameCloseButton, GossipFrame.backdrop)
-
-	WSkin:HandleScrollBar(GossipGreetingScrollFrameScrollBar)
-	WSkin:HandleButton(GossipFrameGreetingGoodbyeButton)
+	WSkin:HandleRetailScrollBar(GossipGreetingScrollFrameScrollBar)
+	WSkin:HandleRetailButton(GossipFrameGreetingGoodbyeButton)
 
 	for i = 1, NUMGOSSIPBUTTONS do
 		local button = _G["GossipTitleButton"..i]
@@ -34,8 +35,7 @@ WSkin:AddCallback("Skin_Gossip", function()
 		select(3, button:GetRegions()):SetTextColor(1, 1, 1)
 	end
 
-	GossipFrameNpcNameText:ClearAllPoints()
-	WSkin:Point(GossipFrameNpcNameText, "TOP", GossipFrame, "TOP", -6, -15)
+	WSkin:SetRetailPageTitle(GossipFrame.backdrop, nil, GossipFrameNpcNameText)
 
 	WSkin:Size(GossipGreetingScrollFrame, 304, 402)
 	WSkin:Point(GossipGreetingScrollFrame, "TOPLEFT", GossipFrame, "TOPLEFT", 19, -73)
@@ -61,6 +61,7 @@ WSkin:AddCallback("Skin_Gossip", function()
 	WSkin:CreateBackdrop(ItemTextFrame, "Transparent")
 	WSkin:Point(ItemTextFrame.backdrop, "TOPLEFT", 11, -12)
 	WSkin:Point(ItemTextFrame.backdrop, "BOTTOMRIGHT", -32, 76)
+	WSkin:CreateRetailWindowShell(ItemTextFrame.backdrop, nil, nil, ItemTextCloseButton, { content = false })
 
 	WSkin:SetUIPanelWindowInfo(ItemTextFrame, "width")
 	WSkin:SetBackdropHitRect(ItemTextFrame)
@@ -68,14 +69,13 @@ WSkin:AddCallback("Skin_Gossip", function()
 	ItemTextPageText:SetTextColor(1, 1, 1)
 	ItemTextPageText.SetTextColor = function() end
 
-	WSkin:HandleCloseButton(ItemTextCloseButton, ItemTextFrame.backdrop)
-
 	WSkin:HandleNextPrevButton(ItemTextPrevPageButton)
 	WSkin:HandleNextPrevButton(ItemTextNextPageButton)
 
-	WSkin:HandleScrollBar(ItemTextScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(ItemTextScrollFrameScrollBar)
 
-	WSkin:Point(ItemTextTitleText, "CENTER", -15, 230)
+	WSkin:SetRetailPageTitle(ItemTextFrame.backdrop, nil, ItemTextTitleText)
+	WSkin:ApplyRetailTypography(ItemTextCurrentPage, "secondary")
 
 	WSkin:Point(ItemTextCurrentPage, "TOP", -15, -52)
 

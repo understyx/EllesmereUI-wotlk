@@ -251,13 +251,27 @@ end
 
 local selectedCategory
 
+-- Blizzard keeps the authoritative selection on the active tab's function
+-- table (achievements, statistics or comparison). The comparison summary row
+-- is stored under its own ID but displayed as the "summary" element.
+local function GetBlizzardSelectedCategory()
+    local funcs = _G.achievementFunctions
+    local selection = type(funcs) == "table" and funcs.selectedCategory or nil
+    if selection ~= nil and selection == _G.ACHIEVEMENT_COMPARISON_SUMMARY_ID then
+        selection = "summary"
+    end
+    return selection
+end
+
 local function SkinCategoryButton(button)
     if not button or not button.element then return end
     local data = GetFFD(button)
     Fade(button.background)
     Fade(button.GetHighlightTexture and button:GetHighlightTexture())
     button:SetWidth(176)
-    WSkin:UpdateRetailRow(button, button.categoryID == selectedCategory,
+    local active = GetBlizzardSelectedCategory()
+    if active == nil then active = selectedCategory end
+    WSkin:UpdateRetailRow(button, button.categoryID ~= nil and button.categoryID == active,
         button.element.parent == true)
     AddRowHover(button)
 
@@ -289,7 +303,13 @@ local function RefreshCategoryButtons()
     local container = _G.AchievementFrameCategoriesContainer
     local buttons = container and container.buttons
     if not buttons then return end
-    -- Blizzard does not expose the selected category, but LockHighlight keeps
+    local active = GetBlizzardSelectedCategory()
+    if active ~= nil then
+        selectedCategory = active
+        for _, button in ipairs(buttons) do SkinCategoryButton(button) end
+        return
+    end
+    -- Fallback when the selection table is unavailable: Blizzard does not expose the selected category, but LockHighlight keeps
     -- the chosen row's native highlight shown. Read that state after its update
     -- pass (the texture itself stays transparent) so tab changes cannot leave
     -- our accent on a category from the previous page.

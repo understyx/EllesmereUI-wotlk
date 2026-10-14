@@ -34,8 +34,29 @@ local function SkinWindow(frame, closeButton)
 	frame.backdrop:ClearAllPoints()
 	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 11, -12)
 	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 76)
-	WSkin:HandleCloseButton(closeButton, frame.backdrop)
+	-- Blizzard lays the mail pages out against the old artwork rect, so the
+	-- shared window shell lives on that visible backdrop, not the full frame.
+	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
 	return frame.backdrop
+end
+
+local function StyleInput(frame)
+	if frame and frame.backdrop then WSkin:ApplyRetailSurface(frame.backdrop, "input") end
+	WSkin:ApplyRetailRegionTypography(frame, "row")
+end
+
+local laying = false
+local function LayoutMailTabs()
+	local frame = _G.MailFrame
+	local shell = frame and frame.backdrop
+	if not shell or laying then return end
+	laying = true
+	local tabs = { _G.MailFrameTab1, _G.MailFrameTab2 }
+	WSkin:LayoutRetailTabRow(tabs, shell, 110, 0)
+	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
+		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
+	for i, tab in ipairs(tabs) do WSkin:UpdateRetailTab(tab, i == selected) end
+	laying = false
 end
 
 local function SetQualityBorder(button, quality, isGM)
@@ -46,7 +67,7 @@ local function SetQualityBorder(button, quality, isGM)
 	elseif quality and GetItemQualityColor then
 		target:SetBackdropBorderColor(GetItemQualityColor(quality))
 	else
-		target:SetBackdropBorderColor(0.2, 0.2, 0.2)
+		target:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 	end
 end
 
@@ -55,6 +76,7 @@ local function SkinMailItem(button, icon)
 	local texture = icon and icon.GetTexture and icon:GetTexture()
 	WSkin:StripTextures(button)
 	WSkin:CreateBackdrop(button, "Default")
+	if button.backdrop then WSkin:ApplyRetailSurface(button.backdrop, "input") end
 	WSkin:StyleButton(button)
 	if icon then
 		if texture then icon:SetTexture(texture) end
@@ -93,6 +115,7 @@ local function SkinMail()
 			WSkin:StripTextures(mail)
 			WSkin:CreateBackdrop(mail, "Transparent")
 			if mail.backdrop then
+				WSkin:UpdateRetailRow(mail.backdrop, false, false, i % 2 == 0)
 				mail.backdrop:ClearAllPoints()
 				if button then mail.backdrop:SetParent(button) end
 				if mail.GetFrameLevel then mail.backdrop:SetFrameLevel(math.max(0, mail:GetFrameLevel() - 1)) end
@@ -124,18 +147,33 @@ local function SkinMail()
 		end)
 	end
 
-	Point(_G.InboxTitleText, "CENTER", _G.MailFrame, "CENTER", 0, 231)
-	Point(_G.SendMailTitleText, "CENTER", _G.MailFrame, "CENTER", 0, 231)
+	WSkin:SetRetailPageTitle(mailBackdrop, nil, _G.InboxTitleText)
+	WSkin:SetRetailPageTitle(mailBackdrop, nil, _G.SendMailTitleText)
+	WSkin:ApplyRetailTypography(_G.InboxCurrentPage, "secondary")
 	WSkin:HandleNextPrevButton(_G.InboxPrevPageButton, "left", nil, true)
 	WSkin:HandleNextPrevButton(_G.InboxNextPageButton, "right", nil, true)
 	if _G.InboxPrevPageButton then WSkin:Size(_G.InboxPrevPageButton, 32) end
 	if _G.InboxNextPageButton then WSkin:Size(_G.InboxNextPageButton, 32) end
 
-	for i = 1, 2 do WSkin:HandleTab(_G["MailFrameTab" .. i]) end
-	ClearPoints(_G.MailFrameTab1, _G.MailFrameTab2)
+	for i = 1, 2 do
+		local tab = _G["MailFrameTab" .. i]
+		if tab then
+			WSkin:StyleRetailTab(tab)
+			tab:SetHitRectInsets(0, 0, 0, 0)
+			tab:HookScript("OnShow", LayoutMailTabs)
+		end
+	end
+	if hooksecurefunc then
+		hooksecurefunc("PanelTemplates_SetTab", function(owner)
+			if owner == _G.MailFrame then LayoutMailTabs() end
+		end)
+		hooksecurefunc("PanelTemplates_TabResize", function(tab)
+			if tab == _G.MailFrameTab1 or tab == _G.MailFrameTab2 then LayoutMailTabs() end
+		end)
+	end
+	_G.MailFrame:HookScript("OnShow", LayoutMailTabs)
+	LayoutMailTabs()
 	Point(_G.MailItem1, "TOPLEFT", _G.InboxFrame, "TOPLEFT", 24, -80)
-	Point(_G.MailFrameTab1, "BOTTOMLEFT", _G.MailFrame, "BOTTOMLEFT", 11, 46)
-	Point(_G.MailFrameTab2, "LEFT", _G.MailFrameTab1, "RIGHT", -15, 0)
 
 	WSkin:StripTextures(_G.SendMailFrame)
 	WSkin:StripTextures(_G.SendMailScrollFrame, true)
@@ -144,14 +182,21 @@ local function SkinMail()
 		_G.SendMailScrollFrame.backdrop:ClearAllPoints()
 		Point(_G.SendMailScrollFrame.backdrop, "TOPLEFT", _G.SendMailScrollFrame, "TOPLEFT", 0, 5)
 		Point(_G.SendMailScrollFrame.backdrop, "BOTTOMRIGHT", _G.SendMailScrollFrame, "BOTTOMRIGHT", 0, -5)
+		WSkin:ApplyRetailSurface(_G.SendMailScrollFrame.backdrop, "input")
 	end
-	WSkin:HandleScrollBar(_G.SendMailScrollFrameScrollBar)
-	Each({
+	WSkin:HandleRetailScrollBar(_G.SendMailScrollFrameScrollBar)
+	for _, name in ipairs({
 		"SendMailNameEditBox", "SendMailSubjectEditBox", "SendMailMoneyGold",
 		"SendMailMoneySilver", "SendMailMoneyCopper",
-	}, WSkin.HandleEditBox)
-	WSkin:HandleButton(_G.SendMailMailButton)
-	WSkin:HandleButton(_G.SendMailCancelButton)
+	}) do
+		WSkin:HandleEditBox(_G[name])
+		StyleInput(_G[name])
+	end
+	for _, name in ipairs({ "SendMailSendMoneyButton", "SendMailCODButton" }) do
+		WSkin:ApplyRetailTypography(_G[name .. "Text"], "secondary")
+	end
+	WSkin:HandleRetailButton(_G.SendMailMailButton, true)
+	WSkin:HandleRetailButton(_G.SendMailCancelButton)
 
 	local sendCount = Count(_G.ATTACHMENTS_MAX_SEND, 12)
 	for i = 1, sendCount do
@@ -210,13 +255,14 @@ local function SkinMail()
 		end)
 	end
 
-	Each({
-		"OpenMailReportSpamButton", "OpenMailReplyButton", "OpenMailDeleteButton", "OpenMailCancelButton",
-	}, WSkin.HandleButton)
+	WSkin:SetRetailPageTitle(_G.OpenMailFrame.backdrop, nil, _G.OpenMailTitleText)
+	Each({ "OpenMailReportSpamButton", "OpenMailDeleteButton", "OpenMailCancelButton" }, WSkin.HandleRetailButton)
+	WSkin:HandleRetailButton(_G.OpenMailReplyButton, true)
 	WSkin:StripTextures(_G.OpenMailScrollFrame, true)
 	WSkin:CreateBackdrop(_G.OpenMailScrollFrame, "Default")
-	WSkin:HandleScrollBar(_G.OpenMailScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.OpenMailScrollFrameScrollBar)
 	if _G.OpenMailScrollFrame and _G.OpenMailScrollFrame.backdrop then
+		WSkin:ApplyRetailSurface(_G.OpenMailScrollFrame.backdrop, "card")
 		_G.OpenMailScrollFrame.backdrop:ClearAllPoints()
 		Point(_G.OpenMailScrollFrame.backdrop, "TOPLEFT", _G.OpenMailScrollFrame, "TOPLEFT", -1, 3)
 		Point(_G.OpenMailScrollFrame.backdrop, "BOTTOMRIGHT", _G.OpenMailScrollFrame, "BOTTOMRIGHT", 1, -2)
