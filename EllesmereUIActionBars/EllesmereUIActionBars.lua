@@ -155,7 +155,6 @@ local EXTRA_BARS = {
     { key = "XPBar",    label = "XP Bar",         visibilityOnly = true, isDataBar = true },
     { key = "RepBar",   label = "Reputation Bar",  visibilityOnly = true, isDataBar = true },
     { key = "FavorBar", label = "House Favor Bar", visibilityOnly = true, isDataBar = true },
-    { key = "ExtraActionButton", label = "Extra Action Button", visibilityOnly = true, isBlizzardMovable = true },
     { key = "EncounterBar",      label = "Encounter Bar",         visibilityOnly = true, isBlizzardMovable = true },
 }
 
@@ -175,7 +174,7 @@ for _, info in ipairs(BAR_CONFIG) do EllesmereUI._abBarKeys[info.key] = true end
 local BAR_DROPDOWN_VALUES = {}
 local BAR_DROPDOWN_ORDER = {}
 do
-    local _DROPDOWN_EXCLUDE = { ExtraActionButton = true, EncounterBar = true, QueueStatus = true }
+    local _DROPDOWN_EXCLUDE = { EncounterBar = true, QueueStatus = true }
     for _, info in ipairs(ALL_BARS) do
         if not _DROPDOWN_EXCLUDE[info.key] then
             BAR_DROPDOWN_VALUES[info.key] = info.label
@@ -821,7 +820,7 @@ end
 -- Force-paint a Blizzard-native button's cooldown swipe/text from its current
 -- action state, instead of waiting on the next ACTIONBAR_UPDATE_COOLDOWN
 -- broadcast. We kill the stock cooldown broadcasters at load, so buttons we
--- don't rebuild (OverrideActionBarButton1-6, ExtraActionButton1) otherwise show
+-- don't rebuild (OverrideActionBarButton1-6) otherwise show
 -- no swipe/number for an ability already on cooldown the instant they appear,
 -- until mouseover or combat forces a refresh. Reads the slot via
 -- GetButtonAction(btn), never btn.action (protected -- reading it during
@@ -887,10 +886,6 @@ do
     local _abefEvents = {
         "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_STATE",
         "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_SLOT_CHANGED",
-        -- Spell-typed extra-action buttons (some delve abilities) carry no
-        -- action slot, so their cooldown fires SPELL_UPDATE_COOLDOWN, not
-        -- ACTIONBAR_UPDATE_COOLDOWN. Needed so the broadcaster repaints them.
-        "SPELL_UPDATE_COOLDOWN",
         "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD",
     }
     local _aaefEvents = {
@@ -898,16 +893,11 @@ do
         "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
         "UNIT_SPELLCAST_INTERRUPTED",
     }
-    -- The native broadcaster is killed at load; re-enable it only while
-    -- something that needs it is active. Two independent needs, ref-counted so
-    -- one turning off never strands the other: the vehicle/override bar
-    -- (OverrideActionBarButton1-6) and the extra action button
-    -- (ExtraActionButton1 -- its spell-typed delve abilities have no action
-    -- slot, so our own dispatch can't paint their cooldown; only Blizzard's
-    -- native update, driven by this broadcaster, can).
-    local _vehNeed, _extraNeed, _broadcasterActive = false, false, false
+    -- The native broadcaster is killed at load; re-enable it only while the
+    -- vehicle/override bar (OverrideActionBarButton1-6) is active.
+    local _vehNeed, _broadcasterActive = false, false
     local function ApplyBroadcaster()
-        local want = _vehNeed or _extraNeed
+        local want = _vehNeed
         if want == _broadcasterActive then return end
         _broadcasterActive = want
         if want then
@@ -926,26 +916,20 @@ do
             if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
         end
     end
-    -- Recompute both needs from ground truth -- the actual visibility of the
+    -- Recompute the need from ground truth -- the actual visibility of the
     -- buttons that depend on the broadcaster -- and apply. We poll visibility on
     -- a broad set of events (below) instead of tracking enter/exit precisely,
-    -- because the triggering events proved unreliable: the extra action button's
-    -- own OnShow doesn't fire on delve entry, and the vehicle enter events don't
-    -- reliably fire/keep state either. Visibility is the ground truth.
+    -- because the vehicle enter events don't reliably fire/keep state.
+    -- Visibility is the ground truth.
     local function RefreshBroadcasterNeeds()
         _vehNeed = (OverrideActionBarButton1 and OverrideActionBarButton1:IsShown()) and true or false
-        _extraNeed = (ExtraActionButton1 and ExtraActionButton1:IsShown()) and true or false
         ApplyBroadcaster()
     end
-    -- Exposed for the extra action button's Show-hook refresh in
-    -- SetupBlizzardMovableFrame (a reliable trigger for delve entry).
-    ns.RefreshBroadcaster = RefreshBroadcasterNeeds
     local barFrame = ns.TakeShell()
     barFrame:RegisterEvent("UNIT_ENTERED_VEHICLE")
     barFrame:RegisterEvent("UNIT_EXITED_VEHICLE")
     barFrame:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
     barFrame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
-    barFrame:RegisterEvent("UPDATE_EXTRA_ACTIONBAR")
     barFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     barFrame:SetScript("OnEvent", function(_, event, unit)
         -- Deferred so IsShown reflects Blizzard's post-event state.
@@ -1644,10 +1628,9 @@ local allButtons = {}   -- [actionSlot] = button
 local buttonToBar = {}  -- [btn] = { barKey, index } for taint-safe slot resolution
 local barFrames  = {}   -- [barKey] = secure header frame
 local dataBarFrames = {} -- [barKey] = data bar frame (XP/Rep) populated later in SetupDataBars
-local blizzMovableHolders = {} -- [barKey] = holder frame for Blizzard movable frames (ExtraAction, Encounter)
+local blizzMovableHolders = {} -- [barKey] = holder frame for Blizzard movable frames (Encounter)
 local extraBarHolders = {} -- [barKey] = holder frame for extra bars (MicroBar, BagBar)
 local BLIZZ_MOVABLE_OVERLAY = { -- Fixed overlay sizes for unlock mode movers (not the actual Blizzard frames)
-    ExtraActionButton = { w = 100, h = 100 },
     EncounterBar      = { w = 150, h = 40 },
 }
 local barBaseSize = {}  -- [barKey] = { w, h } original button size before any shape/scale
@@ -3640,25 +3623,6 @@ do
                 end)
             end
 
-            -- ExtraActionButton1 is a Blizzard button outside our barButtons.
-            -- It relied on ActionBarButtonEventsFrame for cooldown updates,
-            -- which we killed. Dispatch cooldown + slot events to it directly.
-            if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "ACTIONBAR_SLOT_CHANGED" then
-                local eab1 = ExtraActionButton1
-                if eab1 and eab1:IsShown() then
-                    if event == "ACTIONBAR_SLOT_CHANGED" then
-                        local action = eab1:GetAttribute("action")
-                        if action and (arg1 == 0 or arg1 == action) then
-                            -- Content changes keep the slot number (see the
-                            -- main SLOT_CHANGED branch / ForceButtonRefresh).
-                            EAB_VTABLE.ForceButtonRefresh(eab1, action)
-                        end
-                    else
-                        ForceCooldownPaint(eab1)
-                    end
-                end
-            end
-
             -- Blizzard's own refresh paths reset HotKey's text color: the
             -- infrequent-events else-branch (target change, shapeshift,
             -- charges, vehicle/override) and SPELL_UPDATE_ICON run the mixin
@@ -4622,13 +4586,6 @@ _quickKeybindState.art.ApplyButtonHighlightAlpha = function(btn, show)
         end
     else
         tex:SetAlpha(1)
-    end
-end
-
-_quickKeybindState.art.ForEachSpecialButton = function(fn)
-    if not fn then return end
-    if ExtraActionButton1 then
-        fn(ExtraActionButton1)
     end
 end
 
@@ -7850,11 +7807,6 @@ function EAB:ApplyHighlightTextures()
         end
         end -- useBlizzardStyle
     end
-
-    -- Blizzard-owned special buttons do not flow through the standard bar
-    -- button setup, but QuickKeybind still resets their overlay atlas.
-    -- Keep their QuickKeybind highlight aligned with the EUI button art too.
-    _quickKeybindState.art.ForEachSpecialButton(_quickKeybindState.art.InitializeButton)
 end
 
 -------------------------------------------------------------------------------
@@ -9614,7 +9566,7 @@ local function RegisterWithUnlockMode()
         })
     end
 
-    -- Blizzard movable frames (Extra Action Button, Encounter Bar)
+    -- Blizzard movable frames (Encounter Bar)
     local blizzOrder = orderBase + #BAR_CONFIG
     for _, info in ipairs(EXTRA_BARS) do
         if info.isBlizzardMovable then
@@ -11079,7 +11031,9 @@ function EAB:FinishSetup()
             if btn then
                 local icon = btn.icon or btn.Icon or _G["PetActionButton" .. i .. "Icon"]
                 btn.icon = icon
-                local name, texture, isToken = GetPetActionInfo(i)
+                -- 3.3.5 signature: name, subtext, texture, isToken, isActive,
+                -- autoCastAllowed, autoCastEnabled (retail dropped subtext).
+                local name, _, texture, isToken = GetPetActionInfo(i)
                 if icon then
                     if hasPetBar and texture then
                         -- A token can briefly exist before its global texture
@@ -11126,7 +11080,7 @@ function EAB:FinishSetup()
                     if btn then
                         local icon = btn.icon or btn.Icon or _G["PetActionButton" .. i .. "Icon"]
                         btn.icon = icon
-                        local name, texture, isToken, isActive, autoCastAllowed, autoCastEnabled = GetPetActionInfo(i)
+                        local name, _, texture, isToken, isActive, autoCastAllowed, autoCastEnabled = GetPetActionInfo(i)
                         if hasPetBar and texture then
                             if icon then
                                 -- Dim icon when the ability is not currently usable.
@@ -11190,7 +11144,7 @@ function EAB:FinishSetup()
                     if btn then
                         local icon = btn.icon or btn.Icon or _G["PetActionButton" .. i .. "Icon"]
                         btn.icon = icon
-                        local name, texture, isToken = GetPetActionInfo(i)
+                        local name, _, texture, isToken = GetPetActionInfo(i)
                         if texture then
                             PaintPetIcon(icon, texture, isToken)
                         else
@@ -12211,7 +12165,7 @@ local function SetupDataBars()
 end
 
 -------------------------------------------------------------------------------
---  Blizzard Movable Frames (Extra Action Button, Encounter Bar)
+--  Blizzard Movable Frames (Encounter Bar)
 --  Creates non-secure holder frames, reparents Blizzard frames into them,
 --  and disables Blizzard's layout management so we can reposition freely.
 --  Overlay sizes are hardcoded (don't affect actual Blizzard frame rendering).
@@ -12246,16 +12200,7 @@ local function SetupBlizzardMovableFrame(barKey)
     local primaryFrame   -- the frame we read position from before reparenting
     local extraFrames = {}
 
-    if barKey == "ExtraActionButton" then
-        -- ExtraAbilityContainer is the layout container Blizzard's Edit Mode
-        -- positions. It parents ExtraActionBarFrame and ZoneAbilityFrame.
-        -- We take ownership of the whole container.
-        if ExtraAbilityContainer then
-            primaryFrame = ExtraAbilityContainer
-            extraFrames[#extraFrames + 1] = ExtraAbilityContainer
-        end
-        -- ExtraActionBarFrame mouse is disabled in the container setup below.
-    elseif barKey == "EncounterBar" then
+    if barKey == "EncounterBar" then
         -- PlayerPowerBarAlt is the classic encounter power bar.
         -- UIWidgetPowerBarContainerFrame is used by newer mechanics.
         if PlayerPowerBarAlt then
@@ -12328,135 +12273,6 @@ local function SetupBlizzardMovableFrame(barKey)
             f:SetParent(holder)
             f:ClearAllPoints()
             f:SetPoint("CENTER", holder, "CENTER", 0, 0)
-        end
-    end
-
-    -- Extra Action Button: disable the container's layout-driven repositioning
-    -- and reparent it into our holder. Keep OnShow/OnHide nil'd on the
-    -- container so Blizzard's layout code cannot fire, but leave the child
-    -- frames (ExtraActionBarFrame, ZoneAbilityFrame) untouched so they show
-    -- and hide normally.
-    if barKey == "ExtraActionButton" and ExtraAbilityContainer then
-        -- Hide the Edit Mode selection overlay so it doesn't appear in
-        -- Blizzard's Edit Mode (we own this frame's position via unlock).
-        local eacSel = ExtraAbilityContainer.Selection
-        if eacSel then
-            eacSel:SetAlpha(0)
-            eacSel:EnableMouse(false)
-            if not EllesmereUI._GetFFD(eacSel).showHooked then
-                EllesmereUI._GetFFD(eacSel).showHooked = true
-                hooksecurefunc(eacSel, "Show", function(self)
-                    self:SetAlpha(0)
-                    self:EnableMouse(false)
-                end)
-            end
-        end
-
-        -- Disable mouse on ExtraActionBarFrame so it cannot absorb clicks
-        -- when no extra action bar is active.
-        if ExtraActionBarFrame and not InCombatLockdown() and ExtraActionBarFrame:IsMouseEnabled() then
-            ExtraActionBarFrame:EnableMouse(false)
-        end
-
-        -- Nil container OnShow/OnHide so Blizzard's layout code
-        -- (UpdateManagedFramePositions) cannot fire when the container shows.
-        ExtraAbilityContainer:SetScript("OnShow", nil)
-        ExtraAbilityContainer:SetScript("OnHide", nil)
-
-        -- Refresh ExtraActionButton1's keybind text and cooldown swipe. The
-        -- broadcaster kill at load prevents Blizzard's UPDATE_BINDINGS and
-        -- cooldown updates from reaching this button, so we drive both here.
-        -- UpdateAction runs first; the keybind is set after it so Blizzard's own
-        -- UpdateHotkeys (which hides the key when GetBindingKey is momentarily
-        -- nil) can't clobber our text. Unlike the cooldown -- which recovers via
-        -- the ACTIONBAR_UPDATE_COOLDOWN dispatcher -- the keybind has no such
-        -- fallback, so every path that can reveal the button refreshes it.
-        local function RefreshExtraActionButton()
-            local eab1 = ExtraActionButton1
-            if not eab1 then return end
-            if eab1.UpdateAction then eab1:UpdateAction() end
-            local hk = eab1.HotKey
-            if hk then
-                local key1 = GetBindingKey("EXTRAACTIONBUTTON1")
-                if key1 then
-                    hk:SetText(FormatHotkeyText(key1))
-                    hk:Show()
-                end
-            end
-            ForceCooldownPaint(eab1)
-            -- Re-evaluate the broadcaster need now: this container Show/AddFrame
-            -- refresh is a reliable delve-entry signal (the button's own OnShow
-            -- doesn't fire then), and RefreshBroadcaster reads the button's
-            -- actual visibility to decide.
-            if ns.RefreshBroadcaster then
-                ns.RefreshBroadcaster()
-            end
-        end
-
-        -- Hook AddFrame so newly added ability buttons stay clickable, and
-        -- refresh the extra action button. When the container is already shown
-        -- (e.g. a zone ability is active) and the extra action button then
-        -- becomes active, that fires AddFrame but not the container's Show hook,
-        -- so this is the only refresh signal for that path. Deferred one frame so
-        -- Blizzard has finished assigning the button's action before we read it.
-        if ExtraAbilityContainer.AddFrame then
-            hooksecurefunc(ExtraAbilityContainer, "AddFrame", function(_, frame)
-                if frame and frame.EnableMouse and not InCombatLockdown() then
-                    frame:EnableMouse(true)
-                end
-                C_Timer_After(0, RefreshExtraActionButton)
-            end)
-        end
-
-        -- Reposition the container into our holder.
-        local function RepositionExtraContainer()
-            if InCombatLockdown() then return end
-            local container = ExtraAbilityContainer
-            container:SetParent(holder)
-            if container.ClearAllPointsBase then
-                container:ClearAllPointsBase()
-                container:SetPointBase("CENTER", holder)
-            else
-                container:ClearAllPoints()
-                container:SetPoint("CENTER", holder)
-            end
-        end
-        RepositionExtraContainer()
-
-        -- Re-reparent when Edit Mode tries to reposition the container.
-        if ExtraAbilityContainer.ApplySystemAnchor then
-            hooksecurefunc(ExtraAbilityContainer, "ApplySystemAnchor", function()
-                local _, relFrame = ExtraAbilityContainer:GetPoint()
-                if relFrame ~= holder then
-                    RepositionExtraContainer()
-                end
-                -- Do NOT write to UIParentBottomManagedFrameContainer.showingFrames here.
-                -- Writing into that Blizzard-owned table from this insecure hook taints the
-                -- managed-frame-position system; a later in-combat layout pass (e.g. leaving
-                -- a queued/follower instance while in combat) then blocks the protected
-                -- ClearAllPoints on the managed containers (ADDON_ACTION_BLOCKED naming this
-                -- addon). ExtraAbilityContainer already carries ignoreFramePositionManager and
-                -- ignoreInLayout, so Blizzard excludes it from layout without us touching
-                -- showingFrames.
-            end)
-        end
-
-        -- Re-reparent after Blizzard's OnShow repositions the container.
-        -- (We nil'd the script, but hooksecurefunc still fires on Show.)
-        hooksecurefunc(ExtraAbilityContainer, "Show", function()
-            if ExtraAbilityContainer:GetParent() ~= holder then
-                RepositionExtraContainer()
-            end
-            RefreshExtraActionButton()
-        end)
-
-        -- Quick-reload catch-up: if the button is already showing, its Show (and
-        -- AddFrame) fired before this deferred setup registered the hooks above,
-        -- so we missed them. Refresh now so the keybind isn't left blank until
-        -- the next show -- the cooldown recovers on its own via the dispatcher,
-        -- the keybind has no such fallback.
-        if ExtraActionButton1 and ExtraActionButton1:IsShown() then
-            RefreshExtraActionButton()
         end
     end
 
@@ -12580,16 +12396,7 @@ _blizzMovableCombatFrame:SetScript("OnEvent", function()
                 end
             end
         end
-        if barKey == "ExtraActionButton" and holder and ExtraAbilityContainer then
-            ExtraAbilityContainer.ignoreInLayout = true
-            ExtraAbilityContainer.ignoreFramePositionManager = true
-            if ExtraAbilityContainer.SetIsLayoutFrame then
-                pcall(ExtraAbilityContainer.SetIsLayoutFrame, ExtraAbilityContainer, false)
-            end
-            ExtraAbilityContainer:SetParent(holder)
-            ExtraAbilityContainer:ClearAllPoints()
-            ExtraAbilityContainer:SetPoint("CENTER", holder, "CENTER", 0, 0)
-        elseif barKey == "EncounterBar" and holder then
+        if barKey == "EncounterBar" and holder then
             for _, f in ipairs({ PlayerPowerBarAlt, UIWidgetPowerBarContainerFrame }) do
                 if f then
                     f.ignoreInLayout = true
@@ -12617,12 +12424,6 @@ _blizzMovableCombatFrame:SetScript("OnEvent", function()
         end
     end
     wipe(_blizzMovablePendingOOC)
-
-    -- Re-disable mouse on ExtraActionBarFrame after combat ends.
-    -- Blizzard's secure code re-enables mouse on protected frames during combat.
-    if ExtraActionBarFrame and ExtraActionBarFrame:IsMouseEnabled() then
-        ExtraActionBarFrame:EnableMouse(false)
-    end
 end)
 
 
@@ -13065,7 +12866,7 @@ end
 local function SetupExtraBars()
     if not EAB.db then return end
 
-    -- Setup Blizzard movable frames (Extra Action Button, Encounter Bar)
+    -- Setup Blizzard movable frames (Encounter Bar)
     SetupBlizzardMovableFrames()
 
     -- Setup extra bar holders (MicroBar, BagBar) for visibility/mouseover
@@ -13087,8 +12888,6 @@ local function SetupExtraBars()
             end
         end  -- not isDataBar/isBlizzardMovable
     end
-
-    _quickKeybindState.art.ForEachSpecialButton(_quickKeybindState.art.InitializeButton)
 
     -- Register extra bars with unlock mode
     if EllesmereUI and EllesmereUI.RegisterUnlockElements then
@@ -13474,10 +13273,6 @@ local function EAB_UpdateQuickKeybindVisibility(show)
             end
         end
     end
-
-    _quickKeybindState.art.ForEachSpecialButton(function(btn)
-        _quickKeybindState.art.ApplyButtonHighlightAlpha(btn, show)
-    end)
 
     if show then
         for _, info in ipairs(BAR_CONFIG) do

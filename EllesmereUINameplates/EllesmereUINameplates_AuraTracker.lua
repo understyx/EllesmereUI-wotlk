@@ -272,6 +272,17 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if plate and plate.UpdateAuras then plate:UpdateAuras() end
             return
         end
+        -- Plates only gain a GUID through target/mouseover/focus. Without this
+        -- fallback, debuffs on an untouched mob never show until it is hovered.
+        -- Mirrors the Cast module: bind only when exactly one shown plate has
+        -- the destination's name, so duplicate packs still fail closed.
+        if not plate and destName and (subEvent == "SPELL_AURA_APPLIED"
+            or subEvent == "SPELL_AURA_REFRESH" or subEvent == "SPELL_AURA_APPLIED_DOSE") then
+            local uniquePlate = ns.MatchTracker:GetUniquePlateByName(destName)
+            if uniquePlate and ns.MatchTracker:BindPlateGUID(uniquePlate, destGUID) then
+                plate = uniquePlate
+            end
+        end
         if not plate or ns.MatchTracker:IsAmbiguous(plate) then
             -- FAIL-CLOSED: do not snapshot CLEU auras onto ambiguous plates
             return

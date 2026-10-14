@@ -94,9 +94,12 @@ end
 --  Bank Tab Discovery
 -------------------------------------------------------------------------------
 -- Fallback icons for tabs without a user-assigned icon
+-- (texture paths: 3.3.5 SetTexture treats a number as a color, not a fileID)
 local FALLBACK_ICONS = {
-    5524917, 133668, 4641307, 133659, 133656, 348524, 348520,
-    133660, 4549238, 5931149, 4549226, 1379173, 348523, 2023244,
+    "Interface\\Icons\\INV_Misc_Bag_07", "Interface\\Icons\\INV_Misc_Bag_08",
+    "Interface\\Icons\\INV_Misc_Bag_09", "Interface\\Icons\\INV_Misc_Bag_10",
+    "Interface\\Icons\\INV_Misc_Bag_10_Black", "Interface\\Icons\\INV_Misc_Bag_10_Green",
+    "Interface\\Icons\\INV_Misc_Bag_10_Red", "Interface\\Icons\\INV_Misc_Bag_11",
 }
 local _usedFallbackIdx = 0
 local _tabIconCache = {}  -- bagID -> icon (persists for session)
@@ -1208,6 +1211,30 @@ local function GetOrCreateBankSlot(idx)
         C_Container.PickupContainerItem(bagID, slotID)
     end)
 
+    -- The template's tooltip uses SetBagItem, which shows nothing for the
+    -- main bank container (-1); those slots are player inventory slots.
+    -- Its OnUpdate re-runs that OnEnter while hovered, so wrap both.
+    local origOnEnter = btn:GetScript("OnEnter")
+    local origOnUpdate = btn:GetScript("OnUpdate")
+    local function IsMainBankSlot(self)
+        return self:GetParent():GetID() == (_G.BANK_CONTAINER or -1) and BankButtonIDToInvSlotID
+    end
+    btn:SetScript("OnEnter", function(self, ...)
+        if not IsMainBankSlot(self) then
+            if origOnEnter then return origOnEnter(self, ...) end
+            return
+        end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        local hasItem = GameTooltip:SetInventoryItem("player", BankButtonIDToInvSlotID(self:GetID()))
+        if not hasItem then GameTooltip:Hide(); return end
+        if IsModifiedClick("DRESSUP") then ShowInspectCursor() else ResetCursor() end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnUpdate", function(self, ...)
+        if IsMainBankSlot(self) then return end
+        if origOnUpdate then return origOnUpdate(self, ...) end
+    end)
+
     -- Hide template decorations
     if btn.NewItemTexture then btn.NewItemTexture:Hide(); btn.NewItemTexture:SetAlpha(0) end
     if btn.BattlepayItemTexture then btn.BattlepayItemTexture:Hide(); btn.BattlepayItemTexture:SetAlpha(0) end
@@ -1618,7 +1645,7 @@ function EUI_Bank:RefreshBank()
             end
             if btn.icon and info and info.itemID then
                 local unusable = EUI._BagsItemUnusable
-                    and EUI._BagsItemUnusable(bagID, slot, info.hyperlink, info.itemID)
+                    and EUI._BagsItemUnusable(bagID, slot, info.hyperlink or info.itemLink or itemLink, info.itemID)
                 btn.icon:SetVertexColor(1, unusable and 0.1 or 1, unusable and 0.1 or 1)
             end
             if btn.IconOverlay2 then
@@ -1859,7 +1886,7 @@ function BuildBankSidebar()
         else
             btn._icon:SetPoint("LEFT", btn, "LEFT", 8, 0)
         end
-        btn._icon:SetTexture(133784)
+        btn._icon:SetTexture("Interface\\Icons\\INV_Misc_Coin_01")
         btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         btn._icon:SetDesaturated(false)
         btn._icon:SetAlpha(0.6)
@@ -1884,6 +1911,9 @@ function BuildBankSidebar()
         secBtn:Show()
         y = y - SIDEBAR_BTN_H - SIDEBAR_PAD
     end
+
+    local ONEBANK_ICON = "Interface\\Icons\\INV_Misc_Bag_EnchantedMageweave"
+    local ALLTABS_ICON = "Interface\\Icons\\INV_Box_01"
 
     local function RenderSidebarEntry(viewIdx, name, icon, count, isSelected)
         btnIdx = btnIdx + 1
@@ -1951,11 +1981,11 @@ function BuildBankSidebar()
 
     local defaultOneBag = BankDefaultsToOne()
     if defaultOneBag then
-        RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
-        RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
+        RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), ONEBANK_ICON, charUsed, _selectedView == -1)
+        RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), ALLTABS_ICON, charUsed, _selectedView == 0)
     else
-        RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
-        RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
+        RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), ALLTABS_ICON, charUsed, _selectedView == 0)
+        RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), ONEBANK_ICON, charUsed, _selectedView == -1)
     end
 
     -- Divider
@@ -1982,7 +2012,7 @@ function BuildBankSidebar()
 
     -- Character bank tabs
     for ti, tab in ipairs(_allTabs) do
-        RenderSidebarEntry(ti, tab.name, tab.icon or 133652, tab._usedSlots, _selectedView == ti)
+        RenderSidebarEntry(ti, tab.name, tab.icon or "Interface\\Icons\\INV_Misc_Bag_08", tab._usedSlots, _selectedView == ti)
     end
     -- Purchase character bank tab (show one grayed-out entry if more can be bought)
     if C_Bank and C_Bank.CanPurchaseBankTab and C_Bank.HasMaxBankTabs

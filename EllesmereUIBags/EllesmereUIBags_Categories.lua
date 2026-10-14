@@ -35,15 +35,22 @@ local DEFAULT_CATEGORIES = {
     { name = "Pinned Items",       types = {}, isPinned = true, noGroup = true, noMove = true, icon = "Interface\\Icons\\INV_Misc_Note_01" },
     { name = "Recent Items",       types = {}, isRecent = true, noGroup = true, noMove = true, icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
     { name = "Reagent Bag",        types = {}, isReagentBag = true, noGroup = true, icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue" },
-    { name = "Item Set Gear",      types = { IC_ARMOR, IC_WEAPON }, isSetGear = true, icon = "Interface\\Icons\\INV_Chest_Chain_05" },
+    { name = "Item Set Gear",      types = { IC_ARMOR, IC_WEAPON }, isSetGear = true, icon = "Interface\\Icons\\INV_Misc_Desecrated_PlateChest" },
     { name = "Quest Items",        types = { IC_QUEST },                     icon = "Interface\\Icons\\INV_Misc_Book_09" },
-    { name = "Weapons / Trinkets", types = { IC_WEAPON }, equipSlots = { "INVTYPE_TRINKET" }, icon = "Interface\\Icons\\INV_Sword_04" },
-    { name = "Armor",              types = { IC_ARMOR }, excludeEquipSlots = { "INVTYPE_TRINKET" }, icon = "Interface\\Icons\\INV_Chest_Plate04" },
-    { name = "Consumables",        types = { IC_CONSUMABLE },                icon = "Interface\\Icons\\INV_Potion_54" },
-    { name = "Trade Goods",        types = { IC_TRADESKILL, IC_REAGENT },    icon = "Interface\\Icons\\INV_Ingot_03" },
-    { name = "Gear Enhancements",  types = { IC_GEM, IC_ITEM_ENHANCE },     icon = "Interface\\Icons\\INV_Enchant_EssenceCosmicGreater" },
+    { name = "Weapons / Trinkets", types = { IC_WEAPON }, equipSlots = { "INVTYPE_TRINKET" }, icon = "Interface\\Icons\\INV_Sword_39" },
+    { name = "Armor",              types = { IC_ARMOR }, excludeEquipSlots = { "INVTYPE_TRINKET" }, icon = "Interface\\Icons\\INV_Chest_Plate16" },
+    { name = "Consumables",        types = { IC_CONSUMABLE },                icon = "Interface\\Icons\\INV_Alchemy_Elixir_04" },
+    { name = "Trade Goods",        types = { IC_TRADESKILL, IC_REAGENT },    icon = "Interface\\Icons\\INV_Fabric_Silk_02" },
+    { name = "Gear Enhancements",  types = { IC_GEM, IC_ITEM_ENHANCE },     icon = "Interface\\Icons\\INV_Misc_Gem_Variety_02" },
     { name = "Professions",        types = { IC_PROFESSION, IC_RECIPE },     icon = "Interface\\Icons\\Trade_Engineering" },
-    { name = "Miscellaneous",      types = { IC_MISC, IC_CONTAINER }, isCatchAll = true, icon = "Interface\\Icons\\INV_Misc_Bag_10" },
+    { name = "Miscellaneous",      types = { IC_MISC, IC_CONTAINER }, isCatchAll = true, icon = "Interface\\Icons\\INV_Misc_Gift_01" },
+}
+
+-- Icons for the seeded default groups. Without an entry a group header falls
+-- back to its first member's icon.
+CategoryManager.GROUP_ICONS = {
+    ["The Armory"]     = "Interface\\Icons\\INV_Shield_06",
+    ["Adventure Prep"] = "Interface\\Icons\\INV_Misc_Map_01",
 }
 
 -------------------------------------------------------------------------------
@@ -141,7 +148,7 @@ function CategoryManager:InitCategories()
             if uc then
                 local ucState = userState[uc.key]
                 local ucIcon = uc.icon or 134400
-                local ucIsAtlas = type(ucIcon) == "string"
+                local ucIsAtlas = type(ucIcon) == "string" and not ucIcon:find("\\", 1, true)
                 cats[#cats + 1] = {
                     _defaultName  = uc.key,
                     name          = (ucState and ucState.rename) or uc.name,
@@ -189,7 +196,7 @@ function CategoryManager:InitCategories()
             if not customInserted[uc.key] then
                 local ucState = userState[uc.key]
                 local ucIcon = uc.icon or 134400
-                local ucIsAtlas = type(ucIcon) == "string"
+                local ucIsAtlas = type(ucIcon) == "string" and not ucIcon:find("\\", 1, true)
                 table.insert(cats, catchIdx, {
                     _defaultName  = uc.key,
                     name          = (ucState and ucState.rename) or uc.name,

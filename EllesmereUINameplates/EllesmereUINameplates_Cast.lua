@@ -152,7 +152,7 @@ function Cast:CreateCastBar(plate)
 
     -- Uninterruptible Shield
     local shield = cast:CreateTexture(nil, "OVERLAY")
-    shield:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\textures\\cast-shield.tga")
+    shield:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\shield.tga")
     shield:SetSize(14, 14)
     shield:SetPoint("CENTER", cast, "LEFT", 0, 0)
     shield:Hide()

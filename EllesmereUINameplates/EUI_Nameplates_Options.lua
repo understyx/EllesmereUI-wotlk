@@ -2364,10 +2364,9 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  ENEMY NAMEPLATE SPACING
         -----------------------------------------------------------------------
-        _, h = W:SectionHeader(parent,
-            ns.isLegacyNameplates and "CLICKABLE AREA" or SECTION_ENEMY_NP, y);  y = y - h
-
         if not ns.isLegacyNameplates then
+        _, h = W:SectionHeader(parent, SECTION_ENEMY_NP, y);  y = y - h
+
         local stackingRow
         stackingRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Stacking Nameplates",
@@ -2417,70 +2416,9 @@ initFrame:SetScript("OnEvent", function(self)
             cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
-        end
-
-        local hitboxRow
-        hitboxRow, h = W:DualRow(parent, y,
-            { type="slider", text="Hitbox Size X",
-              min=50, max=250, step=5,
-              getValue=function() return DBVal("hitboxScaleX") or defaults.hitboxScaleX end,
-              setValue=function(v)
-                DB().hitboxScaleX = v
-                ns.RefreshHitboxSize()
-              end,
-              tooltip="Widens the clickable hitbox of enemy nameplates. 100% = matches bar width. Increase to make nameplates easier to click." },
-            { type="slider", text="Hitbox Size Y",
-              min=50, max=250, step=5,
-              getValue=function() return DBVal("hitboxScaleY") or defaults.hitboxScaleY end,
-              setValue=function(v)
-                DB().hitboxScaleY = v
-                ns.RefreshHitboxSize()
-              end,
-              tooltip="Increases the clickable hitbox height of enemy nameplates. 100% = matches bar height. Increase to make nameplates easier to click." });  y = y - h
-
-        -- Eyeball toggle on Hitbox Size X: shows a translucent overlay on real
-        -- enemy nameplates marking the clickable area, so the sliders can be
-        -- dialled in visually. Runtime-only; auto-hides when the panel closes.
-        do
-            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.tga"
-            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.tga"
-            local leftRgn = hitboxRow._leftRegion
-            local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
-            eyeBtn:SetSize(26, 26)
-            eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-            eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
-            leftRgn._lastInline = eyeBtn
-            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-            eyeTex:SetAllPoints()
-            local function RefreshEyeIcon()
-                eyeTex:SetTexture(ns._hitboxOverlayShown and EYE_INVISIBLE or EYE_VISIBLE)
-            end
-            RefreshEyeIcon()
-            eyeBtn:SetScript("OnClick", function()
-                if ns.SetHitboxOverlayShown then ns.SetHitboxOverlayShown(not ns._hitboxOverlayShown) end
-                RefreshEyeIcon()
-            end)
-            eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, "Show/Hide Hitbox Overlay", { width = 175 })
-            end)
-            eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
-                EllesmereUI.HideWidgetTooltip()
-            end)
-            -- Auto-hide the overlay when the options panel closes (hook once).
-            if not ns._hitboxOverlayCloseHook and EllesmereUI._mainFrame then
-                ns._hitboxOverlayCloseHook = true
-                EllesmereUI._mainFrame:HookScript("OnHide", function()
-                    if ns._hitboxOverlayShown and ns.SetHitboxOverlayShown then
-                        ns.SetHitboxOverlayShown(false)
-                    end
-                end)
-            end
-        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
+        end
 
         -----------------------------------------------------------------------
         --  INDICATORS
@@ -5640,7 +5578,6 @@ initFrame:SetScript("OnEvent", function(self)
                     ns.LayoutCastBar(plate, v, ns.GetCastBarHeight())
                     plate:UpdateNameWidth()
                 end
-                if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
                 UpdatePreview()
               end },
             { type="slider", text="Health Bar Height", min=6, max=50, step=1,
@@ -5651,7 +5588,6 @@ initFrame:SetScript("OnEvent", function(self)
                     plate:LayoutHealthBar(ns.GetHealthBarWidth(), v)
                     ns.LayoutCastIcon(plate, ns.GetCastBarHeight())
                 end
-                if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
                 UpdatePreview()
               end });  y = y - h
 

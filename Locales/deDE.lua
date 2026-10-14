@@ -1845,7 +1845,6 @@ L["Extends the chat background up behind the tabs, and the sidebar to match, for
 L["Extends the follow-bar border to include the class icon."] = "Erweitert den leichten Leistenrahmen um das Klassensymbol."
 L["External Defensive"]         = "Externer defensiver Cooldown"
 L["Externals"]                  = "Externe Effekte"
-L["Extra Action Button"]        = "Extra-Aktionsbutton"
 L["EXTRA AURA OPTIONS"]         = "EXTRA-AURENOPTIONEN"
 L["Extra Border Size"]          = "Zusätzliche Rahmengröße"
 L["EXTRA FRAMES"]               = "EXTRA-FENSTER"

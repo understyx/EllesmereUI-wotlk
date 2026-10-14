@@ -1688,7 +1688,6 @@ L["Extends the chat background up behind the tabs, and the sidebar to match, for
 L["External Defensive"]         = "Défensif externe"
 L["Externals"]                  = "Externes"
 L["Extra"]                      = "Extra"
-L["Extra Action Button"]        = "Bouton d'action supplémentaire"
 L["Extra Border Size"]          = "Taille de bordure supplémentaire"
 L["Extra Frames"]               = "Cadres supplémentaires"
 L["Extra Height"]               = "Hauteur supplémentaire"
