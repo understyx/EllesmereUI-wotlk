@@ -195,6 +195,19 @@ local function GetPlayerClass()
     return _cachedPlayerClass
 end
 
+-- Role-aware Death Knight presence sets (one table to save file-scope local
+-- slots). Role comes from the shared detector: override, Dungeon Finder role,
+-- then tank talents.
+local DKPresence = {
+    tank = { 48263 },        -- Frost Presence
+    dps = { 48266, 48265 },  -- Blood, Unholy Presence
+}
+function DKPresence.ForRole()
+    local detector = EllesmereUI and EllesmereUI.RoleDetector
+    local isTank = detector ~= nil and detector:GetRole("player") == "TANK"
+    return isTank and DKPresence.tank or DKPresence.dps, isTank
+end
+
 local function GetSpecID()
     local s = GetSpecialization(); if not s then return nil end
     return GetSpecializationInfo(s)
@@ -953,12 +966,13 @@ local AURAS = {
       -- Abomination's Might and Unleashed Rage provide the same 10% attack
       -- power category, so RBS correctly treats either as satisfying this.
       buffIDs={19506,53137,30802}, check="player", requireTalent=19506, combatOk=false },
+    -- Presence follows the player's ROLE, not the talent tree: every Death
+    -- Knight tree can tank. Tanks need Frost Presence; damage dealers need
+    -- Blood or Unholy, so being in the wrong presence for the role reminds too.
     { key="dk_presence", class="DEATHKNIGHT", name="Death Knight Presence", castSpell=48266,
-      castSpellFn=function()
-          local s = GetSpecID()
-          return s == 251 and 48263 or (s == 252 and 48265 or 48266)
-      end,
+      castSpellFn=function() return DKPresence.ForRole()[1] end,
       buffIDs={48266,48263,48265}, choices={48266,48263,48265},
+      buffIDsFn=DKPresence.ForRole, choicesFn=DKPresence.ForRole,
       check="player", combatOk=false },
     { key="inner_fire", class="PRIEST", name="Inner Fire", castSpell=588,
       buffIDs={588}, check="player", combatOk=false },
@@ -2399,8 +2413,10 @@ if inInstance or au.showNonInstanced then
                         local _, isActive = GetStanceState(castID)
                         isMissing = not isActive
                     else
-                        -- Use instance-specific buff list if available and in instance
-                        local checkIDs = (inInstance and aura.instanceBuffIDs) or aura.buffIDs
+                        -- Use instance-specific buff list if available and in instance;
+                        -- buffIDsFn narrows the accepted buffs at check time.
+                        local checkIDs = (aura.buffIDsFn and aura.buffIDsFn())
+                            or (inInstance and aura.instanceBuffIDs) or aura.buffIDs
                         -- In PvP instances the aura API is restricted; fall back to shapeshift
                         -- form index for form-based auras (e.g. Shadowform) where available.
                         if InPvPInstance() and aura.shapeshiftIndex then
@@ -2415,8 +2431,9 @@ if inInstance or au.showNonInstanced then
                         e.label = ShortLabel(_G._EABR_SpellName(castID, aura.name))
                         e.cat = "aura"; e.data = aura; e.scale = au.scale or 1.0
                         e.dismissKey = "aura:" .. aura.key
-                        if aura.choices then
-                            for _, id in ipairs(aura.choices) do
+                        local choices = (aura.choicesFn and aura.choicesFn()) or aura.choices
+                        if choices then
+                            for _, id in ipairs(choices) do
                                 if Known(id) then EABR.AddChoice(e, "spell", nil, id, nil, Tex(id)) end
                             end
                         end
@@ -3147,6 +3164,12 @@ local function RequestRefresh()
         _refreshTimerActive = true
         C_Timer.After(throttle - elapsed, _doRefresh)
     end
+end
+
+-- Role-driven reminders (Death Knight presence) re-evaluate as soon as the
+-- player's role changes, e.g. after a role override.
+if EllesmereUI.RoleDetector and EllesmereUI.RoleDetector.RegisterPlayerRoleCallback then
+    EllesmereUI.RoleDetector:RegisterPlayerRoleCallback(RequestRefresh)
 end
 
 -- Duration-threshold timer: arm one refresh for the next known buff/enchant

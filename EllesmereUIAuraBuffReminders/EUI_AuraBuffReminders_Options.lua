@@ -1182,7 +1182,10 @@ initFrame:SetScript("OnEvent", function(self)
             for _, aura in ipairs(AURAS) do
                 local castID = aura.castSpellFn and aura.castSpellFn() or aura.castSpell
                 gridItems[#gridItems+1] = {
-                    label = _G._EABR_SpellName(castID, aura.name),
+                    -- A multi-choice family (presences, seals, aspects, ...)
+                    -- accepts any member, so its toggle carries the family name
+                    -- rather than whichever member is suggested right now.
+                    label = aura.choices and aura.name or _G._EABR_SpellName(castID, aura.name),
                     classToken = aura.class,
                     key = aura.key,
                     getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,
