@@ -25,7 +25,9 @@ local function CopyIDs(ids)
     return result
 end
 
-local function RegisterTalentProc(class, key, spellID, auraSpellIDs, displayName)
+-- matchByName: also match the aura by localized name (see matchAuraByName in
+-- CooldownViewer.lua), for entries whose IDs came from name-matched sources.
+local function RegisterTalentProc(class, key, spellID, auraSpellIDs, displayName, matchByName)
     nextTalentID = nextTalentID + 1
     local aliases = CopyIDs(auraSpellIDs)
     if #aliases == 0 then aliases[1] = spellID end
@@ -49,6 +51,7 @@ local function RegisterTalentProc(class, key, spellID, auraSpellIDs, displayName
         selfAura = true,
         class = class,
         isTalentProc = true,
+        matchAuraByName = matchByName or nil,
         procSource = "talent",
         buffCatalogSection = "talent",
 
@@ -231,3 +234,16 @@ RegisterSetProc("SHAMAN", "t10_restoration_2p", 70806,
     "Frost Witch's Garb 2P", { 70806, 70807 })
 RegisterSetProc("SHAMAN", "t10_enhancement_2p", 70829,
     "Frost Witch's Battlegear 2P", { 70829, 70830 })
+
+-------------------------------------------------------------------------------
+-- Additions from the Iqui WeakAuras packs. Appended after every existing talent
+-- proc: cooldownIDs come from a running counter, so earlier entries keep their
+-- saved IDs. The packs match these auras by name, so these entries do too.
+-------------------------------------------------------------------------------
+RegisterTalentProc("WARRIOR", "juggernaut", 65156, { 65156 }, nil, true)
+RegisterTalentProc("HUNTER", "the_beast_within", 34471, { 34471 }, nil, true)
+RegisterTalentProc("HUNTER", "culling_the_herd", 70893, { 70893 }, nil, true)
+RegisterTalentProc("HUNTER", "expose_weakness", 34501, { 34501 }, nil, true)
+RegisterTalentProc("HUNTER", "furious_howl", 64495, { 64495 }, "Furious Howl (Wolf)", true)
+RegisterTalentProc("DEATHKNIGHT", "blade_barrier", 64858, { 64858, 64859 }, nil, true)
+RegisterTalentProc("WARLOCK", "immolation_aura", 50589, { 50589 }, nil, true)

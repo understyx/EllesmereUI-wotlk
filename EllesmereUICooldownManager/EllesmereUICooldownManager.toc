@@ -26,6 +26,7 @@ Compatibility\CDMData\Druid.lua
 Compatibility\CDMData\ProcBuffs.lua
 Compatibility\CDMData\RaidBuffs.lua
 Compatibility\CDMData\Debuffs.lua
+Compatibility\CDMData\SpecDefaults.lua
 
 # Snapshot strength engine (embedded; CDM supplies configuration and display)
 SnapshotTracker\Tracking\SnapshotData.lua

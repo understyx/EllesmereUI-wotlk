@@ -477,12 +477,13 @@ local DEFAULTS = {
             hideBuffsWhenInactive = true,
             showInactiveBuffIcons = false,
             desaturateInactiveBuffs = true,
-            -- A single default bar. Cooldown bars can host spells from every
-            -- CDM family, so separate Utility/Buff/Debuff defaults only add
-            -- layout and configuration overhead.
+            -- The merged default is only the Core bar: this table is merged
+            -- into existing layouts by array index, so the rest of the
+            -- default bar set (ns.CDM_DEFAULT_BAR_SET) is added by key when
+            -- a spec is created or restored instead.
             bars = {
                 {
-                    key = "cooldowns", name = "Cooldowns", enabled = true,
+                    key = "cooldowns", name = "Core", enabled = true,
                     barType = "cooldowns",
                     iconSize = 42, numRows = 1, spacing = 2,
                     borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
@@ -506,6 +507,63 @@ local DEFAULTS = {
         cdmBarPositions = {},
     },
 }
+
+-- Default bar set for new and restored specs, in layout order. Every bar is
+-- the unified cooldown type; the role is set by the curated per-spec content
+-- (ns.CDM_SPEC_DEFAULT_SPELLS):
+--   Core      -- static rotation, DoTs and maintained buffs. Fixed slots, so it
+--                never resizes in combat; sits between the player and target.
+--   Highlight -- procs and damage windows that change what to press next.
+--   Buffs     -- periodic, semi-predictable procs (equipment, set bonuses).
+--   Utility   -- defensives, interrupts, crowd control and movement.
+-- Positions match the default Unit Frames layout (player x=-317, target x=317).
+ns.CDM_DEFAULT_BAR_SET = {
+    { key = "cooldowns", name = "Core",      iconSize = 42, y = -190 },
+    { key = "highlight", name = "Highlight", iconSize = 38, y = -145 },
+    { key = "procs",     name = "Buffs",     iconSize = 32, y = -106 },
+    { key = "utility",   name = "Utility",   iconSize = 32, y = -244 },
+}
+
+-- Add any missing bar of the default set to a spec container, matched by key
+-- so user bars are never touched. Positions are written only for bars added
+-- here (all four for a brand-new spec). Returns true when a bar was added.
+function ns.EnsureDefaultCDMBars(container, positionCore)
+    local cfg = container and container.cdmBars
+    local bars = cfg and cfg.bars
+    local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
+    if type(bars) ~= "table" or not copy then return false end
+    container.cdmBarPositions = container.cdmBarPositions or {}
+    local positions = container.cdmBarPositions
+    local template = ns.CDM_SPEC_DEFAULTS.cdmBars.bars[1]
+
+    local function IndexOf(key)
+        for i, b in ipairs(bars) do
+            if b.key == key then return i end
+        end
+    end
+
+    local added = false
+    for _, spec in ipairs(ns.CDM_DEFAULT_BAR_SET) do
+        local isNew = not IndexOf(spec.key)
+        if isNew then
+            -- Append ahead of the hidden routing bars only: spec overrides
+            -- address bars by array index, so existing bars must not shift.
+            local idx = #bars + 1
+            for i, b in ipairs(bars) do
+                if b.isGhostBar then idx = i; break end
+            end
+            local bd = copy(template)
+            bd.key, bd.name, bd.iconSize = spec.key, spec.name, spec.iconSize
+            table.insert(bars, idx, bd)
+            added = true
+        end
+        if (isNew or (positionCore and spec.key == "cooldowns"))
+           and not positions[spec.key] then
+            positions[spec.key] = { point = "CENTER", relPoint = "CENTER", x = 0, y = spec.y }
+        end
+    end
+    return added
+end
 
 -- The complete CDM state belongs to a specialization. Keep the sizeable bar
 -- defaults beside the normal addon defaults for readability, but do not let
@@ -1692,12 +1750,32 @@ end
 -------------------------------------------------------------------------------
 local _cachedSpecKey = nil
 
+-- CDM keys its state by role layout, not just the talent tree: a tree that can
+-- tank or deal damage keeps one layout per role (Compatibility/Spec.lua). For
+-- every single-role spec the layout ID is the spec ID.
+local function CurrentLayoutID()
+    local Spec = EUI and EUI.Spec
+    if not Spec then return nil end
+    if Spec.GetCurrentLayoutID then return Spec:GetCurrentLayoutID() end
+    return Spec:GetCurrentID()
+end
+
 function ns.GetActiveSpecKey()
     if _cachedSpecKey then return _cachedSpecKey end
-    local specID = EUI and EUI.Spec and EUI.Spec:GetCurrentID()
+    local specID = CurrentLayoutID()
     if not specID or specID == 0 then return nil end
     _cachedSpecKey = tostring(specID)
     return _cachedSpecKey
+end
+
+-- Every CDM layout for the player's class: each spec plus the other role of a
+-- multi-role tree. "All specs" features iterate this so role layouts are
+-- included; entries carry the layout ID in .id and a role-qualified .name.
+function ns.GetCDMLayoutList()
+    local Spec = EUI and EUI.Spec
+    if not Spec then return {} end
+    if Spec.GetLayoutList then return Spec:GetLayoutList() or {} end
+    return Spec:GetList() or {}
 end
 
 -- Only used by the early-login wakeFrame before CDM setup has completed.
@@ -1709,7 +1787,7 @@ end
 -- Compute the live spec key from the game API without touching the cache.
 -- Returns nil if the API isn't ready yet.
 local function ComputeLiveSpecKey()
-    local specID = EUI and EUI.Spec and EUI.Spec:GetCurrentID()
+    local specID = CurrentLayoutID()
     if not specID or specID == 0 then return nil end
     return tostring(specID)
 end
@@ -2058,6 +2136,28 @@ local function CheckSpecChange()
     end
 end
 ns.CheckSpecChange = CheckSpecChange
+
+-- A role change (override, Dungeon Finder role, tank talents) moves a
+-- multi-role tree to its other layout. Talents cannot change in combat, but an
+-- override can: the full layout rebuild waits for combat to end.
+do
+    local roleSwapFrame = CreateFrame("Frame")
+    roleSwapFrame:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        CheckSpecChange()
+    end)
+    local detector = EllesmereUI and EllesmereUI.RoleDetector
+    if detector and detector.RegisterPlayerRoleCallback then
+        detector:RegisterPlayerRoleCallback(function()
+            if not _cachedSpecKey then return end -- CDM setup not finished yet
+            if InCombatLockdown() then
+                roleSwapFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            else
+                CheckSpecChange()
+            end
+        end)
+    end
+end
 
 -------------------------------------------------------------------------------
 --  CDM Bar Roots
@@ -2671,6 +2771,16 @@ local function InstallProcGlowHooks()
     end)
 
     _procGlowHooksInstalled = true
+end
+
+-- 3.3.5 has no spell alert manager, so compatibility adapters with their own
+-- glow condition (target-health execute indicators) drive our proc glow here.
+function ns.SetCompatAdapterGlow(frame, show)
+    local barKey, cdmChild = GetBarKeyForBlizzChild(frame)
+    if not barKey or not cdmChild then return end
+    local ourIcon = FindOurIconForBlizzChild(barKey, cdmChild)
+    if not ourIcon then return end
+    if show then ShowProcGlow(ourIcon) else StopProcGlow(ourIcon) end
 end
 
 -- Scan all Blizzard CDM children for already-active proc alerts and apply
@@ -7966,12 +8076,13 @@ EllesmereUI.CDMReconcileActiveSpecSpells = function()
     ns.ReseedAssignedSpellsFromLiveIcons(true)
 end
 
---- Restore all built-in cooldown spells to the default bar for the current
---- spec. Wipes ONLY compatibility-catalog entries (positive spell IDs that
---- the viewer owns) from assignedSpells/removedSpells, then rebuilds route
---- maps and reanchors. Preserves user-added entries:
----   * Negative IDs (trinket slots -13/-14, item presets <= -100)
----   * Custom spell IDs (entries in sd.customSpellIDs)
+--- Reset the current spec to its curated defaults. Wipes compatibility-catalog
+--- entries (spell IDs the viewer owns, and their hosted buff/debuff markers)
+--- from every CD/utility/aura bar, then rebuilds the spec the same way a fresh
+--- spec is created: the curated defaults go on the Cooldowns bar and the rest
+--- of the catalog is hidden. Preserves user-added entries:
+---   * Equipment slots, item presets and the equipment proc marker
+---   * Custom spell IDs (entries in sd.customSpellIDs), hosted or not
 ---   * Racial spells (entries in _myRacialsSet)
 function ns.RestoreDefaultSpells()
     local p = ECME.db and ECME.db.profile
@@ -7982,9 +8093,17 @@ function ns.RestoreDefaultSpells()
     -- A spell ID is "user-added" (preserved while restoring defaults) if it's a
     -- negative preset marker, a custom spell ID added via the picker, or a
     -- racial belonging to this character.
-    local function IsUserAdded(sd, id)
+    local IsUserAdded
+    function IsUserAdded(sd, id)
         if type(id) ~= "number" or id == 0 then return false end
-        if id < 0 then return true end
+        if id < 0 then
+            -- Hosted markers are user-added only when they host a custom ID;
+            -- catalog buffs/debuffs and cd-claimed slots are built-in.
+            local hosted = ns.HostedBuffMarkerToSpell(id) or ns.HostedDebuffMarkerToSpell(id)
+            if hosted then return IsUserAdded(sd, hosted) end
+            if ns.CdClaimMarkerToCdID(id) then return false end
+            return true
+        end
         if sd.customSpellIDs and sd.customSpellIDs[id] then return true end
         if _myRacialsSet and _myRacialsSet[id] then return true end
         -- A positive id carrying a stored duration is one of OUR injected
@@ -8032,6 +8151,8 @@ function ns.RestoreDefaultSpells()
             if sd then
                 FilterListPreservingUserAdded(sd, sd.assignedSpells)
                 FilterSetPreservingUserAdded(sd, sd.removedSpells)
+                FilterSetPreservingUserAdded(sd, sd.hostedBuffSpellIDs)
+                FilterSetPreservingUserAdded(sd, sd.hostedDebuffSpellIDs)
                 -- spellSettings is per-spell config (font color, etc.) -- preserve
                 -- entirely so user-added customs keep their styling.
             end
@@ -8057,13 +8178,21 @@ function ns.RestoreDefaultSpells()
     ns._spellOrderDirty = true
     ns._cdmBuffOrderDirty = true  -- re-seed from Blizzard order on next reanchor
 
-    -- Under the filter model, restoring defaults means wiping the built-in
-    -- diversions and letting the route map's spillover show everything from
-    -- the compatibility viewer. The wipes above already cleared
-    -- assignedSpells / removedSpells and the ghost CD bar -- nothing else is
-    -- needed.
+    -- Rebuild exactly like a freshly created spec: the migration pass seeds
+    -- the curated defaults onto the Cooldowns bar and hides the rest of the
+    -- catalog, instead of spilling every class spell onto the default bar.
+    local prof = ns.GetActiveSpecContainer(true)
+    if prof and ns.MigrateSpecToBarFilterModelV6 then
+        prof._barFilterModelV6 = nil
+        prof._importGhostMode = nil
+        prof._initializeEmptyBarsV1 = true
+        EnsureGhostBars()
+        ns.MigrateSpecToBarFilterModelV6()
+    end
 
     ns.FullCDMRebuild("restore_defaults")
+    -- The migration above may have added missing default bars.
+    RegisterCDMUnlockElements()
     if ns.CollectAndReanchor then ns.CollectAndReanchor() end
 
     ns.ReseedAssignedSpellsFromLiveIcons()

@@ -194,6 +194,47 @@ local availability = {}     -- cooldownID -> { isKnown = boolean, activeSpellID 
 local runtimeState = {}     -- cooldownID -> cooldown state plus matched aura identity/duration/stacks
 local categories = {}       -- categoryID -> array of cooldownIDs
 local executeCooldownIDs = {} -- compact list for health/resource-only visual refreshes
+local cooldownIDsByKey = {} -- definition key -> cooldownID (curated spec defaults)
+local canonicalRankByID = {} -- any listed rank -> highest listed rank of the same spell
+
+-- Saved assignments hold whichever rank was known when they were made, while
+-- routing compares against the currently learned rank. Group each
+-- definition's ranks by spell name (a list may mix spells, e.g. cat and bear
+-- Mangle) and map every rank to the highest one. The first definition to list
+-- an ID owns its mapping, so class files take precedence over shared catalogs.
+local function IndexRankFamily(def)
+    local ids = def.spellIDs
+    if type(ids) ~= "table" or #ids < 2 or not GetSpellInfo then return end
+    local canonicalByName = {}
+    for i = #ids, 1, -1 do
+        local id = ids[i]
+        local name = GetSpellInfo(id)
+        if name then
+            canonicalByName[name] = canonicalByName[name] or id
+            if canonicalRankByID[id] == nil then
+                canonicalRankByID[id] = canonicalByName[name]
+            end
+        end
+    end
+end
+
+-- 3.3.5 has no override spells, so the retail "base spell" relation maps onto
+-- spell ranks. The CDM variant helpers, icon ordering and per-spell settings
+-- already treat a spell and its base as one identity through this API.
+if C_Spell and not C_Spell.GetBaseSpell then
+    C_Spell.GetBaseSpell = function(spellID)
+        return canonicalRankByID[spellID] or spellID
+    end
+end
+
+-- Stable definition keys survive cooldownID renumbering, so curated defaults
+-- name entries by key and resolve the numeric handle (plus its category) here.
+function ns.GetCooldownIDForDefinitionKey(key)
+    local cdID = cooldownIDsByKey[key]
+    local def = cdID and definitions[cdID]
+    if not def then return nil end
+    return cdID, def.category
+end
 
 -- Raid Cooldowns is a separate optional addon and usually loads after CDM.
 -- Let its catalog merge the definitions that were already registered here.
@@ -221,6 +262,10 @@ local viewerNamesByCategory = {
 
 -- Caching
 local cachedPlayerAuras = {}
+-- Player auras by localized name, for definitions that set matchAuraByName.
+-- Catalog entries built from other sources (WeakAuras packs match by name) may
+-- carry a rank or talent ID instead of the live aura's own ID.
+local cachedPlayerAurasByName = {}
 local cachedTargetDebuffs = {}
 local cachedTargetDebuffsAnySource = {}
 local cachedTargetDebuffsAnySourceByName = {}
@@ -713,6 +758,14 @@ local function CreateAdapterFrame(cdID)
     return frame
 end
 
+local function TargetAtOrBelowHealthPct(pct)
+    if not UnitExists("target") or UnitIsDeadOrGhost("target") then return false end
+    if UnitCanAttack and not UnitCanAttack("player", "target") then return false end
+    local maxHealth = UnitHealthMax("target") or 0
+    if maxHealth <= 0 then return false end
+    return (UnitHealth("target") or 0) * 100 <= maxHealth * pct
+end
+
 local function RefreshAdapterVisual(frame)
     if not frame then return end
     local cdID = frame.cooldownID
@@ -748,6 +801,17 @@ local function RefreshAdapterVisual(frame)
             frame.Applications.Applications:SetText("")
             frame.Applications:Hide()
         end
+    end
+
+    -- Target-health indicators (Drain Soul) have no usability gate of their
+    -- own: the icon is lit and glowing only while the hostile target sits at
+    -- or below the threshold, and desaturated otherwise.
+    if frame.Icon and def.executeHealthPct then
+        local inRange = TargetAtOrBelowHealthPct(def.executeHealthPct)
+        frame.Icon:SetDesaturated(not inRange)
+        -- Re-asserted every pass (show/stop are idempotent) so an icon that a
+        -- rebuild re-decorated picks the glow back up on the next health edge.
+        if ns.SetCompatAdapterGlow then ns.SetCompatAdapterGlow(frame, inRange) end
     end
 
     -- Usability includes the normal execute threshold and proc-based exceptions
@@ -929,7 +993,9 @@ function C_CooldownViewer.RegisterDefinition(def)
     end
 
     definitions[def.cooldownID] = def
-    if def.execute then
+    cooldownIDsByKey[def.key] = def.cooldownID
+    IndexRankFamily(def)
+    if def.execute or def.executeHealthPct then
         executeCooldownIDs[#executeCooldownIDs + 1] = def.cooldownID
     end
     IndexDefinitionAuraTags(def)
@@ -1232,6 +1298,7 @@ end
 
 local function UpdateAuraCache(fullSmartGroupRefresh)
     wipe(cachedPlayerAuras)
+    wipe(cachedPlayerAurasByName)
     wipe(cachedTargetDebuffs)
     wipe(cachedTargetDebuffsAnySource)
     wipe(cachedTargetDebuffsAnySourceByName)
@@ -1243,12 +1310,22 @@ local function UpdateAuraCache(fullSmartGroupRefresh)
         if spellID then
             cachedPlayerAuras[spellID] = { duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0 }
         end
+        cachedPlayerAurasByName[name] = {
+            duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0,
+            spellID = spellID, icon = icon, name = name,
+        }
     end
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HARMFUL")
         if not name then break end
         if spellID then
             cachedPlayerAuras[spellID] = { duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0 }
+        end
+        if not cachedPlayerAurasByName[name] then
+            cachedPlayerAurasByName[name] = {
+                duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0,
+                spellID = spellID, icon = icon, name = name,
+            }
         end
     end
     if UnitExists("target") then
@@ -1352,7 +1429,7 @@ local function UpdateAuraCache(fullSmartGroupRefresh)
     cachedAuraTime = GetTime()
 end
 
-local function GetCachedAura(spellID, unit, anySource)
+local function GetCachedAura(spellID, unit, anySource, byName)
     if not spellID then return nil end
     -- Fallback safety if accessed outside of normal flow
     if GetTime() > cachedAuraTime + 0.5 then
@@ -1363,6 +1440,15 @@ local function GetCachedAura(spellID, unit, anySource)
     elseif unit == "target" then
         local cache = anySource and cachedTargetDebuffsAnySource or cachedTargetDebuffs
         local aura = cache[spellID]
+        if not aura and byName and not anySource then
+            -- Opt-in: the player's own debuff under any ID with this name.
+            local name = GetSpellInfo and GetSpellInfo(spellID)
+            if name then
+                for _, candidate in pairs(cache) do
+                    if candidate.name == name then aura = candidate; break end
+                end
+            end
+        end
         if not aura and anySource then
             local name
             if GetSpellInfo then name = GetSpellInfo(spellID) end
@@ -1373,7 +1459,12 @@ local function GetCachedAura(spellID, unit, anySource)
         end
         return aura
     end
-    return cachedPlayerAuras[spellID]
+    local aura = cachedPlayerAuras[spellID]
+    if not aura and byName and unit ~= "smartGroup" then
+        local name = GetSpellInfo and GetSpellInfo(spellID)
+        if name then aura = cachedPlayerAurasByName[name] end
+    end
+    return aura
 end
 
 -- Refresh logic
@@ -1555,10 +1646,11 @@ local function ReevaluateState()
                     local auraUnit = (def.trackingType == "debuff"
                         or def.trackingType == "cooldown_and_debuff")
                         and "target" or (def.auraUnit or "player")
-                    local aura = auraID and GetCachedAura(auraID, auraUnit, def.anySourceDebuff)
+                    local byName = def.matchAuraByName
+                    local aura = auraID and GetCachedAura(auraID, auraUnit, def.anySourceDebuff, byName)
                     if not aura and auraIDs then
                         for _, equivalentID in ipairs(auraIDs) do
-                            aura = GetCachedAura(equivalentID, auraUnit, def.anySourceDebuff)
+                            aura = GetCachedAura(equivalentID, auraUnit, def.anySourceDebuff, byName)
                             if aura then break end
                         end
                     end

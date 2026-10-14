@@ -163,6 +163,21 @@ Register({
     },
 })
 
+-- Drain Soul has no cooldown; it is tracked as an execute-phase indicator.
+-- It deals 4x damage while the target is at or below 25% health, so the icon
+-- is lit and glowing only inside that window.
+Register({
+    key = "warlock.drain_soul",
+    cooldownID = 109022,
+    category = CDM_CATEGORY_ESSENTIAL,
+    order = 75,
+    spellID = 47855,
+    spellIDs = { 1120, 8288, 8289, 11675, 27217, 47855 },
+    iconSpellID = 47855,
+    trackingType = "cooldown",
+    executeHealthPct = 25,
+})
+
 Register({
     key = "warlock.demonic_empowerment",
     cooldownID = 109008,

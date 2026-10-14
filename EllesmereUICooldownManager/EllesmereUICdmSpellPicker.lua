@@ -851,8 +851,9 @@ end
 ---      cooldown the importer tracks but the layout doesn't place gets hidden
 ---      instead of spilling onto the default bar.
 ---
----   3. Fresh-spec initialization: start with no automatically populated
----      cooldowns while sane curated defaults are still being developed.
+---   3. Fresh-spec initialization: seed the curated per-spec defaults
+---      (ns.CDM_SPEC_DEFAULT_SPELLS) onto the default Cooldowns bar, then
+---      ghost the rest of the catalog.
 ---
 --- All three reduce to the same operation: ghost (tracked spells) MINUS (spells
 --- assigned to any visible bar) MINUS (already ghosted). Spells from the
@@ -870,6 +871,152 @@ end
 --- viewerBarKey fallback already showed everything from BuffIconCooldownViewer
 --- regardless of assignedSpells, so the old visual already matches the new
 --- model. Ghost buff bar cleanup is handled by EnsureGhostBars.
+-- Place a fresh spec's curated defaults (ns.CDM_SPEC_DEFAULT_SPELLS) on the
+-- default bar set. Writes the spec data directly (no route/reanchor side
+-- effects): it runs inside the init-time migration pass, ahead of the first
+-- route map build. Appends after any entries already on a bar (user-added
+-- items kept by a restore), and skips bars the layout does not have.
+local SEED_BAR_KEYS = { "cooldowns", "highlight", "procs", "utility" }
+local STATIC_BAR_KEY = "cooldowns"   -- Core: fixed slots, never resizes
+local PROC_BAR_KEY = "procs"         -- Buffs: also takes the equipment procs
+local CDM_CATEGORY_BUFF_ICON, CDM_CATEGORY_BUFF_BAR, CDM_CATEGORY_DEBUFF = 3, 4, 5
+
+local function SeedSpecDefaults(prof, specKey, barList)
+    local spec = ns.CDM_SPEC_DEFAULT_SPELLS and ns.CDM_SPEC_DEFAULT_SPELLS[tonumber(specKey)]
+    local lookup = ns.GetCooldownIDForDefinitionKey
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    if not spec or not lookup or not gci then return end
+
+    local liveBars = {}
+    for _, bd in ipairs(barList) do
+        if bd.enabled and not bd.isGhostBar then liveBars[bd.key] = true end
+    end
+    local function BarData(barKey)
+        local sd = prof.barSpells[barKey]
+        if not sd then
+            sd = {}
+            prof.barSpells[barKey] = sd
+        end
+        if not sd.assignedSpells then sd.assignedSpells = {} end
+        return sd
+    end
+    local buffSettings = ns.GetSpellSettingsStoreForProf(prof, ns.SettingsFamilyKey("buffs"), true)
+    local debuffSettings = ns.GetSpellSettingsStoreForProf(prof, ns.SettingsFamilyKey("debuffs"), true)
+
+    -- One equipment-proc assignment per spec: a restore keeps the user's
+    -- existing placement, wherever it is.
+    if liveBars[PROC_BAR_KEY] and ns.TRINKET_PROC_MARKER then
+        local placed = false
+        for _, bsd in pairs(prof.barSpells) do
+            if type(bsd) == "table"
+               and FindVariantIndex(bsd.assignedSpells, ns.TRINKET_PROC_MARKER) then
+                placed = true
+                break
+            end
+        end
+        if not placed then
+            local sd = BarData(PROC_BAR_KEY)
+            sd.assignedSpells[#sd.assignedSpells + 1] = ns.TRINKET_PROC_MARKER
+        end
+    end
+
+    local missingOnly = {}
+    for _, key in ipairs(spec.missingOnly or {}) do missingOnly[key] = true end
+
+    local debuffSidByKey = {}
+    for _, barKey in ipairs(SEED_BAR_KEYS) do
+        local keys = spec[barKey]
+        if barKey == PROC_BAR_KEY and ns.CDM_DEFAULT_SHARED_PROCS then
+            local combined = {}
+            for _, key in ipairs(keys or {}) do combined[#combined + 1] = key end
+            for _, key in ipairs(ns.CDM_DEFAULT_SHARED_PROCS) do combined[#combined + 1] = key end
+            keys = combined
+        end
+        if keys and liveBars[barKey] then
+            local sd = BarData(barKey)
+            for _, key in ipairs(keys) do
+                local cdID, category = lookup(key)
+                local info = cdID and gci(cdID)
+                local sid = info and info.spellID
+                if _IsUsableSID(sid) then
+                    if category == CDM_CATEGORY_DEBUFF then
+                        -- Target debuffs keep a slot while missing, so they
+                        -- are static on any bar.
+                        sd.hostedDebuffSpellIDs = sd.hostedDebuffSpellIDs or {}
+                        if not sd.hostedDebuffSpellIDs[sid] then
+                            sd.hostedDebuffSpellIDs[sid] = true
+                            sd.assignedSpells[#sd.assignedSpells + 1] = ns.HostedDebuffMarker(sid)
+                        end
+                        debuffSidByKey[key] = sid
+                    elseif category == CDM_CATEGORY_BUFF_ICON or category == CDM_CATEGORY_BUFF_BAR then
+                        sd.hostedBuffSpellIDs = sd.hostedBuffSpellIDs or {}
+                        if not sd.hostedBuffSpellIDs[sid] then
+                            sd.hostedBuffSpellIDs[sid] = true
+                            sd.assignedSpells[#sd.assignedSpells + 1] = ns.HostedBuffMarker(sid)
+                        end
+                        -- Hosted buffs default to active-only (the icon is
+                        -- removed and the bar shifts). Core keeps a
+                        -- desaturated placeholder instead, so its width never
+                        -- changes in combat; missing-only entries invert the
+                        -- condition. An existing choice is kept.
+                        local vis = (missingOnly[key] and "activeHiddenShift")
+                            or (barKey == STATIC_BAR_KEY and "missingDesaturated")
+                        if vis and buffSettings then
+                            local ss = buffSettings[sid]
+                            if not ss then
+                                ss = {}
+                                buffSettings[sid] = ss
+                            end
+                            if rawget(ss, "hostedMissingVis") == nil then
+                                ss.hostedMissingVis = vis
+                            end
+                        end
+                    elseif not FindVariantIndex(sd.assignedSpells, sid) then
+                        sd.assignedSpells[#sd.assignedSpells + 1] = sid
+                    end
+                end
+            end
+        end
+    end
+
+    -- Every spec gets its racial on Utility. Any race's racial ID works here:
+    -- NormalizeRacialAssignments remaps it to this character's own racial at
+    -- build time and keeps exactly one racial slot across all bars.
+    local racials = ns.ALL_RACIAL_SPELLS
+    if liveBars.utility and racials then
+        local placed = false
+        for _, bsd in pairs(prof.barSpells) do
+            for _, sid in ipairs(type(bsd) == "table" and bsd.assignedSpells or {}) do
+                if racials[sid] then placed = true; break end
+            end
+            if placed then break end
+        end
+        if not placed then
+            local sd = BarData("utility")
+            sd.assignedSpells[#sd.assignedSpells + 1] = ns._activeRacialSpellID or 20572
+        end
+    end
+
+    -- Snapshot strength text on the curated DoTs (per-debuff setting).
+    local snapshotSet = false
+    for _, key in ipairs(spec.snapshot or {}) do
+        local sid = debuffSidByKey[key]
+        if sid and debuffSettings then
+            local ss = debuffSettings[sid]
+            if not ss then
+                ss = {}
+                debuffSettings[sid] = ss
+            end
+            if rawget(ss, "snapshotTracking") == nil then
+                ss.snapshotTracking = true
+                snapshotSet = true
+            end
+        end
+    end
+    if snapshotSet and ns.RescanSnapshotTracking then ns.RescanSnapshotTracking() end
+    ns._spellOrderDirty = true
+end
+
 function ns.MigrateSpecToBarFilterModelV6()
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return end
@@ -941,6 +1088,17 @@ function ns.MigrateSpecToBarFilterModelV6()
         return false
     end
     if not HasPopulatedPool() and not prof._initializeEmptyBarsV1 then return end
+
+    -- Seeded before the assigned set is built, so the curated defaults stay
+    -- visible and only the rest of the catalog is ghosted below. The default
+    -- bar set is completed first so every curated bar has a destination.
+    local barsAdded = false
+    if prof._initializeEmptyBarsV1 then
+        if ns.EnsureDefaultCDMBars then
+            barsAdded = ns.EnsureDefaultCDMBars(prof, true)
+        end
+        SeedSpecDefaults(prof, specKey, barList)
+    end
 
     -- Step 2: build assignedSet from the LIVE bar list. Default bars
     -- (cooldowns/utility) contribute too -- their assignedSpells under the
@@ -1048,7 +1206,7 @@ function ns.MigrateSpecToBarFilterModelV6()
     prof._barFilterModelV6 = true
     prof._importGhostMode = nil  -- import-authoritative ghosting done for this spec
     prof._initializeEmptyBarsV1 = nil -- fresh-spec empty state is now materialized
-    return addedCount
+    return addedCount, barsAdded
 end
 
 --- One-shot per-spec migration: merge any pre-existing dormantSpells back

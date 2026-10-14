@@ -110,7 +110,11 @@ initFrame:SetScript("OnEvent", function(self)
         local ROW_H = 22
         local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
         local specName
-        if specKey and EUI and EUI.Spec and EUI.Spec.GetInfoByID then
+        if specKey and EUI and EUI.Spec and EUI.Spec.GetLayoutInfo then
+            -- Role-qualified for multi-role trees ("Blood (DPS)").
+            local info = EUI.Spec:GetLayoutInfo(tonumber(specKey) or specKey)
+            specName = info and info.name
+        elseif specKey and EUI and EUI.Spec and EUI.Spec.GetInfoByID then
             local info = EUI.Spec:GetInfoByID(tonumber(specKey) or specKey)
             specName = info and info.name
         end
@@ -8584,7 +8588,7 @@ initFrame:SetScript("OnEvent", function(self)
                     AB.ForEachClassSpec = function(create, fn)
                         if not (EUI and EUI.Spec and ns.GetSpecContainerForProfile) then return end
                         local profileName = ns.GetActiveProfileName()
-                        for _, info in ipairs(EUI.Spec:GetList() or {}) do
+                        for _, info in ipairs(ns.GetCDMLayoutList()) do
                             local prof = ns.GetSpecContainerForProfile(profileName, tostring(info.id), create)
                             if prof then fn(prof) end
                         end
@@ -16170,13 +16174,13 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Wrath has no player-facing Blizzard CDM to open or copy from. Keep
         -- this row focused on the two useful content actions instead: restore
-        -- the compatibility catalog's defaults, or empty the selected bar.
+        -- the curated per-spec defaults, or empty the selected bar.
         _, h = W:WideDualButton(parent,
             "Restore Default Spells", "Clear Bar", y,
             function()
                 EllesmereUI:ShowConfirmPopup({
                     title = "Restore Default Spells",
-                    message = "This will move all built-in cooldown spells for the current spec back to the default bar. Custom entries are kept. Continue?",
+                    message = "This will reset the current spec to its default spells, add any missing default bars (Core, Highlight, Buffs, Utility), and hide every other built-in spell. Custom entries and bar positions are kept. Continue?",
                     confirmText = "Restore",
                     cancelText = "Cancel",
                     onConfirm = function()

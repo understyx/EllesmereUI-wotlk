@@ -614,7 +614,7 @@ function ns.AddBarToAllSpecs(srcIdx)
     end
 
     local added = 0
-    for _, info in ipairs(EUI and EUI.Spec and EUI.Spec:GetList() or {}) do
+    for _, info in ipairs(ns.GetCDMLayoutList()) do
         local specID = info.id
         if specID then
             local key = tostring(specID)

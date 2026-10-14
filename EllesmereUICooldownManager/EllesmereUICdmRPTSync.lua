@@ -44,7 +44,7 @@ end
 function ns.GetCDMSpecInfo()
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     local result = {}
-    for _, info in ipairs(EUI and EUI.Spec and EUI.Spec:GetList() or {}) do
+    for _, info in ipairs(ns.GetCDMLayoutList and ns.GetCDMLayoutList() or {}) do
         local specID, sName, sIcon = info.id, info.name, info.icon
         if specID then
             local key = tostring(specID)
@@ -92,6 +92,18 @@ function ns.GetAllCDMSpecInfo()
         local className, classFile = GetClassInfo(classID)
         local isCurrentClass = (classFile ~= nil and classFile == curClassFile)
         local numSpecs = (GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(classID)) or 0
+        if isCurrentClass and ns.GetCDMLayoutList then
+            -- Own class: every layout, including the other role of a
+            -- multi-role tree ("Blood (DPS)").
+            for _, info in ipairs(ns.GetCDMLayoutList()) do
+                local key = tostring(info.id)
+                result[#result + 1] = {
+                    key = key, name = info.name or ("Spec " .. key),
+                    icon = info.icon, hasData = HasData(sp and sp[key]),
+                }
+            end
+            numSpecs = 0
+        end
         for specIndex = 1, numSpecs do
             local specID, sName, _, sIcon = GetSpecializationInfoForClassID(classID, specIndex)
             if specID then

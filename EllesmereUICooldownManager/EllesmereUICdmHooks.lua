@@ -696,8 +696,9 @@ function ns.RebuildSpellRouteMap()
         for _, sid in ipairs(sd.assignedSpells) do
             if type(sid) == "number" and sid > 0 then
                 SVV(targetMap, sid, bd.key, false)
-            elseif barType == "buffs" and ns.IsTrinketProcMarker
-               and ns.IsTrinketProcMarker(sid) then
+            elseif ns.IsTrinketProcMarker and ns.IsTrinketProcMarker(sid) then
+                -- Equipment procs come from the buff viewer; on a cooldown-
+                -- type bar they are hosted exactly like any other routed buff.
                 _trinketProcBarKey = bd.key
             end
         end
@@ -6974,8 +6975,16 @@ local function CollectAndReanchor()
         local prof = sp and specKey and sp[specKey]
         local needsMigration = prof and not prof._barFilterModelV6
         if needsMigration then
-            local added = ns.MigrateSpecToBarFilterModelV6()
-            if added and added > 0 then
+            local added, barsAdded = ns.MigrateSpecToBarFilterModelV6()
+            if barsAdded and ns.FullCDMRebuild and C_Timer then
+                -- A late fresh-spec pass added default bars after the initial
+                -- build; they need frames, not just routes. Deferred so the
+                -- rebuild never nests inside this reanchor.
+                C_Timer.After(0, function()
+                    ns.FullCDMRebuild("default_bars")
+                    if ns.RegisterCDMUnlockElements then ns.RegisterCDMUnlockElements() end
+                end)
+            elseif added and added > 0 then
                 if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
                 if ns.QueueReanchor then ns.QueueReanchor() end
             end

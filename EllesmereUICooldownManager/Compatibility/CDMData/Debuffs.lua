@@ -60,6 +60,7 @@ local function Register(class, key, spellIDs, auraSpellID, iconSpellID, auraSpel
         linkedSpellIDs = options and options.linkedSpellIDs,
         displayName = options and options.displayName,
         pickerHidden = options and options.pickerHidden,
+        matchAuraByName = options and options.matchAuraByName or nil,
         iconSpellID = iconSpellID or spellID,
         trackingType = "debuff",
         hasAura = true,
@@ -74,9 +75,15 @@ local function Register(class, key, spellIDs, auraSpellID, iconSpellID, auraSpel
             requirements = function() return false end,
             resolveSpellID = function() return spellID end,
         }
-    elseif options and (options.alwaysKnown or options.talentTab or options.talentSpellID) then
+    elseif options and (options.alwaysKnown or options.talentTab or options.talentSpellID
+                        or options.faction) then
         definition.resolvers = {
             requirements = function()
+                -- Faction-locked seal debuffs: the aura is never a spellbook
+                -- entry, so the player's faction decides availability.
+                if options.faction then
+                    return UnitFactionGroup and UnitFactionGroup("player") == options.faction
+                end
                 if options.alwaysKnown then return true end
                 if options.talentSpellID then
                     return HasLearnedTalentBySpellID(options.talentSpellID)
@@ -200,8 +207,10 @@ Register("PALADIN", "judgement_of_justice",  { 53407 }, 20184, 53407)
 Register("PALADIN", "hammer_of_justice",     { 853, 5588, 5589, 10308 })
 Register("PALADIN", "repentance",            { 20066 })
 Register("PALADIN", "turn_evil",             { 10326 })
-Register("PALADIN", "holy_vengeance",        { 31803 }, 31803, 31803)
-Register("PALADIN", "blood_corruption",      { 53742 }, 53742, 53742)
+Register("PALADIN", "holy_vengeance",        { 31803 }, 31803, 31803, nil, false,
+    { faction = "Alliance" }) -- Seal of Vengeance
+Register("PALADIN", "blood_corruption",      { 53742 }, 53742, 53742, nil, false,
+    { faction = "Horde" })    -- Seal of Corruption
 Register("PALADIN", "heart_of_the_crusader", { 20335, 20336, 20337 }, 54499, 20337, CRIT_AURAS, true)
 Register("PALADIN", "vindication",            { 26016, 26017 }, 26017, 26017, ATTACK_POWER_AURAS, true,
     { talentSpellID = 26016 })
@@ -340,6 +349,10 @@ Register("WARLOCK", "curse_of_tongues",    WARLOCK_TONGUES, nil, nil, CAST_SPEED
 Register("WARLOCK", "improved_shadow_bolt", { 17800 }, 17800, 17803, SPELL_CRIT_AURAS, true,
     { talentSpellID = 17803 })
 Register("WARLOCK", "fear",                { 5782, 6213, 6215 })
+-- Shadow Embrace (Affliction talent debuff from Shadow Bolt and Haunt). Its
+-- talent and debuff ranks use different IDs, so it also matches by name.
+Register("WARLOCK", "shadow_embrace", { 32386, 32388, 32389, 32390, 32391, 60448 },
+    nil, 60448, nil, false, { talentSpellID = 60448, matchAuraByName = true })
 
 -- Druid
 Register("DRUID", "moonfire",          { 8921, 8924, 8925, 8926, 8927, 8928, 8929, 9833, 9834, 9835, 26987, 48462, 48463 })

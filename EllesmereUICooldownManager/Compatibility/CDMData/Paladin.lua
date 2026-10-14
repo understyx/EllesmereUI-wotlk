@@ -629,6 +629,36 @@ Register({
     },
 })
 
+-- Guarded by the Light lets Shield of Righteousness and Hammer of the
+-- Righteous refresh Divine Plea, so a protection paladin keeps it up
+-- permanently and only needs to see it while it is MISSING (the curated
+-- default hosts this with "Visibility When: Active -> Hidden"). The talent is
+-- the entry's identity so it never collides with the plain Divine Plea buff,
+-- and it only becomes available once the talent is learned.
+Register({
+    key = "paladin.buff.divine_plea_guarded",
+    cooldownID = 202026,
+    category = CDM_CATEGORY_BUFF_ICON,
+    order = 46,
+    spellID = 53585,
+    spellIDs = { 53583, 53585 },
+    auraSpellID = 54428,
+    auraSpellIDs = { 54428 },
+    iconSpellID = 54428,
+    displayName = "Divine Plea (Guarded by the Light)",
+    trackingType = "aura",
+    hasAura = true,
+    selfAura = true,
+    resolvers = {
+        requirements = function()
+            return HasLearnedTalentBySpellID(53585) -- Protection: Guarded by the Light
+        end,
+        resolveSpellID = function()
+            return 53585
+        end,
+    },
+})
+
 Register({
     key = "paladin.buff.divine_favor",
     cooldownID = 202006,
