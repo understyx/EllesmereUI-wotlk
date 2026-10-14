@@ -439,8 +439,6 @@ ns.defaults = {
     stackSpacingScale = 100,
     stackingEnabled = true,
     stackingFriendly = false,
-    hitboxScaleX = 100,
-    hitboxScaleY = 100,
     nameplateYOffset = 0,
     enemyNameTextSize = 11,
     debuffTimerColor = { r = 1, g = 1, b = 1 },

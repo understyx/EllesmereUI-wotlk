@@ -577,8 +577,14 @@ local function SuppressSourceFont(fs)
     end)
 end
 
-local function SuppressTexture(region)
+-- On the 3.3.5 client the native engine recolours some plate textures from C
+-- (threat glow via SetVertexColor, cast border/shield on cast start). That
+-- write also resets the texture's alpha without passing through Lua, so an
+-- alpha-only hook lets them reappear. Regions that are never mirrored have
+-- their texture cleared as well; IsShown/GetVertexColor stay readable.
+local function SuppressTexture(region, keepTexture)
     if not region then return end
+    if not keepTexture then region:SetTexture(nil) end
     region:SetAlpha(0)
     if region._euiSuppressed or not hooksecurefunc then return end
     region._euiSuppressed = true
@@ -603,7 +609,7 @@ local function CreateNativeIconMirror(source, parent)
     local ulx, uly, llx, lly, urx, ury, lrx, lry = source:GetTexCoord()
     if ulx then mirror:SetTexCoord(ulx, uly, llx, lly, urx, ury, lrx, lry) end
     if not source:IsShown() then mirror:Hide() end
-    SuppressTexture(source)
+    SuppressTexture(source, true)
     return mirror
 end
 
@@ -873,7 +879,6 @@ function PlateMethods:ApplyAppearance()
     self:ApplyScale()
     self:ApplyTarget()
     self:SyncStrata()
-    if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea(self) end
 end
 
 function PlateMethods:UpdateHealthValues()
@@ -948,6 +953,7 @@ function PlateMethods:UpdateHealthColor()
             end
         end
         self:RefreshNamePosition()
+        self:UpdateAuras()
     end
 
     local finalR, finalG, finalB = r, g, b
@@ -1021,19 +1027,14 @@ function PlateMethods:ApplyScale()
     local scale = isTarget and targetScale or 1.0
     local castScale = scale * ((DB().castScale or 100) / 100)
 
-    local changed = false
     if self.currentScale ~= scale then
         self.currentScale = scale
         self.health:SetScale(scale)
         if self.targetGlowFrame then self.targetGlowFrame:SetScale(scale) end
-        changed = true
     end
     if self.cast and self.currentCastScale ~= castScale then
         self.currentCastScale = castScale
         self.cast:SetScale(castScale)
-    end
-    if changed and ns.ApplyNamePlateClickArea then
-        ns.ApplyNamePlateClickArea(self)
     end
 end
 
@@ -1140,7 +1141,7 @@ function PlateMethods:ApplyTarget()
 end
 
 function PlateMethods:UpdateAuras()
-    if not ns.AuraTracker then return end
+    if not ns.AuraTracker or not self.debuffSlots then return end
     local db = DB()
     local harmful = ns.AuraTracker:GetAurasForPlate(self, "HARMFUL")
     local helpful = ns.AuraTracker:GetAurasForPlate(self, "HELPFUL")
@@ -1172,6 +1173,10 @@ function PlateMethods:UpdateAuras()
     for i = 1, #self.debuffSlots do self.debuffSlots[i]:Hide() end
     for i = 1, #self.cc do self.cc[i]:Hide() end
     for i = 1, #self.buffs do self.buffs[i]:Hide() end
+
+    -- Name-only friendly plates show just the name; hovering one in a city
+    -- would otherwise pop its buffs up through the mouseover aura poll.
+    if self.nameOnly then return end
 
     if harmful then
         for _, aura in ipairs(harmful) do
@@ -1325,7 +1330,7 @@ local function SkinPlate(frame)
 
     if not health then return nil end
 
-    local raidIcon, bossIcon, eliteIcon
+    local raidIcon, bossIcon, eliteIcon, castShield
     for i = 1, select("#", frame:GetRegions()) do
         local r = select(i, frame:GetRegions())
         if r and r.GetObjectType then
@@ -1338,10 +1343,16 @@ local function SkinPlate(frame)
                 local keepNative = false
                 if path and type(path) == "string" then
                     path = lower(path)
-                    if find(path, "nameplate-glow", 1, true) then
+                    -- 3.3.5: UI-TargetingFrame-Flash is the threat glow,
+                    -- Tooltips\Nameplate-Glow is the mouseover highlight.
+                    if find(path, "ui-targetingframe-flash", 1, true) then
                         nativeGlow = r
-                    elseif find(path, "nameplate-highlight", 1, true) or find(path, "ui-targetingframe-flash", 1, true) then
+                    elseif find(path, "nameplate-glow", 1, true) or find(path, "nameplate-highlight", 1, true) then
                         highlight = r
+                    elseif find(path, "castbar-shield", 1, true) then
+                        -- Uninterruptible cast frame; a root region on 3.3.5,
+                        -- not part of the cast StatusBar.
+                        castShield = r
                     elseif find(path, "ui-raidtargetingicons", 1, true) then
                         raidIcon = r
                         keepNative = true
@@ -1353,7 +1364,8 @@ local function SkinPlate(frame)
                         or find(path, "rare-elite", 1, true)
                         or find(path, "rare_elite", 1, true)
                         or find(path, "targetingframe-elite", 1, true)
-                        or find(path, "nameplate-elite", 1, true) then
+                        or find(path, "nameplate-elite", 1, true)
+                        or find(path, "elitenameplateicon", 1, true) then
                         eliteIcon = r
                         keepNative = true
                     end
@@ -1392,6 +1404,7 @@ local function SkinPlate(frame)
     plate.nativeRaidIcon = raidIcon
     plate.nativeBossIcon = bossIcon
     plate.nativeEliteIcon = eliteIcon
+    plate.nativeCastShieldSource = castShield
 
     -- All visible EUI regions that used to live directly on the native root
     -- are hosted here. SyncStrata can therefore move the whole custom plate
@@ -1795,118 +1808,6 @@ ns.RefreshFriendlyNameSize = ns.RefreshFriendlySize
 ns.RefreshFriendlyColors = ns.RefreshFriendlySize
 ns.RefreshFriendlyPlateOffset = ns.RefreshFriendlySize
 
-local function GetEffectiveScale(frame)
-    if frame and frame.GetEffectiveScale then
-        local scale = frame:GetEffectiveScale()
-        if scale and scale > 0 then return scale end
-    end
-    if frame and frame.GetScale then
-        local scale = frame:GetScale()
-        if scale and scale > 0 then return scale end
-    end
-    return 1
-end
-
-local function EnsureHitboxOverlay(plate)
-    if plate.hitboxOverlay then return plate.hitboxOverlay end
-    local overlay = (plate.overlayFrame or plate.contentFrame or plate.frame):CreateTexture(nil, "OVERLAY")
-    overlay:SetTexture(0.1, 0.65, 1, 0.22)
-    overlay:SetBlendMode("ADD")
-    overlay:Hide()
-    plate.hitboxOverlay = overlay
-    return overlay
-end
-
-function ns.ApplyNamePlateClickArea(targetPlate)
-    local db = DB()
-    local scaleX = max(0.01, (db.hitboxScaleX or 100) / 100)
-    local scaleY = max(0.01, (db.hitboxScaleY or 100) / 100)
-
-    local function Apply(plate)
-        local frame, health = plate.frame, plate.health
-        if not (frame and health) then return end
-
-        if plate.isFriendly then
-            if frame.SetHitRectInsets then
-                pcall(frame.SetHitRectInsets, frame, 0, 0, 0, 0)
-            end
-            if plate.hitboxOverlay then plate.hitboxOverlay:Hide() end
-            return
-        end
-
-        local frameScale = GetEffectiveScale(frame)
-        local healthScale = GetEffectiveScale(health)
-        local relativeScale = healthScale / frameScale
-        local desiredW = max(1, (health:GetWidth() or 1) * relativeScale * scaleX)
-        local desiredH = max(1, (health:GetHeight() or 1) * relativeScale * scaleY)
-
-        -- SetHitRectInsets is available on Wrath Frames/Buttons. Negative
-        -- values expand the clickable region; positive values shrink it.
-        -- Align the region with the health bar rather than assuming the stock
-        -- nameplate root and bar share the same vertical centre.
-        if frame.SetHitRectInsets then
-            local frameW = frame:GetWidth() or 0
-            local frameH = frame:GetHeight() or 0
-            local offsetX, offsetY = 0, 0
-            if plate.nativeHealthRelativeTo == frame and plate.nativeHealthRelativePoint then
-                local relativePoint = plate.nativeHealthRelativePoint
-                if find(relativePoint, "LEFT", 1, true) then
-                    offsetX = -frameW * 0.5
-                elseif find(relativePoint, "RIGHT", 1, true) then
-                    offsetX = frameW * 0.5
-                end
-                if find(relativePoint, "TOP", 1, true) then
-                    offsetY = frameH * 0.5
-                elseif find(relativePoint, "BOTTOM", 1, true) then
-                    offsetY = -frameH * 0.5
-                end
-                offsetX = offsetX + (plate.nativeHealthCenterX or 0)
-                offsetY = offsetY + (plate.nativeHealthCenterY or 0)
-            elseif frame.GetCenter and health.GetCenter then
-                local frameX, frameY = frame:GetCenter()
-                local healthX, healthY = health:GetCenter()
-                if frameX and healthX then
-                    offsetX = healthX * healthScale / frameScale - frameX
-                end
-                if frameY and healthY then
-                    offsetY = healthY * healthScale / frameScale - frameY
-                end
-            end
-            local left = frameW * 0.5 + offsetX - desiredW * 0.5
-            local right = frameW * 0.5 - offsetX - desiredW * 0.5
-            local top = frameH * 0.5 - offsetY - desiredH * 0.5
-            local bottom = frameH * 0.5 + offsetY - desiredH * 0.5
-            local ok = pcall(frame.SetHitRectInsets, frame, left, right, top, bottom)
-            plate.hitboxInsetsSupported = ok
-        end
-
-        local overlay = plate.hitboxOverlay
-        if ns._hitboxOverlayShown then
-            overlay = overlay or EnsureHitboxOverlay(plate)
-            overlay:ClearAllPoints()
-            overlay:SetPoint("CENTER", health, "CENTER", 0, 0)
-            overlay:SetSize(desiredW, desiredH)
-            overlay:Show()
-        elseif overlay then
-            overlay:Hide()
-        end
-    end
-
-    if targetPlate then
-        Apply(targetPlate)
-    else
-        for _, plate in pairs(plates) do Apply(plate) end
-    end
-end
-
-function ns.RefreshHitboxSize()
-    ns.ApplyNamePlateClickArea()
-end
-
-function ns.SetHitboxOverlayShown(shown)
-    ns._hitboxOverlayShown = shown == true
-    ns.ApplyNamePlateClickArea()
-end
 ns.RefreshStackingMotion = function() end
 ns.RefreshStackingBounds = function() end
 function ns.UpdateClassificationIcon(plate)

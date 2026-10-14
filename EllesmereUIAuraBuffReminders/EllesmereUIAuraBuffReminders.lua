@@ -2925,6 +2925,9 @@ local function Refresh()
                 petLabel = "Water Elemental"
                 if specID ~= 64 or not Known(31687) then suppress = true end
             end
+            -- Mounting dismisses the pet (it returns on dismount) and forces
+            -- Passive, so none of the pet reminders apply while mounted.
+            if IsMounted() then suppress = true end
             if not suppress and not (UnitExists("pet") and not UnitIsDead("pet")) then
                 local e = AcquireEntry()
                 e.mode = "texture"
@@ -2951,15 +2954,13 @@ local function Refresh()
             end
             -- Pet on Passive: warn when an active pet is set to Passive stance.
             -- Combat-safe: pet command state is not part of the secret system.
-            -- Skip while mounted: the pet is forced to Passive automatically.
             if not suppress and co.enabled.pet_passive ~= false
-               and UnitExists("pet") and not UnitIsDead("pet")
-               and not IsMounted() then
+               and UnitExists("pet") and not UnitIsDead("pet") then
                 local passiveActive, passiveTex, passiveIsToken
                 for i = 1, (NUM_PET_ACTION_SLOTS or 10) do
-                    local nm, tx, tok, active = GetPetActionInfo(i)
+                    local nm, _, tx, tok, active = GetPetActionInfo(i)
                     if nm == "PET_MODE_PASSIVE" then
-                        if not isSecret(active) then passiveActive = (active == true) end
+                        if not isSecret(active) then passiveActive = active and true or false end
                         passiveTex, passiveIsToken = tx, tok
                         break
                     end

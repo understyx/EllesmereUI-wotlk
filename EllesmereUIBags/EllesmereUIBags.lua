@@ -50,29 +50,42 @@ local function ScanLegacyItemTooltip(bagID, slot, itemLink, itemID)
         _scanTooltip = CreateFrame("GameTooltip", "EUIBagsScanTooltip", UIParent, "GameTooltipTemplate")
         _scanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
     end
-    _scanTooltip:ClearLines()
+    -- A hidden tooltip drops its owner, and Set* calls on an unowned tooltip
+    -- populate nothing, so re-own it before every scan. Each source is only
+    -- accepted if it actually produced lines.
+    local function Try(method, ...)
+        _scanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+        _scanTooltip:ClearLines()
+        if not _scanTooltip[method] then return false end
+        return pcall(_scanTooltip[method], _scanTooltip, ...) and _scanTooltip:NumLines() > 0
+    end
+    local bankContainer = _G.BANK_CONTAINER or -1
     local ok
-    if bagID ~= nil and slot ~= nil and _scanTooltip.SetBagItem then
-        ok = pcall(_scanTooltip.SetBagItem, _scanTooltip, bagID, slot)
+    if bagID == bankContainer and slot and BankButtonIDToInvSlotID then
+        -- SetBagItem can't read the main bank container; its slots are
+        -- player inventory slots.
+        ok = Try("SetInventoryItem", "player", BankButtonIDToInvSlotID(slot))
+    elseif bagID ~= nil and slot ~= nil then
+        ok = Try("SetBagItem", bagID, slot)
     end
-    if not ok and itemLink and _scanTooltip.SetHyperlink then
-        ok = pcall(_scanTooltip.SetHyperlink, _scanTooltip, itemLink)
-    end
-    if not ok and itemID and _scanTooltip.SetHyperlink then
-        ok = pcall(_scanTooltip.SetHyperlink, _scanTooltip, "item:" .. itemID)
-    end
+    if not ok and itemLink then ok = Try("SetHyperlink", itemLink) end
+    if not ok and itemID then ok = Try("SetHyperlink", "item:" .. itemID) end
     if not ok then return false end
 
-    for line = 1, _scanTooltip:NumLines() do
+    -- Line 1 is the item name (quality colored). Unused font strings keep
+    -- whatever color they last had, so only read lines that carry text.
+    for line = 2, _scanTooltip:NumLines() do
         local left = _G["EUIBagsScanTooltipTextLeft" .. line]
         local right = _G["EUIBagsScanTooltipTextRight" .. line]
-        if left then
+        local leftText = left and left:IsShown() and left:GetText()
+        if leftText and leftText ~= "" then
             local r, g, b = left:GetTextColor()
-            if IsRedTooltipColor(r, g, b) and not IsBlockedTooltipLine(left:GetText()) then
+            if IsRedTooltipColor(r, g, b) and not IsBlockedTooltipLine(leftText) then
                 return true
             end
         end
-        if right then
+        local rightText = right and right:IsShown() and right:GetText()
+        if rightText and rightText ~= "" then
             local r, g, b = right:GetTextColor()
             if IsRedTooltipColor(r, g, b) then return true end
         end
@@ -87,15 +100,6 @@ local function BagsItemUnusable(bagID, slot, itemLink, itemID)
     if cached ~= nil then return cached end
     local unusable = false
     if IsEquippableItem(item) or C_Item.GetItemSpell(item) then
-        -- Classic exposes the authoritative usability check directly. Avoid
-        -- inferring it from arbitrary red tooltip lines (item names and flavor
-        -- text may also be red on 3.3.5 clients).
-        if not C_TooltipInfo and IsUsableItem then
-            local usable = IsUsableItem(item)
-            unusable = not usable
-            _canUseCache[item] = unusable
-            return unusable
-        end
         local tip
         if C_TooltipInfo then
             if bagID and slot and C_TooltipInfo.GetBagItem then tip = C_TooltipInfo.GetBagItem(bagID, slot) end
@@ -991,21 +995,101 @@ local function CreateHeader()
                 return VisualSortCompare(a, b)
             end)
 
-            -- Compute moves via selection sort on pre-computed data (zero API calls)
+            -- Specialty bags (soul, quiver, herb, ...) only accept items whose
+            -- family matches, so slots are split into pools: each specialty bag
+            -- takes its compatible items first (in sorted order), and everything
+            -- else fills the general bags. Assigning one flat slot range across
+            -- all bags makes the client reject swaps into specialty slots.
+            local bagFamily = {}
+            local specialBags = {}
+            for bag = bagMin, bagMax do
+                local _, family = GetContainerNumFreeSlots(bag)
+                family = family or 0
+                bagFamily[bag] = family
+                if family ~= 0 and C_Container.GetContainerNumSlots(bag) > 0 then
+                    specialBags[#specialBags + 1] = bag
+                end
+            end
+            local sFamily = {}
+            for _, d in ipairs(items) do
+                local equipLoc = select(9, GetItemInfo(d.itemLink))
+                -- Bags report the family they hold, but can't go inside one.
+                if equipLoc ~= "INVTYPE_BAG" and equipLoc ~= "INVTYPE_QUIVER" then
+                    d._family = GetItemFamily(d.itemLink) or 0
+                else
+                    d._family = 0
+                end
+                sFamily[d.pos] = d._family
+            end
+            local function SlotAccepts(pos, itemFamily)
+                local bf = bagFamily[sBag[pos]]
+                return bf == 0 or bit.band(itemFamily or 0, bf) ~= 0
+            end
+
+            -- Assign target positions: specialty pools first, then general slots.
+            local targetOf = {}
+            local targetOrder = {}
+            for _, bag in ipairs(specialBags) do
+                local slotPositions = {}
+                for p = 1, total do
+                    if sBag[p] == bag then slotPositions[#slotPositions + 1] = p end
+                end
+                local n = 0
+                for _, d in ipairs(items) do
+                    if n >= #slotPositions then break end
+                    if not targetOf[d] and d._family ~= 0 and SlotAccepts(slotPositions[n + 1], d._family) then
+                        n = n + 1
+                        targetOf[d] = slotPositions[n]
+                        targetOrder[#targetOrder + 1] = d
+                    end
+                end
+            end
+            local nextGeneral = 1
+            for _, d in ipairs(items) do
+                if not targetOf[d] then
+                    while nextGeneral <= total and bagFamily[sBag[nextGeneral]] ~= 0 do
+                        nextGeneral = nextGeneral + 1
+                    end
+                    if nextGeneral > total then
+                        -- More items than general slots: leave the rest in place.
+                        targetOf[d] = d.pos
+                    else
+                        targetOf[d] = nextGeneral
+                        nextGeneral = nextGeneral + 1
+                    end
+                    targetOrder[#targetOrder + 1] = d
+                end
+            end
+
+            -- Compute moves via selection sort on pre-computed data (zero API calls).
+            -- atPos[pos] = target of the item currently at pos;
+            -- whereIs[target] = current pos of the item headed to target.
             local atPos = {}
             local whereIs = {}
-            for idx, d in ipairs(items) do
-                atPos[d.pos] = idx
-                whereIs[idx] = d.pos
+            for _, d in ipairs(items) do
+                local tgt = targetOf[d]
+                atPos[d.pos] = tgt
+                whereIs[tgt] = d.pos
             end
 
             local moves = {}
-            for t = 1, #items do
+            for _, d in ipairs(targetOrder) do
+                local t = targetOf[d]
                 local s = whereIs[t]
                 if s ~= t then
                     local displaced = atPos[t]
                     if displaced and sID[s] and sID[t] and sID[s] == sID[t] then
-                        -- Same itemID: skip to avoid merge, retry will resolve
+                        -- Same itemID (e.g. soul shards): the items are
+                        -- interchangeable, so swap their targets instead of
+                        -- issuing a move that would merge stacks.
+                        whereIs[t] = t
+                        whereIs[displaced] = s
+                        atPos[t] = t
+                        atPos[s] = displaced
+                    elseif not SlotAccepts(t, sFamily[s])
+                        or (sID[t] and not SlotAccepts(s, sFamily[t])) then
+                        -- Swap would put an item into a specialty bag that
+                        -- rejects it; skip rather than issue a failing move.
                     else
                         moves[#moves + 1] = { sBag[s], sSlot[s], sBag[t], sSlot[t] }
                         whereIs[t] = t
@@ -1014,6 +1098,7 @@ local function CreateHeader()
                         atPos[s] = displaced
                         sID[s], sID[t] = sID[t], sID[s]
                         sKey[s], sKey[t] = sKey[t], sKey[s]
+                        sFamily[s], sFamily[t] = sFamily[t], sFamily[s]
                     end
                 end
             end
@@ -3551,7 +3636,7 @@ StartSidebarDrag = function(btnSelf, catIdx, catName, catIcon, catIsAtlas)
         ghost.icon:SetAtlas(catIcon or "")
         ghost.icon:SetTexCoord(0, 1, 0, 1)
     else
-        ghost.icon:SetTexture(catIcon or 134400)
+        ghost.icon:SetTexture(catIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
         ghost.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     end
     ghost.label:SetText(catName or "?")
@@ -4106,8 +4191,9 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 end
                 -- Use first member's icon for group
                 local firstCat = cats[members[1]]
-                local groupIcon = firstCat and firstCat.icon or 134400
-                local groupIsAtlas = firstCat and firstCat.isAtlas
+                local fixedGroupIcon = EUI_CategoryManager.GROUP_ICONS and EUI_CategoryManager.GROUP_ICONS[cat.groupName]
+                local groupIcon = fixedGroupIcon or firstCat and firstCat.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+                local groupIsAtlas = not fixedGroupIcon and firstCat and firstCat.isAtlas
                 -- Check if any member is user-created (keep group visible if so)
                 local groupHasUserCreated = false
                 for _, mi in ipairs(members) do
@@ -4123,7 +4209,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     for _, mi in ipairs(members) do
                         local mc = cats[mi]
                         displayList[#displayList + 1] = {
-                            catIdx = mi, name = mc.name, icon = mc.icon or 134400, isAtlas = mc.isAtlas,
+                            catIdx = mi, name = mc.name, icon = mc.icon or "Interface\\Icons\\INV_Misc_QuestionMark", isAtlas = mc.isAtlas,
                             count = categoryCounts and categoryCounts[mi] or 0,
                             indent = true, groupName = cat.groupName, isGroupMember = true,
                             isUserCreated = mc.isUserCreated,
@@ -4140,7 +4226,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             elseif cat.isRecent and BP().bagShowRecentItems == false then
                 -- skip
             else
-                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
+                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or "Interface\\Icons\\INV_Misc_QuestionMark", isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
             end
         end
     end
@@ -4391,8 +4477,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._icon = btn:CreateTexture(nil, "ARTWORK")
             btn._icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
             btn._icon:SetPoint("LEFT", btn, "LEFT", 8, 0)
-            btn._icon:SetTexture(134400)
-            btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            btn._icon:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
+            btn._icon:SetTexCoord(0, 1, 0, 1)
             btn._icon:SetAlpha(0.5)
             btn._label = btn:CreateFontString(nil, "OVERLAY")
             SetBagFont(btn._label, 11)
@@ -4418,7 +4504,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 if not popup then
                     popup = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
                     popup:SetFrameStrata("DIALOG")
-                    popup:SetSize(240, 230)
+                    popup:SetSize(240, 262)  -- 3 icon rows
                     popup:EnableMouse(true)
                     local bg = popup:CreateTexture(nil, "BACKGROUND")
                     bg:SetAllPoints()
@@ -4465,6 +4551,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         "Interface\\Icons\\INV_Chest_Plate04", "Interface\\Icons\\INV_Potion_54", "Interface\\Icons\\INV_Ingot_03",
                         "Interface\\Icons\\INV_Enchant_EssenceCosmicGreater", "Interface\\Icons\\Trade_Engineering",
                         "Interface\\Icons\\INV_Misc_Key_03", "Interface\\Icons\\INV_Misc_Gem_01", "Interface\\Icons\\INV_Scroll_03",
+                        "Interface\\Icons\\INV_Shield_06", "Interface\\Icons\\INV_Misc_Map_01", "Interface\\Icons\\INV_Misc_Gift_01",
+                        "Interface\\Icons\\INV_Fabric_Silk_02", "Interface\\Icons\\INV_Misc_Gem_Variety_02", "Interface\\Icons\\INV_Alchemy_Elixir_04", "Interface\\Icons\\INV_Misc_Food_15",
                     }
                     popup._iconIDs = ICON_IDS
                     local ICON_SZ = 28
@@ -4665,7 +4753,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                             popup._nameEB:SetFocus()
                             return
                         end
-                        local icon = popup._selectedIcon or 134400
+                        local icon = popup._selectedIcon or "Interface\\Icons\\INV_Misc_QuestionMark"
                         local idx = EUI_CategoryManager:AddCustomCategory(name)
                         if idx then
                             -- Store the chosen icon on the category
@@ -6420,7 +6508,7 @@ function EUI_BagsWindow:RefreshBags()
         local quality = GetInventoryItemQuality("player", invID) or 0
         local free = C_Container.GetContainerNumFreeSlots(i)
         local total = C_Container.GetContainerNumSlots(i)
-        if i == 0 then btn.icon:SetTexture(133633)
+        if i == 0 then btn.icon:SetTexture("Interface\\Buttons\\Button-Backpack-Up")
         elseif texture then btn.icon:SetTexture(texture)
         else btn.icon:SetTexture("Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag") end
         if total > 0 then btn.Count:SetText(free); btn.Count:Show()

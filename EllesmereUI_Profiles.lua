@@ -199,7 +199,7 @@ local KEY_PREFIX_FOLDER = {
 local AB_BAREWORD = {
     MainBar=true, Bar2=true, Bar3=true, Bar4=true, Bar5=true, Bar6=true,
     StanceBar=true, PetBar=true, XPBar=true, RepBar=true,
-    ExtraActionButton=true, EncounterBar=true, QueueStatus=true,
+    EncounterBar=true, QueueStatus=true,
     MicroBar=true, BagBar=true,
 }
 local UF_BAREWORD = {

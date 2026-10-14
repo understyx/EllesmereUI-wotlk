@@ -288,6 +288,39 @@ function MatchTracker:IsAmbiguous(plate)
     return plate and (plate.isAmbiguous == true)
 end
 
+-- The stock client renders the targeted plate at full root alpha and fades
+-- every other plate. That is the only WotLK signal that tells identical
+-- plates (e.g. a row of training dummies) apart without a mouseover, but it
+-- lags target changes by a frame. Accept it only once the same unique plate
+-- has held full alpha for the same target GUID across several driver ticks.
+local ALPHA_SETTLE_TIME = 0.15
+local alphaPendingPlate, alphaPendingGUID, alphaPendingSince
+
+local function StableAlphaTarget(self)
+    local owner, count = nil, 0
+    for plate in pairs(self.plates) do
+        if PlateIsShown(plate) then
+            local alpha = plate.frame and plate.frame:GetAlpha()
+            if alpha and alpha >= 0.999 then
+                owner = plate
+                count = count + 1
+                if count > 1 then break end
+            end
+        end
+    end
+    local guid = UnitGUID("target")
+    if count ~= 1 or not guid or not PlateIdentityMatches(owner, "target") then
+        alphaPendingPlate, alphaPendingGUID, alphaPendingSince = nil, nil, nil
+        return nil
+    end
+    local now = GetTime()
+    if alphaPendingPlate ~= owner or alphaPendingGUID ~= guid then
+        alphaPendingPlate, alphaPendingGUID, alphaPendingSince = owner, guid, now
+        return nil
+    end
+    return (now - alphaPendingSince) >= ALPHA_SETTLE_TIME and owner or nil
+end
+
 -- Resolve active special tokens (target, mouseover, focus) with physical certainty
 function MatchTracker:UpdateSpecialUnits()
     local function UniqueIdentity(unit)
@@ -339,10 +372,11 @@ function MatchTracker:UpdateSpecialUnits()
             and UnitExists("mouseover") and UnitIsUnit("target", "mouseover") then
             targetOwner = mouseoverOwner
         end
-        -- Never infer identity from root alpha or a momentarily unique health
-        -- value. Duplicate name/level identities stay unresolved unless direct
-        -- mouseover evidence (or an existing verified GUID) identifies them.
+        -- Never infer identity from a momentarily unique health value. For
+        -- duplicate name/level identities, root alpha is only trusted once it
+        -- has settled (see StableAlphaTarget); mouseover still overrides it.
         targetOwner = targetOwner or KnownGUID("target") or UniqueIdentity("target")
+            or StableAlphaTarget(self)
     end
 
     if UnitExists("focus") then
@@ -444,6 +478,7 @@ eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 
 eventFrame:SetScript("OnEvent", function(self, event, unitId)
     if event == "PLAYER_TARGET_CHANGED" then
+        alphaPendingPlate, alphaPendingGUID, alphaPendingSince = nil, nil, nil
         MatchTracker:UpdateSpecialUnits()
     elseif event == "UPDATE_MOUSEOVER_UNIT" then
         MatchTracker:UpdateSpecialUnits()
