@@ -172,6 +172,13 @@ local db  -- set in EABR:OnInitialize()
 -- Flask state snapshotted before PvP restriction activates (aura API locked in PvP).
 
 
+-- 3.3.5 SetTexture only takes paths; retail numeric file IDs render as a
+-- solid red square, so every fallback icon is a path.
+EABR.ICON_UNKNOWN     = "Interface\\Icons\\INV_Misc_QuestionMark"
+EABR.ICON_FLASK       = "Interface\\Icons\\INV_Potion_1"
+EABR.ICON_FOOD        = "Interface\\Icons\\INV_Misc_Food_15"
+EABR.ICON_HEALTHSTONE = "Interface\\Icons\\INV_Stone_04"
+
 local texCache = {}
 local function Tex(id)
     local c = texCache[id]; if c then return c end
@@ -924,6 +931,7 @@ local AURAS = {
     { key="paladin_aura", class="PALADIN", name="Paladin Aura", castSpell=465,
       castSpellFn=function() return 465 end,
       buffIDs={465,7294,19746,32223,19876,19888,19891},
+      choices={465,7294,19746,32223,19876,19888,19891},
       check="playerSelfCast", combatOk=false },
     { key="paladin_seal", class="PALADIN", name="Paladin Seal", castSpell=31801,
       castSpellFn=function()
@@ -933,10 +941,14 @@ local AURAS = {
           if Known(20375) then return 20375 end
           return 21084
       end,
-      buffIDs={20165,20166,21084,20164,31801,20375,53736}, check="player", combatOk=false },
+      buffIDs={20165,20166,21084,20164,31801,20375,53736},
+      choices={53736,31801,20375,21084,20166,20165,20164},
+      check="player", combatOk=false },
     { key="hunter_aspect", class="HUNTER", name="Hunter Aspect", castSpell=61846,
       castSpellFn=function() return Known(61846) and 61846 or 13165 end,
-      buffIDs={13163,13165,13161,20043,34074,5118,13159,61846}, check="player", combatOk=false },
+      buffIDs={13163,13165,13161,20043,34074,5118,13159,61846},
+      choices={61846,13165,34074,13163,13161,5118,13159,20043},
+      check="player", combatOk=false },
     { key="trueshot_aura", class="HUNTER", name="Trueshot Aura", castSpell=19506,
       -- Abomination's Might and Unleashed Rage provide the same 10% attack
       -- power category, so RBS correctly treats either as satisfying this.
@@ -946,7 +958,8 @@ local AURAS = {
           local s = GetSpecID()
           return s == 251 and 48263 or (s == 252 and 48265 or 48266)
       end,
-      buffIDs={48266,48263,48265}, check="player", combatOk=false },
+      buffIDs={48266,48263,48265}, choices={48266,48263,48265},
+      check="player", combatOk=false },
     { key="inner_fire", class="PRIEST", name="Inner Fire", castSpell=588,
       buffIDs={588}, check="player", combatOk=false },
     { key="vampiric_embrace", class="PRIEST", name="Vampiric Embrace", castSpell=15286,
@@ -962,7 +975,8 @@ local AURAS = {
           local s = GetSpecID()
           return s == 63 and 30482 or (s == 64 and 7302 or 6117)
       end,
-      buffIDs={6117,168,7302,30482}, check="player", combatOk=false },
+      buffIDs={6117,168,7302,30482}, choices={30482,6117,7302,168},
+      check="player", combatOk=false },
 }
 
 -------------------------------------------------------------------------------
@@ -1023,13 +1037,20 @@ local SHAMAN_SHIELDS = {
       check="player" },
 }
 
--- Weapon Enchant Items (temporary weapon enchants applied from items) - WotLK
+-- Weapon Enchant Items (temporary weapon enchants applied from items) - WotLK.
+-- Wrath added no new stones or oils, so the TBC/Classic top tiers are still
+-- the best available. Stones only fit their weapon type and only help melee;
+-- oils fit any weapon and are what casters and healers use. Order is the
+-- auto-pick priority within each group.
 local WEAPON_ENCHANT_ITEMS = {
-    -- WotLK Whetstones and Weight Stones
-    {itemID=28421, name="Adamantite Weightstone",     weaponType="BLUNT",   icon=136000},
-    {itemID=28420, name="Fel Weightstone",            weaponType="BLUNT",   icon=136000},
-    {itemID=23529, name="Adamantite Sharpening Stone", weaponType="BLADED", icon=136000},
-    {itemID=23528, name="Fel Sharpening Stone",       weaponType="BLADED",  icon=136000},
+    {key="adamantite_sharpening",  itemID=23529, name="Adamantite Sharpening Stone", weaponType="BLADED"},
+    {key="fel_sharpening",         itemID=23528, name="Fel Sharpening Stone",        weaponType="BLADED"},
+    {key="adamantite_weightstone", itemID=28421, name="Adamantite Weightstone",      weaponType="BLUNT"},
+    {key="fel_weightstone",        itemID=28420, name="Fel Weightstone",             weaponType="BLUNT"},
+    {key="superior_wizard_oil",    itemID=22522, name="Superior Wizard Oil",         weaponType="OIL", role="caster"},
+    {key="brilliant_wizard_oil",   itemID=20749, name="Brilliant Wizard Oil",        weaponType="OIL", role="caster"},
+    {key="superior_mana_oil",      itemID=22521, name="Superior Mana Oil",           weaponType="OIL", role="healer"},
+    {key="brilliant_mana_oil",     itemID=20748, name="Brilliant Mana Oil",          weaponType="OIL", role="healer"},
 }
 
 -- Flask Items (WotLK)
@@ -1042,11 +1063,19 @@ local FLASK_ITEMS = {
       items={46378} },
     { key="stoneblood",      buffID=53758, name="Flask of Stoneblood",
       items={46379} },
+    -- Flask of the North picks its buff from the drinker's class.
+    { key="north",           buffID=67016, buffIDs={67016, 67017, 67018}, name="Flask of the North",
+      items={47499} },
+    { key="lesser_toughness", buffID=53752, name="Lesser Flask of Toughness",
+      items={40079} },
+    { key="lesser_resistance", buffID=62380, name="Lesser Flask of Resistance",
+      items={44939} },
 }
 local FLASK_BUFF_ID_SET = {}
 local FLASK_NAME_SET = {}
 for _, f in ipairs(FLASK_ITEMS) do
     FLASK_BUFF_ID_SET[f.buffID] = true
+    for _, id in ipairs(f.buffIDs or {}) do FLASK_BUFF_ID_SET[id] = true end
     FLASK_NAME_SET[f.name] = true
 end
 
@@ -1060,10 +1089,14 @@ EABR.GuardianElixirIDs = {
     60347, 53751, 53747, 60343, 53763, 53764,
 }
 
--- Food Items (WotLK)
+-- Food Items (WotLK Well Fed foods; feasts first, then the 80-level foods)
 local FOOD_ITEMS = {
     { key="fish_feast",           itemID=43015, name="Fish Feast" },
+    { key="great_feast",          itemID=34753, name="Great Feast" },
+    { key="gigantic_feast",       itemID=43478, name="Gigantic Feast" },
+    { key="small_feast",          itemID=43480, name="Small Feast" },
     { key="dragonfin_filet",      itemID=43000, name="Dragonfin Filet" },
+    { key="blackened_dragonfin",  itemID=42999, name="Blackened Dragonfin" },
     { key="firecracker_salmon",   itemID=34767, name="Firecracker Salmon" },
     { key="tender_shoveltusk",    itemID=34755, name="Tender Shoveltusk Steak" },
     { key="snapper_extreme",      itemID=42996, name="Snapper Extreme" },
@@ -1072,17 +1105,50 @@ local FOOD_ITEMS = {
     { key="very_burnt_worg",      itemID=34757, name="Very Burnt Worg" },
     { key="spiced_worm_burger",   itemID=34756, name="Spiced Worm Burger" },
     { key="rhinolicious_wormsteak", itemID=42994, name="Rhinolicious Wormsteak" },
-    { key="blackened_dragonfin",  itemID=42999, name="Blackened Dragonfin" },
     { key="cuttlesteak",          itemID=42998, name="Cuttlesteak" },
+    { key="blackened_worg_steak", itemID=42997, name="Blackened Worg Steak" },
+    { key="spicy_blue_nettlefish", itemID=34768, name="Spicy Blue Nettlefish" },
+    { key="spicy_fried_herring",  itemID=42993, name="Spicy Fried Herring" },
+    { key="hearty_rhino",         itemID=42995, name="Hearty Rhino" },
+    { key="poached_northern_sculpin", itemID=34766, name="Poached Northern Sculpin" },
+    { key="mighty_rhino_dogs",    itemID=34758, name="Mighty Rhino Dogs" },
+    { key="tracker_snacks",       itemID=43001, name="Tracker Snacks" },
+    { key="dalaran_clam_chowder", itemID=43268, name="Dalaran Clam Chowder" },
 }
 
--- Weapon Enchant dropdown choices (WotLK)
-local WEAPON_ENCHANT_CHOICES = {
-    { key="adamantite_weightstone",   name="Adamantite Weightstone" },
-    { key="adamantite_sharpening",    name="Adamantite Sharpening Stone" },
-    { key="fel_weightstone",          name="Fel Weightstone" },
-    { key="fel_sharpening",           name="Fel Sharpening Stone" },
-}
+-- Weapon Enchant dropdown choices, one per item.
+local WEAPON_ENCHANT_CHOICES = {}
+for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
+    WEAPON_ENCHANT_CHOICES[#WEAPON_ENCHANT_CHOICES+1] = { key=we.key, name=we.name }
+end
+
+-- Which weapon enhancement family this character uses: "melee" (stones by
+-- weapon type), "caster"/"healer" (oils), or nil when neither helps (hunters,
+-- feral druids) or the class has its own system (poisons, imbues, warlock
+-- stones). Uses the compat spec IDs.
+function EABR.WeaponEnchantRole(playerClass, specID)
+    if playerClass == "WARRIOR" or playerClass == "DEATHKNIGHT" then return "melee" end
+    if playerClass == "MAGE" then return "caster" end
+    if playerClass == "PRIEST" then return specID == 258 and "caster" or "healer" end
+    if playerClass == "PALADIN" then return specID == 65 and "healer" or "melee" end
+    if playerClass == "DRUID" then
+        if specID == 105 then return "healer" end
+        if specID == 102 then return "caster" end
+        return nil
+    end
+    return nil
+end
+
+-- Does weapon enhancement item `we` fit a weapon of category `cat` for `role`?
+-- Casters and healers accept either oil; their own oil just sorts first.
+function EABR.WeaponEnchantFits(we, cat, role)
+    if not we or not cat or not role then return false end
+    if role == "melee" then return we.weaponType == cat end
+    return we.weaponType == "OIL"
+end
+
+EABR.WE_BY_ID = {}
+for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do EABR.WE_BY_ID[we.itemID] = we end
 
 -- No Augment Runes in WotLK
 local RUNE_BUFF_IDS = {}
@@ -1292,32 +1358,35 @@ local function FindFoodItem(preferredKey, lastUsedItemID)
     return nil
 end
 
-local function FindWeaponEnchantItem(preferredKey, lastUsedItemID, targetCat)
-    if preferredKey == "last_used" then
-        if lastUsedItemID and CachedGetItemCount(lastUsedItemID) > 0 then
-            return lastUsedItemID
-        end
-        -- Fallback: first matching weapon enchant in bags
+-- Returns the best weapon enhancement item in bags for a weapon of `targetCat`
+-- used by `role`, or nil. Preferred, then last used, then the first fitting
+-- item, with the role's own oil (wizard vs mana) ahead of the other. A
+-- preferred or last-used item that does not fit this weapon is skipped, so a
+-- sharpening stone is never offered for a mace.
+local function FindWeaponEnchantItem(preferredKey, lastUsedItemID, targetCat, role)
+    local Fits = EABR.WeaponEnchantFits
+    if preferredKey ~= "last_used" then
         for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
-            local wt = we.weaponType
-            if ((wt == "NEUTRAL") or (wt == targetCat)) and CachedGetItemCount(we.itemID) > 0 then
-                return we.itemID
-            end
-        end
-        return nil
-    end
-    -- Find by name match (picks highest tier in bags)
-    for _, choice in ipairs(WEAPON_ENCHANT_CHOICES) do
-        if choice.key == preferredKey then
-            for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
-                if we.name == choice.name and CachedGetItemCount(we.itemID) > 0 then
+            if we.key == preferredKey then
+                if Fits(we, targetCat, role) and CachedGetItemCount(we.itemID) > 0 then
                     return we.itemID
                 end
+                break
             end
-            break
         end
     end
-    return nil
+    if lastUsedItemID and Fits(EABR.WE_BY_ID[lastUsedItemID], targetCat, role)
+       and CachedGetItemCount(lastUsedItemID) > 0 then
+        return lastUsedItemID
+    end
+    local fallback
+    for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
+        if Fits(we, targetCat, role) and CachedGetItemCount(we.itemID) > 0 then
+            if not we.role or we.role == role then return we.itemID end
+            fallback = fallback or we.itemID
+        end
+    end
+    return fallback
 end
 
 -------------------------------------------------------------------------------
@@ -1344,7 +1413,8 @@ function EABR.ResolveConsumables()
     -- preferred-item setting changed. The options setters only RequestRefresh
     -- with no bag event, so a cheap signature compare catches that here.
     local sig = R.sig
-    if not R.dirty and sig.pf == pf and sig.pfd == pfd and sig.pwe == pwe then
+    if not R.dirty and sig.pf == pf and sig.pfd == pfd and sig.pwe == pwe
+       and sig.spec == GetSpecID() then
         return
     end
     R.dirty = false
@@ -1393,35 +1463,37 @@ function EABR.ResolveConsumables()
     -- Weapon enchant: per slot. cat (equipped weapon type) gates the reminder in
     -- CollectConsumables and selects the item; resolve a display item even when
     -- out of stock (shown desaturated). Same fallback order as the inline code.
+    -- A role-less character (hunter, feral) gets no category, so no reminder.
+    local role = EABR.WeaponEnchantRole(GetPlayerClass(), GetSpecID())
+    local Fits = EABR.WeaponEnchantFits
     for _, slot in ipairs({16, 17}) do
         local r = R.we[slot]
-        local cat = GetWeaponCategory(slot)
+        local cat = role and GetWeaponCategory(slot) or nil
+        if cat == "RANGED" or (cat and role ~= "melee" and slot == 17) then cat = nil end
         r.cat = cat
-        local bestItemID = FindWeaponEnchantItem(pwe, luwe, cat)
+        local bestItemID = cat and FindWeaponEnchantItem(pwe, luwe, cat, role) or nil
         r.hasBags = (bestItemID ~= nil)
-        if not bestItemID then
-            if pwe == "last_used" then
+        if not bestItemID and cat then
+            -- Out of stock: show a fitting item desaturated (preferred if it fits).
+            local pref = pwe ~= "last_used" and pwe or nil
+            for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
+                if we.key == pref and Fits(we, cat, role) then bestItemID = we.itemID; break end
+            end
+            if not bestItemID and luwe and Fits(EABR.WE_BY_ID[luwe], cat, role) then
                 bestItemID = luwe
-            else
-                for _, choice in ipairs(WEAPON_ENCHANT_CHOICES) do
-                    if choice.key == pwe then
-                        for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
-                            if we.name == choice.name then bestItemID = we.itemID; break end
-                        end
-                        break
-                    end
-                end
             end
             if not bestItemID then
                 for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
-                    if we.weaponType == "NEUTRAL" or we.weaponType == cat then
+                    if Fits(we, cat, role) and (not we.role or we.role == role) then
                         bestItemID = we.itemID; break
                     end
                 end
             end
         end
         r.itemID = bestItemID
+        r.role = role
     end
+    R.sig.spec = GetSpecID()
 
     -- No Inky Black Potion in WotLK
     R.inky.hasPotion = false
@@ -1621,7 +1693,7 @@ end
 
 local function ShowCombatIcon(iconIdx, spellID, texture, label)
     local f = GetOrCreateCombatIcon(iconIdx)
-    f._icon:SetTexture(texture or Tex(spellID) or 134400)
+    f._icon:SetTexture(texture or Tex(spellID) or EABR.ICON_UNKNOWN)
     local p = db and db.profile.display
     if p and p.showText then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
@@ -1704,7 +1776,7 @@ end
 
 local function ShowCursorIcon(iconIdx, spellID, texture, label)
     local f = GetOrCreateCursorIcon(iconIdx)
-    f._icon:SetTexture(texture or Tex(spellID) or 134400)
+    f._icon:SetTexture(texture or Tex(spellID) or EABR.ICON_UNKNOWN)
     local p = db and db.profile.display
     if p and p.showText then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
@@ -1786,6 +1858,164 @@ local function RemoveGlow(btn)
     if btn._eabrGlowWrapper then StopAllGlows(btn._eabrGlowWrapper); btn._eabrGlowWrapper:Hide() end
 end
 
+-------------------------------------------------------------------------------
+--  Choice flyout: hovering a reminder that has alternatives (foods, flasks,
+--  oils/stones, poisons, imbues, warlock stones, seals, auras, aspects...)
+--  opens a column of secure buttons, one per alternative in bags or known.
+--  Out of combat only: secure buttons cannot be configured, shown or hidden
+--  under lockdown, so combat start hides it and in-combat hovers do nothing.
+-------------------------------------------------------------------------------
+do
+    local FO = { buttons = {}, idle = 0 }
+    EABR.Flyout = FO
+    local HIDE_GRACE = 0.3
+    local GAP, PAD = 4, 3
+
+    local function OnButtonEnter(b)
+        GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
+        if b._tipItem then
+            GameTooltip:SetHyperlink("item:" .. b._tipItem)
+        elseif b._tipSpell then
+            GameTooltip:SetHyperlink("spell:" .. b._tipSpell)
+        end
+        GameTooltip:Show()
+    end
+
+    local function OnButtonLeave(b)
+        if GameTooltip:IsOwned(b) then GameTooltip:Hide() end
+    end
+
+    local function CreateFlyoutButton(i)
+        local b = EllesmereUI.SafeCreateFrame("Button", "EABR_FlyoutButton" .. i, FO.frame,
+            "SecureActionButtonTemplate")
+        b:RegisterForClicks("LeftButtonUp")
+        local icon = b:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints(); icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        b._icon = icon
+        local hl = b:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.2)
+        local PP = EllesmereUI and EllesmereUI.PP
+        if PP then PP.CreateBorder(b, 0, 0, 0, 1, 1, "OVERLAY", 7) end
+        local count = b:CreateFontString(nil, "OVERLAY")
+        count:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+        SetABRFont(count, ResolveFontPath(), 10)
+        b._count = count
+        b:SetScript("OnEnter", OnButtonEnter)
+        b:SetScript("OnLeave", OnButtonLeave)
+        b:HookScript("PostClick", function() FO.Hide() end)
+        FO.buttons[i] = b
+        return b
+    end
+
+    local function EnsureFrame()
+        if FO.frame then return FO.frame end
+        local f = EllesmereUI.SafeCreateFrame("Frame", "EABR_ChoiceFlyout", UIParent)
+        f:SetFrameStrata("DIALOG")
+        f:EnableMouse(true)
+        f:Hide()
+        EllesmereUI.SolidTex(f, "BACKGROUND", 0.05, 0.05, 0.05, 0.85)
+        f:SetScript("OnUpdate", function(self, elapsed)
+            local owner = FO.owner
+            if not (owner and owner:IsVisible()) then FO.Hide(); return end
+            if MouseIsOver(self) or MouseIsOver(owner) then
+                FO.idle = 0; return
+            end
+            FO.idle = FO.idle + elapsed
+            if FO.idle >= HIDE_GRACE then FO.Hide() end
+        end)
+        FO.frame = f
+        return f
+    end
+
+    function FO.Hide()
+        local f = FO.frame
+        if not f or not f:IsShown() then FO.owner = nil; return end
+        if InCombatLockdown() then
+            -- Cannot hide a frame holding secure buttons now; make it inert
+            -- visually and finish on PLAYER_REGEN_ENABLED.
+            f:SetAlpha(0); FO.pendingHide = true
+            return
+        end
+        FO.owner = nil; FO.pendingHide = nil
+        f:Hide()
+    end
+
+    function FO.Show(owner)
+        if InCombatLockdown() then return end
+        local list, n = owner._choices, owner._nChoices or 0
+        if not list or n < 2 then
+            if FO.owner == owner or not FO.owner then FO.Hide() end
+            return
+        end
+        local f = EnsureFrame()
+        local sz = floor((owner:GetWidth() or ICON_SIZE) + 0.5)
+        local scale = owner:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        f:SetScale(scale)
+        for i = 1, n do
+            local c = list[i]
+            local b = FO.buttons[i] or CreateFlyoutButton(i)
+            b:SetSize(sz, sz)
+            if c.mode == "item" then
+                b:SetAttribute("type", "item")
+                b:SetAttribute("item", "item:" .. c.itemID)
+                b:SetAttribute("spell", nil); b:SetAttribute("macrotext", nil)
+            elseif c.mode == "spell" then
+                b:SetAttribute("type", "spell")
+                b:SetAttribute("spell", GetSpellInfo(c.spellID) or c.spellID)
+                b:SetAttribute("unit", "player")
+                b:SetAttribute("item", nil); b:SetAttribute("macrotext", nil)
+            else
+                b:SetAttribute("type", "macro")
+                b:SetAttribute("macrotext", c.macro)
+                b:SetAttribute("item", nil); b:SetAttribute("spell", nil)
+            end
+            b._icon:SetTexture(c.texture
+                or (c.itemID and GetItemIcon(c.itemID))
+                or (c.spellID and Tex(c.spellID)) or EABR.ICON_UNKNOWN)
+            b._tipItem, b._tipSpell = c.itemID, c.spellID
+            local cnt = c.itemID and GetItemCount(c.itemID) or 0
+            b._count:SetText(cnt > 1 and cnt or "")
+            b:ClearAllPoints()
+            b:SetPoint("BOTTOM", f, "BOTTOM", 0, PAD + (i - 1) * (sz + GAP))
+            b:Show()
+        end
+        for i = n + 1, #FO.buttons do FO.buttons[i]:Hide() end
+        f:SetSize(sz + PAD * 2, n * sz + (n - 1) * GAP + PAD * 2)
+
+        -- Grow away from the nearer screen edge: up from the icon's top in the
+        -- lower half, down past its label in the upper half. The column order
+        -- is flipped for downward growth so the first choice stays nearest.
+        f:ClearAllPoints()
+        local _, cy = owner:GetCenter()
+        local growDown = cy and (cy * owner:GetEffectiveScale()) > (UIParent:GetHeight() * UIParent:GetEffectiveScale() / 2)
+        if growDown then
+            local textH = (owner._text and owner._text:IsShown() and owner._text:GetText() ~= "")
+                and (owner._text:GetStringHeight() + 2) or 0
+            f:SetPoint("TOP", owner, "BOTTOM", 0, -(GAP + textH))
+            for i = 1, n do
+                local b = FO.buttons[i]
+                b:ClearAllPoints()
+                b:SetPoint("TOP", f, "TOP", 0, -(PAD + (i - 1) * (sz + GAP)))
+            end
+        else
+            f:SetPoint("BOTTOM", owner, "TOP", 0, GAP)
+        end
+        FO.owner = owner
+        FO.idle = 0
+        FO.pendingHide = nil
+        f:SetAlpha(1)
+        f:Show()
+    end
+
+    local ev = EllesmereUI.SafeCreateFrame("Frame")
+    ev:RegisterEvent("PLAYER_REGEN_DISABLED")
+    ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+    ev:SetScript("OnEvent", function(_, e)
+        if e == "PLAYER_REGEN_DISABLED" then FO.Hide()
+        elseif FO.pendingHide then FO.Hide() end
+    end)
+end
+
 local function GetOrCreateIcon(index)
     if iconPool[index] then return iconPool[index] end
     -- SecureActionButtonTemplate for click-to-cast in combat
@@ -1803,6 +2033,7 @@ local function GetOrCreateIcon(index)
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         end
     end)
+    btn:HookScript("OnEnter", function(self) EABR.Flyout.Show(self) end)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(); icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -1833,7 +2064,7 @@ local function SetIconTexture(btn, texture, label)
         btn:SetAttribute("item", nil)
         btn:SetAttribute("macrotext", nil)
     end
-    btn._icon:SetTexture(texture or 134400)
+    btn._icon:SetTexture(texture or EABR.ICON_UNKNOWN)
     btn._tooltipSpell = nil
     btn._tooltipItem = nil
 end
@@ -1849,7 +2080,7 @@ local function SetIconSpell(btn, spellID, texture, label)
         btn:SetAttribute("macrotext", nil)
         btn:SetAttribute("unit", "player")
     end
-    btn._icon:SetTexture(texture or Tex(spellID) or 134400)
+    btn._icon:SetTexture(texture or Tex(spellID) or EABR.ICON_UNKNOWN)
     btn._tooltipSpell = spellID
     btn._tooltipItem = nil
 end
@@ -1863,7 +2094,7 @@ local function SetIconItem(btn, itemID, texture, label)
         btn:SetAttribute("macrotext", nil)
         btn:SetAttribute("unit", nil)
     end
-    btn._icon:SetTexture(texture or GetItemIcon(itemID) or 134400)
+    btn._icon:SetTexture(texture or GetItemIcon(itemID) or EABR.ICON_UNKNOWN)
     btn._tooltipSpell = nil
     btn._tooltipItem = itemID
 end
@@ -1877,7 +2108,7 @@ local function SetIconMacro(btn, macrotext, texture, spellID)
         btn:SetAttribute("item", nil)
         btn:SetAttribute("unit", nil)
     end
-    btn._icon:SetTexture(texture or 134400)
+    btn._icon:SetTexture(texture or EABR.ICON_UNKNOWN)
     btn._tooltipSpell = spellID
     btn._tooltipItem = nil
 end
@@ -1903,7 +2134,24 @@ do
         e.texture = nil; e.label = nil; e.unit = nil; e.desaturated = false
         e.tooltipItem = nil
         e.cat = nil; e.data = nil; e.scale = 1.0; e.dismissKey = nil
+        e.nChoices = 0
         return e
+    end
+
+    -- Append an alternative the hover flyout offers for entry `e`. The choice
+    -- records are reused across refreshes like the entries themselves.
+    -- mode: "item" (itemID), "spell" (spellID) or "macro" (macro, with itemID
+    -- or spellID kept for the tooltip).
+    EABR.AddChoice = function(e, mode, itemID, spellID, macro, texture)
+        local n = (e.nChoices or 0) + 1
+        e.nChoices = n
+        local list = e.choices
+        if not list then list = {}; e.choices = list end
+        local c = list[n]
+        if not c then c = {}; list[n] = c end
+        c.mode = mode; c.itemID = itemID; c.spellID = spellID
+        c.macro = macro; c.texture = texture
+        return c
     end
 
     ResetEntryPool = function()
@@ -1996,6 +2244,7 @@ end
 local function ShowIcon(iconIdx, m)
     local btn = GetOrCreateIcon(iconIdx)
     btn._dismissKey = m.dismissKey or nil
+    btn._choices, btn._nChoices = m.choices, m.nChoices or 0
     ApplySetup(btn, m)
     local p = db.profile.display
     local glowType = p.glowType or 0
@@ -2166,6 +2415,11 @@ if inInstance or au.showNonInstanced then
                         e.label = ShortLabel(_G._EABR_SpellName(castID, aura.name))
                         e.cat = "aura"; e.data = aura; e.scale = au.scale or 1.0
                         e.dismissKey = "aura:" .. aura.key
+                        if aura.choices then
+                            for _, id in ipairs(aura.choices) do
+                                if Known(id) then EABR.AddChoice(e, "spell", nil, id, nil, Tex(id)) end
+                            end
+                        end
                         missing[#missing+1] = e
                     end
                 end
@@ -2231,6 +2485,14 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         e.desaturated = CachedGetItemCount(hand.poison.itemID) == 0
                         e.cat = "consumable"; e.data = hand.poison; e.scale = co.scale or 1.0
                         e.dismissKey = "consumable:rogue_poison_" .. hand.slot
+                        for _, poison in ipairs(ROGUE_POISONS) do
+                            if CachedGetItemCount(poison.itemID) > 0 then
+                                EABR.AddChoice(e, "macro", poison.itemID, nil,
+                                    "/use item:" .. poison.itemID .. "\n/use " .. hand.slot
+                                    .. "\n/click StaticPopup1Button1",
+                                    GetItemIcon(poison.itemID) or Tex(poison.castSpell))
+                            end
+                        end
                         missing[#missing+1] = e
                     end
                 end
@@ -2272,6 +2534,14 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         e.label = ShortLabel(EllesmereUI.L(hand.slot == 16 and "Main Hand" or "Off Hand"))
                         e.cat = "consumable"; e.data = imbue; e.scale = co.scale or 1.0
                         e.dismissKey = "consumable:shaman_imbue_" .. hand.slot
+                        for _, alt in ipairs(SHAMAN_IMBUES) do
+                            if Known(alt.castSpell) then
+                                EABR.AddChoice(e, "macro", nil, alt.castSpell,
+                                    "/cast " .. (GetSpellInfo(alt.castSpell) or alt.name)
+                                    .. "\n/use " .. hand.slot .. "\n/click StaticPopup1Button1",
+                                    Tex(alt.castSpell))
+                            end
+                        end
                         missing[#missing+1] = e
                     end
                 end
@@ -2332,6 +2602,15 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     e.tooltipItem = stone.itemID
                     e.cat = "consumable"; e.data = stone; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:warlock_stone"
+                    for _, alt in ipairs(WARLOCK_STONES) do
+                        if Known(alt.createSpell) then
+                            EABR.AddChoice(e, "macro", alt.itemID, nil,
+                                "/cast " .. (GetSpellInfo(alt.createSpell) or alt.name)
+                                .. "\n/use item:" .. alt.itemID
+                                .. "\n/use 16\n/click StaticPopup1Button1",
+                                GetItemIcon(alt.itemID) or Tex(alt.createSpell))
+                        end
+                    end
                     missing[#missing+1] = e
                 end
             end
@@ -2371,7 +2650,8 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     local e = AcquireEntry()
                     e.mode = "macro"
                     e.macro = "/use item:" .. bestItemID .. "\n/use " .. si.slot
-                    e.texture = GetItemIcon(bestItemID) or 134400
+                        .. "\n/click StaticPopup1Button1"
+                    e.texture = GetItemIcon(bestItemID) or EABR.ICON_UNKNOWN
                     -- Localize the full slot name first, then shorten. ShortLabel
                     -- truncates on whitespace, so English becomes "Main"/"Off" while
                     -- a space-less localized name (e.g. zhTW) stays intact. Wrapping
@@ -2383,6 +2663,15 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     e.desaturated = not r.hasBags
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:weapon_enchant_" .. si.slot
+                    for _, we in ipairs(WEAPON_ENCHANT_ITEMS) do
+                        if EABR.WeaponEnchantFits(we, cat, r.role)
+                           and CachedGetItemCount(we.itemID) > 0 then
+                            EABR.AddChoice(e, "macro", we.itemID, nil,
+                                "/use item:" .. we.itemID .. "\n/use " .. si.slot
+                                .. "\n/click StaticPopup1Button1",
+                                GetItemIcon(we.itemID))
+                        end
+                    end
                     missing[#missing+1] = e
                 end
             end
@@ -2396,11 +2685,18 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                 if flaskItemID then
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = flaskItemID
-                    e.texture = GetItemIcon(flaskItemID) or 134830
+                    e.texture = GetItemIcon(flaskItemID) or EABR.ICON_FLASK
                     e.label = EllesmereUI.L("Flask")
                     e.desaturated = not rf.hasBags
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:flask"
+                    for _, f in ipairs(FLASK_ITEMS) do
+                        for _, id in ipairs(f.items) do
+                            if CachedGetItemCount(id) > 0 then
+                                EABR.AddChoice(e, "item", id, nil, nil, GetItemIcon(id))
+                            end
+                        end
+                    end
                     missing[#missing+1] = e
                 end
             end
@@ -2413,10 +2709,15 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                 if foodItemID then
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = foodItemID
-                    e.texture = GetItemIcon(foodItemID) or 134062
+                    e.texture = GetItemIcon(foodItemID) or EABR.ICON_FOOD
                     e.label = EllesmereUI.L("Food")
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:food"
+                    for _, f in ipairs(FOOD_ITEMS) do
+                        if CachedGetItemCount(f.itemID) > 0 then
+                            EABR.AddChoice(e, "item", f.itemID, nil, nil, GetItemIcon(f.itemID))
+                        end
+                    end
                     missing[#missing+1] = e
                 end
             end
@@ -2452,7 +2753,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             local hasHealthstone = EABR._resolved.healthstone.hasStone
             if hasWarlock and not hasHealthstone then
                 local e = AcquireEntry()
-                e.mode = "texture"; e.texture = 538745
+                e.mode = "texture"; e.texture = GetItemIcon(HEALTHSTONE_ITEM_IDS[1]) or EABR.ICON_HEALTHSTONE
                 e.label = EllesmereUI.L("HS")
                 e.cat = "consumable"; e.scale = co.scale or 1.0
                 e.dismissKey = "consumable:healthstone"
@@ -2478,7 +2779,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             end
             if needsRune then
                 local e = AcquireEntry()
-                e.mode = "texture"; e.texture = 135957
+                e.mode = "texture"; e.texture = Tex(53428) or EABR.ICON_UNKNOWN
                 e.label = EllesmereUI.L("Rune")
                 e.cat = "consumable"; e.scale = co.scale or 1.0
                 e.dismissKey = "consumable:runeforge"
@@ -2609,23 +2910,18 @@ local function Refresh()
         local co = db.profile.consumables
         if co and co.enabled and co.enabled.pet ~= false then
             local suppress = false
-            local petIcon = 132161
+            local petIcon = Tex(883) or "Interface\\Icons\\Ability_Hunter_BeastCall"
             local petLabel = "Pet"
-            if playerClass == "HUNTER" then
-                local spec = GetSpecialization and GetSpecialization()
-                if spec then
-                    local sid = GetSpecializationInfo(spec)
-                    if sid == 254 and not Known(1223323) then suppress = true end
-                end
-            elseif playerClass == "WARLOCK" then
-                petIcon = 136218
-                if Known(108503) and PlayerHasAuraByID({196099}) then suppress = true end
+            -- Every WotLK hunter spec runs a pet, and Grimoire of Sacrifice
+            -- does not exist yet, so neither class suppresses here.
+            if playerClass == "WARLOCK" then
+                petIcon = Tex(688) or "Interface\\Icons\\Spell_Shadow_SummonImp"
             elseif playerClass == "DEATHKNIGHT" then
-                petIcon = 1100170
+                petIcon = Tex(46584) or EABR.ICON_UNKNOWN
                 petLabel = "Ghoul"
                 if specID ~= 252 then suppress = true end
             elseif playerClass == "MAGE" then
-                petIcon = 135862
+                petIcon = Tex(31687) or "Interface\\Icons\\Spell_Frost_SummonWaterElemental_2"
                 petLabel = "Water Elemental"
                 if specID ~= 64 or not Known(31687) then suppress = true end
             end
@@ -2646,7 +2942,7 @@ local function Refresh()
                 if not isFelguard then
                     local e = AcquireEntry()
                     e.mode = "texture"
-                    e.texture = 136216
+                    e.texture = Tex(30146) or "Interface\\Icons\\Spell_Shadow_SummonFelGuard"
                     e.label = EllesmereUI.L("Felguard")
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:wrong_pet"
@@ -2717,7 +3013,7 @@ local function Refresh()
                     end
                     if safe then
                         local spellID = m.data and m.data.castSpell
-                        local texture = m.texture or (spellID and Tex(spellID)) or 134400
+                        local texture = m.texture or (spellID and Tex(spellID)) or EABR.ICON_UNKNOWN
                         local label = m.label or (m.data and ShortLabel(_G._EABR_SpellName(m.data.castSpell, m.data.name))) or ""
                         local f
                         if useCursor and IsImportantBuff(m) then
@@ -2765,7 +3061,7 @@ local function Refresh()
             if not dk or not _dismissedUntilLoad[dk] then
                 if useCursor and IsImportantBuff(m) then
                     local spellID = m.data and m.data.castSpell
-                    local texture = m.texture or (spellID and Tex(spellID)) or 134400
+                    local texture = m.texture or (spellID and Tex(spellID)) or EABR.ICON_UNKNOWN
                     local label = m.label or (m.data and ShortLabel(_G._EABR_SpellName(m.data.castSpell, m.data.name))) or ""
                     cursorIdx = cursorIdx + 1
                     ShowCursorIcon(cursorIdx, spellID, texture, label)
@@ -2797,6 +3093,12 @@ local function Refresh()
         end
     else
         EllesmereUI.SetElementVisibility(iconAnchor, false)
+    end
+    -- Keep an open flyout in step with the refreshed button under the mouse
+    -- (its choices or bag counts may have changed), or close it if gone.
+    local flyOwner = EABR.Flyout.owner
+    if flyOwner then
+        if flyOwner:IsVisible() then EABR.Flyout.Show(flyOwner) else EABR.Flyout.Hide() end
     end
 
     EABR.ProfEnd("Display", _pt)
@@ -3351,6 +3653,9 @@ function EABR:OnEnable()
     _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
     _G._EABR_WARLOCK_STONES = WARLOCK_STONES
     _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
+    _G._EABR_WeaponEnchantRole = EABR.WeaponEnchantRole
+    _G._EABR_ICONS = { unknown = EABR.ICON_UNKNOWN, flask = EABR.ICON_FLASK,
+        food = EABR.ICON_FOOD, healthstone = EABR.ICON_HEALTHSTONE }
     _G._EABR_Tex = Tex
     _G._EABR_ICON_SIZE = ICON_SIZE
     _G._EABR_FLASK_ITEMS = FLASK_ITEMS

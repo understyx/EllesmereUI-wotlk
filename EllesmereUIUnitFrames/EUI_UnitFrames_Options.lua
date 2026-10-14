@@ -1971,8 +1971,7 @@ initFrame:SetScript("OnEvent", function(self)
             PositionPreviewAbsorb(absorbBar, settings.absorbEdgeMode or "overlay", settings.healthReverseFill)
             PP.Width(absorbBar, frameW)
             PP.Height(absorbBar, healthH)
-            absorbBar:SetMinMaxValues(0, 1)
-            absorbBar:SetValue(0.14)
+            EUI.API.SetBarSegment(absorbBar, 0.14, 1, absorbBar:GetWidth())
             absorbBar:SetFrameLevel(health:GetFrameLevel() + 1)
             if not absStyle or absStyle == "none" then absorbBar:Hide() end
 
@@ -1996,8 +1995,7 @@ initFrame:SetScript("OnEvent", function(self)
             PositionPreviewAbsorb(healAbsorbBar, settings.healAbsorbEdgeMode or "overlay", settings.healthReverseFill)
             PP.Width(healAbsorbBar, frameW)
             PP.Height(healAbsorbBar, healthH)
-            healAbsorbBar:SetMinMaxValues(0, 1)
-            healAbsorbBar:SetValue(0.14)
+            EUI.API.SetBarSegment(healAbsorbBar, 0.14, 1, healAbsorbBar:GetWidth())
             healAbsorbBar:SetFrameLevel(health:GetFrameLevel() + 1)
             healAbsorbBar:Hide()
             -- Black backing behind the heal-absorb fill (opacity via healAbsorbBgOpacity),
@@ -3049,7 +3047,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     absorbBar:SetStatusBarColor(_paC.r, _paC.g, _paC.b, _paA)
                     PositionPreviewAbsorb(absorbBar, s.absorbEdgeMode or "overlay", s.healthReverseFill)
-                    absorbBar:SetWidth(fw)
+                    EUI.API.SetBarSegment(absorbBar, 0.14, 1, fw)
                     absorbBar:SetHeight(hh)
                     absorbBar:Show()
                 else
@@ -3071,7 +3069,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     healAbsorbBar:SetStatusBarColor(_haC.r, _haC.g, _haC.b, _haA)
                     PositionPreviewAbsorb(healAbsorbBar, s.healAbsorbEdgeMode or "overlay", s.healthReverseFill)
-                    healAbsorbBar:SetWidth(fw)
+                    EUI.API.SetBarSegment(healAbsorbBar, 0.14, 1, fw)
                     healAbsorbBar:SetHeight(hh)
                     healAbsorbBar:Show()
                     if healAbsorbBar._bg then

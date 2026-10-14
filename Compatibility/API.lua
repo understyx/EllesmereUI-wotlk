@@ -1334,6 +1334,10 @@ if not C_Item then
 
     C_Item.GetItemIconByID = function(itemID)
         if not itemID then return nil end
+        -- GetItemIcon reads the client's item display DB, so it works for
+        -- items not in the local cache; GetItemInfo returns nil for those.
+        local icon = GetItemIcon and GetItemIcon(itemID)
+        if icon then return icon end
         local _, _, _, _, _, _, _, _, _, itemIcon = GetItemInfo(itemID)
         return itemIcon or "Interface\\Icons\\INV_Misc_QuestionMark"
     end

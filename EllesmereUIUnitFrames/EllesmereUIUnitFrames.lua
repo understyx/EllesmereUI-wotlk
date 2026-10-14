@@ -3942,14 +3942,14 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
         curClip:SetPoint("TOPRIGHT",    hpBar, "TOPRIGHT", 0, 0)
         curClip:SetPoint("BOTTOMLEFT",  hpTex, "BOTTOMLEFT", 0, 0)
         ab:SetReverseFill(false)
-        ab:SetPoint("TOPLEFT",    hpBar, "TOPLEFT",    0, 0)
-        ab:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+        ab:SetPoint("TOPLEFT",    hpTex, "TOPLEFT",    0, 0)
+        ab:SetPoint("BOTTOMLEFT", hpTex, "BOTTOMLEFT", 0, 0)
     else
         curClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",  0, 0)
         curClip:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
         ab:SetReverseFill(true)
-        ab:SetPoint("TOPRIGHT",    hpBar, "TOPRIGHT",    0, 0)
-        ab:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+        ab:SetPoint("TOPRIGHT",    hpTex, "TOPRIGHT",    0, 0)
+        ab:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
     end
 
     -- Heal absorb placement (independent of shield absorb). The heal absorb
@@ -4429,24 +4429,35 @@ local function CreateAbsorbBar(frame, unit, settings)
                 -- edge. Right/left edge modes draw the WHOLE absorb through ab (fw
                 -- hidden below), so they are left untouched. ON = byte-identical.
                 local overshieldOn = (not s) or s.showOvershield ~= false
-                local abValue = absorbAmt
-                if not overshieldOn and absorbMode == "overlay" then abValue = 0 end
+                local curHealth = UnitHealth(updUnit) or 0
+                local missing = math.max(0, maxHealth - curHealth)
 
-                -- Both bars get the raw absorb value and the normal maxHealth.
-                -- The clip frames do the "min(absorb, curHealth)" and
-                -- "max(0, absorb - curHealth)" math visually so we never need
-                -- Lua arithmetic on the (possibly secret) absorb value.
-                ab:SetMinMaxValues(0, maxHealth)
-                ab:SetValue(abValue)
-                ab:Show()
+                if absorbMode ~= "overlay" then
+                    -- Edge modes (right/left): the full-bar backfill shows the whole absorb,
+                    -- clamped to frame width (maxHealth). Forward bar is overlay-only and hidden.
+                    local edgeAbsorb = math.min(absorbAmt, maxHealth)
+                    EUI.API.SetBarSegment(ab, edgeAbsorb, maxHealth, hpW)
+                    if edgeAbsorb > 0 then ab:Show() else ab:Hide() end
+                    if fw then fw:Hide() end
+                else
+                    -- Overlay mode: clamp forward absorb to missing health so it never extends
+                    -- past the frame boundary.
+                    local forwardAbsorb = math.min(absorbAmt, missing)
+                    local remainingAbsorb = math.max(0, absorbAmt - forwardAbsorb)
+                    local backfillAbsorb = math.min(remainingAbsorb, curHealth)
 
-                if fw then
-                    fw:SetMinMaxValues(0, maxHealth)
-                    fw:SetValue(absorbAmt)
-                    fw:Show()
-                    -- Edge modes: the full-bar backfill shows the whole absorb,
-                    -- so the overlay-only forward bar is not needed.
-                    if absorbMode ~= "overlay" then fw:Hide() end
+                    if fw then
+                        EUI.API.SetBarSegment(fw, forwardAbsorb, maxHealth, hpW)
+                        if forwardAbsorb > 0 then fw:Show() else fw:Hide() end
+                    end
+
+                    -- Backfill bar (ab) covers the overshield, eating backward into current health.
+                    if overshieldOn and backfillAbsorb > 0 and curHealth > 0 then
+                        EUI.API.SetBarSegment(ab, backfillAbsorb, maxHealth, hpW)
+                        ab:Show()
+                    else
+                        ab:Hide()
+                    end
                 end
             end
 
@@ -4466,9 +4477,9 @@ local function CreateAbsorbBar(frame, unit, settings)
                         ApplyHealAbsorbStyle(ha, haStyle, s)
                     end
                     local healAbsorbAmt = UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(updUnit) or 0
-                    ha:SetWidth(hpW); ha:SetHeight(hpH)
-                    ha:SetMinMaxValues(0, maxHealth)
-                    ha:SetValue(healAbsorbAmt)
+                    local curHealth = UnitHealth(updUnit) or 0
+                    ha:SetHeight(hpH)
+                    EUI.API.SetBarSegment(ha, math.min(healAbsorbAmt, curHealth), maxHealth, hpW)
                     ha:Show()
                     -- Black backing: track the heal-absorb fill rect, opacity from settings.
                     local hbg = ha._bg

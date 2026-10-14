@@ -116,16 +116,15 @@ end
 -- adds their own class's familiar spell to the bar, but the timer activates for
 -- any equivalent aura on the target, regardless of who applied it.
 local MAJOR_ARMOR_AURAS = {
-    -- Sunder Armor (all standard ranks plus the server's level-52 debuff
-    -- variant 58567), Expose Armor, Acid Spit (hunter pet).
-    7386, 7405, 8380, 11596, 11597, 25225, 47467,
-    58567,
-    8647, 8649, 8650, 11197, 11198, 26866, 48669,
+    -- Sunder Armor (the 3.3.5 cast 7386 applies debuff 58567), Expose Armor,
+    -- Acid Spit (hunter pet).
+    7386, 58567,
+    8647,
     55749, 55750,
 }
 
 local MINOR_ARMOR_AURAS = {
-    770, 778, 9749, 9907, 26993, 48469, 16857,
+    770, 16857,
     56631, -- Sting (wasp)
     702, 1108, 6205, 7646, 11707, 11708, 27224, 30909, 50511,
 }
@@ -151,10 +150,11 @@ local SPELL_DAMAGE_AURAS = {
 }
 local SPELL_CRIT_AURAS = { 22959, 12579, 17800 }
 local CRIT_AURAS = {
-    20335, 20336, 20337,
-    -- Heart of the Crusader is carried by the active Judgement aura.
+    -- Heart of the Crusader debuff (ranks 1-3); it is carried by the active
+    -- Judgement aura, so those count too.
+    21183, 54498, 54499,
     20184, 20185, 20186,
-    30708, 57663, 57722,
+    30708,
 }
 local BLEED_VULNERABILITY_AURAS = {
     33876, 33982, 33983, 48565, 48566,
@@ -163,16 +163,17 @@ local BLEED_VULNERABILITY_AURAS = {
 }
 local SPELL_HIT_AURAS = {
     33196, 33197, 33198,
-    770, 778, 9749, 9907, 26993, 48469, 16857,
+    770, 16857,
 }
 local HEAL_REDUCTION_AURAS = {
     12294, 21551, 21552, 21553, 25248, 30330, 47485, 47486,
     19434, 20900, 20901, 20902, 20903, 20904, 27065, 49049, 49050,
     13218, 13222, 13223, 13224, 27189, 57974, 57975,
-    56112, 56113,
+    56112, -- Furious Attacks
+    48301, -- Mind Trauma (Improved Mind Blast)
 }
 local CAST_SPEED_AURAS = {
-    1714, 11719, 11720, 12889,
+    1714, 11719, 12889,
     5760, 31589,
 }
 
@@ -181,9 +182,9 @@ local ROGUE_WOUND_POISON_AURAS  = { 13218, 13222, 13223, 13224, 27189, 57974, 57
 
 -- Warrior
 Register("WARRIOR", "rend",              { 772, 6546, 6547, 6548, 11572, 11573, 11574, 25208, 46845, 47465 })
-Register("WARRIOR", "hamstring",         { 1715, 7372, 7373, 25212 })
+Register("WARRIOR", "hamstring",         { 1715 })
 Register("WARRIOR", "mortal_strike",     { 12294, 21551, 21552, 21553, 25248, 30330, 47485, 47486 }, nil, nil, HEAL_REDUCTION_AURAS, true)
-Register("WARRIOR", "sunder_armor",      { 7386, 7405, 8380, 11596, 11597, 25225, 47467 }, nil, nil, MAJOR_ARMOR_AURAS, true)
+Register("WARRIOR", "sunder_armor",      { 7386 }, nil, nil, MAJOR_ARMOR_AURAS, true)
 Register("WARRIOR", "demoralizing_shout",{ 1160, 6190, 11554, 11555, 11556, 25202, 25203, 47437 }, nil, nil, ATTACK_POWER_AURAS, true)
 Register("WARRIOR", "thunder_clap",      { 6343, 8198, 8204, 8205, 11580, 11581, 25264, 47501, 47502 }, nil, nil, ATTACK_SPEED_AURAS, true)
 Register("WARRIOR", "piercing_howl",     { 12323 })
@@ -201,7 +202,7 @@ Register("PALADIN", "repentance",            { 20066 })
 Register("PALADIN", "turn_evil",             { 10326 })
 Register("PALADIN", "holy_vengeance",        { 31803 }, 31803, 31803)
 Register("PALADIN", "blood_corruption",      { 53742 }, 53742, 53742)
-Register("PALADIN", "heart_of_the_crusader", { 20335, 20336, 20337 }, 20337, 20337, CRIT_AURAS, true)
+Register("PALADIN", "heart_of_the_crusader", { 20335, 20336, 20337 }, 54499, 20337, CRIT_AURAS, true)
 Register("PALADIN", "vindication",            { 26016, 26017 }, 26017, 26017, ATTACK_POWER_AURAS, true,
     { talentSpellID = 26016 })
 Register("PALADIN", "judgements_of_the_just", { 53695, 53696 }, 68055, 53696, ATTACK_SPEED_AURAS, true,
@@ -231,12 +232,12 @@ Register("ROGUE", "cheap_shot",   { 1833 })
 Register("ROGUE", "gouge",       { 1776 })
 Register("ROGUE", "blind",       { 2094 })
 Register("ROGUE", "sap",         { 6770, 2070, 11297, 51724 })
-Register("ROGUE", "expose_armor", { 8647, 8649, 8650, 11197, 11198, 26866, 48669 }, nil, nil, MAJOR_ARMOR_AURAS, true)
+Register("ROGUE", "expose_armor", { 8647 }, nil, nil, MAJOR_ARMOR_AURAS, true)
 Register("ROGUE", "hemorrhage",  { 16511, 17347, 17348, 26864, 48660 })
 Register("ROGUE", "dismantle",   { 51722 })
 Register("ROGUE", "riposte",     { 14251 }, nil, nil, nil, false, { talentTab = 2, talentIndex = 8 })
 Register("ROGUE", "garrote_silence", { 703, 8631, 8632, 8633, 11289, 11290, 26839, 26884, 48675, 48676 }, 1330, 703)
-Register("ROGUE", "improved_kick_silence", { 18425 }, 18425, 1769, nil, false, { talentTab = 2, talentIndex = 10 })
+Register("ROGUE", "improved_kick_silence", { 18425 }, 18425, 1766, nil, false, { talentTab = 2, talentIndex = 10 })
 
 -- Poison applications are aura spell IDs rather than the item-creation spells
 -- found in the Rogue spellbook, so they are explicitly exposed for all Rogues.
@@ -300,7 +301,7 @@ local WARLOCK_AGONY = { 980, 1014, 6217, 11711, 11712, 11713, 27218, 47863, 4786
 local WARLOCK_DOOM = { 603, 30910, 47867 }
 local WARLOCK_ELEMENTS = { 1490, 11721, 11722, 27228, 47865 }
 local WARLOCK_WEAKNESS = { 702, 1108, 6205, 7646, 11707, 11708, 27224, 30909, 50511 }
-local WARLOCK_TONGUES = { 1714, 11719, 11720, 12889 }
+local WARLOCK_TONGUES = { 1714, 11719, 12889 }
 local WARLOCK_EXHAUSTION = { 18223 }
 
 -- Personal tracking uses one logical slot for mutually-exclusive auras. The
@@ -346,7 +347,7 @@ Register("DRUID", "insect_swarm",      { 5570, 24974, 24975, 24976, 24977, 27013
 Register("DRUID", "rake",              { 1822, 1823, 1824, 9904, 27003, 48573, 48574 })
 Register("DRUID", "rip",               { 1079, 9492, 9493, 9752, 9894, 9896, 27008, 49799, 49800 })
 Register("DRUID", "lacerate",          { 33745, 48567, 48568 })
-Register("DRUID", "faerie_fire",       { 770, 778, 9749, 9907, 26993, 48469 }, nil, nil, MINOR_ARMOR_AURAS, true)
+Register("DRUID", "faerie_fire",       { 770 }, nil, nil, MINOR_ARMOR_AURAS, true)
 Register("DRUID", "faerie_fire_feral", { 16857 }, nil, nil, MINOR_ARMOR_AURAS, true)
 Register("DRUID", "improved_faerie_fire", { 33600, 33601, 33602 }, nil, 33602, SPELL_HIT_AURAS, true,
     { talentSpellID = 33602 })
@@ -359,3 +360,60 @@ Register("DRUID", "earth_and_moon", { 60431, 60432, 60433 }, 60433, 48511, SPELL
 Register("DRUID", "entangling_roots",  { 339, 1062, 5195, 5196, 9852, 9853, 26989, 53308 })
 Register("DRUID", "cyclone",           { 33786 })
 Register("DRUID", "hibernate",         { 2637, 18657, 18658 })
+
+-------------------------------------------------------------------------------
+-- Raid-wide debuff families
+--
+-- Class-neutral rows for every non-stacking raid debuff effect, so any class
+-- can track whether e.g. major armor reduction is on the target regardless of
+-- who supplies it. The class rows above stay for players tracking their own
+-- contribution.
+--
+-- The picker stores rows by spell ID, so each family's spellID must not be any
+-- other row's identity. They use NPC variants of a member spell (same name and
+-- icon, never in a player spellbook); auraSpellID/auraSpellIDs carry the real
+-- debuffs that are matched.
+-------------------------------------------------------------------------------
+local RAID_FAMILY_CRIT_AURAS = { 21183, 54498, 54499, 30708 }
+
+local nextRaidFamilyID = 0
+local function RegisterRaidFamily(key, displayName, identitySpellID, iconSpellID, auraSpellIDs)
+    nextRaidFamilyID = nextRaidFamilyID + 1
+    C_CooldownViewer.RegisterDefinition({
+        key = "raid.debuff." .. key,
+        -- Owner 00 (shared): 500XXX.
+        cooldownID = 500000 + nextRaidFamilyID,
+        category = CDM_CATEGORY_DEBUFF,
+        order = 2000 + nextRaidFamilyID * 10,
+        spellID = identitySpellID,
+        auraSpellID = auraSpellIDs[1],
+        auraSpellIDs = auraSpellIDs,
+        anySourceDebuff = true,
+        debuffScope = "raid",
+        displayName = displayName,
+        iconSpellID = iconSpellID,
+        trackingType = "debuff",
+        hasAura = true,
+        auraUnit = "target",
+        resolvers = {
+            requirements = function() return true end,
+            resolveSpellID = function() return identitySpellID end,
+        },
+    })
+end
+
+-- Append new families at the end only: cooldownIDs are sequential.
+RegisterRaidFamily("major_armor", "Armor Reduction (Major)", 11971, 7386, MAJOR_ARMOR_AURAS)
+RegisterRaidFamily("minor_armor", "Armor Reduction (Minor)", 13752, 770, MINOR_ARMOR_AURAS)
+RegisterRaidFamily("physical_vulnerability", "Physical Damage Taken", 58683, 29859, PHYSICAL_VULNERABILITY_AURAS)
+RegisterRaidFamily("bleed_vulnerability", "Bleed Damage Taken", 57657, 48566, BLEED_VULNERABILITY_AURAS)
+RegisterRaidFamily("crit_taken", "Crit Chance Taken", 21183, 20337, RAID_FAMILY_CRIT_AURAS)
+RegisterRaidFamily("spell_damage", "Spell Damage Taken", 36831, 47865, SPELL_DAMAGE_AURAS)
+RegisterRaidFamily("spell_crit", "Spell Crit Taken", 63094, 12873, SPELL_CRIT_AURAS)
+RegisterRaidFamily("spell_hit", "Spell Hit Taken", 65863, 33198, SPELL_HIT_AURAS)
+RegisterRaidFamily("attack_power", "Attack Power Reduction", 13730, 47437, ATTACK_POWER_AURAS)
+RegisterRaidFamily("attack_speed", "Attack Speed Reduction", 13532, 47502, ATTACK_SPEED_AURAS)
+RegisterRaidFamily("hit_reduction", "Hit Chance Reduction", 65855, 3043, HIT_REDUCTION_AURAS)
+RegisterRaidFamily("cast_speed", "Cast Speed Reduction", 11436, 11719, CAST_SPEED_AURAS)
+RegisterRaidFamily("heal_reduction", "Healing Reduction", 9347, 47486, HEAL_REDUCTION_AURAS)
+

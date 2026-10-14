@@ -152,7 +152,7 @@ local function SetupIcon(btn, entry)
         btn:SetAttribute("item", nil)
         btn:SetAttribute("macrotext", nil)
     end
-    btn._icon:SetTexture(entry.texture or 134400)
+    btn._icon:SetTexture(entry.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
     btn._text:SetText(entry.label or "")
     btn._icon:SetDesaturated(false)
 end
@@ -286,13 +286,13 @@ local function Collect()
 
             if zoneMatch and not hasTalent then
                 _missing[#_missing + 1] = {
-                    texture = Tex(reminder.spellID) or 134400,
+                    texture = Tex(reminder.spellID) or "Interface\\Icons\\INV_Misc_QuestionMark",
                     spellID = reminder.spellID,
                     label = reminder.spellName or "Unknown",
                 }
             elseif not zoneMatch and reminder.showNotNeeded and hasTalent then
                 _missing[#_missing + 1] = {
-                    texture = Tex(reminder.spellID) or 134400,
+                    texture = Tex(reminder.spellID) or "Interface\\Icons\\INV_Misc_QuestionMark",
                     spellID = reminder.spellID,
                     label = (reminder.spellName or "Unknown") .. " (N/N)",
                 }

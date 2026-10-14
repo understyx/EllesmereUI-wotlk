@@ -7,9 +7,16 @@ local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI or not PallyPower then return end
 
 -- Keep the original registration key so existing Unlock Mode metadata does not
--- leave behind a second, stale PallyPower entry. Position storage is owned
--- directly by the PallyPower profile and pins the bar's top-left growth edge.
+-- leave behind a second, stale PallyPower entry. Free positions are owned by
+-- the PallyPower profile and pin the bar's top-left growth edge; an Unlock
+-- Mode anchor, when set, takes over placement.
 local UNLOCK_KEY = "EPP_Flyout"
+
+local function IsUnlockAnchored()
+	local anchors = EllesmereUIDB and EllesmereUIDB.unlockAnchors
+	local info = anchors and anchors[UNLOCK_KEY]
+	return info and info.target and true or false
+end
 
 local function Orientation(addon)
 	local value = addon.opt and addon.opt.display and addon.opt.display.orientation
@@ -24,6 +31,10 @@ local function ApplySavedPosition(addon)
 		if EllesmereUI.RefreshUnlockElement then
 			EllesmereUI.RefreshUnlockElement(UNLOCK_KEY)
 		end
+		return
+	end
+	if IsUnlockAnchored() and EllesmereUI.ReapplyOwnAnchor then
+		EllesmereUI.ReapplyOwnAnchor(UNLOCK_KEY)
 		return
 	end
 
@@ -163,8 +174,13 @@ function PallyPower:LayoutEUIBar()
 
 	local frame = _G.PallyPowerFrame
 	if frame then
+		local resized = frame:GetWidth() ~= width or frame:GetHeight() ~= height
 		frame:SetSize(width, height)
 		ApplySavedPosition(self)
+		-- Elements anchored to the bar follow its new edges.
+		if resized and EllesmereUI.NotifyElementResized then
+			EllesmereUI.NotifyElementResized(UNLOCK_KEY)
+		end
 	end
 end
 
@@ -192,12 +208,13 @@ function PallyPower:RegisterPallyPowerUnlock()
 			group = "Quality of Life",
 			order = 610,
 			noResize = true,
-			noAnchorTarget = true,
-			noAnchorTo = true,
-			-- The generic position pass assumes the element root uses UIParent's
-			-- scale. PallyPower owns a scaled root and applies its saved center above.
+			-- Unanchored, PallyPower positions its scaled root itself (see
+			-- ApplySavedPosition); anchored placement converts for that scale.
 			noInitHook = true,
-			subtitle = "Drag the complete bar anywhere",
+			subtitle = "Drag anywhere or anchor to another element",
+			getGrowDirection = function()
+				return Orientation(addon) == "HORIZONTAL" and "RIGHT" or "DOWN"
+			end,
 			isHidden = function() return not addon:IsPlayerPaladin() end,
 			getFrame = function() return _G.PallyPowerFrame end,
 			getSize = function()

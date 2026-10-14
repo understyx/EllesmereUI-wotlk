@@ -127,7 +127,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 60,
     spellID = 47827,
-    spellIDs = { 47826, 47827 },
+    spellIDs = { 17877, 18867, 18868, 18869, 18870, 18871, 27263, 30546, 47826, 47827 },
     iconSpellID = 47827,
     trackingType = "cooldown",
     -- Shadowburn requires the target to be below 20% health.
@@ -188,7 +188,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 10,
     spellID = 47847,
-    spellIDs = { 47846, 47847 },
+    spellIDs = { 30283, 30413, 30414, 47846, 47847 },
     iconSpellID = 47847,
     trackingType = "cooldown",
     resolvers = {
@@ -207,7 +207,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 20,
     spellID = 47860,
-    spellIDs = { 47859, 47860 },
+    spellIDs = { 6789, 17925, 17926, 27223, 47859, 47860 },
     iconSpellID = 47860,
     trackingType = "cooldown",
 })
@@ -218,6 +218,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 30,
     spellID = 17928,
+    spellIDs = { 5484, 17928 },
     iconSpellID = 17928,
     trackingType = "cooldown",
 })
@@ -228,6 +229,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 40,
     spellID = 6215,
+    spellIDs = { 5782, 6213, 6215 },
     iconSpellID = 6215,
     trackingType = "cooldown",
 })
@@ -372,9 +374,9 @@ Register({
     cooldownID = 209005,
     category = CDM_CATEGORY_BUFF_ICON,
     order = 50,
-    spellID = 34939,
-    auraSpellID = 34939,
-    iconSpellID = 34939,
+    spellID = 34936,
+    auraSpellID = 34936,
+    iconSpellID = 34936,
     trackingType = "aura",
     hasAura = true,
     selfAura = true,
@@ -383,7 +385,7 @@ Register({
             return HasLearnedTalent(3, 11) -- Destro: Backlash
         end,
         resolveSpellID = function()
-            return 34939
+            return 34936
         end,
     },
 })
@@ -395,6 +397,7 @@ Register({
     category = CDM_CATEGORY_BUFF_BAR,
     order = 10,
     spellID = 47893,
+    spellIDs = { 28176, 28189, 47892, 47893 },
     auraSpellID = 47893,
     iconSpellID = 47893,
     trackingType = "aura",
@@ -408,6 +411,7 @@ Register({
     category = CDM_CATEGORY_BUFF_BAR,
     order = 20,
     spellID = 47889,
+    spellIDs = { 706, 1086, 11733, 11734, 11735, 27260, 47793, 47889 },
     auraSpellID = 47889,
     iconSpellID = 47889,
     trackingType = "aura",

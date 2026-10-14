@@ -516,6 +516,7 @@ ns.CDM_SPEC_DEFAULTS = {
 }
 DEFAULTS.profile.cdmBars = nil
 DEFAULTS.profile.cdmBarPositions = nil
+_G._ECME_SpecDefaults = ns.CDM_SPEC_DEFAULTS
 
 -------------------------------------------------------------------------------
 --  Dedicated spell assignment store helpers
@@ -723,6 +724,9 @@ end
 
 function ns.GetActiveCDMConfig(create)
     local container = ns.GetActiveSpecContainer(create)
+    if ECME and ECME.db and ECME.db.profile and container then
+        ECME.db.profile.cdmBars = container.cdmBars
+    end
     return container and container.cdmBars or nil
 end
 
@@ -730,6 +734,9 @@ function ns.GetActiveCDMPositions(create)
     local container = ns.GetActiveSpecContainer(create)
     local positions = container and container.cdmBarPositions or nil
     if positions and EllesmereUI then EllesmereUI._cdmBarPositions = positions end
+    if ECME and ECME.db and ECME.db.profile and container then
+        ECME.db.profile.cdmBarPositions = positions
+    end
     return positions
 end
 
@@ -1989,6 +1996,8 @@ local function ProcessSpecChange(newSpecKey)
     -- Atomic swap: write the new key BEFORE rebuilding so every
     -- GetBarSpellData call during the rebuild reads the correct spec.
     _cachedSpecKey = newSpecKey
+    if ns.GetActiveCDMConfig then ns.GetActiveCDMConfig(true) end
+    if ns.GetActiveCDMPositions then ns.GetActiveCDMPositions(true) end
     -- The global unlock stores still belong to the outgoing owner. Bank them,
     -- then project the incoming spec's links before any bar reads anchors.
     if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
@@ -6809,6 +6818,13 @@ local function UpdateAllCDMBars(dt) end
 _CDMApplyVisibility = function()
     local p = ECME.db and ECME.db.profile
     if not p then return end
+    -- Timers and CDM events can fire during the brief login/spec-transition
+    -- window before GetActiveSpecKey can resolve a specialization.  In that
+    -- state GetActiveCDMConfig legitimately returns nil; visibility will be
+    -- applied by the normal setup/spec-change rebuild once the data is ready.
+    local config = ns.GetActiveCDMConfig(true)
+    local bars = config and config.bars
+    if type(bars) ~= "table" then return end
     local inCombat = _inCombat
     -- Full vehicle UI: hide all bars
     local inVehicle = _cdmInVehicle
@@ -6821,7 +6837,7 @@ _CDMApplyVisibility = function()
 
     local unlockActive = EllesmereUI._unlockActive
 
-    for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
+    for _, barData in ipairs(bars) do
         local frame = cdmBarFrames[barData.key]
         if frame then
             -- FocusKick is owned exclusively by ApplyFocusKickAnchor.
@@ -6981,7 +6997,7 @@ _CDMApplyVisibility = function()
             -- Essential/Utility viewers. Buff bars use BuffIcon viewer.
             -- custom_buff bars use their own frames (not the viewer).
             local anyVisible = false
-            for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
+            for _, barData in ipairs(bars) do
                 if barData.enabled then
                     local frame = cdmBarFrames[barData.key]
                     if frame and not frame._visHidden then
@@ -8313,6 +8329,10 @@ end
 -------------------------------------------------------------------------------
 function ECME:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUICooldownManagerDB", DEFAULTS, true)
+    if self.db and self.db._profileDefaults then
+        self.db._profileDefaults.cdmBars = ns.CDM_SPEC_DEFAULTS and ns.CDM_SPEC_DEFAULTS.cdmBars
+        self.db._profileDefaults.cdmBarPositions = ns.CDM_SPEC_DEFAULTS and ns.CDM_SPEC_DEFAULTS.cdmBarPositions
+    end
 
     -- Save spec profile before StripDefaults runs on logout
     EllesmereUI.Lite.RegisterPreLogout(function()

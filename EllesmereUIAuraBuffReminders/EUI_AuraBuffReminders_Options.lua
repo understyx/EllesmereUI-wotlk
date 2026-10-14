@@ -85,8 +85,12 @@ initFrame:SetScript("OnEvent", function(self)
         return EllesmereUIDB and EllesmereUIDB.previewHintDismissed
     end
 
+    local ICONS = _G._EABR_ICONS or { unknown = "Interface\\Icons\\INV_Misc_QuestionMark" }
+    ICONS.flask = ICONS.flask or ICONS.unknown
+    ICONS.food = ICONS.food or ICONS.unknown
+    ICONS.healthstone = ICONS.healthstone or ICONS.unknown
     local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
-    local Tex = function(id) return _G._EABR_Tex and _G._EABR_Tex(id) or (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)) or 134400 end
+    local Tex = function(id) return _G._EABR_Tex and _G._EABR_Tex(id) or (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)) or ICONS.unknown end
 
     --- Shorten a buff/aura label to its first word, with special overrides.
     local LABEL_OVERRIDES = {
@@ -181,7 +185,7 @@ initFrame:SetScript("OnEvent", function(self)
             local POISONS = _G._EABR_ROGUE_POISONS or {}
             for _, poison in ipairs(POISONS) do
                 if co and co.enabled and co.enabled[poison.key] then
-                    icons[#icons+1] = { texture = C_Item.GetItemIconByID(poison.itemID) or Tex(poison.castSpell), label = ShortLabel(poison.name, "ROGUE"), cat = "consumable", itemKey = poison.key }
+                    icons[#icons+1] = { texture = GetItemIcon(poison.itemID) or Tex(poison.castSpell), label = ShortLabel(poison.name, "ROGUE"), cat = "consumable", itemKey = poison.key }
                     break
                 end
             end
@@ -210,7 +214,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if sid == specID then specMatch = true; break end
                         end
                     end
-                    local icon = { texture = C_Item.GetItemIconByID(stone.itemID) or Tex(stone.createSpell), label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = stone.key }
+                    local icon = { texture = GetItemIcon(stone.itemID) or Tex(stone.createSpell), label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = stone.key }
                     if specMatch then icons[#icons+1] = icon; fallback = nil; break end
                     fallback = fallback or icon
                 end
@@ -218,30 +222,36 @@ initFrame:SetScript("OnEvent", function(self)
             if fallback then icons[#icons+1] = fallback end
         end
 
-        -- Weapon oil (if player doesn't have a class weapon imbue)
-        if playerClass ~= "ROGUE" and playerClass ~= "PALADIN"
-           and playerClass ~= "SHAMAN" and playerClass ~= "WARLOCK" then
-            if co and co.enabled and co.enabled.weapon_enchant then
-                local WEI = _G._EABR_WEAPON_ENCHANT_ITEMS or {}
-                if #WEI > 0 then
-                    icons[#icons+1] = { texture = WEI[1].icon or 134400, label = "Weapon", cat = "consumable", itemKey = "weapon_enchant" }
+        -- Weapon oil / stone for characters whose role uses one (classes with
+        -- their own weapon enchant system return no role)
+        local weRole = _G._EABR_WeaponEnchantRole and _G._EABR_WeaponEnchantRole(playerClass, specID)
+        if weRole and co and co.enabled and co.enabled.weapon_enchant then
+            local WEI = _G._EABR_WEAPON_ENCHANT_ITEMS or {}
+            for _, we in ipairs(WEI) do
+                local fits = (weRole == "melee" and we.weaponType ~= "OIL")
+                    or (weRole ~= "melee" and we.role == weRole)
+                if fits then
+                    icons[#icons+1] = { texture = GetItemIcon(we.itemID) or ICONS.unknown, label = EllesmereUI.L("Weapon"), cat = "consumable", itemKey = "weapon_enchant" }
+                    break
                 end
             end
         end
 
         -- Flask
         if co and co.enabled and co.enabled.flask then
-            icons[#icons+1] = { texture = 134830, label = EllesmereUI.L("Flask"), cat = "consumable", itemKey = "flask" }
+            local FL = _G._EABR_FLASK_ITEMS
+            icons[#icons+1] = { texture = (FL and FL[1] and GetItemIcon(FL[1].items[1])) or ICONS.flask, label = EllesmereUI.L("Flask"), cat = "consumable", itemKey = "flask" }
         end
 
         -- Food
         if co and co.enabled and co.enabled.food then
-            icons[#icons+1] = { texture = 134062, label = EllesmereUI.L("Food"), cat = "consumable", itemKey = "food" }
+            local FD = _G._EABR_FOOD_ITEMS
+            icons[#icons+1] = { texture = (FD and FD[1] and GetItemIcon(FD[1].itemID)) or ICONS.food, label = EllesmereUI.L("Food"), cat = "consumable", itemKey = "food" }
         end
 
         -- Healthstone (default-on: treat nil as enabled, matching the toggle)
         if co and co.enabled and co.enabled.healthstone ~= false then
-            icons[#icons+1] = { texture = C_Item.GetItemIconByID(36892) or 134400, label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = "healthstone" }
+            icons[#icons+1] = { texture = GetItemIcon(36892) or ICONS.healthstone, label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = "healthstone" }
         end
 
         return icons
@@ -526,7 +536,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Update textures/labels in case the icon set changed content
             for i, pIcon in ipairs(_previewIcons) do
                 if pIcon.frame and icons[i] then
-                    if pIcon.frame._icon then pIcon.frame._icon:SetTexture(icons[i].texture or 134400) end
+                    if pIcon.frame._icon then pIcon.frame._icon:SetTexture(icons[i].texture or "Interface\\Icons\\INV_Misc_QuestionMark") end
                     if pIcon.frame._text then pIcon.frame._text:SetText(icons[i].label or "") end
                     pIcon.data = icons[i]
                 end
@@ -575,7 +585,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             local icon = btn:CreateTexture(nil, "ARTWORK")
             icon:SetAllPoints(); icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            icon:SetTexture(iconData.texture or 134400)
+            icon:SetTexture(iconData.texture or "Interface\\Icons\\INV_Misc_QuestionMark")
             if icon.SetSnapToPixelGrid then icon:SetSnapToPixelGrid(false); icon:SetTexelSnappingBias(0) end
             btn._icon = icon
 
@@ -2415,7 +2425,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Data rows (single row per reminder)
-            local Tex = function(id) return _G._EABR_Tex and _G._EABR_Tex(id) or (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)) or 134400 end
+            local Tex = function(id) return _G._EABR_Tex and _G._EABR_Tex(id) or (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)) or "Interface\\Icons\\INV_Misc_QuestionMark" end
             local eg2 = EllesmereUI.ELLESMERE_GREEN or {r=0.047, g=0.824, b=0.624}
             local ICON_SIZE = 14
             for idx, reminder in ipairs(reminders) do

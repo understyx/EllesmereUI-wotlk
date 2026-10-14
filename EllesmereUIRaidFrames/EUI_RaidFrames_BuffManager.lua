@@ -2552,14 +2552,18 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 -- back to the localized name for rank/trigger aura variants.
                 local psid = ResolveTrackedSpellID(
                     auraData, trackedSpellIDs, trackedSpellNames)
-                if psid and not activeSpells[psid] then
-                    activeSpells[psid] = auraData
+                -- Track "any caster" and "player-cast" copies independently:
+                -- another healer's copy of the same buff can sit earlier in the
+                -- list, and a first-copy-wins check would skip ours entirely,
+                -- leaving Own Only indicators blank.
+                if psid and not (activeSpells[psid] and activePlayerSpells[psid]) then
+                    if not activeSpells[psid] then activeSpells[psid] = auraData end
                     if auraData.auraInstanceID then
                         d.bmActiveInstanceIDs[auraData.auraInstanceID] = true
                     end
                     -- Player-only check via filter API (avoids secret isFromPlayerOrPlayerPet)
                     local iid = auraData.auraInstanceID
-                    if iid and C_UnitAuras_IsAuraFilteredOutByInstanceID then
+                    if iid and not activePlayerSpells[psid] and C_UnitAuras_IsAuraFilteredOutByInstanceID then
                         if not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "PLAYER|HELPFUL") then
                             activePlayerSpells[psid] = auraData
                         end

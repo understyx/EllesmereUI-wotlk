@@ -411,6 +411,12 @@ local function BuildDisplayPage(parent, yOffset)
     _, h = W:Spacer(parent, y, 20); y = y - h
     _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
     _, h = W:DualRow(parent, y,
+        { type="label", text="Move the bar or anchor it to another element in Unlock Mode." },
+        { type="button", text="Open Unlock Mode", onClick=function()
+              if EllesmereUI.OpenUnlockMode then EllesmereUI:OpenUnlockMode() end
+          end }
+    ); y = y - h
+    _, h = W:DualRow(parent, y,
         { type="dropdown", text="Bar Texture", values=textureValues, order=textureOrder,
           tooltip="Uses EllesmereUI's bar textures, including textures provided through SharedMedia.",
           getValue=function() return Get("display", "barTexture", "melli") end,
@@ -454,6 +460,18 @@ local function BuildDisplayPage(parent, yOffset)
         { type="toggle", text="Show Button Borders",
           getValue=function() return Get("display", "edges", true) end,
           setValue=function(v) Set("display", "edges", v, true) end }
+    ); y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type="toggle", text="EllesmereUI Status Colors",
+          tooltip="Uses muted status colors and shows fully buffed buttons in the accent color. Disable for PallyPower's classic red, yellow, blue, and green.",
+          getValue=function() return Get("display", "euiColors", true) end,
+          setValue=function(v)
+              Set("display", "euiColors", v, true)
+              local addon = PP()
+              if addon and addon.ButtonsUpdate and not InCombatLockdown() then addon:ButtonsUpdate() end
+          end },
+        nil
     ); y = y - h
 
     _, h = W:DualRow(parent, y,

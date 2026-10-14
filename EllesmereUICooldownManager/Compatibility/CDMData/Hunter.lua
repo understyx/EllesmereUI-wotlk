@@ -131,7 +131,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 60,
     spellID = 60053,
-    spellIDs = { 60052, 60053 },
+    spellIDs = { 53301, 60051, 60052, 60053 },
     iconSpellID = 60053,
     trackingType = "cooldown",
     resolvers = {
@@ -150,7 +150,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 70,
     spellID = 63672,
-    spellIDs = { 63668, 63672 },
+    spellIDs = { 3674, 63668, 63669, 63670, 63671, 63672 },
     iconSpellID = 63672,
     trackingType = "cooldown",
     resolvers = {
@@ -264,7 +264,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 70,
     spellID = 49012,
-    spellIDs = { 49011, 49012 },
+    spellIDs = { 19386, 24132, 24133, 27068, 49011, 49012 },
     iconSpellID = 49012,
     trackingType = "cooldown",
     resolvers = {
@@ -301,6 +301,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 90,
     spellID = 14311,
+    spellIDs = { 1499, 14310, 14311 },
     iconSpellID = 14311,
     trackingType = "cooldown",
 })
@@ -311,7 +312,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 100,
     spellID = 49067,
-    spellIDs = { 49066, 49067 },
+    spellIDs = { 13813, 14316, 14317, 27025, 49066, 49067 },
     iconSpellID = 49067,
     trackingType = "cooldown",
 })
@@ -409,6 +410,7 @@ Register({
     category = CDM_CATEGORY_BUFF_BAR,
     order = 10,
     spellID = 61847,
+    spellIDs = { 61846, 61847 },
     auraSpellID = 61847,
     iconSpellID = 61847,
     trackingType = "aura",
@@ -450,7 +452,7 @@ RegisterBasic("raptor_strike",    103025, 110, { 2973, 14260, 14261, 14262, 1426
 RegisterBasic("mongoose_bite",    103026, 120, { 1495, 14269, 14270, 14271, 36916, 53339 })
 RegisterBasic("counterattack",    103027, 130, { 19306, 20909, 20910, 27067, 48998, 48999 })
 RegisterBasic("tranquilizing_shot", 103028, 140, { 19801 }, CDM_CATEGORY_UTILITY)
-RegisterBasic("distracting_shot", 103029, 150, { 20736, 14319, 14320, 27022 }, CDM_CATEGORY_UTILITY)
+RegisterBasic("distracting_shot", 103029, 150, { 20736 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("masters_call",     103030, 160, { 53271 }, CDM_CATEGORY_UTILITY, { external = true })
 RegisterBasic("flare",            103031, 170, { 1543 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("immolation_trap",  103032, 180, { 13795, 14302, 14303, 14304, 14305, 27023, 49055, 49056 }, CDM_CATEGORY_UTILITY)

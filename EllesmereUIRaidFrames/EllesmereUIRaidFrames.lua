@@ -2468,13 +2468,12 @@ local function CreateAbsorbBar(button, healthBar)
                 backfillBar:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", 0, 0)
             end
         else
-            -- Overlay: curClip already clipped to the fill above. Restore the
-            -- backfill's default right-anchored reverse fill (reset if the mode
-            -- was previously left).
+            -- Overlay: anchor backfill to the health fill edge so it eats backwards
+            -- into current health without spilling over or starting from the frame edge.
             backfillBar:SetReverseFill(true)
             backfillBar:ClearAllPoints()
-            backfillBar:SetPoint("TOPRIGHT", healthBar, "TOPRIGHT", 0, 0)
-            backfillBar:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", 0, 0)
+            backfillBar:SetPoint("TOPRIGHT", fill, "TOPRIGHT", 0, 0)
+            backfillBar:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, 0)
         end
 
         -- Heal absorb placement (independent of shield absorb). Its own clip
@@ -2745,6 +2744,7 @@ local function UpdateAbsorb(button, unit)
         return
     end
 
+    local curHealth = UnitHealth(unit) or 0
     local maxHealth, absorbAmt, isClamped
     if calc and UnitGetDetailedHealPrediction then
         UnitGetDetailedHealPrediction(unit, nil, calc)
@@ -2838,9 +2838,8 @@ local function UpdateAbsorb(button, unit)
                 end
             end
             local healAbsorbAmt = UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit) or 0
-            ha:SetWidth(hp:GetWidth()); ha:SetHeight(hp:GetHeight())
-            ha:SetMinMaxValues(0, maxHealth)
-            ha:SetValue(healAbsorbAmt)
+            ha:SetHeight(hp:GetHeight())
+            EUI.API.SetBarSegment(ha, math.min(healAbsorbAmt, curHealth), maxHealth, hp:GetWidth())
             -- Reverse-filled status bars can retain a one-pixel sliver at zero.
             -- The backing follows that fill, turning the sliver into a permanent
             -- dark/doubled bar on the right edge of live frames. Alpha-gate the
@@ -2895,32 +2894,46 @@ local function UpdateAbsorb(button, unit)
     -- right edge. The right/left edge modes draw the WHOLE absorb through ab (fw
     -- is hidden below), so they are left untouched -- overshield is meaningless
     -- there. With the toggle ON this is byte-for-byte the previous behavior.
+    local missing = math.max(0, maxHealth - curHealth)
     local overshieldOn = s.showOvershield ~= false
-    local overlayLike = absStyle == "blizzardModern" or (s.absorbEdgeMode or "overlay") == "overlay"
-    local abValue = absorbAmt
-    if not overshieldOn and overlayLike then abValue = 0 end
+    local absorbMode = s.absorbEdgeMode or "overlay"
+    local overlayLike = absStyle == "blizzardModern" or absorbMode == "overlay"
+    local isOvershielding = (isClamped ~= nil) and isClamped or (absorbAmt > missing)
+    local backfillAbsorb = 0
 
-    -- Both bars get the raw absorb value and maxHealth.
-    -- Clip frames do the visual math so we never compare secret values.
-    ab:SetMinMaxValues(0, maxHealth)
-    ab:SetValue(abValue)
-    ab:Show()
+    if not overlayLike then
+        -- Edge modes (right/left): the full-bar backfill shows the whole absorb,
+        -- clamped to frame width (maxHealth). Forward bar is overlay-only and hidden.
+        local edgeAbsorb = math.min(absorbAmt, maxHealth)
+        EUI.API.SetBarSegment(ab, edgeAbsorb, maxHealth, hpW)
+        if edgeAbsorb > 0 then ab:Show() else ab:Hide() end
+        if fw then fw:Hide() end
+    else
+        -- Overlay mode: clamp forward absorb to missing health so it never extends
+        -- past the right edge of the frame into adjacent frames.
+        local forwardAbsorb = math.min(absorbAmt, missing)
+        local remainingAbsorb = math.max(0, absorbAmt - forwardAbsorb)
+        backfillAbsorb = math.min(remainingAbsorb, curHealth)
 
-    if fw then
-        fw:SetMinMaxValues(0, maxHealth)
-        fw:SetValue(absorbAmt)
-        fw:Show()
+        if fw then
+            EUI.API.SetBarSegment(fw, forwardAbsorb, maxHealth, hpW)
+            if forwardAbsorb > 0 then fw:Show() else fw:Hide() end
+        end
+
+        -- Backfill bar (ab) covers the overshield, eating backward into current health.
+        if overshieldOn and backfillAbsorb > 0 and curHealth > 0 then
+            EUI.API.SetBarSegment(ab, backfillAbsorb, maxHealth, hpW)
+            ab:Show()
+        else
+            ab:Hide()
+        end
     end
-    -- Edge modes (right/left): the full-bar backfill shows the whole absorb, so
-    -- the forward bar (overlay-only) is not needed.
-    if (s.absorbEdgeMode or "overlay") ~= "overlay" and fw then fw:Hide() end
 
     -- "Default Blizz Frames": standard backfill + forward absorb (backfill = 10% white
     -- overshield, forward = modern texture). The spark always rides the LEFT edge of the
     -- shield: the seam spark (current-HP edge) self-gates on "has shield" and hides while
     -- overshielding; the overshield spark rides the backfill's left edge and shows only
-    -- while overshielding. isClamped (the Missing-Health-clamp overshield boolean) flips
-    -- between them secret-safely, so exactly one is ever visible.
+    -- while overshielding.
     if absStyle == "blizzardModern" then
         if fw then
             local fmb = fw._modernBase
@@ -2929,10 +2942,15 @@ local function UpdateAbsorb(button, unit)
             local g, sp = fw._edgeGate, fw._edgeSpark
             if g and sp then
                 g:SetHeight(hpH)
-                g:SetValue(absorbAmt)
+                g:SetValue(absorbAmt > 0 and 1 or 0)
                 sp:SetAllPoints(g:GetStatusBarTexture())
-                if sp.SetAlphaFromBoolean then sp:SetAlphaFromBoolean(isClamped, 0, 1) else sp:SetAlpha(1) end
-                sp:Show()
+                if absorbAmt > 0 and not isOvershielding then
+                    sp:SetAlpha(1)
+                    sp:Show()
+                else
+                    sp:SetAlpha(0)
+                    sp:Hide()
+                end
             end
             -- Overshield spark: normally rides the backfill's LEFT edge (slides
             -- left over the health fill as the overshield grows). With Show
@@ -2943,13 +2961,18 @@ local function UpdateAbsorb(button, unit)
             if bsp then
                 bsp:SetSize(16, hpH)
                 bsp:ClearAllPoints()
-                if overshieldOn then
+                if overshieldOn and backfillAbsorb > 0 then
                     bsp:SetPoint("CENTER", ab:GetStatusBarTexture(), "LEFT", -1, 0)
                 else
-                    bsp:SetPoint("CENTER", ab, "RIGHT", -1, 0)
+                    bsp:SetPoint("CENTER", hp, "RIGHT", -1, 0)
                 end
-                if bsp.SetAlphaFromBoolean then bsp:SetAlphaFromBoolean(isClamped, 1, 0) else bsp:SetAlpha(0) end
-                bsp:Show()
+                if absorbAmt > 0 and isOvershielding then
+                    bsp:SetAlpha(1)
+                    bsp:Show()
+                else
+                    bsp:SetAlpha(0)
+                    bsp:Hide()
+                end
             end
         end
     elseif fw and fw._edgeSpark then
@@ -13813,19 +13836,35 @@ local function ApplyPreviewData(f, index)
                 end
             end
 
-            -- Feed both bars with the same absorb value; clip frames do the visual math.
-            -- Mirror the live Show Overshield gate: when off (overlay-like modes) feed
-            -- the backfill 0 so the overshield does not render in the preview.
             local pvOvershieldOn = s.showOvershield ~= false
-            local pvOverlayLike = modern or (s.absorbEdgeMode or "overlay") == "overlay"
-            local pvAbValue = (not pvOvershieldOn and pvOverlayLike) and 0 or absorbAmt
-            f._absorbBar:SetMinMaxValues(0, 100)
-            f._absorbBar:SetValue(pvAbValue)
-            f._absorbBar:Show()
-            if fw then
-                fw:SetMinMaxValues(0, 100)
-                fw:SetValue(absorbAmt)
-                fw:Show()
+            local absorbMode = s.absorbEdgeMode or "overlay"
+            local pvOverlayLike = modern or absorbMode == "overlay"
+            local curHp = healthPct or 100
+            local missHp = math.max(0, 100 - curHp)
+            local previewOver = absorbAmt > missHp
+            local pvBackfillAbsorb = 0
+
+            if not pvOverlayLike then
+                local edgeAbsorb = math.min(absorbAmt, 100)
+                EUI.API.SetBarSegment(f._absorbBar, edgeAbsorb, 100, hpW)
+                if edgeAbsorb > 0 then f._absorbBar:Show() else f._absorbBar:Hide() end
+                if fw then fw:Hide() end
+            else
+                local forwardAbsorb = math.min(absorbAmt, missHp)
+                local remAbsorb = math.max(0, absorbAmt - forwardAbsorb)
+                pvBackfillAbsorb = math.min(remAbsorb, curHp)
+
+                if fw then
+                    EUI.API.SetBarSegment(fw, forwardAbsorb, 100, hpW)
+                    if forwardAbsorb > 0 then fw:Show() else fw:Hide() end
+                end
+
+                if pvOvershieldOn and pvBackfillAbsorb > 0 and curHp > 0 then
+                    EUI.API.SetBarSegment(f._absorbBar, pvBackfillAbsorb, 100, hpW)
+                    f._absorbBar:Show()
+                else
+                    f._absorbBar:Hide()
+                end
             end
 
             -- "Default Blizz Frames": seam spark + overshield spark (preview values are
@@ -13834,26 +13873,35 @@ local function ApplyPreviewData(f, index)
                 if fw then
                     local fmb = fw._modernBase
                     if fmb then fmb:SetAllPoints(fw:GetStatusBarTexture()) end
-                    local previewOver = absorbAmt > (100 - (healthPct or 100))
                     local g, sp = fw._edgeGate, fw._edgeSpark
                     if g and sp then
                         g:SetHeight(hpH)
-                        g:SetValue(absorbAmt)
+                        g:SetValue(absorbAmt > 0 and 1 or 0)
                         sp:SetAllPoints(g:GetStatusBarTexture())
-                        sp:SetAlpha(previewOver and 0 or 1)
-                        sp:Show()
+                        if absorbAmt > 0 and not previewOver then
+                            sp:SetAlpha(1)
+                            sp:Show()
+                        else
+                            sp:SetAlpha(0)
+                            sp:Hide()
+                        end
                     end
                     local bsp = fw._bfSpark
                     if bsp then
                         bsp:SetSize(16, hpH)
                         bsp:ClearAllPoints()
-                        if pvOvershieldOn then
+                        if pvOvershieldOn and pvBackfillAbsorb > 0 then
                             bsp:SetPoint("CENTER", f._absorbBar:GetStatusBarTexture(), "LEFT", -1, 0)
                         else
-                            bsp:SetPoint("CENTER", f._absorbBar, "RIGHT", -1, 0)
+                            bsp:SetPoint("CENTER", f._health, "RIGHT", -1, 0)
                         end
-                        bsp:SetAlpha(previewOver and 1 or 0)
-                        bsp:Show()
+                        if absorbAmt > 0 and previewOver then
+                            bsp:SetAlpha(1)
+                            bsp:Show()
+                        else
+                            bsp:SetAlpha(0)
+                            bsp:Hide()
+                        end
                     end
                 end
             elseif fw and fw._edgeSpark then
@@ -13900,8 +13948,8 @@ local function ApplyPreviewData(f, index)
                 -- Restore overlay backfill (right-anchored reverse fill).
                 f._absorbBar:SetReverseFill(true)
                 f._absorbBar:ClearAllPoints()
-                f._absorbBar:SetPoint("TOPRIGHT", f._health, "TOPRIGHT", 0, 0)
-                f._absorbBar:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
+                f._absorbBar:SetPoint("TOPRIGHT", fill, "TOPRIGHT", 0, 0)
+                f._absorbBar:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, 0)
             end
         end
     end
@@ -13936,8 +13984,7 @@ local function ApplyPreviewData(f, index)
                 haFillPv:SetVertTile(tiled)
                 if mask then haFillPv:AddMaskTexture(mask) end
             end
-            f._healAbsorbBar:SetMinMaxValues(0, 100)
-            f._healAbsorbBar:SetValue(haAmt)
+            EUI.API.SetBarSegment(f._healAbsorbBar, math.min(haAmt, healthPct or 100), 100, hpW)
             f._healAbsorbBar:Show()
             local hbg = f._healAbsorbBar._bg
             if hbg then

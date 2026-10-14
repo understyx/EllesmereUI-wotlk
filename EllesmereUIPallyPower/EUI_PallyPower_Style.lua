@@ -161,8 +161,43 @@ function PallyPower:ApplyEUIStyle()
 	end
 end
 
+-- Status colors. PallyPower's stock presets are saturated primaries at half
+-- alpha; with EUI colors on (the default), the same states use a muted palette
+-- and fully buffed buttons take the active accent. Class-colored "good" states
+-- and any other preset pass through unchanged.
+local EUI_STATUS = {
+	cBuffNeedAll     = { 0.78, 0.22, 0.22, 0.55 },
+	cBuffNeedSome    = { 0.86, 0.66, 0.24, 0.50 },
+	cBuffNeedSpecial = { 0.32, 0.48, 0.90, 0.50 },
+}
+
+function PallyPower:ApplyBackdrop(button, preset)
+	local opt = self.opt
+	if opt and not (opt.display and opt.display.euiColors == false) then
+		if preset == opt.cBuffGood then
+			local r, g, b = 0.05, 0.82, 0.62
+			if EllesmereUI.GetAccentColor then r, g, b = EllesmereUI.GetAccentColor() end
+			button:SetBackdropColor(r, g, b, 0.32)
+			return
+		end
+		for key, color in pairs(EUI_STATUS) do
+			if preset == opt[key] then
+				button:SetBackdropColor(color[1], color[2], color[3], color[4])
+				return
+			end
+		end
+	end
+	button:SetBackdropColor(preset["r"], preset["g"], preset["b"], preset["t"] or preset["a"] or 1)
+end
+
 _G._EPP_ApplyStyle = function()
-	if PallyPower and PallyPower.ApplyEUIStyle then PallyPower:ApplyEUIStyle() end
+	if not PallyPower then return end
+	if PallyPower.ApplyEUIStyle then PallyPower:ApplyEUIStyle() end
+	-- Re-tint status backdrops so accent-colored buttons follow the accent.
+	if PallyPower.ButtonsUpdate and PallyPower.opt and PallyPower.autoButton
+		and not InCombatLockdown() then
+		PallyPower:ButtonsUpdate()
+	end
 end
 
 if EllesmereUI.RegAccent then

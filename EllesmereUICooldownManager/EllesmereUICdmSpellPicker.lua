@@ -651,7 +651,10 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                         icon = C_Spell.GetSpellTexture(info.iconSpellID or sid),
                         cdmCat = 0, cdmCatGroup = "debuff",
                         onEUIBar = isOnThisBar,
-                        isKnown = IsPlayerSpell and IsPlayerSpell(sid) or false,
+                        -- Class-neutral raid debuff families are not spells
+                        -- anyone learns; they are always available.
+                        isKnown = (not info.class)
+                            or (IsPlayerSpell and IsPlayerSpell(sid)) or false,
                         debuffScope = info.debuffScope or "personal",
                         linkedSpellIDs = info.linkedSpellIDs,
                     }
@@ -686,7 +689,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                     or info.recipientClasses[playerClass] == true)
                 -- Equipment-proc definitions are intentionally represented by
                 -- one catch-all row, never hundreds of item-specific rows.
-                if name and not info.isTrinketProc
+                if name and not info.isTrinketProc and not info.pickerHidden
                    and recipientMatches
                    and (not info.class or info.class == playerClass) then
                     local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)

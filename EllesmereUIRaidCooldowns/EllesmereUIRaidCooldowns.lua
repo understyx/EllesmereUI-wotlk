@@ -18,6 +18,46 @@ local LGT = LibStub and LibStub:GetLibrary("LibGroupTalents-1.0", true)
 local PREFIX = "EUIRCD1"
 local ROW_GAP, HEADER_H, MIN_WIDTH = 1, 22, 150
 local GROUP_KEY_PREFIX = "ERCD_Group_"
+local WHITE = "Interface\\Buttons\\WHITE8x8"
+local TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
+
+RCD.BAR_TEXTURES = {
+    flat            = WHITE,
+    melli           = TEX_BASE .. "melli.tga",
+    atrocity        = TEX_BASE .. "atrocity.tga",
+    fade            = TEX_BASE .. "fade.tga",
+    ["fade-right"]  = TEX_BASE .. "fade-right.tga",
+    beautiful       = TEX_BASE .. "beautiful.tga",
+    plating         = TEX_BASE .. "plating.tga",
+    divide          = TEX_BASE .. "divide.tga",
+    glass           = TEX_BASE .. "glass.tga",
+    ["gradient-lr"] = TEX_BASE .. "gradient-lr.tga",
+    ["gradient-rl"] = TEX_BASE .. "gradient-rl.tga",
+    matte           = TEX_BASE .. "matte.tga",
+    sheer           = TEX_BASE .. "sheer.tga",
+}
+RCD.BAR_TEXTURE_NAMES = {
+    flat            = "Flat",
+    melli           = "Melli (ElvUI)",
+    atrocity        = "Atrocity",
+    fade            = "Fade",
+    ["fade-right"]  = "Fade Right",
+    beautiful       = "Beautiful",
+    plating         = "Plating",
+    divide          = "Divide",
+    glass           = "Glass",
+    ["gradient-lr"] = "Gradient Right",
+    ["gradient-rl"] = "Gradient Left",
+    matte           = "Matte",
+    sheer           = "Sheer",
+}
+RCD.BAR_TEXTURE_ORDER = {
+    "flat", "melli", "atrocity", "fade", "fade-right", "beautiful", "plating",
+    "divide", "glass", "gradient-lr", "gradient-rl", "matte", "sheer",
+}
+if EUI.AppendSharedMediaTextures then
+    EUI.AppendSharedMediaTextures(RCD.BAR_TEXTURE_NAMES, RCD.BAR_TEXTURE_ORDER, nil, RCD.BAR_TEXTURES)
+end
 
 local defaults = {
     profile = {
@@ -35,6 +75,8 @@ local defaults = {
         announceTemplate = "%playerName - %spellLink - %state%target",
         requestTemplate = "Please use %spellName on me",
         notificationDuration = 5,
+        barTexture = "melli",
+        showBorders = true,
         savedState = {},
     },
 }
@@ -48,6 +90,14 @@ RCD.eventsActive = false
 RCD.usingSharedEvents = false
 RCD.preview = false
 RCD.restored = false
+-- Bumped whenever appearance settings or the accent change; rows restyle
+-- lazily on their next layout instead of on every countdown tick.
+RCD.styleGen = 1
+
+local function AccentColor()
+    if EUI.GetAccentColor then return EUI.GetAccentColor() end
+    return 0.05, 0.82, 0.62
+end
 
 local classSpecIDs = {
     WARRIOR = { 71, 72, 73 }, PALADIN = { 65, 66, 70 },
@@ -432,20 +482,30 @@ local function AcquireRow(parent)
     if not row then
         row = EUI.SafeCreateFrame("Button", nil, parent)
         row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        -- Icon and bar are separate bordered cells, matching EUI cast/swing bars.
+        row.iconFrame = EUI.SafeCreateFrame("Frame", nil, row)
+        row.icon = row.iconFrame:CreateTexture(nil, "ARTWORK")
+        row.icon:SetAllPoints()
+        row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        row.iconBorder = EUI.MakeBorder(row.iconFrame, 0, 0, 0, 1)
+        row.barFrame = EUI.SafeCreateFrame("Frame", nil, row)
+        row.bg = row.barFrame:CreateTexture(nil, "BACKGROUND")
         row.bg:SetAllPoints()
-        row.bg:SetTexture(0.06, 0.08, 0.10, 0.90)
-        row.bar = row:CreateTexture(nil, "BORDER")
+        row.bg:SetTexture(WHITE)
+        row.bg:SetVertexColor(0, 0, 0, 0.55)
+        row.bar = row.barFrame:CreateTexture(nil, "BORDER")
         row.bar:SetPoint("TOPLEFT")
         row.bar:SetPoint("BOTTOMLEFT")
-        row.icon = row:CreateTexture(nil, "ARTWORK")
-        row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        row.nameText = row:CreateFontString(nil, "OVERLAY")
-        row.spellText = row:CreateFontString(nil, "OVERLAY")
-        row.timeText = row:CreateFontString(nil, "OVERLAY")
+        row.barBorder = EUI.MakeBorder(row.barFrame, 0, 0, 0, 1)
+        row.textFrame = EUI.SafeCreateFrame("Frame", nil, row.barFrame)
+        row.textFrame:SetAllPoints()
+        row.textFrame:SetFrameLevel(row.barBorder._frame:GetFrameLevel() + 1)
+        row.nameText = row.textFrame:CreateFontString(nil, "OVERLAY")
+        row.nameText:SetJustifyH("LEFT")
+        row.spellText = row.textFrame:CreateFontString(nil, "OVERLAY")
+        row.spellText:SetJustifyH("LEFT")
+        row.timeText = row.textFrame:CreateFontString(nil, "OVERLAY")
         row.timeText:SetJustifyH("RIGHT")
-        row.targetText = row:CreateFontString(nil, "OVERLAY")
-        row.targetText:SetJustifyH("RIGHT")
         row:SetScript("OnClick", function(self, button)
             if RCD.preview then return end
             local data = self._data
@@ -513,32 +573,75 @@ local function ApplyGroupPosition(id)
     end
 end
 
-local function LayoutRow(row, data, group, width, height)
-    row._data = data
+local function StyleFont(fontString, path, size, outline, useShadow)
+    if EUI.PrimeFontShadow then EUI.PrimeFontShadow(fontString, useShadow) end
+    fontString:SetFont(path, size, outline)
+end
+
+-- Geometry, fonts, and borders only change with settings, so they are applied
+-- once per style generation rather than on every countdown tick.
+local function StyleRow(row, group, width, height)
+    local db = DB()
+    local showIcon = group.showIcon ~= false
+    if row._styleGen == RCD.styleGen and row._styleW == width
+        and row._styleH == height and row._styleIcon == showIcon then
+        return
+    end
+    row._styleGen, row._styleW, row._styleH, row._styleIcon = RCD.styleGen, width, height, showIcon
+
     row:SetSize(width, height)
-    local iconSize = math.max(8, height - 4)
-    row.icon:SetSize(iconSize, iconSize)
-    row.icon:ClearAllPoints()
-    row.icon:SetPoint("LEFT", row, "LEFT", 2, 0)
-    row.icon:SetTexture(SpellIcon(data.spellID, data.isItem))
-    if group.showIcon == false then row.icon:Hide() else row.icon:Show() end
+    local barLeft = 0
+    row.iconFrame:ClearAllPoints()
+    if showIcon then
+        row.iconFrame:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        row.iconFrame:SetSize(height, height)
+        row.iconFrame:Show()
+        barLeft = height + 1
+    else
+        row.iconFrame:Hide()
+    end
+    row.barFrame:ClearAllPoints()
+    row.barFrame:SetPoint("TOPLEFT", row, "TOPLEFT", barLeft, 0)
+    row.barFrame:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+    row._barWidth = math.max(1, width - barLeft)
+
+    local textureKey = db and db.barTexture or "melli"
+    local texture = EUI.ResolveTexturePath
+        and EUI.ResolveTexturePath(RCD.BAR_TEXTURES, textureKey, RCD.BAR_TEXTURES.melli)
+        or RCD.BAR_TEXTURES[textureKey] or RCD.BAR_TEXTURES.melli
+    row.bar:SetTexture(texture)
+
+    local showBorders = not db or db.showBorders ~= false
+    for _, border in ipairs({ row.iconBorder, row.barBorder }) do
+        if showBorders then border._frame:Show() else border._frame:Hide() end
+    end
 
     local font = EUI.GetFontPath and EUI.GetFontPath("raidCooldowns") or STANDARD_TEXT_FONT
+    local outline = EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("raidCooldowns") or ""
+    local useShadow = EUI.GetFontUseShadow and EUI.GetFontUseShadow("raidCooldowns") or false
     local fontSize = math.max(8, math.min(14, height - 10))
-    row.nameText:SetFont(font, fontSize, "")
-    row.spellText:SetFont(font, fontSize, "")
-    row.timeText:SetFont(font, fontSize, "OUTLINE")
-    row.targetText:SetFont(font, fontSize, "")
+    StyleFont(row.nameText, font, fontSize, outline, useShadow)
+    StyleFont(row.spellText, font, fontSize, outline, useShadow)
+    StyleFont(row.timeText, font, fontSize, outline, useShadow)
+
     row.nameText:ClearAllPoints()
-    row.nameText:SetPoint("LEFT", group.showIcon == false and row or row.icon,
-        group.showIcon == false and "LEFT" or "RIGHT", group.showIcon == false and 4 or 5, 0)
-    row.nameText:SetWidth(math.max(60, width * 0.31))
+    row.nameText:SetPoint("LEFT", row.barFrame, "LEFT", 5, 0)
+    row.nameText:SetWidth(math.max(50, row._barWidth * 0.32))
+    row.timeText:ClearAllPoints()
+    row.timeText:SetPoint("RIGHT", row.barFrame, "RIGHT", -5, 0)
+    row.timeText:SetWidth(46)
     row.spellText:ClearAllPoints()
     row.spellText:SetPoint("LEFT", row.nameText, "RIGHT", 3, 0)
     row.spellText:SetPoint("RIGHT", row.timeText, "LEFT", -4, 0)
-    row.timeText:ClearAllPoints()
-    row.timeText:SetPoint("RIGHT", row, "RIGHT", -5, 0)
-    row.timeText:SetWidth(50)
+end
+
+local function LayoutRow(row, data, group, width, height)
+    row._data = data
+    StyleRow(row, group, width, height)
+    if row._iconKey ~= data.spellID then
+        row._iconKey = data.spellID
+        row.icon:SetTexture(SpellIcon(data.spellID, data.isItem))
+    end
 
     local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[data.class]
     row.nameText:SetText(ShortName(data.name) or "Unknown")
@@ -550,22 +653,25 @@ local function LayoutRow(row, data, group, width, height)
     end
     row.spellText:SetText(spellText)
     row.timeText:SetText(FormatTime(data.remaining))
-    if data.remaining <= 0 then
-        row.timeText:SetTextColor(0.15, 1, 0.35)
+    local ready = data.remaining <= 0
+    if ready then
+        row.timeText:SetTextColor(0.35, 1, 0.5)
     elseif data.remaining < 10 then
-        row.timeText:SetTextColor(1, 0.2, 0.2)
+        row.timeText:SetTextColor(1, 0.35, 0.35)
     else
-        row.timeText:SetTextColor(1, 0.82, 0)
+        row.timeText:SetTextColor(1, 1, 1)
     end
-    local pct = data.remaining > 0 and math.max(0, 1 - data.remaining / math.max(1, data.duration)) or 1
-    row.bar:SetWidth(math.max(1, width * pct))
+    local pct = ready and 1 or math.max(0, 1 - data.remaining / math.max(1, data.duration))
+    row.bar:SetWidth(math.max(1, (row._barWidth or width) * pct))
     if group.colorBarByClass and color then
-        row.bar:SetTexture(color.r, color.g, color.b, 0.35)
-    elseif data.remaining <= 0 then
-        row.bar:SetTexture(0.08, 0.55, 0.22, 0.30)
+        row.bar:SetVertexColor(color.r, color.g, color.b, ready and 0.85 or 0.6)
+    elseif ready then
+        row.bar:SetVertexColor(0.2, 0.75, 0.4, 0.75)
     else
-        row.bar:SetTexture(0.05, 0.50, 0.78, 0.35)
+        local r, g, b = AccentColor()
+        row.bar:SetVertexColor(r, g, b, 0.6)
     end
+    row.icon:SetDesaturated(not ready and data.remaining > 0)
 end
 
 local function FillRow(rows, index, guid, name, class, role, specID, spellID,
@@ -703,18 +809,43 @@ function RCD:CreateGroupFrame(id)
     frame.header = frame:CreateTexture(nil, "BACKGROUND")
     frame.header:SetPoint("TOPLEFT")
     frame.header:SetPoint("TOPRIGHT")
-    frame.header:SetHeight(HEADER_H)
-    frame.header:SetTexture(0.04, 0.06, 0.08, 0.94)
+    frame.header:SetHeight(HEADER_H - 3)
+    frame.header:SetTexture(WHITE)
+    frame.header:SetVertexColor(0, 0, 0, 0.55)
+    frame.headerLine = frame:CreateTexture(nil, "BORDER")
+    frame.headerLine:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, 0)
+    frame.headerLine:SetPoint("TOPRIGHT", frame.header, "BOTTOMRIGHT", 0, 0)
+    frame.headerLine:SetHeight(1)
+    frame.headerLine:SetTexture(WHITE)
     frame.title = frame:CreateFontString(nil, "OVERLAY")
-    frame.title:SetFont(EUI.GetFontPath and EUI.GetFontPath("raidCooldowns") or STANDARD_TEXT_FONT, 12, "")
-    frame.title:SetPoint("LEFT", frame, "TOPLEFT", 5, -HEADER_H / 2)
-    frame.title:SetText(group.name)
-    local ar, ag, ab = 0.05, 0.82, 0.62
-    if EUI.GetAccentColor then ar, ag, ab = EUI.GetAccentColor() end
-    frame.title:SetTextColor(ar, ag, ab)
+    frame.title:SetPoint("LEFT", frame.header, "LEFT", 5, 0)
     self.groupFrames[id] = frame
+    -- The title must have a font before SetText; StyleGroupFrame sets it.
+    self:StyleGroupFrame(frame)
+    frame.title:SetText(group.name)
     ApplyGroupPosition(id)
     return frame
+end
+
+function RCD:StyleGroupFrame(frame)
+    local r, g, b = AccentColor()
+    local font = EUI.GetFontPath and EUI.GetFontPath("raidCooldowns") or STANDARD_TEXT_FONT
+    local outline = EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("raidCooldowns") or ""
+    local useShadow = EUI.GetFontUseShadow and EUI.GetFontUseShadow("raidCooldowns") or false
+    StyleFont(frame.title, font, 12, outline, useShadow)
+    frame.title:SetTextColor(r, g, b)
+    frame.headerLine:SetVertexColor(r, g, b, 0.8)
+end
+
+function RCD:ApplyStyle()
+    self.styleGen = self.styleGen + 1
+    for _, frame in pairs(self.groupFrames) do self:StyleGroupFrame(frame) end
+    if self.requestFrame then self:StyleRequestFrame() end
+    self:RefreshAllGroups()
+end
+
+if EUI.RegAccent then
+    EUI.RegAccent({ type = "callback", fn = function() RCD:ApplyStyle() end })
 end
 
 function RCD:DestroyGroupFrame(id)
@@ -854,21 +985,68 @@ function RCD:ShowRequest(sender, spellID)
     if not db then return end
     if not self.requestFrame then
         local frame = EUI.SafeCreateFrame("Frame", nil, UIParent)
-        frame:SetSize(500, 70)
+        frame:SetSize(360, 52)
         frame:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
-        frame.text = frame:CreateFontString(nil, "OVERLAY")
-        frame.text:SetFont(EUI.GetFontPath and EUI.GetFontPath("raidCooldowns") or STANDARD_TEXT_FONT, 22, "OUTLINE")
-        frame.text:SetPoint("CENTER")
+        frame:SetFrameStrata("HIGH")
+        frame.bg = frame:CreateTexture(nil, "BACKGROUND")
+        frame.bg:SetAllPoints()
+        frame.bg:SetTexture(WHITE)
+        frame.bg:SetVertexColor(0, 0, 0, 0.7)
+        frame.stripe = frame:CreateTexture(nil, "BORDER")
+        frame.stripe:SetPoint("TOPLEFT")
+        frame.stripe:SetPoint("BOTTOMLEFT")
+        frame.stripe:SetWidth(3)
+        frame.stripe:SetTexture(WHITE)
+        frame.icon = frame:CreateTexture(nil, "ARTWORK")
+        frame.icon:SetSize(40, 40)
+        frame.icon:SetPoint("LEFT", frame, "LEFT", 9, 0)
+        frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        frame.border = EUI.MakeBorder(frame, 0, 0, 0, 1)
+        frame.textFrame = EUI.SafeCreateFrame("Frame", nil, frame)
+        frame.textFrame:SetAllPoints()
+        frame.textFrame:SetFrameLevel(frame.border._frame:GetFrameLevel() + 1)
+        frame.sender = frame.textFrame:CreateFontString(nil, "OVERLAY")
+        frame.sender:SetPoint("TOPLEFT", frame.icon, "TOPRIGHT", 10, -2)
+        frame.sender:SetPoint("RIGHT", frame, "RIGHT", -10, 0)
+        frame.sender:SetJustifyH("LEFT")
+        frame.spell = frame.textFrame:CreateFontString(nil, "OVERLAY")
+        frame.spell:SetPoint("BOTTOMLEFT", frame.icon, "BOTTOMRIGHT", 10, 1)
+        frame.spell:SetPoint("RIGHT", frame, "RIGHT", -10, 0)
+        frame.spell:SetJustifyH("LEFT")
         self.requestFrame = frame
+        self:StyleRequestFrame()
     end
-    local spellName = SpellNameAndLink(spellID)
-    self.requestFrame.text:SetText((ShortName(sender) or "Someone") .. " requests " .. (spellName or "a cooldown"))
-    self.requestFrame:Show()
+    local frame = self.requestFrame
+    local senderClass
+    for _, member in pairs(self.roster) do
+        if member.name == sender or ShortName(member.name) == ShortName(sender) then
+            senderClass = member.class
+            break
+        end
+    end
+    local color = senderClass and RAID_CLASS_COLORS and RAID_CLASS_COLORS[senderClass]
+    frame.sender:SetText(EUI.Lf and EUI.Lf("%s requests", ShortName(sender) or "Someone")
+        or ((ShortName(sender) or "Someone") .. " requests"))
+    frame.sender:SetTextColor(color and color.r or 1, color and color.g or 1, color and color.b or 1)
+    frame.spell:SetText(GetSpellInfo(spellID) or "a cooldown")
+    frame.icon:SetTexture(SpellIcon(spellID))
+    frame:Show()
     if self.requestTimer then self.requestTimer:Cancel() end
     self.requestTimer = C_Timer.NewTimer(db.notificationDuration or 5, function()
         if RCD.requestFrame then RCD.requestFrame:Hide() end
         RCD.requestTimer = nil
     end)
+end
+
+function RCD:StyleRequestFrame()
+    local frame = self.requestFrame
+    local r, g, b = AccentColor()
+    local font = EUI.GetFontPath and EUI.GetFontPath("raidCooldowns") or STANDARD_TEXT_FONT
+    local outline = EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("raidCooldowns") or ""
+    local useShadow = EUI.GetFontUseShadow and EUI.GetFontUseShadow("raidCooldowns") or false
+    frame.stripe:SetVertexColor(r, g, b, 1)
+    StyleFont(frame.sender, font, 12, outline, useShadow)
+    StyleFont(frame.spell, font, 18, outline, useShadow)
 end
 
 function RCD:OnAddonMessage(_, prefix, message, _, sender)
@@ -1033,7 +1211,7 @@ function RCD:RefreshConfiguration()
     if not db or not db.enabled then return end
     self:RegisterAllUnlocks()
     for id in pairs(self.groupFrames) do ApplyGroupPosition(id) end
-    self:RefreshAllGroups()
+    self:ApplyStyle()
 end
 
 function RCD:OnInitialize()
@@ -1044,5 +1222,8 @@ function RCD:OnEnable()
     self:ApplyEnabled()
 end
 
-_G._EUI_RaidCooldowns_Apply = function() RCD:ApplyEnabled() end
+_G._EUI_RaidCooldowns_Apply = function()
+    RCD:ApplyEnabled()
+    RCD:RefreshConfiguration()
+end
 _G._EUI_RaidCooldowns_Refresh = function() RCD:RefreshConfiguration() end

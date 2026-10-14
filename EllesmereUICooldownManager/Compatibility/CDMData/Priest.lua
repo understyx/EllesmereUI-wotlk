@@ -94,7 +94,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 40,
     spellID = 53007,
-    spellIDs = { 53005, 53006, 53007 },
+    spellIDs = { 47540, 53005, 53006, 53007 },
     iconSpellID = 53007,
     trackingType = "cooldown",
     resolvers = {
@@ -131,7 +131,7 @@ Register({
     category = CDM_CATEGORY_ESSENTIAL,
     order = 60,
     spellID = 48089,
-    spellIDs = { 48088, 48089 },
+    spellIDs = { 34861, 34863, 34864, 34865, 34866, 48088, 48089 },
     iconSpellID = 48089,
     trackingType = "cooldown",
     resolvers = {
@@ -199,6 +199,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 10,
     spellID = 10890,
+    spellIDs = { 8122, 8124, 10888, 10890 },
     iconSpellID = 10890,
     trackingType = "cooldown",
 })
@@ -257,6 +258,7 @@ Register({
     category = CDM_CATEGORY_UTILITY,
     order = 60,
     spellID = 48173,
+    spellIDs = { 19236, 19238, 19240, 19241, 19242, 19243, 25437, 48172, 48173 },
     iconSpellID = 48173,
     trackingType = "cooldown",
     resolvers = {
@@ -353,6 +355,7 @@ Register({
     category = CDM_CATEGORY_BUFF_BAR,
     order = 10,
     spellID = 48168,
+    spellIDs = { 588, 7128, 602, 1006, 10951, 10952, 25431, 48040, 48168 },
     auraSpellID = 48168,
     iconSpellID = 48168,
     trackingType = "aura",

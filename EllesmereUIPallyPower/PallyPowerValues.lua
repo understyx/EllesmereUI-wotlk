@@ -37,6 +37,7 @@ PALLYPOWER_DEFAULT_VALUES = {
 		alignClassButtons = "Top Right",
 		alignPlayerButtons = "compact-left",
 		edges = true,
+		euiColors = true,
 		hidePlayerButtons = false,
 		PlainButtons = false,
 		HideKeyText = false,
