@@ -204,6 +204,80 @@ function ns.GetDMTypeName(dmType)
     return L("Damage Done")
 end
 
+-- EUI-style glyphs for imported Skada modes, keyed by Skada moduleName (the
+-- unlocalized name). Skada's own metadata icons are full-color spell icons
+-- that clash with the flat white header/home-card glyphs.
+local SKADA_MODE_ICONS = {
+    ["DPS"]                    = "dm_skada_dps.tga",
+    ["Damage Done By Spell"]   = "dm_skada_spell.tga",
+    ["Damage Done By School"]  = "dm_skada_school.tga",
+    ["Useful Damage"]          = "dm_skada_useful.tga",
+    ["Overkill"]               = "dm_skada_overkill.tga",
+    ["Absorbed Damage"]        = "dm_skada_absorbed.tga",
+    ["Friendly Fire"]          = "dm_skada_friendlyfire.tga",
+    ["Enemy Damage Done"]      = "dm_skada_enemydone.tga",
+    ["My Spells"]              = "dm_skada_myspells.tga",
+    ["Comparison"]             = "dm_skada_compare.tga",
+    ["DTPS"]                   = "dm_skada_dtps.tga",
+    ["Damage Taken By Spell"]  = "dm_skada_takenspell.tga",
+    ["Avoidance & Mitigation"] = "dm_skada_avoidance.tga",
+    ["Parry-Haste"]            = "dm_skada_parry.tga",
+    ["Fails"]                  = "dm_home_avoidable.tga",
+    ["HPS"]                    = "dm_skada_hps.tga",
+    ["Healing Done By Spell"]  = "dm_skada_healspell.tga",
+    ["Healing Taken"]          = "dm_skada_healtaken.tga",
+    ["Overhealing"]            = "dm_skada_overheal.tga",
+    ["Total Healing"]          = "dm_skada_totalheal.tga",
+    ["Absorbs"]                = "dm_skada_absorbs.tga",
+    ["Absorbs and Healing"]    = "dm_skada_absorbheal.tga",
+    ["Enemy Healing Done"]     = "dm_skada_enemyheal.tga",
+    ["Buffs"]                  = "dm_skada_buffs.tga",
+    ["Debuffs"]                = "dm_skada_debuffs.tga",
+    ["Enemy Buffs"]            = "dm_skada_enemybuffs.tga",
+    ["Enemy Debuffs"]          = "dm_skada_enemydebuffs.tga",
+    ["CC Done"]                = "dm_skada_ccdone.tga",
+    ["CC Taken"]               = "dm_skada_cctaken.tga",
+    ["CC Breaks"]              = "dm_skada_ccbreaks.tga",
+    ["Activity"]               = "dm_skada_activity.tga",
+    ["Threat"]                 = "dm_skada_threat.tga",
+    ["Potions"]                = "dm_skada_potions.tga",
+    ["Healthstones"]           = "dm_skada_healthstones.tga",
+    ["Resurrects"]             = "dm_skada_resurrects.tga",
+    ["Sunder Counter"]         = "dm_skada_sunder.tga",
+    ["Resources"]              = "dm_skada_mana.tga",
+    ["Power gained: Mana"]        = "dm_skada_mana.tga",
+    ["Power gained: Rage"]        = "dm_skada_rage.tga",
+    ["Power gained: Energy"]      = "dm_skada_energy.tga",
+    ["Power gained: Runic Power"] = "dm_skada_runic.tga",
+}
+-- Fallback for modes not listed above (third-party Skada modules).
+local SKADA_CATEGORY_ICONS = {
+    ["Damage Done"]         = "dm_home_damage.tga",
+    ["Damage Taken"]        = "dm_home_taken.tga",
+    ["Absorbs and Healing"] = "dm_home_healing.tga",
+    ["Buffs and Debuffs"]   = "dm_skada_buffs.tga",
+    ["Crowd Control"]       = "dm_skada_ccdone.tga",
+    ["Enemies"]             = "dm_home_enemytaken.tga",
+    ["Resources"]           = "dm_skada_mana.tga",
+}
+
+-- Skada moduleName for each built-in meter type (used by the report button).
+ns.DM_TYPE_TO_SKADA = {
+    [Enum.DamageMeterType.DamageDone]           = "Damage",
+    [Enum.DamageMeterType.HealingDone]          = "Healing",
+    [Enum.DamageMeterType.DamageTaken]          = "Damage Taken",
+    [Enum.DamageMeterType.AvoidableDamageTaken] = "Fails",
+    [Enum.DamageMeterType.EnemyDamageTaken]     = "Enemy Damage Taken",
+    [Enum.DamageMeterType.Interrupts]           = "Interrupts",
+    [Enum.DamageMeterType.Dispels]              = "Dispels",
+    [Enum.DamageMeterType.Deaths]               = "Deaths",
+}
+-- Public channels Skada also refuses to report to.
+ns.REPORT_IGNORED_CHANNELS = {
+    ["Trade"] = true, ["General"] = true, ["LocalDefense"] = true,
+    ["LookingForGroup"] = true, ["WorldDefense"] = true, ["GuildRecruitment"] = true,
+}
+
 function ns.GetDMTypeIcon(dmType)
     if not dmType then return ns.DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone] end
     if ns.DM_TYPE_ICONS[dmType] then return ns.DM_TYPE_ICONS[dmType] end
@@ -211,10 +285,10 @@ function ns.GetDMTypeIcon(dmType)
     if Skada and Skada.GetModes then
         for _, m in ipairs(Skada:GetModes()) do
             if m.moduleName == dmType or m.localeName == dmType then
-                if m.metadata and m.metadata.icon then
-                    return m.metadata.icon
-                end
-                break
+                local file = SKADA_MODE_ICONS[m.moduleName]
+                    or SKADA_CATEGORY_ICONS[m.category or ""]
+                    or "dm_skada_other.tga"
+                return MEDIA .. file
             end
         end
     end
@@ -391,6 +465,8 @@ local DM_DEFAULTS = {
             standaloneTimerDesatOOC = false,
             refreshRate = 1,
             hideResetButton = false, -- display the "reset data" button on the damage meter header
+            hideReportButton = false, -- display the "report" button on the damage meter header
+            reportLines = 10,        -- lines sent per report
             hideSkadaWindows = true, -- hide default Skada windows when EllesmereUI Damage Meters is active
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
@@ -528,12 +604,18 @@ local function ResetButtonHidden(cfg)
     return cfg.hideResetButton == true
 end
 
+local function HeaderButtonHidden(W, btn, cfg)
+    cfg = cfg or DB()
+    if btn == W.resetBtn then return ResetButtonHidden(cfg) end
+    if btn == W.reportBtn then return cfg.hideReportButton == true end
+    return false
+end
+
 local function GetHeaderLayoutButtons(W, cfg)
     local buttons = {}
     if not W or not W.hdrBtns then return buttons end
-    local hideReset = ResetButtonHidden(cfg)
     for _, btn in ipairs(W.hdrBtns) do
-        if btn ~= W.resetBtn or not hideReset then
+        if not HeaderButtonHidden(W, btn, cfg) then
             buttons[#buttons + 1] = btn
         end
     end
@@ -553,9 +635,9 @@ end
 
 local function SetHeaderButtonsShown(W, shown)
     if not W or not W.hdrBtns then return end
-    local hideReset = ResetButtonHidden()
+    local cfg = DB()
     for _, btn in ipairs(W.hdrBtns) do
-        if btn == W.resetBtn and hideReset then
+        if HeaderButtonHidden(W, btn, cfg) then
             btn:Hide()
             btn:SetAlpha(0)
             btn:EnableMouse(false)
@@ -2971,8 +3053,103 @@ local function CreateDMWindow(winIdx)
         end
     end)
 
+    -- Report button: EDM-skinned replacement for Skada's AceGUI report window.
+    -- Reports this window's mode + segment through Skada:Report, so the output
+    -- (and the Copy & Paste export) is identical to Skada's own.
+    local function ReportModuleName()
+        local t = W.curDMType or Enum.DamageMeterType.DamageDone
+        if type(t) == "string" then return t end
+        return ns.DM_TYPE_TO_SKADA[t]
+    end
+    local function ReportSetName()
+        if W.curSessionID then return W.curSessionID end
+        return (W.curSession == Enum.DamageMeterSessionType.Overall) and "total" or "current"
+    end
+    local function SendReport(chan, chantype)
+        local Skada = _G.Skada
+        if not Skada or not Skada.Report then return end
+        local modName = ReportModuleName()
+        if not modName or not Skada:GetModule(modName, true) then
+            Skada:Print(L("This meter type cannot be reported."))
+            return
+        end
+        local c = DB()
+        c.reportLast = { chan = chan, chantype = chantype }
+        if chantype == "channel" and Skada.profile and Skada.profile.report then
+            -- Skada resolves custom channel numbers from its own saved setting.
+            Skada.profile.report.channel = chan
+        end
+        Skada:Report(chan, chantype, modName, ReportSetName(), c.reportLines or 10)
+    end
+    local function InRaid() return (GetNumRaidMembers() or 0) > 0 end
+    local function InParty() return InRaid() or (GetNumPartyMembers() or 0) > 0 end
+    local function InBG() local _, t = IsInInstance(); return t == "pvp" or t == "arena" end
+    local function NoGuild() return not IsInGuild() end
+    local function TargetName()
+        if UnitExists("target") and UnitIsPlayer("target") and not UnitIsUnit("target", "player") then
+            local name, realm = UnitName("target")
+            if realm and realm ~= "" then name = name .. "-" .. realm end
+            return name
+        end
+    end
+    local function BuildReportMenu()
+        local last = DB().reportLast
+        local function entry(label, chan, chantype, isDisabled)
+            return {
+                text = label, isDisabled = isDisabled,
+                isActive = last and last.chan == chan and last.chantype == chantype,
+                onClick = function() SendReport(chan, chantype) end,
+            }
+        end
+        local items = {
+            { text = L("Report") .. ": " .. ns.GetDMTypeName(W.curDMType), isHeader = true },
+            { text = L("Lines"), isInput = true, min = 1,
+              getValue = function() return DB().reportLines or 10 end,
+              setValue = function(v) DB().reportLines = math.min(v, 25) end },
+            "---",
+            entry(L("Say"), "say", "preset"),
+            entry(L("Party"), "party", "preset", function() return not InParty() end),
+            entry(L("Raid"), "raid", "preset", function() return not InRaid() end),
+            entry(L("Battleground"), "battleground", "preset", function() return not InBG() end),
+            entry(L("Guild"), "guild", "preset", NoGuild),
+            entry(L("Officer"), "officer", "preset", NoGuild),
+            {
+                text = L("Whisper Target"),
+                isDisabled = function() return not TargetName() end,
+                onClick = function()
+                    local name = TargetName()
+                    if name then SendReport(name, "whisper") end
+                end,
+            },
+        }
+        -- Custom chat channels (skip the public spam channels, as Skada does)
+        local chans = {}
+        local list = { GetChannelList() }
+        for i = 1, #list, 2 do
+            local num, name = list[i], list[i + 1]
+            if type(name) == "string" and not ns.REPORT_IGNORED_CHANNELS[name] then
+                chans[#chans + 1] = entry(num .. ". " .. name, name, "channel")
+            end
+        end
+        if #chans > 0 then
+            items[#items + 1] = { text = L("Channels"), children = chans }
+        end
+        items[#items + 1] = "---"
+        items[#items + 1] = entry(L("Self"), "self", "self")
+        items[#items + 1] = entry(L("Copy & Paste"), "text", "preset")
+        return items
+    end
+    W.reportBtn = MakeHeaderBtn("dm_report.tga", -(btnSize * 3 + btnPad * 4 + 2), L("Report") .. "\n" .. L("Shift-click to repeat the last report"), function(self)
+        local last = DB().reportLast
+        if IsShiftKeyDown() and last then
+            SendReport(last.chan, last.chantype)
+            return
+        end
+        ShowEDMMenu(BuildReportMenu(), self)
+    end)
+
     -- Ordered list of header buttons for live resize/reposition
-    W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.resetBtn, W.winActionBtn }
+    W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.reportBtn, W.resetBtn, W.winActionBtn }
     LayoutHeaderButtons(W, cfg, btnSize)
 
     -- Truncate the header title so it never runs under the right-side header
@@ -4263,7 +4440,6 @@ local function CreateDMWindow(winIdx)
     local CARD_PAD_TOP = 6
     local CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A = 0.12, 0.12, 0.12, 0.8
     local CARD_HL_A    = 0.18
-    local HOME_MAX     = 8
 
     -- HOME_ICONS is at file scope
 
@@ -4401,7 +4577,7 @@ local function CreateDMWindow(winIdx)
 
         -- "+ ADD NEW" button (full width, below the grid)
         local addRow = (col > 0) and (row + 1) or row
-        if #bookmarks < HOME_MAX then
+        do
             if not homeAddBtn then
                 homeAddBtn = EllesmereUI.SafeCreateFrame("Button", nil, homeChild)
                 homeAddBtn:SetHeight(CARD_H)
@@ -4459,8 +4635,6 @@ local function CreateDMWindow(winIdx)
             end)
             homeAddBtn:Show()
             addRow = addRow + 1
-        elseif homeAddBtn then
-            homeAddBtn:Hide()
         end
 
         -- Set scroll child height to fit all content + 5px bottom padding

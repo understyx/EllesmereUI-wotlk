@@ -33,7 +33,7 @@ local function LayoutMerchantTabs()
 	if not shell or laying then return end
 	laying = true
 	local tabs = { _G.MerchantFrameTab1, _G.MerchantFrameTab2 }
-	WSkin:LayoutRetailTabRow(tabs, shell, 110, 0)
+	WSkin:LayoutRetailTabRow(tabs, shell)
 	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
 		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
 	for i, tab in ipairs(tabs) do WSkin:UpdateRetailTab(tab, i == selected) end

@@ -849,6 +849,10 @@ local defaults = {
         -- Defensives & Externals
         showDefensives   = true,
         showExternals    = true,
+        -- Custom: user-chosen buffs shown in the defensives row from any
+        -- caster. Exclusive with Defensives/Externals (see ns.IsDefCustomMode).
+        showDefCustom    = false,
+        defCustomSpells  = { [1044] = true }, -- Hand of Freedom
         defPosition      = "center",
         defOffsetX       = 0,
         defOffsetY       = 0,
@@ -3941,9 +3945,6 @@ local function StyleButton(button)
 
     -- Defensive/external icon pool (same structure as debuff icons)
     local DEF_CAP = 4
-    -- 12.1: containers own defensives; skip the dead legacy pool (see the
-    -- debuff pool note above).
-    if ns.RFC_OwnsDefensives then DEF_CAP = 0 end
     d.defIcons = {}
     for i = 1, DEF_CAP do
         local defIcon = CreateFrame("Frame", nil, button)
@@ -5422,22 +5423,27 @@ end
 
 -------------------------------------------------------------------------------
 --  Defensive/external aura detection and rendering
---  Scans HELPFUL auras, tests against EXTERNAL_DEFENSIVE and BIG_DEFENSIVE
---  filters, renders matching icons with secret-safe cooldown swipe.
+--  Scans HELPFUL auras and classifies them through the CDM aura-tag catalog
+--  (defensive / external) plus the user's custom spell list.
 -------------------------------------------------------------------------------
 local C_UnitAuras_GetAuraDuration = C_UnitAuras and C_UnitAuras.GetAuraDuration
 
+-- Custom replaces the catalog classification rather than adding to it. Older
+-- profiles stored all three toggles on; those stay in Defensives/Externals
+-- mode until the user picks Custom.
+function ns.IsDefCustomMode(s)
+    return s.showDefCustom == true and not s.showDefensives and not s.showExternals
+end
+
 local function UpdateDefensives(button, unit, updateInfo)
-    -- 12.1: defensive/external rendering is container-owned
-    -- (EUI_RaidFrames_AuraContainers). Single gate for every call site.
-    if ns.RFC_OwnsDefensives then return end
     local d = GetFFD(button)
     if not d.defIcons then return end
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
 
     local showDef = s.showDefensives
     local showExt = s.showExternals
-    if not showDef and not showExt then
+    local customSpells = ns.IsDefCustomMode(s) and s.defCustomSpells or nil
+    if not showDef and not showExt and not customSpells then
         for _, icon in ipairs(d.defIcons) do
             icon:Hide()
             if icon._durText then
@@ -5470,23 +5476,22 @@ local function UpdateDefensives(button, unit, updateInfo)
         if not needRescan then return end
     end
 
-    -- Scan all HELPFUL auras for defensive matches.
-    -- BIG_DEFENSIVE includes both self-defensives AND externals.
-    -- EXTERNAL_DEFENSIVE only includes externals cast by other players.
-    -- When only Defensives is on, exclude auras that pass EXTERNAL_DEFENSIVE.
+    -- Scan all HELPFUL auras for defensive matches. An aura is an external
+    -- when it carries the catalog's external tag AND another unit cast it;
+    -- tagged defensives that are not externals are self-defensives.
     if not d.defActiveIDs then d.defActiveIDs = {} else wipe(d.defActiveIDs) end
     local shown = 0
     local defSz = s.defSize or 22
     local defBdrSz = s.defBorderSize or 1
     local defBdrC = s.defBorderColor or { r = 0, g = 0, b = 0 }
     local PP2 = PP
-    local getWrathTags = ns.IS_WRATH and C_CooldownViewer
-        and C_CooldownViewer.GetAuraSpellTags
+    local getAuraTags = (showDef or showExt) and C_CooldownViewer
+        and C_CooldownViewer.GetAuraSpellTags or nil
 
-    -- The Wrath implementation is deliberately catalog-driven. If CDM is not
-    -- loaded there is nothing this display can classify, so avoid a pointless
-    -- full helpful-aura scan on every raid aura event.
-    if ns.IS_WRATH and not getWrathTags then
+    -- Classification is catalog-driven. If CDM is not loaded and there is no
+    -- custom list, nothing can match, so skip the full helpful-aura scan on
+    -- every raid aura event.
+    if not getAuraTags and not customSpells then
         for _, icon in ipairs(d.defIcons) do
             icon:Hide()
             if icon._durText then
@@ -5505,55 +5510,33 @@ local function UpdateDefensives(button, unit, updateInfo)
         if shown >= #d.defIcons then break end
 
         local iid = auraData.auraInstanceID
-        if iid and C_UnitAuras_IsAuraFilteredOutByInstanceID then
-            -- Retail needs Blizzard's aura filters (and their secret-value
-            -- handling). Wrath auras expose spell IDs, and CDM already indexes
-            -- their defensive/external tags. Reading that table once avoids two
-            -- compatibility-filter walks for every helpful aura on every
-            -- UNIT_AURA event -- the source of the severe raid slowdown.
-            local wrathTags = getWrathTags and getWrathTags(auraData.spellId)
-            local isExternal, isBigDef
-            if ns.IS_WRATH then
-                isExternal = wrathTags and wrathTags.external == true or false
-                isBigDef = wrathTags and wrathTags.defensive == true or false
-                -- The Wrath catalog describes spells that can be externals;
-                -- the live caster decides whether this particular aura is one.
-                -- Unknown casters retain the catalog classification for cores
-                -- that do not populate UnitAura's source token.
-                if isExternal and auraData.sourceUnit and UnitIsUnit then
-                    isExternal = not UnitIsUnit(auraData.sourceUnit, unit)
-                end
-                -- Bone Shield is a real tank defensive, but Wrath Unholy DPS
-                -- also carries it as part of the normal talent build. Respect
-                -- the shared role detector (including manual overrides) so it
-                -- is not promoted to a defensive indicator for DPS players.
-                if isBigDef and auraData.spellId == 49222
-                    and EllesmereUI.RoleDetector
-                    and EllesmereUI.RoleDetector:GetRole(unit) == "DAMAGER" then
-                    isBigDef = false
-                end
-            else
-                isExternal = not C_UnitAuras_IsAuraFilteredOutByInstanceID(
-                    unit, iid, "HELPFUL|EXTERNAL_DEFENSIVE")
-                isBigDef = not C_UnitAuras_IsAuraFilteredOutByInstanceID(
-                    unit, iid, "HELPFUL|BIG_DEFENSIVE")
+        if iid then
+            local spellId = auraData.spellId
+            local tags = getAuraTags and getAuraTags(spellId)
+            local isExternal = tags and tags.external == true or false
+            local isBigDef = tags and tags.defensive == true or false
+            -- The catalog describes spells that can be externals; the live
+            -- caster decides whether this particular aura is one. Unknown
+            -- casters retain the catalog classification for cores that do
+            -- not populate UnitAura's source token.
+            if isExternal and auraData.sourceUnit and UnitIsUnit then
+                isExternal = not UnitIsUnit(auraData.sourceUnit, unit)
             end
-            -- Blizzard's EXTERNAL_DEFENSIVE filter omits Blessing of Freedom (a
-            -- movement utility, not a damage defensive), and Freedom is a secret
-            -- aura so its spellId can't be read directly. Identify the player's
-            -- OWN Freedom via the spec-scoped fingerprint and treat it as an
-            -- external. Gated on Paladin class (only caster of Freedom) so other
-            -- viewers never run the fingerprint. All three Paladin specs resolve
-            -- here: Holy natively, Protection/Retribution via the Buff Manager
-            -- borrow-spec entries that route them to the Holy spell table.
-            if not ns.IS_WRATH and not isExternal and playerClassToken == "PALADIN"
-                and ns.BM_IdentifySecretAura
-                and ns.BM_IdentifySecretAura(unit, iid) == 1044 then
-                isExternal = true
+            -- Bone Shield is a real tank defensive, but Unholy DPS also
+            -- carries it as part of the normal talent build. Respect the
+            -- shared role detector (including manual overrides) so it is not
+            -- promoted to a defensive indicator for DPS players.
+            if isBigDef and spellId == 49222
+                and EllesmereUI.RoleDetector
+                and EllesmereUI.RoleDetector:GetRole(unit) == "DAMAGER" then
+                isBigDef = false
             end
             local isSelfDef  = isBigDef and not isExternal
+            -- Custom list: user-chosen buffs (Freedom, Power Infusion, ...)
+            -- shown from any caster, independent of the catalog tags.
+            local isCustom = customSpells and customSpells[spellId] == true
 
-            local isDefensive = (showExt and isExternal) or (showDef and isSelfDef)
+            local isDefensive = (showExt and isExternal) or (showDef and isSelfDef) or isCustom
 
             if isDefensive then
                 d.defActiveIDs[iid] = true
@@ -10719,7 +10702,7 @@ do
             "oorAlpha", "showTooltip", "tooltipMode",
         },
         defensives = {
-            "showDefensives", "showExternals",
+            "showDefensives", "showExternals", "showDefCustom", "defCustomSpells",
             "defPosition", "defOffsetX", "defOffsetY", "defGrowDirection",
             "defSize", "defIconZoom", "defSpacing", "defBorderSize", "defBorderColor",
             "defShowSwipe", "defShowDurText", "defDurTextColor", "defDurTextSize", "defDurTextOffsetX", "defDurTextOffsetY",
@@ -11710,7 +11693,7 @@ ns._PV_TANK_CLASSES   = { "WARRIOR", "PALADIN", "DEATHKNIGHT", "MONK", "DRUID", 
 ns._PV_HEALER_CLASSES = { "PRIEST", "PALADIN", "SHAMAN", "MONK", "DRUID", "EVOKER" }
 ns._PV_DPS_CLASSES    = ns._PV_CLASS_TOKENS
 ns._PV_EXT_SPELLS = {
-    33206, 47788, 6940, 53530, 1044,
+    33206, 47788, 6940, 10278, 3411,
 }
 ns._PV_DEF_SPELLS = {
     DEATHKNIGHT = { 48792, 48707 },
@@ -11934,6 +11917,11 @@ local function PvAuraPickIcon(auraType, frameIndex)
         end
         if showExt then
             for _, sid in ipairs(ns._PV_EXT_SPELLS) do pool[#pool + 1] = sid end
+        end
+        if s2 and ns.IsDefCustomMode(s2) and type(s2.defCustomSpells) == "table" then
+            for sid, enabled in pairs(s2.defCustomSpells) do
+                if enabled == true then pool[#pool + 1] = sid end
+            end
         end
         if #pool == 0 then return nil end
         return GetSpellIcon(pool[math.random(#pool)])
@@ -12193,7 +12181,8 @@ local function PvAuraTick()
     if not PvActive() then return end
     local now = GetTime()
     local s2 = PvSettings()
-    local wantDef = ns._defensivesPreviewVisible and (s2.showDefensives or s2.showExternals)
+    local wantDef = ns._defensivesPreviewVisible and (s2.showDefensives or s2.showExternals
+        or (ns.IsDefCustomMode(s2) and s2.defCustomSpells ~= nil))
     local wantDb = ns._debuffsPreviewVisible and s2.debuffFilter ~= "none"
 
     -- Expire finished auras. In Real/Overlay preview the random per-player auras

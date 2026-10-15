@@ -35,4 +35,5 @@ EUI_RaidFrames_ManagerPages.lua
 EUI_RF_TargetedSpells.lua
 
 # Options
+EUI_RaidFrames_DefCustomPicker.lua
 EUI_RaidFrames_Options.lua

@@ -9,54 +9,54 @@ local Spec = EUI.Spec
 
 local CLASS_SPECS = {
     WARRIOR = {
-        { id = 71, name = "Arms",        fileName = "WarriorArms",        role = "DAMAGER" },
-        { id = 72, name = "Fury",        fileName = "WarriorFury",        role = "DAMAGER" },
-        { id = 73, name = "Protection", fileName = "WarriorProtection", role = "TANK"    },
+        { id = 71, name = "Arms",        fileName = "WarriorArms",        role = "DAMAGER", icon = [[Interface\Icons\Ability_Warrior_SavageBlow]] },
+        { id = 72, name = "Fury",        fileName = "WarriorFury",        role = "DAMAGER", icon = [[Interface\Icons\Ability_Warrior_InnerRage]] },
+        { id = 73, name = "Protection", fileName = "WarriorProtection", role = "TANK", icon = [[Interface\Icons\Ability_Warrior_DefensiveStance]] },
     },
     PALADIN = {
-        { id = 65, name = "Holy",        fileName = "PaladinHoly",        role = "HEALER"  },
-        { id = 66, name = "Protection", fileName = "PaladinProtection", role = "TANK"    },
-        { id = 70, name = "Retribution", fileName = "PaladinRetribution", role = "DAMAGER" },
+        { id = 65, name = "Holy",        fileName = "PaladinHoly",        role = "HEALER", icon = [[Interface\Icons\Spell_Holy_HolyBolt]] },
+        { id = 66, name = "Protection", fileName = "PaladinProtection", role = "TANK", icon = [[Interface\Icons\Spell_Holy_DevotionAura]] },
+        { id = 70, name = "Retribution", fileName = "PaladinRetribution", role = "DAMAGER", icon = [[Interface\Icons\Spell_Holy_AuraOfLight]] },
     },
     HUNTER = {
-        { id = 253, name = "Beast Mastery", fileName = "HunterBeastMastery", role = "DAMAGER" },
-        { id = 254, name = "Marksmanship",  fileName = "HunterMarksmanship",  role = "DAMAGER" },
-        { id = 255, name = "Survival",      fileName = "HunterSurvival",      role = "DAMAGER" },
+        { id = 253, name = "Beast Mastery", fileName = "HunterBeastMastery", role = "DAMAGER", icon = [[Interface\Icons\Ability_Hunter_BeastTaming]] },
+        { id = 254, name = "Marksmanship",  fileName = "HunterMarksmanship",  role = "DAMAGER", icon = [[Interface\Icons\Ability_Marksmanship]] },
+        { id = 255, name = "Survival",      fileName = "HunterSurvival",      role = "DAMAGER", icon = [[Interface\Icons\Ability_Hunter_SwiftStrike]] },
     },
     ROGUE = {
-        { id = 259, name = "Assassination", fileName = "RogueAssassination", role = "DAMAGER" },
-        { id = 260, name = "Combat",        fileName = "RogueCombat",        role = "DAMAGER" },
-        { id = 261, name = "Subtlety",      fileName = "RogueSubtlety",      role = "DAMAGER" },
+        { id = 259, name = "Assassination", fileName = "RogueAssassination", role = "DAMAGER", icon = [[Interface\Icons\Ability_Rogue_Eviscerate]] },
+        { id = 260, name = "Combat",        fileName = "RogueCombat",        role = "DAMAGER", icon = [[Interface\Icons\Ability_BackStab]] },
+        { id = 261, name = "Subtlety",      fileName = "RogueSubtlety",      role = "DAMAGER", icon = [[Interface\Icons\Ability_Stealth]] },
     },
     PRIEST = {
-        { id = 256, name = "Discipline", fileName = "PriestDiscipline", role = "HEALER"  },
-        { id = 257, name = "Holy",       fileName = "PriestHoly",       role = "HEALER"  },
-        { id = 258, name = "Shadow",     fileName = "PriestShadow",     role = "DAMAGER" },
+        { id = 256, name = "Discipline", fileName = "PriestDiscipline", role = "HEALER", icon = [[Interface\Icons\Spell_Holy_PowerWordShield]] },
+        { id = 257, name = "Holy",       fileName = "PriestHoly",       role = "HEALER", icon = [[Interface\Icons\Spell_Holy_GuardianSpirit]] },
+        { id = 258, name = "Shadow",     fileName = "PriestShadow",     role = "DAMAGER", icon = [[Interface\Icons\Spell_Shadow_ShadowWordPain]] },
     },
     DEATHKNIGHT = {
-        { id = 250, name = "Blood",  fileName = "DeathKnightBlood",  role = "TANK",    roles = { "TANK", "DAMAGER" } },
-        { id = 251, name = "Frost",  fileName = "DeathKnightFrost",  role = "DAMAGER", roles = { "TANK", "DAMAGER" } },
-        { id = 252, name = "Unholy", fileName = "DeathKnightUnholy", role = "DAMAGER", roles = { "TANK", "DAMAGER" } },
+        { id = 250, name = "Blood",  fileName = "DeathKnightBlood",  role = "TANK",    roles = { "TANK", "DAMAGER" }, icon = [[Interface\Icons\Spell_Deathknight_BloodPresence]] },
+        { id = 251, name = "Frost",  fileName = "DeathKnightFrost",  role = "DAMAGER", roles = { "TANK", "DAMAGER" }, icon = [[Interface\Icons\Spell_Deathknight_FrostPresence]] },
+        { id = 252, name = "Unholy", fileName = "DeathKnightUnholy", role = "DAMAGER", roles = { "TANK", "DAMAGER" }, icon = [[Interface\Icons\Spell_Deathknight_UnholyPresence]] },
     },
     SHAMAN = {
-        { id = 262, name = "Elemental",   fileName = "ShamanElemental",   role = "DAMAGER" },
-        { id = 263, name = "Enhancement", fileName = "ShamanEnhancement", role = "DAMAGER" },
-        { id = 264, name = "Restoration", fileName = "ShamanRestoration", role = "HEALER"  },
+        { id = 262, name = "Elemental",   fileName = "ShamanElemental",   role = "DAMAGER", icon = [[Interface\Icons\Spell_Nature_Lightning]] },
+        { id = 263, name = "Enhancement", fileName = "ShamanEnhancement", role = "DAMAGER", icon = [[Interface\Icons\Spell_Nature_LightningShield]] },
+        { id = 264, name = "Restoration", fileName = "ShamanRestoration", role = "HEALER", icon = [[Interface\Icons\Spell_Nature_MagicImmunity]] },
     },
     MAGE = {
-        { id = 62, name = "Arcane", fileName = "MageArcane", role = "DAMAGER" },
-        { id = 63, name = "Fire",   fileName = "MageFire",   role = "DAMAGER" },
-        { id = 64, name = "Frost",  fileName = "MageFrost",  role = "DAMAGER" },
+        { id = 62, name = "Arcane", fileName = "MageArcane", role = "DAMAGER", icon = [[Interface\Icons\Spell_Holy_MagicalSentry]] },
+        { id = 63, name = "Fire",   fileName = "MageFire",   role = "DAMAGER", icon = [[Interface\Icons\Spell_Fire_FireBolt02]] },
+        { id = 64, name = "Frost",  fileName = "MageFrost",  role = "DAMAGER", icon = [[Interface\Icons\Spell_Frost_FrostBolt02]] },
     },
     WARLOCK = {
-        { id = 265, name = "Affliction",  fileName = "WarlockAffliction",  role = "DAMAGER" },
-        { id = 266, name = "Demonology",  fileName = "WarlockDemonology",  role = "DAMAGER" },
-        { id = 267, name = "Destruction", fileName = "WarlockDestruction", role = "DAMAGER" },
+        { id = 265, name = "Affliction",  fileName = "WarlockAffliction",  role = "DAMAGER", icon = [[Interface\Icons\Spell_Shadow_DeathCoil]] },
+        { id = 266, name = "Demonology",  fileName = "WarlockDemonology",  role = "DAMAGER", icon = [[Interface\Icons\Spell_Shadow_Metamorphosis]] },
+        { id = 267, name = "Destruction", fileName = "WarlockDestruction", role = "DAMAGER", icon = [[Interface\Icons\Spell_Shadow_RainOfFire]] },
     },
     DRUID = {
-        { id = 102, name = "Balance",    fileName = "DruidBalance",    role = "DAMAGER" },
-        { id = 103, name = "Feral",      fileName = "DruidFeralCombat", role = "DAMAGER", roles = { "DAMAGER", "TANK" } },
-        { id = 105, name = "Restoration", fileName = "DruidRestoration", role = "HEALER"  },
+        { id = 102, name = "Balance",    fileName = "DruidBalance",    role = "DAMAGER", icon = [[Interface\Icons\Spell_Nature_StarFall]] },
+        { id = 103, name = "Feral",      fileName = "DruidFeralCombat", role = "DAMAGER", roles = { "DAMAGER", "TANK" }, icon = [[Interface\Icons\Ability_Racial_BearForm]] },
+        { id = 105, name = "Restoration", fileName = "DruidRestoration", role = "HEALER", icon = [[Interface\Icons\Spell_Nature_HealingTouch]] },
     },
 }
 
@@ -176,7 +176,7 @@ local function LegacyInfo(classToken, index, group)
         id = template.id,
         index = index,
         name = name or template.name,
-        icon = icon,
+        icon = icon or template.icon,
         role = ResolveRole(template, classToken, index, group),
         roles = template.roles,
         fileName = fileName or template.fileName,
@@ -323,7 +323,28 @@ end
 -- Every layout for the player's class: each spec, plus the other role of a
 -- multi-role tree, in tree order.
 function Spec:GetLayoutList()
-    local classToken = PlayerClass()
+    return self:GetLayoutListForClass(PlayerClass())
+end
+
+-- Every class token that has specs on this client, in class-ID order.
+function Spec:GetClassTokens()
+    local result = {}
+    for classToken in pairs(CLASS_SPECS) do result[#result + 1] = classToken end
+    table.sort(result, function(a, b) return (CLASS_IDS[a] or 99) < (CLASS_IDS[b] or 99) end)
+    return result
+end
+
+-- Every talent tree for a class, in tree order: { id, name } per spec.
+function Spec:GetSpecListForClass(classToken)
+    local result = {}
+    for _, template in ipairs(CLASS_SPECS[classToken] or {}) do
+        result[#result + 1] = { id = template.id, name = template.name }
+    end
+    return result
+end
+
+-- Every layout for a class, in tree order (see GetLayoutList).
+function Spec:GetLayoutListForClass(classToken)
     local result = {}
     for _, template in ipairs(CLASS_SPECS[classToken] or {}) do
         result[#result + 1] = self:GetLayoutInfo(template.id)

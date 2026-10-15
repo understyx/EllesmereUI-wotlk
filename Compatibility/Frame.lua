@@ -665,6 +665,15 @@ unitEventDispatcher:SetScript("OnEvent", function(_, event, unit, ...)
     local subscribers = entry.byUnit[unit]
     if not subscribers then return end
 
+    -- The shared aura snapshot cache (API.lua) is also invalidated by its own
+    -- broad UNIT_AURA frame, but native dispatch order between that frame and
+    -- this one is not guaranteed. Invalidate here too so every unit-filtered
+    -- consumer reads post-event state; without it a stale snapshot could hide
+    -- a new buff until the next aura change on that unit.
+    if event == "UNIT_AURA" and C_UnitAuras and C_UnitAuras.ClearCachedAuraData then
+        C_UnitAuras.ClearCachedAuraData(unit)
+    end
+
     unitEventDispatchDepth = unitEventDispatchDepth + 1
     local snapshot = unitEventDispatchSnapshots[unitEventDispatchDepth]
     if not snapshot then

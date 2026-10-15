@@ -1,13 +1,18 @@
 -------------------------------------------------------------------------------
 --  EllesmereUICdmRPTSync.lua
---  One-time generic CDs/Buffs copy across specs of the ACTIVE PROFILE.
+--  Generic CDs/Buffs sync, across chosen specs of the ACTIVE PROFILE.
 --
 --  Synced entries are the spec-independent ones: trinket slots (-13/-14), item
 --  presets (negative item IDs from the Potions & Healthstone flyout), the player's
 --  racial ability, and built-in BUFF-BAR PRESETS (Bloodlust/Heroism,
---  Light's Potential, the buff potions). RPT ids copy bar placement + per-icon
---  settings; buff presets are additive-only. No ongoing relationship is stored,
---  so every later edit remains isolated to its own spec container.
+--  Light's Potential, the buff potions). When specs are synced, editing these on
+--  one synced spec auto-copies them to the other synced specs. RPT ids sync bar
+--  placement + per-icon settings; buff presets are ADDITIVE-ONLY (added to specs
+--  that lack them, never removed by sync). Regular cooldowns, Blizzard-tracked
+--  buffs, custom-typed buff IDs, and unsynced specs are never touched.
+--
+--  Storage rides in the per-profile spell store:
+--      spellAssignments.profiles[<euiProfile>].rptSyncSpecs[specKey] = true
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -30,7 +35,7 @@ local function GetSA()
     return sa
 end
 
--- The active EUI profile's spell-store bucket (holds specProfiles).
+-- The active EUI profile's spell-store bucket (holds specProfiles + rptSyncSpecs).
 -- Ensure it exists (GetActiveSpecProfiles seeds it), then return it.
 local function GetActiveBucket()
     local sa = GetSA(); if not sa then return nil end
@@ -87,11 +92,13 @@ function ns.GetAllCDMSpecInfo()
         return false
     end
 
-    local numClasses = (GetNumClasses and GetNumClasses()) or 0
-    for classID = 1, numClasses do
-        local className, classFile = GetClassInfo(classID)
+    -- 3.3.5 has no GetNumClasses/GetClassInfo: walk class IDs through the
+    -- compatibility spec shim (GetSpecializationInfoForClassID), which reports
+    -- each spec's class token. Class ID 10 (Monk) is simply empty.
+    for classID = 1, 11 do
+        local specIndex = 1
+        local specID, sName, _, sIcon, _, _, classFile = GetSpecializationInfoForClassID(classID, specIndex)
         local isCurrentClass = (classFile ~= nil and classFile == curClassFile)
-        local numSpecs = (GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(classID)) or 0
         if isCurrentClass and ns.GetCDMLayoutList then
             -- Own class: every layout, including the other role of a
             -- multi-role tree ("Blood (DPS)").
@@ -102,25 +109,26 @@ function ns.GetAllCDMSpecInfo()
                     icon = info.icon, hasData = HasData(sp and sp[key]),
                 }
             end
-            numSpecs = 0
+            specID = nil
         end
-        for specIndex = 1, numSpecs do
-            local specID, sName, _, sIcon = GetSpecializationInfoForClassID(classID, specIndex)
-            if specID then
-                local key = tostring(specID)
-                local hasData = HasData(sp and sp[key])
-                if isCurrentClass or hasData then
-                    -- Disambiguate other-class specs (e.g. Frost Mage vs Frost DK)
-                    -- by appending the class name; the current class needs no suffix.
-                    local nm = sName or ("Spec " .. key)
-                    if not isCurrentClass and className then
-                        nm = nm .. " (" .. className .. ")"
-                    end
-                    result[#result + 1] = {
-                        key = key, name = nm, icon = sIcon, hasData = hasData,
-                    }
+        local className = classFile and LOCALIZED_CLASS_NAMES_MALE
+            and LOCALIZED_CLASS_NAMES_MALE[classFile] or classFile
+        while specID do
+            local key = tostring(specID)
+            local hasData = HasData(sp and sp[key])
+            if isCurrentClass or hasData then
+                -- Disambiguate other-class specs (e.g. Frost Mage vs Frost DK)
+                -- by appending the class name; the current class needs no suffix.
+                local nm = sName or ("Spec " .. key)
+                if not isCurrentClass and className then
+                    nm = nm .. " (" .. className .. ")"
                 end
+                result[#result + 1] = {
+                    key = key, name = nm, icon = sIcon, hasData = hasData,
+                }
             end
+            specIndex = specIndex + 1
+            specID, sName, _, sIcon = GetSpecializationInfoForClassID(classID, specIndex)
         end
     end
     return result
@@ -128,7 +136,17 @@ end
 
 local function IsRPTId(id)
     if type(id) ~= "number" then return false end
-    if id < 0 then return true end  -- trinket slots (-13/-14) + item presets (-itemID)
+    if id < 0 then
+        -- The negative space is SHARED: trinket slots (-13/-14), the equipment
+        -- proc slot and item presets (-itemID) are sync material, but hosted
+        -- buff/debuff and cd-claim markers (at/below -HOSTED_BUFF_MARKER_BASE)
+        -- encode CLASS SPELLS -- syncing those would leak inert foreign-class
+        -- icons onto every synced spec's bars.
+        if ns.HOSTED_BUFF_MARKER_BASE and id <= -ns.HOSTED_BUFF_MARKER_BASE then
+            return false
+        end
+        return true
+    end
     -- Racial slot: match ANY race's racial, not just the current character's
     -- (ns._myRacialsSet). A profile shared across characters of different races
     -- stores a different racial spell ID per character, so the sync must still
@@ -197,6 +215,17 @@ end
 -- Second return: the synced ids' per-spell settings from the spec's FAMILY
 -- stores ({ cd = {[id]=copy}, buff = {[id]=copy} }) -- settings are keyed by
 -- spell, not bar, in the tiered model.
+-- Active profile's synced-spec set, or nil. Read-only.
+function ns.GetRPTSyncSpecs()
+    local b = GetActiveBucket()
+    return b and b.rptSyncSpecs or nil
+end
+
+function ns.HasRPTSync()
+    local s = ns.GetRPTSyncSpecs()
+    return s ~= nil and next(s) ~= nil
+end
+
 local function CollectRPT(specProf)
     local out = {}
     if type(specProf) ~= "table" or type(specProf.barSpells) ~= "table" then return out end
@@ -245,26 +274,6 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
     end
     if not tgtProf.barSpells then tgtProf.barSpells = {} end
     local srcRPT, srcSettings = CollectRPT(srcProf)
-
-    -- A generic entry may live on a user-created bar. Copy that definition once
-    -- so the target gets a real, independently editable destination.
-    if srcProf.cdmBars and srcProf.cdmBars.bars and tgtProf.cdmBars and tgtProf.cdmBars.bars then
-        local targetKeys = {}
-        for _, bar in ipairs(tgtProf.cdmBars.bars) do
-            if bar.key then targetKeys[bar.key] = true end
-        end
-        for barKey in pairs(srcRPT) do
-            if not targetKeys[barKey] then
-                for _, bar in ipairs(srcProf.cdmBars.bars) do
-                    if bar.key == barKey then
-                        tgtProf.cdmBars.bars[#tgtProf.cdmBars.bars + 1] = DeepCopy(bar)
-                        targetKeys[barKey] = true
-                        break
-                    end
-                end
-            end
-        end
-    end
 
     -- Which bar the source keeps each RPT id on. Bar MEMBERSHIP and per-icon
     -- settings are synced, but the SLOT POSITION (order within a bar) is NOT:
@@ -355,18 +364,106 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
     end
 end
 
--- Copy from sourceSpecKey to the selected targets once. The legacy function name
--- is retained for the options caller, but no persistent sync set is created.
+-- Propagate RPT from sourceSpecKey to all OTHER synced specs in the active profile.
+function ns.PropagateRPTFrom(sourceSpecKey)
+    if not sourceSpecKey then return end
+    local b = GetActiveBucket()
+    if not b or type(b.rptSyncSpecs) ~= "table" or not b.rptSyncSpecs[sourceSpecKey] then return end
+    if not b.specProfiles then return end
+    -- Never propagate from a source spec that carries NO racial/pot/trinket
+    -- entries. An empty source is not an authoritative "remove everything" signal
+    -- -- it is usually an unconfigured spec the player just happens to be viewing
+    -- -- so propagating it would only ever strip configured targets and create
+    -- empty profiles for never-played specs. Require at least one RPT id.
+    local srcProf = b.specProfiles[sourceSpecKey]
+    if not srcProf then return end
+    -- CollectRPT returns (bars, settings): capture the first only -- feeding
+    -- both into next() would pass the settings table as the iteration key.
+    local srcRPT = CollectRPT(srcProf)
+    if next(srcRPT) == nil then return end
+    for specKey in pairs(b.rptSyncSpecs) do
+        if specKey ~= sourceSpecKey then
+            ApplyRPT(b.specProfiles, sourceSpecKey, specKey)
+        end
+    end
+end
+
+-- Called after an RPT-affecting edit: if the ACTIVE spec is synced, push its RPT
+-- to the other synced specs. The active spec (the one shown) is the source, so
+-- no rebuild is needed -- only the off-screen synced specs' data changes.
+function ns.MaybePropagateRPT()
+    if not ns.HasRPTSync() then return end
+    local active = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    if not active or active == "0" then return end
+    ns.PropagateRPTFrom(active)
+end
+
+-- First-time setup: set the synced-spec set + align ALL of them to sourceSpecKey.
 function ns.SetupRPTSync(specsSet, sourceSpecKey)
     local b = GetActiveBucket()
     if not b then return false end
     if not b.specProfiles then b.specProfiles = {} end
+    b.rptSyncSpecs = {}
+    for k, v in pairs(specsSet) do if v then b.rptSyncSpecs[k] = true end end
     if sourceSpecKey then
-        for specKey, selected in pairs(specsSet or {}) do
-            if selected and specKey ~= sourceSpecKey then
+        for specKey in pairs(b.rptSyncSpecs) do
+            if specKey ~= sourceSpecKey then
                 ApplyRPT(b.specProfiles, sourceSpecKey, specKey)
             end
         end
     end
     return true
+end
+
+-- Update an existing sync's spec set: align only NEWLY-added specs (from a still-
+-- synced source, preferring the active spec); removed specs simply stop syncing.
+function ns.UpdateRPTSyncSpecs(specsSet)
+    local b = GetActiveBucket()
+    if not b then return false end
+    if not b.specProfiles then b.specProfiles = {} end
+    local old = b.rptSyncSpecs or {}
+    local active = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    local source
+    if active and specsSet[active] and old[active] then
+        source = active
+    else
+        for k in pairs(old) do if specsSet[k] then source = k; break end end
+    end
+    local newSet = {}
+    for k, v in pairs(specsSet) do if v then newSet[k] = true end end
+    b.rptSyncSpecs = newSet
+    if source then
+        for k in pairs(newSet) do
+            if k ~= source and not old[k] then
+                ApplyRPT(b.specProfiles, source, k)
+            end
+        end
+    end
+    return true
+end
+
+function ns.ClearRPTSync()
+    local b = GetActiveBucket()
+    if b then b.rptSyncSpecs = nil end
+end
+
+-- Auto-propagate RPT after the centralized spell-mutation functions run (covers add /
+-- remove / move / preset / replace of racials, pots, trinkets & buff presets). Settings
+-- changes are covered by a spell-picker close hook in the options file.
+do
+    local function Wrap(fnName)
+        local orig = ns[fnName]
+        if type(orig) ~= "function" then return end
+        ns[fnName] = function(...)
+            local a, b = orig(...)
+            ns.MaybePropagateRPT()
+            return a, b
+        end
+    end
+    for _, fnName in ipairs({
+        "AddTrackedSpell", "RemoveTrackedSpell", "AddPresetToBar",
+        "SwapTrackedSpells", "MoveTrackedSpell", "ReplaceTrackedSpell",
+    }) do
+        Wrap(fnName)
+    end
 end

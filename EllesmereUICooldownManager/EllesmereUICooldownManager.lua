@@ -479,8 +479,8 @@ local DEFAULTS = {
             desaturateInactiveBuffs = true,
             -- The merged default is only the Core bar: this table is merged
             -- into existing layouts by array index, so the rest of the
-            -- default bar set (ns.CDM_DEFAULT_BAR_SET) is added by key when
-            -- a spec is created or restored instead.
+            -- default bar set (ns.CDM_DEFAULT_BAR_SET) is added by key once
+            -- per profile (and on Restore Default Spells) instead.
             bars = {
                 {
                     key = "cooldowns", name = "Core", enabled = true,
@@ -508,7 +508,7 @@ local DEFAULTS = {
     },
 }
 
--- Default bar set for new and restored specs, in layout order. Every bar is
+-- Default bar set for new profiles and restores, in layout order. Every bar is
 -- the unified cooldown type; the role is set by the curated per-spec content
 -- (ns.CDM_SPEC_DEFAULT_SPELLS):
 --   Core      -- static rotation, DoTs and maintained buffs. Fixed slots, so it
@@ -524,17 +524,14 @@ ns.CDM_DEFAULT_BAR_SET = {
     { key = "utility",   name = "Utility",   iconSize = 32, y = -244 },
 }
 
--- Add any missing bar of the default set to a spec container, matched by key
--- so user bars are never touched. Positions are written only for bars added
--- here (all four for a brand-new spec). Returns true when a bar was added.
-function ns.EnsureDefaultCDMBars(container, positionCore)
-    local cfg = container and container.cdmBars
+-- Add any missing bar of the default set to a profile's bar layout, matched by
+-- key so user bars are never touched. Positions are written only for bars added
+-- here (all four for a brand-new profile). Returns true when a bar was added.
+function ns.EnsureDefaultCDMBars(cfg, positions, positionCore)
     local bars = cfg and cfg.bars
     local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
-    if type(bars) ~= "table" or not copy then return false end
-    container.cdmBarPositions = container.cdmBarPositions or {}
-    local positions = container.cdmBarPositions
-    local template = ns.CDM_SPEC_DEFAULTS.cdmBars.bars[1]
+    if type(bars) ~= "table" or type(positions) ~= "table" or not copy then return false end
+    local template = DEFAULTS.profile.cdmBars.bars[1]
 
     local function IndexOf(key)
         for i, b in ipairs(bars) do
@@ -564,17 +561,6 @@ function ns.EnsureDefaultCDMBars(container, positionCore)
     end
     return added
 end
-
--- The complete CDM state belongs to a specialization. Keep the sizeable bar
--- defaults beside the normal addon defaults for readability, but do not let
--- the profile DB own a live copy: every spec container receives its own copy.
-ns.CDM_SPEC_DEFAULTS = {
-    cdmBars = DEFAULTS.profile.cdmBars,
-    cdmBarPositions = DEFAULTS.profile.cdmBarPositions,
-}
-DEFAULTS.profile.cdmBars = nil
-DEFAULTS.profile.cdmBarPositions = nil
-_G._ECME_SpecDefaults = ns.CDM_SPEC_DEFAULTS
 
 -------------------------------------------------------------------------------
 --  Dedicated spell assignment store helpers
@@ -622,27 +608,30 @@ function ns.GetSpecProfilesForProfile(profileName)
     return bucket.specProfiles
 end
 
--- Read the retired profile-wide layout without mutating it. Existing installs
--- used this location for a few releases; copying it into every spec on first
--- access preserves the user's current setup while breaking the shared reference.
-local function LegacyProfileCDMState(profileName)
-    local root = EllesmereUIDB and EllesmereUIDB.profiles
-        and EllesmereUIDB.profiles[profileName]
-    local addon = root and root.addons and root.addons.EllesmereUICooldownManager
-    if profileName == ns.GetActiveProfileName() and ECME.db and ECME.db.profile then
-        addon = ECME.db.profile
-    end
-    return addon
+-- Smooth-fill switches for Tracking Bars (Bar Layout > Smooth Bars). ONE
+-- setting for ALL bars in EVERY spec: lives on the profile bucket OUTSIDE
+-- specProfiles. Keys: buffs / cooldowns; absent buffs reads ENABLED, absent
+-- cooldowns reads DISABLED (the defaults).
+function ns.GetTBBSmoothSettings()
+    local name = ns.GetActiveProfileName()
+    ns.GetSpecProfilesForProfile(name)
+    local bucket = SpellStore.Get().profiles[name]
+    if not bucket then return nil end
+    if not bucket.tbbSmooth then bucket.tbbSmooth = {} end
+    return bucket.tbbSmooth
 end
 
--- Smooth-fill switches for Tracking Bars (Bar Layout > Smooth Bars), owned by
--- the active spec container. Keys: buffs / cooldowns; absent
--- buffs reads ENABLED, absent cooldowns reads DISABLED (the defaults).
-function ns.GetTBBSmoothSettings()
-    local container = ns.GetActiveSpecContainer and ns.GetActiveSpecContainer(true)
-    if not container then return nil end
-    if not container.tbbSmooth then container.tbbSmooth = {} end
-    return container.tbbSmooth
+-- Cross-spec broadcast set for Tracking Bars: bar identities (preset key/custom
+-- spellID) pushed to every spec via "Add Bar to All Specs". Lives on the profile
+-- bucket OUTSIDE specProfiles (survives spec switches/reloads, forks with the
+-- profile); drives the Add/Remove toggle label.
+function ns.GetActiveTBBBroadcastSet()
+    local name = ns.GetActiveProfileName()
+    ns.GetSpecProfilesForProfile(name)
+    local bucket = SpellStore.Get().profiles[name]
+    if not bucket then return {} end
+    if not bucket.tbbBroadcast then bucket.tbbBroadcast = {} end
+    return bucket.tbbBroadcast
 end
 
 -- Active SPELL LAYOUT name. Layouts are a shared, account-wide library
@@ -681,25 +670,26 @@ function ns.GetActiveSpecProfiles()
 end
 
 function SpellStore.NewSpecContainer(specKey)
-    local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
     local info = EUI and EUI.Spec and EUI.Spec:GetInfoByID(tonumber(specKey))
     return {
         specID = tonumber(specKey),
         classToken = info and info.classToken or nil,
-        cdmBars = copy and copy(ns.CDM_SPEC_DEFAULTS.cdmBars) or {},
-        cdmBarPositions = copy and copy(ns.CDM_SPEC_DEFAULTS.cdmBarPositions) or {},
         barSpells = {},
         customActiveStates = {},
-        -- The first stable viewer pass consumes this marker and diverts the
-        -- complete CD/utility catalog to the hidden routing bar.  Scoping the
-        -- marker to newly-created spec data preserves existing configurations.
+        -- The first stable viewer pass consumes this marker, seeds the
+        -- curated defaults and diverts the rest of the CD/utility catalog to
+        -- the hidden routing bar. Scoping the marker to newly-created spec
+        -- data preserves existing configurations.
         _initializeEmptyBarsV1 = true,
     }
 end
 
--- The complete specialization-owned CDM container. A caller may address an
--- inactive spec only by passing its ID explicitly; normal runtime/options work
--- goes through GetActiveSpecContainer so cross-spec writes stay explicit.
+-- The specialization-owned CDM container: which spells sit on which bar, plus
+-- per-spell settings. Bar definitions and positions are NOT here -- they belong
+-- to the profile and are shared by every spec (ns.GetActiveCDMConfig). A caller
+-- may address an inactive spec only by passing its ID explicitly; normal
+-- runtime/options work goes through GetActiveSpecContainer so cross-spec writes
+-- stay explicit.
 function ns.GetSpecContainerForProfile(profileName, specKey, create)
     specKey = specKey and tostring(specKey) or nil
     if not specKey or specKey == "0" then return nil end
@@ -712,42 +702,15 @@ function ns.GetSpecContainerForProfile(profileName, specKey, create)
     end
     if not container and create then
         container = SpellStore.NewSpecContainer(specKey)
-        local legacy = LegacyProfileCDMState(profileName)
-        local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
-        if legacy and copy then
-            if type(legacy.cdmBars) == "table" then
-                container.cdmBars = copy(legacy.cdmBars)
-            end
-            if type(legacy.cdmBarPositions) == "table" then
-                container.cdmBarPositions = copy(legacy.cdmBarPositions)
-            end
-        end
         profiles[specKey] = container
     end
     if container and create then
-        -- Fresh-schema self-heal for partially constructed containers created by
-        -- explicit copy/import helpers, plus the profile-wide-layout transition.
-        -- The old profile DB stripped values equal to its defaults at logout;
-        -- after layout ownership moved out of that DB, those sparse legacy
-        -- tables no longer received their missing fields automatically. Merge
-        -- the same defaults into each independent copy so the default bar keeps
-        -- its key, type, icon size, and other structural values.
-        local copy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
-        local merge = EllesmereUI.Lite and EllesmereUI.Lite.DeepMergeDefaults
-        local legacy = LegacyProfileCDMState(profileName)
-        if not container.cdmBars then
-            local source = legacy and legacy.cdmBars or ns.CDM_SPEC_DEFAULTS.cdmBars
-            container.cdmBars = copy and copy(source) or {}
-        end
-        if merge then
-            merge(container.cdmBars, ns.CDM_SPEC_DEFAULTS.cdmBars)
-        end
-        if not container.cdmBarPositions then
-            local source = legacy and legacy.cdmBarPositions or ns.CDM_SPEC_DEFAULTS.cdmBarPositions
-            container.cdmBarPositions = copy and copy(source) or {}
-        end
+        -- Self-heal partially constructed containers (explicit copy/import helpers).
         if not container.barSpells then container.barSpells = {} end
         if not container.customActiveStates then container.customActiveStates = {} end
+        -- Drop leftovers from when each spec owned its own bar layout.
+        container.cdmBars, container.cdmBarPositions = nil, nil
+        container.cdmUnlockLinks, container.tbbSmooth = nil, nil
         container.specID = container.specID or tonumber(specKey)
         if not container.classToken then
             local info = EUI and EUI.Spec and EUI.Spec:GetInfoByID(tonumber(specKey))
@@ -760,42 +723,36 @@ end
 function ns.GetActiveSpecContainer(create)
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
     if not specKey then return nil end
-    local profileName = ns.GetActiveProfileName()
-    local profiles = create and ns.GetSpecProfilesForProfile(profileName)
-    local sa = create and SpellStore.Get()
-    local bucket = sa and sa.profiles and sa.profiles[profileName]
-    if create and bucket and not bucket._cdmCompleteSpecsV1 then
-        -- Materialize independent copies for every already-known spec now, not
-        -- only when it is next played. This keeps exports complete immediately
-        -- after upgrading from the profile-wide-layout window.
-        local keys = {}
-        for key in pairs(profiles) do keys[#keys + 1] = key end
-        for _, key in ipairs(keys) do
-            if type(profiles[key]) == "table" then
-                ns.GetSpecContainerForProfile(profileName, key, true)
-            end
-        end
-        bucket._cdmCompleteSpecsV1 = true
-    end
-    return ns.GetSpecContainerForProfile(profileName, specKey, create)
+    return ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), specKey, create)
 end
 
+-- The profile's bar layout (definitions), shared by every spec. The full
+-- default bar set is added once per profile; after that a deleted default bar
+-- stays deleted. create is accepted for call-site compatibility; the profile
+-- table always exists once the DB is up.
 function ns.GetActiveCDMConfig(create)
-    local container = ns.GetActiveSpecContainer(create)
-    if ECME and ECME.db and ECME.db.profile and container then
-        ECME.db.profile.cdmBars = container.cdmBars
+    local p = ECME and ECME.db and ECME.db.profile
+    if not p then return nil end
+    local cfg = p.cdmBars
+    if not cfg then
+        cfg = EllesmereUI.Lite.DeepCopy(DEFAULTS.profile.cdmBars)
+        p.cdmBars = cfg
     end
-    return container and container.cdmBars or nil
+    if not cfg._defaultBarSetV1 and type(cfg.bars) == "table" then
+        cfg._defaultBarSetV1 = true
+        if not p.cdmBarPositions then p.cdmBarPositions = {} end
+        ns.EnsureDefaultCDMBars(cfg, p.cdmBarPositions, true)
+    end
+    return cfg
 end
 
+-- The profile's bar positions, shared by every spec.
 function ns.GetActiveCDMPositions(create)
-    local container = ns.GetActiveSpecContainer(create)
-    local positions = container and container.cdmBarPositions or nil
-    if positions and EllesmereUI then EllesmereUI._cdmBarPositions = positions end
-    if ECME and ECME.db and ECME.db.profile and container then
-        ECME.db.profile.cdmBarPositions = positions
-    end
-    return positions
+    local p = ECME and ECME.db and ECME.db.profile
+    if not p then return nil end
+    if not p.cdmBarPositions then p.cdmBarPositions = {} end
+    if EllesmereUI then EllesmereUI._cdmBarPositions = p.cdmBarPositions end
+    return p.cdmBarPositions
 end
 
 -- Small public bridge for core UI systems that cannot access this addon's
@@ -811,109 +768,11 @@ end
 _G._ECME_GetActiveCDMConfig = function() return ns.GetActiveCDMConfig(true) end
 _G._ECME_GetActiveCDMPositions = function() return ns.GetActiveCDMPositions(true) end
 
--- Unlock mode exposes one account-global working table. Project only the active
--- spec's CDM_* links into it and bank them back into that spec before switching.
-do
-    local function LiveStores(create)
-        if not EllesmereUIDB then return nil end
-        if create then
-            EllesmereUIDB.unlockAnchors = EllesmereUIDB.unlockAnchors or {}
-            EllesmereUIDB.unlockWidthMatch = EllesmereUIDB.unlockWidthMatch or {}
-            EllesmereUIDB.unlockHeightMatch = EllesmereUIDB.unlockHeightMatch or {}
-        end
-        return EllesmereUIDB.unlockAnchors, EllesmereUIDB.unlockWidthMatch,
-            EllesmereUIDB.unlockHeightMatch
-    end
-
-    local function Bucket(profileName, specKey, create)
-        local c = ns.GetSpecContainerForProfile(profileName, specKey, create)
-        if not c then return nil end
-        if not c.cdmUnlockLinks and create then
-            local seeded = { anchors = {}, wm = {}, hm = {} }
-            -- Seed each spec once from the retired profile-wide unlock layout.
-            local root = EllesmereUIDB and EllesmereUIDB.profiles
-                and EllesmereUIDB.profiles[profileName]
-            local ul = root and root.unlockLayout
-            if type(ul) == "table" then
-                for k, v in pairs(ul.anchors or {}) do
-                    local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
-                    if barKey then seeded.anchors[barKey] = EllesmereUI.Lite.DeepCopy(v) end
-                end
-                for k, v in pairs(ul.widthMatch or {}) do
-                    local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
-                    if barKey then seeded.wm[barKey] = EllesmereUI.Lite.DeepCopy(v) end
-                end
-                for k, v in pairs(ul.heightMatch or {}) do
-                    local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
-                    if barKey then seeded.hm[barKey] = EllesmereUI.Lite.DeepCopy(v) end
-                end
-            end
-            c.cdmUnlockLinks = seeded
-        end
-        return c.cdmUnlockLinks
-    end
-
-    local function BankOne(store, dest)
-        wipe(dest)
-        for k, v in pairs(store or {}) do
-            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
-            if barKey then dest[barKey] = EllesmereUI.Lite.DeepCopy(v) end
-        end
-    end
-
-    local function Bank(profileName, specKey)
-        local b = Bucket(profileName, specKey, true)
-        local an, wm, hm = LiveStores(false)
-        if not b then return end
-        BankOne(an, b.anchors); BankOne(wm, b.wm); BankOne(hm, b.hm)
-    end
-
-    local function SwapOne(store, src)
-        local kill = {}
-        for k in pairs(store) do
-            if type(k) == "string" and k:match("^CDM_.+") then kill[#kill + 1] = k end
-        end
-        for _, k in ipairs(kill) do store[k] = nil end
-        for barKey, v in pairs(src or {}) do
-            store["CDM_" .. barKey] = EllesmereUI.Lite.DeepCopy(v)
-        end
-    end
-
-    local function SwapIn(profileName, specKey)
-        local an, wm, hm = LiveStores(true)
-        local b = Bucket(profileName, specKey, true)
-        if not an or not b then return end
-        SwapOne(an, b.anchors); SwapOne(wm, b.wm); SwapOne(hm, b.hm)
-        EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
-    end
-
-    function ns.SyncCDMUnlockLinks(force)
-        if not EllesmereUIDB then return end
-        local profileName = ns.GetActiveProfileName()
-        local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-        if not specKey then return end
-        local owner = EllesmereUIDB._cdmLinkOwner
-        local same = owner and owner.profile == profileName and owner.spec == specKey
-        if force then
-            SwapIn(profileName, specKey)
-        elseif same then
-            Bank(profileName, specKey)
-            return
-        else
-            if owner then Bank(owner.profile, owner.spec) end
-            SwapIn(profileName, specKey)
-        end
-        EllesmereUIDB._cdmLinkOwner = { profile = profileName, spec = specKey }
-    end
-
-    EllesmereUI._CDMRestoreUnlockLinks = function()
-        ns.SyncCDMUnlockLinks(true)
-    end
-
-    EllesmereUI.CDMBankActiveSpecContainer = function()
-        ns.SyncCDMUnlockLinks()
-        if ns.SyncTBBUnlockLinks then ns.SyncTBBUnlockLinks() end
-    end
+-- Bank the active spec's Tracking Bar unlock links before a profile is
+-- snapshotted (EllesmereUI_Profiles.lua). CDM bar links need no banking: they
+-- are profile-wide and live in the normal unlock layout.
+EllesmereUI.CDMBankActiveSpecContainer = function()
+    if ns.SyncTBBUnlockLinks then ns.SyncTBBUnlockLinks() end
 end
 
 function SpellStore.GetSpecProfiles()
@@ -1151,7 +1010,7 @@ function ns.ChainSettings(child, parent)
     end
 end
 
--- Bar-tier chain head for a bar: barSettings chained to the spec-owned
+-- Bar-tier chain head for a bar: barSettings chained to the profile-level
 -- bd.barSpellSettings when present, else bd.barSpellSettings, else nil.
 function ns.GetBarTierSettings(sd, barKey)
     local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
@@ -1182,7 +1041,7 @@ function ns.BarHasAnySpellSettings(barKey, sd)
 end
 
 -- Iterate every SAVED settings block that can hold per-spell setting keys:
--- all specs' family-store entries, per-bar barSettings, and each spec-owned
+-- all specs' family-store entries, per-bar barSettings, and each shared
 -- bar definition's barSpellSettings. fn(ss) returning true stops the walk.
 -- Used by the login gate scans ("does anyone use feature X anywhere").
 function ns.ForEachSavedSettingsBlock(fn)
@@ -1210,13 +1069,6 @@ function ns.ForEachSavedSettingsBlock(fn)
                         if type(bset) == "table" and fn(bset) then return true end
                     end
                 end
-                local bars = prof.cdmBars and prof.cdmBars.bars
-                if type(bars) == "table" then
-                    for _, bd in ipairs(bars) do
-                        local abs = type(bd) == "table" and bd.barSpellSettings
-                        if type(abs) == "table" and fn(abs) then return true end
-                    end
-                end
                 local cas = prof.customActiveStates
                 if type(cas) == "table" then
                     for _, ss in pairs(cas) do
@@ -1226,13 +1078,19 @@ function ns.ForEachSavedSettingsBlock(fn)
             end
         end
     end
+    local cfg = ns.GetActiveCDMConfig and ns.GetActiveCDMConfig(true)
+    if cfg and type(cfg.bars) == "table" then
+        for _, bd in ipairs(cfg.bars) do
+            local abs = type(bd) == "table" and bd.barSpellSettings
+            if type(abs) == "table" and fn(abs) then return true end
+        end
+    end
     return false
 end
 
 -- One-time copy of a user CUSTOM spell/buff (customSpellIDs-tagged) plus its
 -- per-spell settings onto the SAME bar in other specs of the active profile.
--- A target spec must own a bar with the same key; specs have independent bar
--- lists, so this helper never invents a destination implicitly. A target
+-- Bars are shared by every spec, so the destination always exists. A target
 -- that already has the spell on ANY bar is skipped whole (never duplicates
 -- within a spec). Custom Active State is copied as independent data too.
 -- Returns the number of specs actually copied to.
@@ -1255,10 +1113,6 @@ function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
     for key, on in pairs(specKeys) do
         if on and key ~= curKey and key ~= "0" then
             local prof = ns.GetSpecContainerForProfile(ns.GetActiveProfileName(), key, true)
-            local hasTargetBar = false
-            for _, bd in ipairs((prof.cdmBars and prof.cdmBars.bars) or {}) do
-                if bd.key == barKey then hasTargetBar = true; break end
-            end
             -- Present anywhere in this spec? Skip the whole spec.
             local exists = false
             for _, bs in pairs(prof.barSpells) do
@@ -1269,7 +1123,7 @@ function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
                 end
                 if exists then break end
             end
-            if hasTargetBar and not exists then
+            if not exists then
                 local bs = prof.barSpells[barKey]
                 if not bs then bs = {}; prof.barSpells[barKey] = bs end
                 if not bs.assignedSpells then bs.assignedSpells = {} end
@@ -2046,7 +1900,6 @@ local function SaveCurrentSpecProfile()
     -- specProfiles[specKey] bucket. GetBarGlows() and GetTrackedBuffBars()
     -- read/write there directly, so nothing extra to copy here.
 
-    if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
     if ns.SyncTBBUnlockLinks then ns.SyncTBBUnlockLinks() end
     -- Snapshot visible icon counts for pre-sizing on next login
     ns.SaveCachedBarSizes()
@@ -2074,11 +1927,6 @@ local function ProcessSpecChange(newSpecKey)
     -- Atomic swap: write the new key BEFORE rebuilding so every
     -- GetBarSpellData call during the rebuild reads the correct spec.
     _cachedSpecKey = newSpecKey
-    if ns.GetActiveCDMConfig then ns.GetActiveCDMConfig(true) end
-    if ns.GetActiveCDMPositions then ns.GetActiveCDMPositions(true) end
-    -- The global unlock stores still belong to the outgoing owner. Bank them,
-    -- then project the incoming spec's links before any bar reads anchors.
-    if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
 
     -- Suppress the _ECME_Apply rebuild that the profile system will fire
     -- via RefreshAllAddons. We're about to do a full talent_reconcile
@@ -2569,7 +2417,8 @@ end
 --  on our CDM icons when Blizzard fires ShowAlert/HideAlert on CDM children.
 --  Custom bars use SPELL_ACTIVATION_OVERLAY_GLOW_SHOW/HIDE events instead.
 -------------------------------------------------------------------------------
-local PROC_GLOW_STYLE = 6  -- "Modern WoW Glow" flipbook
+-- "Modern WoW Glow" flipbook; "Action Button Glow" where FlipBook is missing (3.3.5)
+local PROC_GLOW_STYLE = _G_Glows.FLIPBOOK_SUPPORTED and 6 or 3
 
 -- Reverse lookup: Blizzard CDM viewer frame name  our bar key
 local _blizzViewerToBarKey = {
@@ -7429,7 +7278,6 @@ BuildAllCDMBars = function()
     -- gated on GetActiveSpecKey() at OnEnable, so this is a defense in
     -- depth for any other path that calls BuildAllCDMBars too early.
     if not ns.GetActiveSpecKey() then return end
-    if ns.SyncCDMUnlockLinks then ns.SyncCDMUnlockLinks() end
 
     -- Mark CDM as rebuilding so width/height match propagation gates off
     -- (it would otherwise read transient bar widths sized for the previous
@@ -8178,8 +8026,12 @@ function ns.RestoreDefaultSpells()
     ns._spellOrderDirty = true
     ns._cdmBuffOrderDirty = true  -- re-seed from Blizzard order on next reanchor
 
+    -- Restore brings back any missing default bar (shared by every spec), so
+    -- the curated defaults below have a destination on each of them.
+    ns.EnsureDefaultCDMBars(ns.GetActiveCDMConfig(true), ns.GetActiveCDMPositions(true), true)
+
     -- Rebuild exactly like a freshly created spec: the migration pass seeds
-    -- the curated defaults onto the Cooldowns bar and hides the rest of the
+    -- the curated defaults onto the default bars and hides the rest of the
     -- catalog, instead of spilling every class spell onto the default bar.
     local prof = ns.GetActiveSpecContainer(true)
     if prof and ns.MigrateSpecToBarFilterModelV6 then
@@ -8191,7 +8043,7 @@ function ns.RestoreDefaultSpells()
     end
 
     ns.FullCDMRebuild("restore_defaults")
-    -- The migration above may have added missing default bars.
+    -- Restore above may have added missing default bars.
     RegisterCDMUnlockElements()
     if ns.CollectAndReanchor then ns.CollectAndReanchor() end
 
@@ -8458,10 +8310,6 @@ end
 -------------------------------------------------------------------------------
 function ECME:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUICooldownManagerDB", DEFAULTS, true)
-    if self.db and self.db._profileDefaults then
-        self.db._profileDefaults.cdmBars = ns.CDM_SPEC_DEFAULTS and ns.CDM_SPEC_DEFAULTS.cdmBars
-        self.db._profileDefaults.cdmBarPositions = ns.CDM_SPEC_DEFAULTS and ns.CDM_SPEC_DEFAULTS.cdmBarPositions
-    end
 
     -- Save spec profile before StripDefaults runs on logout
     EllesmereUI.Lite.RegisterPreLogout(function()

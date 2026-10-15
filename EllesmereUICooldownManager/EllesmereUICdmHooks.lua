@@ -302,7 +302,7 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     local fc0 = frame and _ecmeFC[frame]
     local bk = barKey or (fc0 and fc0.barKey)
     -- Bar tiers: barSettings ("Apply to Bar", per spec) chained to the
-    -- spec-owned bd.barSpellSettings (optionally copied to other specs). nil when
+    -- profile-level bd.barSpellSettings ("Apply to Bar (All Specs)"). nil when
     -- neither exists -- the common case costs two table lookups.
     local tier = ns.GetBarTierSettings and ns.GetBarTierSettings(sd2, bk)
     -- HOSTED-AURA frame detection: a real buff/debuff frame (or its inactive
@@ -6975,16 +6975,8 @@ local function CollectAndReanchor()
         local prof = sp and specKey and sp[specKey]
         local needsMigration = prof and not prof._barFilterModelV6
         if needsMigration then
-            local added, barsAdded = ns.MigrateSpecToBarFilterModelV6()
-            if barsAdded and ns.FullCDMRebuild and C_Timer then
-                -- A late fresh-spec pass added default bars after the initial
-                -- build; they need frames, not just routes. Deferred so the
-                -- rebuild never nests inside this reanchor.
-                C_Timer.After(0, function()
-                    ns.FullCDMRebuild("default_bars")
-                    if ns.RegisterCDMUnlockElements then ns.RegisterCDMUnlockElements() end
-                end)
-            elseif added and added > 0 then
+            local added = ns.MigrateSpecToBarFilterModelV6()
+            if added and added > 0 then
                 if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
                 if ns.QueueReanchor then ns.QueueReanchor() end
             end

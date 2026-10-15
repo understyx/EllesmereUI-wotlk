@@ -433,7 +433,8 @@ end
 -- same thing as the position returned by GetShapeshiftForm(), because that
 -- position changes with the forms a character has learned.  Resource bars
 -- rely on the stable Cat (1), Bear (5), and Moonkin (31) IDs, so recover the
--- stable ID from the active form's icon on legacy clients.
+-- stable ID from the active form's spell name (icon as fallback) on legacy
+-- clients.
 if not GetShapeshiftFormID then
     local legacyFormIDs = {
         ["ability_druid_catform"] = 1,
@@ -448,11 +449,40 @@ if not GetShapeshiftFormID then
         ["ability_druid_epicflightform"] = 29,
     }
 
+    -- The form's spell name is the primary key: the icon path is not reliable
+    -- for the ACTIVE form on legacy clients (it can report a generic
+    -- active-stance texture), which left Cat Form unrecognized and hid the
+    -- combo-point bar. Names are resolved lazily so they match the locale.
+    local legacyFormSpells = {
+        [768] = 1,    -- Cat Form
+        [33891] = 2,  -- Tree of Life
+        [783] = 3,    -- Travel Form
+        [1066] = 4,   -- Aquatic Form
+        [5487] = 5,   -- Bear Form
+        [9634] = 5,   -- Dire Bear Form
+        [24858] = 31, -- Moonkin Form
+        [33943] = 27, -- Flight Form
+        [40120] = 29, -- Swift Flight Form
+    }
+    local legacyFormNames
+
     function GetShapeshiftFormID()
         local form = GetShapeshiftForm and GetShapeshiftForm() or 0
         if form == 0 or not GetShapeshiftFormInfo then return form end
 
-        local icon = GetShapeshiftFormInfo(form)
+        local icon, name = GetShapeshiftFormInfo(form)
+        if type(name) == "string" then
+            if not legacyFormNames then
+                legacyFormNames = {}
+                for spellID, stableID in pairs(legacyFormSpells) do
+                    local spellName = GetSpellInfo(spellID)
+                    if spellName then legacyFormNames[spellName] = stableID end
+                end
+            end
+            local stableID = legacyFormNames[name]
+            if stableID then return stableID end
+        end
+
         if type(icon) == "string" then
             local key = icon:match("([^\\/]*)$") or icon
             local stableID = legacyFormIDs[string.lower(key)]
@@ -1047,10 +1077,17 @@ end
 -- an aura event invalidates only the affected unit instead of all 40 members.
 local auraSnapshots = {}
 
+-- Snapshots are keyed by unit TOKEN, but a raid/party token can be handed to a
+-- different player on any roster change. Event dispatch order is not
+-- guaranteed, so a secure header reassigning its buttons (and the raid frames
+-- repainting them) can run before the roster invalidator below. Stamp each
+-- snapshot with the GUID it was built for and discard it on mismatch, so a
+-- token never serves the previous occupant's auras.
 local function UnitAuraSnapshot(unit)
+    local guid = UnitGUID and UnitGUID(unit)
     local snapshot = auraSnapshots[unit]
-    if not snapshot then
-        snapshot = { byID = {}, filtered = {} }
+    if not snapshot or snapshot.guid ~= guid then
+        snapshot = { byID = {}, filtered = {}, guid = guid }
         auraSnapshots[unit] = snapshot
     end
     return snapshot
@@ -2192,6 +2229,14 @@ end
 -- The optional config argument is also supported so the unit-frame decimal
 -- settings can use their custom breakpointData tables on WotLK.
 if not _G.AbbreviateNumbers then
+    -- Sub-breakpoint values can be fractional (e.g. per-second rates); cap them
+    -- at two decimals and drop trailing zeros so "523.123456789" -> "523.12".
+    local function FormatSmall(n)
+        if n == math.floor(n) then return tostring(n) end
+        local s = string.format("%.2f", n):gsub("0+$", ""):gsub("%.$", "")
+        return s
+    end
+
     _G.AbbreviateNumbers = function(value, config)
         local n = tonumber(value)
         if not n then return tostring(value or "") end
@@ -2206,10 +2251,10 @@ if not _G.AbbreviateNumbers then
                     local fractionDivisor = data.fractionDivisor or 1
                     local scaled = math.floor(abs / divisor) / fractionDivisor
                     if n < 0 then scaled = -scaled end
-                    return tostring(scaled) .. (data.abbreviation or "")
+                    return FormatSmall(scaled) .. (data.abbreviation or "")
                 end
             end
-            return tostring(n)
+            return FormatSmall(n)
         end
 
         local divisor, suffix
@@ -2220,7 +2265,7 @@ if not _G.AbbreviateNumbers then
         elseif abs >= 1e3 then
             divisor, suffix = 1e3, "K"
         else
-            return tostring(n)
+            return FormatSmall(n)
         end
 
         local scaled = n / divisor

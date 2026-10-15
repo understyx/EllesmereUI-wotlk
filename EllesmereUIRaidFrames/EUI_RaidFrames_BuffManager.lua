@@ -6407,7 +6407,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     for i, entry in ipairs(Styles) do
                         if not entry.shapeGlow then
                             GLOW_VALUES[i] = entry.name
-                            GLOW_ORDER[#GLOW_ORDER + 1] = i
+                            if EllesmereUI.Glows.IsStyleAvailable(entry) then
+                                GLOW_ORDER[#GLOW_ORDER + 1] = i
+                            end
                         end
                     end
                 end
@@ -7053,7 +7055,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     for i, entry in ipairs(Styles) do
                         if not entry.shapeGlow then
                             GLOW_VALUES[i] = entry.name
-                            GLOW_ORDER[#GLOW_ORDER + 1] = i
+                            if EllesmereUI.Glows.IsStyleAvailable(entry) then
+                                GLOW_ORDER[#GLOW_ORDER + 1] = i
+                            end
                         end
                     end
                 end

@@ -7,9 +7,10 @@ local type, unpack = type, unpack
 local TEXCOORDS = WSkin.TexCoords or { 0.08, 0.92, 0.08, 0.92 }
 
 local FRAME_HEIGHT = 450
-local TAB_HEIGHT = WSkin.Retail.geometry.tabHeight
 local CONTROL_LEFT = 24
-local CONTROL_BOTTOM = TAB_HEIGHT + 4
+-- Bottom tabs hang under the frame (retail style), so controls only need a
+-- small margin above the frame edge.
+local CONTROL_BOTTOM = 8
 local TALENT_INSET = 1
 local TALENT_STATUS_TOP = 21
 local TALENT_TREE_TOP = 50
@@ -82,21 +83,16 @@ end
 local function LayoutBottomTabs()
 	local frame = _G.PlayerTalentFrame
 	if not frame then return end
-	local width = frame:GetWidth() / 4
+	local tabs = {}
 	for i = 1, 4 do
 		local tab = _G["PlayerTalentFrameTab" .. i]
 		if tab then
 			WSkin:StyleRetailTab(tab)
 			tab:SetHitRectInsets(0, 0, 0, 0)
-			tab:ClearAllPoints()
-			tab:SetSize(width, TAB_HEIGHT)
-			if i == 1 then
-				tab:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-			else
-				tab:SetPoint("LEFT", _G["PlayerTalentFrameTab" .. (i - 1)], "RIGHT", 0, 0)
-			end
+			tabs[#tabs + 1] = tab
 		end
 	end
+	WSkin:LayoutRetailTabRow(tabs, frame)
 end
 
 local function ResetTalentScroll()

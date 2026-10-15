@@ -7910,7 +7910,8 @@ local function UpdateFlipbook(btn)
     end
 
     if not p.procGlowEnabled then
-        -- "Default" glow: use our glow library with Modern WoW Glow (#6)
+        -- "Default" glow: use our glow library with Modern WoW Glow (#6), or
+        -- Action Button Glow (#2) where FlipBook is missing (3.3.5)
         if not (fd.shapeMask and fd.shapeApplied) then
             if not fd.glowWrapper then
                 local wrapper = CreateFrame("Frame", nil, btn:GetParent() or btn)
@@ -7923,7 +7924,7 @@ local function UpdateFlipbook(btn)
             _G_Glows.StopAllGlows(wrapper)
             wrapper:SetAlpha(1)
             wrapper:Show()
-            _G_Glows.StartGlow(wrapper, 6, _ufBtnW, 1, 0.788, 0.137, nil, _ufBtnH)
+            _G_Glows.StartGlow(wrapper, _G_Glows.FLIPBOOK_SUPPORTED and 6 or 2, _ufBtnW, 1, 0.788, 0.137, nil, _ufBtnH)
             if region then region:SetAlpha(0) end
             fd.customizedFlipbook = true
             return

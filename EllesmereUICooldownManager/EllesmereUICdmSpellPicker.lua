@@ -1090,13 +1090,10 @@ function ns.MigrateSpecToBarFilterModelV6()
     if not HasPopulatedPool() and not prof._initializeEmptyBarsV1 then return end
 
     -- Seeded before the assigned set is built, so the curated defaults stay
-    -- visible and only the rest of the catalog is ghosted below. The default
-    -- bar set is completed first so every curated bar has a destination.
-    local barsAdded = false
+    -- visible and only the rest of the catalog is ghosted below. Bars are
+    -- shared by every spec: curated entries for a default bar the profile no
+    -- longer has are skipped (they stay ghosted, available in the picker).
     if prof._initializeEmptyBarsV1 then
-        if ns.EnsureDefaultCDMBars then
-            barsAdded = ns.EnsureDefaultCDMBars(prof, true)
-        end
         SeedSpecDefaults(prof, specKey, barList)
     end
 
@@ -1206,7 +1203,7 @@ function ns.MigrateSpecToBarFilterModelV6()
     prof._barFilterModelV6 = true
     prof._importGhostMode = nil  -- import-authoritative ghosting done for this spec
     prof._initializeEmptyBarsV1 = nil -- fresh-spec empty state is now materialized
-    return addedCount, barsAdded
+    return addedCount
 end
 
 --- One-shot per-spec migration: merge any pre-existing dormantSpells back
@@ -2425,10 +2422,16 @@ function ns.RemoveCDMBar(key)
                 EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
             end
 
-            -- Definition and contents belong only to the active spec.
-            local activeContainer = ns.GetActiveSpecContainer(false)
-            if activeContainer and activeContainer.barSpells then
-                activeContainer.barSpells[key] = nil
+            -- The definition is shared by every spec, so drop the bar's spell
+            -- data from every spec of the ACTIVE profile only -- other profiles
+            -- own independent stores and keep their copy.
+            local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+            if sp then
+                for _, specData in pairs(sp) do
+                    if type(specData) == "table" and specData.barSpells then
+                        specData.barSpells[key] = nil
+                    end
+                end
             end
 
             -- Unregister from unlock mode

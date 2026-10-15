@@ -5502,7 +5502,14 @@ end
 function EllesmereUI.ResolveTexturePath(texTable, key, fallback)
     if not key then return fallback end
     local path = texTable and texTable[key]
-    if path then return path end
+    if path then
+        -- A path this client cannot load (see IsTextureLoadable) would leave
+        -- the bar with no fill texture; the fallback at least draws a bar.
+        if EllesmereUI.IsTextureLoadable and not EllesmereUI.IsTextureLoadable(path) then
+            return fallback
+        end
+        return path
+    end
     -- A non-string key is legacy data, not a lookup miss: several settings were
     -- boolean toggles before they became style dropdowns (showPlayerAbsorb is
     -- one). Callers gate on truthiness, so a stored `true` passes their check
@@ -5523,6 +5530,9 @@ function EllesmereUI.ResolveTexturePath(texTable, key, fallback)
         local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
         if LSM then
             local fetched = LSM:Fetch("statusbar", smName)
+            if fetched and EllesmereUI.IsTextureLoadable and not EllesmereUI.IsTextureLoadable(fetched) then
+                fetched = nil
+            end
             if fetched then
                 -- Cache it back into the table so future lookups are instant
                 if texTable then texTable[key] = fetched end

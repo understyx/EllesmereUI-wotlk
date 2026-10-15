@@ -1537,7 +1537,9 @@ local GLOW_VALUES = { [0] = "None" }
 local GLOW_ORDER  = { 0 }
 for i, entry in ipairs(GLOW_TYPES) do
     GLOW_VALUES[i] = entry.name
-    GLOW_ORDER[#GLOW_ORDER + 1] = i
+    if EllesmereUI.Glows.IsStyleAvailable(entry) then
+        GLOW_ORDER[#GLOW_ORDER + 1] = i
+    end
 end
 
 -------------------------------------------------------------------------------

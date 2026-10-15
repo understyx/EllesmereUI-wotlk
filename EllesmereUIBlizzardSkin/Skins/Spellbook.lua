@@ -17,10 +17,10 @@ local function Data(frame)
 	return data
 end
 
-local function LayoutNavigation(hasTabRow)
+local function LayoutNavigation()
 	local frame = _G.SpellBookFrame
 	if not frame then return end
-	local footer = hasTabRow and 35 or 14
+	local footer = 14
 	local previous = _G.SpellBookPrevPageButton
 	local nextPage = _G.SpellBookNextPageButton
 	local page = _G.SpellBookPageText
@@ -56,7 +56,7 @@ local function StyleBookTabs()
 		end
 	end
 	if #visible == 0 then
-		LayoutNavigation(false)
+		LayoutNavigation()
 		return
 	end
 	-- A single "Spellbook" tab merely repeats the window title. Keep the
@@ -64,23 +64,17 @@ local function StyleBookTabs()
 	if #visible == 1 then
 		visible[1]:SetAlpha(0)
 		visible[1]:EnableMouse(false)
-		LayoutNavigation(false)
+		LayoutNavigation()
 		return
 	end
-	local width = frame:GetWidth() / #visible
-	for i, tab in ipairs(visible) do
-		tab:ClearAllPoints()
-		tab:SetSize(width, WSkin.Retail.geometry.tabHeight)
-		if i == 1 then
-			tab:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-		else
-			tab:SetPoint("LEFT", visible[i - 1], "RIGHT", 0, 0)
-		end
+	WSkin:LayoutRetailTabRow(visible, frame)
+	for _, tab in ipairs(visible) do
 		local active = tab.bookType and tab.bookType == frame.bookType
 		if not tab.bookType and tab.IsEnabled then active = not tab:IsEnabled() end
 		WSkin:UpdateRetailTab(tab, active and true or false)
 	end
-	LayoutNavigation(true)
+	-- Tabs hang under the frame, so page navigation keeps the plain footer.
+	LayoutNavigation()
 end
 
 local function StyleSkillLineTabs()

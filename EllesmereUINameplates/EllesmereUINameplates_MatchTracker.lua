@@ -11,11 +11,34 @@ local UnitHealthMax = UnitHealthMax
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
 local UnitCanAttack = UnitCanAttack
 local UnitIsUnit = UnitIsUnit
+local UnitIsPlayer = UnitIsPlayer
+local UnitClass = UnitClass
 local MouseIsOver = MouseIsOver
 local GetTime = GetTime
 
 local MatchTracker = {}
 ns.MatchTracker = MatchTracker
+
+-- Anonymous 3.3.5 plates carry no class, and friendly player bars are always
+-- blue. Remember the class of every player unit seen this session by name so
+-- plates can be class colored without the unit staying targeted/hovered.
+local classByName = {}
+ns.classByName = classByName
+
+local function CachePlayerClass(unit)
+    if not UnitIsPlayer(unit) then return end
+    local name = UnitName(unit)
+    local _, class = UnitClass(unit)
+    if name and class and classByName[name] ~= class then
+        classByName[name] = class
+        if ns.OnPlayerClassCached then ns.OnPlayerClassCached(name) end
+    end
+end
+
+local function CacheGroupClasses()
+    for i = 1, 4 do CachePlayerClass("party" .. i) end
+    for i = 1, 40 do CachePlayerClass("raid" .. i) end
+end
 
 -- Registries
 MatchTracker.plates = {}            -- [plate] = true
@@ -479,15 +502,20 @@ eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 eventFrame:SetScript("OnEvent", function(self, event, unitId)
     if event == "PLAYER_TARGET_CHANGED" then
         alphaPendingPlate, alphaPendingGUID, alphaPendingSince = nil, nil, nil
+        CachePlayerClass("target")
         MatchTracker:UpdateSpecialUnits()
     elseif event == "UPDATE_MOUSEOVER_UNIT" then
+        CachePlayerClass("mouseover")
         MatchTracker:UpdateSpecialUnits()
     elseif event == "PLAYER_FOCUS_CHANGED" then
+        CachePlayerClass("focus")
         MatchTracker:UpdateSpecialUnits()
     elseif event == "UNIT_TARGET" then
+        if unitId then CachePlayerClass(unitId .. "target") end
         MatchTracker:UpdateGroupUnits()
     elseif event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED"
         or event == "RAID_ROSTER_UPDATE" then
+        CacheGroupClasses()
         MatchTracker:UpdateAll()
     end
 end)

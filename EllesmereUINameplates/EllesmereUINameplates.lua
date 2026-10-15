@@ -325,6 +325,15 @@ local function GetTextSlotColor(slotKey)
 end
 ns.GetTextSlotColor = GetTextSlotColor
 
+-- Class color for a friendly player plate, from the name cache filled by
+-- MatchTracker. nil when the class is unknown or class coloring is off.
+local function GetFriendlyClassColor(plate)
+    if not plate.isFriendlyPlayer or DB().classColorFriendly == false then return nil end
+    local class = ns.classByName[plate:GetNameText()]
+    local cc = class and RAID_CLASS_COLORS[class]
+    if cc then return cc.r, cc.g, cc.b end
+end
+
 local function GetSlotRaiseStrata(posKey)
     if not posKey or posKey == "none" then return false end
     local key = posKey .. "SlotRaiseStrata"
@@ -902,6 +911,13 @@ function PlateMethods:UpdateHealthValues()
             local el = GetTextSlot(slotKey)
             if el == "enemyName" then
                 fs:SetText(self:GetNameText())
+                local cr, cg, cb = GetFriendlyClassColor(self)
+                if not cr and self.isFriendlyPlayer and db.classColorFriendly ~= false then
+                    local c = db.friendlyUnknownClassColor or ns.defaults.friendlyUnknownClassColor
+                    cr, cg, cb = c.r, c.g, c.b
+                end
+                if not cr then cr, cg, cb = GetTextSlotColor(slotKey) end
+                fs:SetTextColor(cr, cg, cb, 1)
             elseif el == "healthPercent" then
                 fs:SetText(pctText)
             elseif el == "healthPercentNoSign" then
@@ -939,10 +955,15 @@ function PlateMethods:UpdateHealthColor()
     local isHostile = r > 0.85 and g < 0.25 and b < 0.25
     local isNeutral = r > 0.75 and g > 0.65 and b < 0.35
     local isTapped  = abs(r - g) < 0.08 and abs(g - b) < 0.08 and r < 0.7
-    local isFriendly = not isHostile and not isNeutral and not isTapped
+    -- 3.3.5 colors friendly players pure blue and friendly NPCs pure green.
+    -- Any other color is an enemy player tinted by the client's class-color
+    -- option, so it must not fall through to the friendly branches.
+    local isFriendlyPlayer = r < 0.05 and g < 0.05 and b > 0.95
+    local isFriendlyNPC    = r < 0.05 and g > 0.95 and b < 0.05
+    local isFriendly = isFriendlyPlayer or isFriendlyNPC
     local wasNameOnly = self.nameOnly
     self.isFriendly = isFriendly
-    self.isFriendlyPlayer = isFriendly and not (r < 0.05 and g > 0.95 and b < 0.05)
+    self.isFriendlyPlayer = isFriendlyPlayer
     self.nameOnly = self.isFriendlyPlayer and db.friendlyNameOnly ~= false
     if wasNameOnly ~= self.nameOnly then
         for _, slotKey in ipairs(ns.textSlotKeys) do
@@ -966,8 +987,10 @@ function PlateMethods:UpdateHealthColor()
         finalR, finalG, finalB = c.r, c.g, c.b
     elseif isFriendly then
         if db.classColorFriendly and self.isFriendlyPlayer then
-            -- Keep native class color
-            finalR, finalG, finalB = r, g, b
+            -- Native friendly player bars are plain blue; use the cached class
+            -- color once the player has been seen, else keep the native blue.
+            local cr, cg, cb = GetFriendlyClassColor(self)
+            finalR, finalG, finalB = cr or r, cg or g, cb or b
         else
             local c = db.friendlyBarColor or ns.defaults.friendlyBarColor
             finalR, finalG, finalB = c.r, c.g, c.b
@@ -1806,6 +1829,14 @@ function ns.RefreshFriendlySize()
 end
 ns.RefreshFriendlyNameSize = ns.RefreshFriendlySize
 ns.RefreshFriendlyColors = ns.RefreshFriendlySize
+
+function ns.OnPlayerClassCached(name)
+    for _, plate in pairs(plates) do
+        if plate.isFriendlyPlayer and plate:GetNameText() == name then
+            plate:UpdateHealth()
+        end
+    end
+end
 ns.RefreshFriendlyPlateOffset = ns.RefreshFriendlySize
 
 ns.RefreshStackingMotion = function() end
@@ -2231,6 +2262,12 @@ end
 
 function ENP:OnEnable()
     p = self.db.profile
+    -- Enemy player bars are only distinguishable from hostile NPCs when the
+    -- client class-colors them. Enable it once; later user changes stick.
+    if not p.enemyClassColorCVarApplied then
+        pcall(SetCVar, "ShowClassColorInNameplate", 1)
+        p.enemyClassColorCVarApplied = true
+    end
     driver:Show()
     ScanWorldFrame()
     ns.RefreshAllSettings()

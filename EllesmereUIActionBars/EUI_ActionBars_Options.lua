@@ -5199,7 +5199,9 @@ initFrame:SetScript("OnEvent", function(self)
         for i, entry in ipairs(ns.LOOP_GLOW_TYPES) do
             if not entry.shapeGlow then          -- Shape Glow is internal-only
                 procGlowValues[i] = entry.name
-                procGlowOrder[#procGlowOrder + 1] = i
+                if ns.Glows.IsStyleAvailable(entry) then
+                    procGlowOrder[#procGlowOrder + 1] = i
+                end
             end
         end
     end
@@ -5343,8 +5345,9 @@ initFrame:SetScript("OnEvent", function(self)
         if not f then return end
         local p = EAB.db.profile
 
-        -- Create or reuse FlipBook overlay for loop glow
-        if not f._loopTex then
+        -- Create or reuse FlipBook overlay for loop glow (where the client has
+        -- FlipBook; 3.3.5 previews through the shared library's fallback)
+        if not f._loopTex and ns.Glows.FLIPBOOK_SUPPORTED then
             local loopTex = f:CreateTexture(nil, "OVERLAY", nil, 7)
             loopTex:SetPoint("CENTER")
             local loopGroup = loopTex:CreateAnimationGroup()
@@ -5356,8 +5359,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Stop all current animations
-        f._loopGroup:Stop()
-        f._loopTex:Hide()
+        if f._loopTex then
+            f._loopGroup:Stop()
+            f._loopTex:Hide()
+        end
+        ns.Glows.StopFlipBookGlow(f)
         ns.Glows.StopProceduralAnts(f)
         ns.Glows.StopButtonGlow(f)
         ns.Glows.StopAutoCastShine(f)
@@ -5416,6 +5422,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
             ns.Glows.StartShapeGlow(f, iconSize, cr, cg, cb, 1.20, { maskPath = maskPath })
+        elseif not ns.Glows.FLIPBOOK_SUPPORTED then
+            ns.Glows.StartFlipBookGlow(f, iconSize, loopEntry, cr, cg, cb)
         else
             -- FlipBook preview
             local previewSz = iconSize * (loopEntry.texPadding or 1)
@@ -5432,9 +5440,9 @@ initFrame:SetScript("OnEvent", function(self)
             f._loopAnim:SetFlipBookRows(loopEntry.rows or 6)
             f._loopAnim:SetFlipBookColumns(loopEntry.columns or 5)
             f._loopAnim:SetFlipBookFrames(loopEntry.frames or 30)
-            f._loopAnim:SetDuration(loopEntry.duration or 1.0)
             f._loopAnim:SetFlipBookFrameWidth(loopEntry.frameW or 0.0)
             f._loopAnim:SetFlipBookFrameHeight(loopEntry.frameH or 0.0)
+            f._loopAnim:SetDuration(loopEntry.duration or 1.0)
 
             -- Only desaturate+tint for custom texture styles (Classic WoW Glow).
             -- Atlas-based styles keep their original white highlights.

@@ -21,7 +21,6 @@ end
 -- Druid = class 11. Cooldowns = 111XXX, Buffs/Procs = 211XXX.
 
 local AURA_TAGS = {
-    ["druid.innervate"] = { external = true },
     ["druid.barkskin"] = { defensive = true },
     ["druid.survival_instincts"] = { defensive = true },
     ["druid.frenzied_regeneration"] = { defensive = true },

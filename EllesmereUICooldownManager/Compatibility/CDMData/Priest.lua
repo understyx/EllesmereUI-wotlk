@@ -21,7 +21,6 @@ end
 -- Priest = class 05. Cooldowns = 105XXX, Buffs/Procs = 205XXX.
 
 local AURA_TAGS = {
-    ["priest.power_infusion"] = { external = true },
     ["priest.pain_suppression"] = { external = true, defensive = true },
     ["priest.guardian_spirit"] = { external = true, defensive = true },
     ["priest.dispersion"] = { defensive = true },
@@ -419,7 +418,7 @@ local function RegisterBasic(key, cooldownID, order, spellIDs, category, auraTag
     })
 end
 
-RegisterBasic("prayer_of_mending", 105017, 110, { 33076, 48112, 48113 }, CDM_CATEGORY_ESSENTIAL, { external = true })
+RegisterBasic("prayer_of_mending", 105017, 110, { 33076, 48112, 48113 }, CDM_CATEGORY_ESSENTIAL)
 RegisterBasic("mind_blast",        105018, 120, { 8092, 8102, 8103, 8104, 8105, 8106, 10945, 10946, 10947, 25372, 25375, 48126, 48127 })
 RegisterBasic("shadow_word_death", 105019, 130, { 32379, 32996, 48157, 48158 })
 RegisterBasic("psychic_horror",    105020, 140, { 64044 }, CDM_CATEGORY_UTILITY)

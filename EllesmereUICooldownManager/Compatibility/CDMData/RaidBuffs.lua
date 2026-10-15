@@ -56,6 +56,8 @@ local function RecipientSet(classes, providerClass, excludeProvider)
     return result
 end
 
+local EXTERNAL_DEFENSIVE = { external = true, defensive = true }
+
 local function Register(providerClass, key, spellID, auraSpellIDs, recipients, options)
     options = options or {}
     nextID = nextID + 1
@@ -70,11 +72,12 @@ local function Register(providerClass, key, spellID, auraSpellIDs, recipients, o
     local section = options.section or "external"
     -- `externalBuff` below describes where the picker sourced the spell: it
     -- was cast on the player by somebody else. The aura-filter `external`
-    -- tag is intentionally narrower and marks targeted externals only. Raid
-    -- buffs and routine healing buffs must not enter the raid-frame external
-    -- row merely because another player supplied them.
+    -- tag is much narrower and, matching Retail's EXTERNAL_DEFENSIVE, marks
+    -- only damage-reduction externals; each row opts in via EXTERNAL_DEFENSIVE.
+    -- Utility and throughput buffs (Power Infusion, Freedom, Innervate, ...)
+    -- stay untagged and are added per user through the raid frames' custom
+    -- defensive spell list instead.
     local tags = {}
-    if section == "external" then tags.external = true end
     for tag, enabled in pairs(options.auraTags or {}) do
         if enabled then tags[tag] = true end
     end
@@ -304,7 +307,7 @@ Register("PALADIN", "shadow_resistance_aura", 48943,
     { section = "raid", excludeProvider = true, pickerHidden = true })
 Register(nil, "nature_resistance", 49071,
     Merge(ASPECT_OF_THE_WILD, NATURE_RESISTANCE_TOTEM), ALL,
-    { section = "raid", displayName = "Nature Resistance", auraTags = { defensive = true } })
+    { section = "raid", displayName = "Nature Resistance" })
 
 -------------------------------------------------------------------------------
 -- Targeted raid externals and utility
@@ -312,7 +315,7 @@ Register(nil, "nature_resistance", 49071,
 
 Register("DEATHKNIGHT", "anti_magic_zone", 51052,
     { 50461, 51052 }, ALL,
-    { auraTags = { defensive = true } })
+    { auraTags = EXTERNAL_DEFENSIVE })
 Register("DEATHKNIGHT", "hysteria", 49016, { 49016 }, PHYSICAL)
 
 Register("DRUID", "innervate", 29166, { 29166 }, MANA)
@@ -324,7 +327,7 @@ Register("HUNTER", "misdirection", 34477,
     { 35079, 34477 }, TANK)
 Register("HUNTER", "masters_call", 53271, { 53271 }, ALL)
 Register("HUNTER", "roar_of_sacrifice", 53480, { 53480 }, ALL,
-    { auraTags = { defensive = true } })
+    { auraTags = EXTERNAL_DEFENSIVE })
 
 Register("MAGE", "focus_magic", 54646, { 54646 }, SPELLCASTER,
     { excludeProvider = true })
@@ -332,27 +335,27 @@ Register("MAGE", "focus_magic", 54646, { 54646 }, SPELLCASTER,
 Register("PALADIN", "hand_of_freedom", 1044, { 1044 }, ALL,
     { excludeProvider = true })
 Register("PALADIN", "hand_of_protection", 10278, { 1022, 5599, 10278 }, ALL,
-    { excludeProvider = true, auraTags = { defensive = true } })
+    { excludeProvider = true, auraTags = EXTERNAL_DEFENSIVE })
 Register("PALADIN", "hand_of_sacrifice", 6940, { 6940 }, ALL,
-    { excludeProvider = true, auraTags = { defensive = true } })
+    { excludeProvider = true, auraTags = EXTERNAL_DEFENSIVE })
 Register("PALADIN", "hand_of_salvation", 1038, { 1038 }, ALL,
     { excludeProvider = true })
 Register("PALADIN", "divine_sacrifice", 64205,
     { 64205, 70940 }, ALL,
-    { excludeProvider = true, auraTags = { defensive = true } })
+    { excludeProvider = true, auraTags = EXTERNAL_DEFENSIVE })
 Register("PALADIN", "aura_mastery", 31821, { 31821 }, ALL,
-    { excludeProvider = true, auraTags = { defensive = true } })
+    { excludeProvider = true, auraTags = EXTERNAL_DEFENSIVE })
 Register("PALADIN", "sacred_shield", 53601,
     { 53601, 58597 }, ALL,
-    { excludeProvider = true, auraTags = { defensive = true } })
+    { excludeProvider = true })
 Register("PALADIN", "beacon_of_light", 53563, { 53563 }, TANK,
     { excludeProvider = true, section = "healing" })
 
 Register("PRIEST", "fear_ward", 6346, { 6346 }, ALL)
 Register("PRIEST", "guardian_spirit", 47788, { 47788 }, ALL,
-    { auraTags = { defensive = true } })
+    { auraTags = EXTERNAL_DEFENSIVE })
 Register("PRIEST", "pain_suppression", 33206, { 33206 }, ALL,
-    { auraTags = { defensive = true } })
+    { auraTags = EXTERNAL_DEFENSIVE })
 Register("PRIEST", "power_infusion", 10060, { 10060 }, SPELLCASTER)
 Register("PRIEST", "hymn_of_hope", 64904, { 64904 }, MANA)
 
@@ -362,19 +365,18 @@ Register("ROGUE", "tricks_of_the_trade", 57934,
 
 Register("SHAMAN", "earth_shield", 49284,
     { 974, 32593, 32594, 49283, 49284 }, TANK,
-    { excludeProvider = true, section = "healing", auraTags = { defensive = true } })
+    { excludeProvider = true, section = "healing" })
 Register("SHAMAN", "mana_tide", 16191, { 16191 }, MANA)
 
 Register("WARLOCK", "soulstone_resurrection", 47883,
     { 47883, 20707 }, ALL,
-    { auraTags = { defensive = true } })
+    { auraTags = EXTERNAL_DEFENSIVE })
 
 Register("WARRIOR", "intervene", 3411,
     { 3411, 46949 }, ALL,
-    { auraTags = { defensive = true } })
+    { auraTags = EXTERNAL_DEFENSIVE })
 Register("WARRIOR", "vigilance", 50725,
-    { 50725, 50720 }, TANK,
-    { auraTags = { defensive = true } })
+    { 50725, 50720 }, TANK)
 
 -------------------------------------------------------------------------------
 -- Healing buffs that live on the recipient
@@ -395,7 +397,7 @@ Register("PRIEST", "power_word_shield", 48066,
     { 17, 592, 600, 3747, 6065, 6066, 10898, 10899, 10900, 10901, 25217, 25218, 48065, 48066 }, ALL,
     { section = "healing" })
 Register("PRIEST", "divine_aegis", 47753, { 47753 }, ALL,
-    { section = "healing", auraTags = { defensive = true } })
+    { section = "healing" })
 Register("PRIEST", "prayer_of_mending", 48113,
     { 41635, 48110, 48111 }, ALL,
     { section = "healing" })
@@ -403,7 +405,7 @@ Register("PRIEST", "renew", 48068,
     { 139, 6074, 6075, 6076, 6077, 6078, 10927, 10928, 10929, 25315, 25221, 25222, 48067, 48068 }, ALL,
     { section = "healing" })
 Register("PRIEST", "inspiration", 15363, { 15363 }, ALL,
-    { section = "healing", auraTags = { defensive = true } })
+    { section = "healing" })
 Register("PRIEST", "grace", 47930, { 47930 }, ALL,
     { section = "healing" })
 

@@ -65,6 +65,31 @@ local function StyleSocialRows()
 	end
 end
 
+-- ChannelList_Update reuses each button as either a group header (Group,
+-- World, Custom) or a channel entry and recolours its label every pass.
+local function StyleChannelRows()
+	local ar, ag, ab = WSkin:GetRetailAccent()
+	for i = 1, Count(_G.MAX_DISPLAY_CHANNEL_BUTTONS, 20) do
+		local button = _G["ChannelButton" .. i]
+		local text = _G["ChannelButton" .. i .. "Text"]
+		if button then
+			WSkin:UpdateRetailRow(button, false, button.header and true or false)
+			if text then
+				if button.header then
+					WSkin:ApplyRetailTypography(text, "section")
+				else
+					-- Keep Blizzard's active/inactive channel colour.
+					local r, g, b = text:GetTextColor()
+					WSkin:ApplyRetailTypography(text, "row")
+					text:SetTextColor(r, g, b, 1)
+				end
+			end
+			local collapsed = _G["ChannelButton" .. i .. "Collapsed"]
+			if collapsed then collapsed:SetTextColor(ar, ag, ab, 1) end
+		end
+	end
+end
+
 local function StyleSocialTabs()
 	local frame = _G.FriendsFrame
 	if not frame then return end
@@ -80,18 +105,9 @@ local function StyleSocialTabs()
 	end
 	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
 		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
-	if #mainTabs > 0 then
-		local width = frame:GetWidth() / #mainTabs
-		for i, tab in ipairs(mainTabs) do
-			tab:ClearAllPoints()
-			tab:SetSize(width, WSkin.Retail.geometry.tabHeight)
-			if i == 1 then
-				tab:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-			else
-				tab:SetPoint("LEFT", mainTabs[i - 1], "RIGHT", 0, 0)
-			end
-			WSkin:UpdateRetailTab(tab, tab:GetID() == selected)
-		end
+	WSkin:LayoutRetailTabRow(mainTabs, frame)
+	for _, tab in ipairs(mainTabs) do
+		WSkin:UpdateRetailTab(tab, tab:GetID() == selected)
 	end
 
 	local header = _G.FriendsTabHeader
@@ -190,9 +206,7 @@ local function SkinSocial()
 	Point(_G.FriendsFrameUnsquelchButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -40, 34)
 
 	WSkin:HandleDropDownBox(_G.WhoFrameDropDown)
-	WSkin:SetBackdropHitRect(_G.WhoFrameDropDown)
 	WSkin:HandleEditBox(_G.WhoFrameEditBox)
-	StyleInput(_G.WhoFrameDropDown)
 	StyleInput(_G.WhoFrameEditBox)
 	for i = 1, 4 do
 		local header = _G["WhoFrameColumnHeader" .. i]
@@ -200,6 +214,30 @@ local function SkinSocial()
 		WSkin:ApplyRetailSurface(header, "header")
 		WSkin:ApplyRetailRegionTypography(header, "secondary")
 	end
+	-- The Zone/Guild/Race selector lives inside column header 2. Its own
+	-- dropdown box is taller than the header row and overlapped it, so draw
+	-- the selector as part of the header instead of as a separate input.
+	local whoDrop, whoHeader = _G.WhoFrameDropDown, _G.WhoFrameColumnHeader2
+	local whoDropButton, whoDropText = _G.WhoFrameDropDownButton, _G.WhoFrameDropDownText
+	if whoDrop and whoHeader then
+		if whoDrop.backdrop then
+			whoDrop.backdrop:ClearAllPoints()
+			whoDrop.backdrop:SetAllPoints(whoHeader)
+			whoDrop.backdrop:SetBackdrop(nil)
+		end
+		if whoDropButton then
+			whoDropButton:ClearAllPoints()
+			whoDropButton:SetPoint("RIGHT", whoHeader, "RIGHT", -4, 0)
+		end
+		if whoDropText then
+			whoDropText:ClearAllPoints()
+			whoDropText:SetPoint("LEFT", whoHeader, "LEFT", 8, 0)
+			if whoDropButton then whoDropText:SetPoint("RIGHT", whoDropButton, "LEFT", -2, 0) end
+			whoDropText:SetJustifyH("LEFT")
+			WSkin:ApplyRetailTypography(whoDropText, "secondary")
+		end
+	end
+	WSkin:ApplyRetailTypography(_G.WhoFrameTotals, "secondary")
 	for i = 1, Count(_G.WHOS_TO_DISPLAY, 17) do WSkin:HandleButtonHighlight(_G["WhoFrameButton" .. i]) end
 	WSkin:StripTextures(_G.WhoListScrollFrame)
 	WSkin:HandleRetailScrollBar(_G.WhoListScrollFrameScrollBar)
@@ -295,7 +333,16 @@ local function SkinSocial()
 		WSkin:HandleCheckBox(check)
 		if check and check.backdrop then WSkin:ApplyRetailSurface(check.backdrop, "input") end
 	end
-	for i = 1, Count(_G.MAX_DISPLAY_CHANNEL_BUTTONS, 20) do WSkin:HandleButtonHighlight(_G["ChannelButton" .. i]) end
+	WSkin:Kill(_G.ChannelFrameVerticalBar)
+	for i = 1, Count(_G.MAX_DISPLAY_CHANNEL_BUTTONS, 20) do
+		local button = _G["ChannelButton" .. i]
+		if button then
+			-- The stock group headers carry gold-bordered stone art.
+			WSkin:StripTextures(button)
+			if button.SetNormalTexture then button:SetNormalTexture("") end
+			WSkin:HandleButtonHighlight(button, 1, 1, 1, 0.06)
+		end
+	end
 	for i = 1, 22 do WSkin:HandleButtonHighlight(_G["ChannelMemberButton" .. i]) end
 	WSkin:StripTextures(_G.ChannelListScrollFrame)
 	WSkin:StripTextures(_G.ChannelRosterScrollFrame)
@@ -313,6 +360,31 @@ local function SkinSocial()
 		end
 		WSkin:HandleRetailButton(_G.ChannelFrameDaughterFrameCancelButton)
 		WSkin:HandleRetailButton(_G.ChannelFrameDaughterFrameOkayButton, true)
+	end
+
+	-- RaidFrame and its not-in-raid controls are core FrameXML. Only the group
+	-- grid comes from Blizzard_RaidUI, which loads once the player joins a
+	-- raid, so these are skinned with the rest of Social.
+	Each({ "RaidFrameConvertToRaidButton", "RaidFrameRaidInfoButton" }, WSkin.HandleRetailButton)
+	WSkin:HandleRetailButton(_G.RaidFrameNotInRaidRaidBrowserButton, true)
+	WSkin:ApplyRetailRegionTypography(_G.RaidFrame, "row")
+	WSkin:ApplyRetailRegionTypography(_G.RaidFrameNotInRaid, "row")
+
+	if _G.RaidInfoFrame then
+		SkinPanel(_G.RaidInfoFrame, _G.RaidInfoCloseButton, 0, 0, 0, 0)
+		WSkin:StripTextures(_G.RaidInfoInstanceLabel)
+		WSkin:StripTextures(_G.RaidInfoIDLabel)
+		WSkin:ApplyRetailRegionTypography(_G.RaidInfoInstanceLabel, "secondary")
+		WSkin:ApplyRetailRegionTypography(_G.RaidInfoIDLabel, "secondary")
+		WSkin:HandleRetailScrollBar(_G.RaidInfoScrollFrameScrollBar)
+		WSkin:HandleRetailButton(_G.RaidInfoExtendButton)
+		WSkin:HandleRetailButton(_G.RaidInfoCancelButton)
+		local buttons = _G.RaidInfoScrollFrame and _G.RaidInfoScrollFrame.buttons
+		if buttons then
+			for _, button in ipairs(buttons) do
+				WSkin:HandleButtonHighlight(button, 1, 1, 1, 0.06)
+			end
+		end
 	end
 
 	for i = 1, 5 do
@@ -336,6 +408,10 @@ local function SkinSocial()
 	if type(_G.GuildRoster_Update) == "function" then
 		hooksecurefunc("GuildRoster_Update", StyleSocialRows)
 	end
+	if type(_G.ChannelList_Update) == "function" then
+		hooksecurefunc("ChannelList_Update", StyleChannelRows)
+	end
+	StyleChannelRows()
 	RefreshSocialStyle()
 end
 

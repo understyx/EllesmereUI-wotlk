@@ -1064,6 +1064,53 @@ function C_CooldownViewer.GetAuraSpellTags(spellID)
     return auraTagsBySpellID[spellID]
 end
 
+-- Spells offered by the raid frames' custom defensive picker: every tagged
+-- defensive/external plus the recipient-side utility externals (Freedom,
+-- Power Infusion, ...). Definitions sharing an aura identity merge, so a
+-- spell registered by both its class file and the recipient catalogue shows
+-- once. Each entry lists every spellID UnitAura may report for it.
+function C_CooldownViewer.GetDefensivePickerEntries()
+    local cdIDs = {}
+    for cdID, def in pairs(definitions) do
+        local tags = def.auraTags
+        local tagged = type(tags) == "table" and (tags.defensive or tags.external)
+        local utility = def.externalBuff and def.buffCatalogSection == "external"
+        if not def.pickerHidden and (tagged or utility) then cdIDs[#cdIDs + 1] = cdID end
+    end
+    table.sort(cdIDs)
+
+    local entries, entryByID = {}, {}
+    for _, cdID in ipairs(cdIDs) do
+        local def = definitions[cdID]
+        local ids = { def.spellID, def.auraSpellID }
+        for _, list in ipairs({ def.spellIDs or {}, def.auraSpellIDs or {} }) do
+            for _, id in ipairs(list) do ids[#ids + 1] = id end
+        end
+        local entry
+        for _, id in pairs(ids) do
+            if entryByID[id] then entry = entryByID[id]; break end
+        end
+        if not entry then
+            entry = {
+                key = def.key,
+                class = def.providerClass or def.class,
+                spellID = def.spellID,
+                iconSpellID = def.iconSpellID or def.spellID,
+                displayName = def.displayName,
+                spellIDs = {},
+            }
+            entries[#entries + 1] = entry
+        end
+        for _, id in pairs(ids) do
+            if type(id) == "number" and not entryByID[id] then
+                entryByID[id] = entry
+                entry.spellIDs[#entry.spellIDs + 1] = id
+            end
+        end
+    end
+    return entries
+end
+
 function C_CooldownViewer.GetCooldownViewerCategorySet(category, includeUnknown)
     local results = {}
     local catIDs = categories[category] or {}

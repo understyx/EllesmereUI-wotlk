@@ -99,16 +99,9 @@ local function SkinShell(frame)
         data.background = background
 
         local overlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        overlay:SetTexture(0, 0, 0, 0.62)
-        overlay:SetAllPoints(frame)
         data.overlay = overlay
-
-        local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-        topBar:SetTexture(0, 0, 0, 0.50)
-        topBar:SetPoint("TOPLEFT")
-        topBar:SetPoint("TOPRIGHT")
-        topBar:SetHeight(25)
-        data.topBar = topBar
+        -- Shared retail shade: lifted header band over a near-black body.
+        data.topBar = WSkin:ApplyRetailShellShade(frame, overlay)
 
         local baseLeft, baseRight, baseTop, baseBottom = 0.25, 1, 0, 0.75
         local baseWidth, baseHeight = baseRight - baseLeft, baseBottom - baseTop
@@ -144,7 +137,9 @@ local function SkinShell(frame)
     local header = _G.AchievementFrameHeader
     if header then FadeTextureRegions(header) end
     local title = _G.AchievementFrameHeaderTitle
-    WSkin:SetRetailPageTitle(frame, ACHIEVEMENT_TITLE or "Achievements", title)
+    -- On 3.3.5 ACHIEVEMENT_TITLE is the "Achievement Points" header label;
+    -- the window name lives in ACHIEVEMENTS.
+    WSkin:SetRetailPageTitle(frame, ACHIEVEMENTS or "Achievements", title)
 
     if not data.pointsCard then
         local card = CreateFrame("Frame", nil, frame)
@@ -271,17 +266,19 @@ local function SkinCategoryButton(button)
     button:SetWidth(176)
     local active = GetBlizzardSelectedCategory()
     if active == nil then active = selectedCategory end
-    WSkin:UpdateRetailRow(button, button.categoryID ~= nil and button.categoryID == active,
-        button.element.parent == true)
+    -- element.parent is true only for top-level categories that have
+    -- children; leaf top-level entries (Summary, General, Feats of Strength)
+    -- leave it nil. Style every top-level row alike, as retail does.
+    local isChild = type(button.element.parent) == "number"
+    WSkin:UpdateRetailRow(button, button.categoryID ~= nil and button.categoryID == active, not isChild)
     AddRowHover(button)
 
     if button.label then
         button.label:ClearAllPoints()
-        local isChild = type(button.element.parent) == "number"
         button.label:SetPoint("LEFT", button, "LEFT", isChild and 24 or 10, 0)
         button.label:SetPoint("RIGHT", button, "RIGHT", -22, 0)
         button.label:SetJustifyH("LEFT")
-        WSkin:ApplyRetailTypography(button.label, button.element.parent == true and "section" or "row")
+        WSkin:ApplyRetailTypography(button.label, isChild and "row" or "section")
     end
 
     if button.element.parent == true then
@@ -423,8 +420,42 @@ local function SkinProgressBar(bar)
     if bar.SetStatusBarColor then bar:SetStatusBarColor(ar, ag, ab, 0.82) end
     local name = bar.GetName and bar:GetName()
     if name then
-        WSkin:ApplyRetailTypography(_G[name .. "Label"] or _G[name .. "Title"], "row")
-        WSkin:ApplyRetailTypography(_G[name .. "Text"], "value")
+        -- The stock labels sit near the top of the old bar art; centre them
+        -- on the flat bar.
+        local label = _G[name .. "Label"] or _G[name .. "Title"]
+        local text = _G[name .. "Text"]
+        if label and label.ClearAllPoints then
+            label:ClearAllPoints()
+            label:SetPoint("LEFT", bar, "LEFT", 8, 0)
+        end
+        if text and text.ClearAllPoints then
+            text:ClearAllPoints()
+            text:SetPoint("RIGHT", bar, "RIGHT", -8, 0)
+        end
+        WSkin:ApplyRetailTypography(label, "row")
+        WSkin:ApplyRetailTypography(text, "value")
+    end
+end
+
+-- Blizzard spaces the category bars for its taller bar art, which pushes the
+-- last row past the bottom of the summary pane. Lay them out as a two-column
+-- grid with retail's tighter rhythm.
+local SUMMARY_BAR_GAP = 8
+local function LayoutSummaryBars()
+    local total = _G.AchievementFrameSummaryCategoriesStatusBar
+    if not total then return end
+    for i = 1, 8 do
+        local bar = _G["AchievementFrameSummaryCategoriesCategory" .. i]
+        if bar then
+            local above = i <= 2 and total or _G["AchievementFrameSummaryCategoriesCategory" .. (i - 2)]
+            local gap = i <= 2 and SUMMARY_BAR_GAP * 2 or SUMMARY_BAR_GAP
+            bar:ClearAllPoints()
+            if i % 2 == 1 then
+                bar:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -gap)
+            else
+                bar:SetPoint("TOPRIGHT", above, "BOTTOMRIGHT", 0, -gap)
+            end
+        end
     end
 end
 
@@ -452,6 +483,7 @@ local function RefreshSummary()
     for i = 1, 8 do
         SkinProgressBar(_G["AchievementFrameSummaryCategoriesCategory" .. i])
     end
+    LayoutSummaryBars()
     WSkin:ApplyRetailTypography(_G.AchievementFrameSummaryAchievementsEmptyText, "secondary")
 end
 
@@ -495,7 +527,7 @@ local function UpdateTabs()
         WSkin:StyleRetailTab(tab)
         tab:SetFrameLevel(frame:GetFrameLevel() + 5)
     end
-    WSkin:LayoutRetailTabRow(tabs, frame, frame:GetWidth() / 2, 0)
+    WSkin:LayoutRetailTabRow(tabs, frame)
     WSkin:UpdateRetailTab(tabs[1], frame.selectedTab == 1)
     WSkin:UpdateRetailTab(tabs[2], frame.selectedTab == 2)
 end

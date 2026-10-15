@@ -842,9 +842,6 @@ local function RepointAllDBs(profileName)
         if EllesmereUI._TBBRestoreUnlockLinks then
             EllesmereUI._TBBRestoreUnlockLinks()
         end
-        if EllesmereUI._CDMRestoreUnlockLinks then
-            EllesmereUI._CDMRestoreUnlockLinks()
-        end
     end
     -- (Castbar anchor defaults for brand-new profiles are seeded into the
     -- stamped snapshot by StampUnlockLayoutIfMissing and arrive via the
@@ -1317,9 +1314,6 @@ function EllesmereUI.ApplyProfileData(profileData)
             if EllesmereUI._TBBRestoreUnlockLinks then
                 EllesmereUI._TBBRestoreUnlockLinks()
             end
-            if EllesmereUI._CDMRestoreUnlockLinks then
-                EllesmereUI._CDMRestoreUnlockLinks()
-            end
         end
         -- If profile predates unlockLayout, leave live data untouched
     end
@@ -1685,9 +1679,9 @@ end
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
 
--- Snapshot complete, independent per-spec CDM containers: bar definitions and
--- positions, spell assignments/settings, tracking bars, glows, active-state
--- rules and spec-owned unlock links, including hidden/ghost routing.
+-- Snapshot the per-spec CDM spell containers: spell assignments/settings,
+-- tracking bars, glows and active-state rules, including hidden/ghost routing.
+-- Bar definitions and positions are profile-wide (CooldownManager addon blob).
 local function SnapshotProfileCDMSpecs(profileName, includedFolders, cdmSpecs)
     if includedFolders and not includedFolders["EllesmereUICooldownManager"] then return nil end
     local activeProfile = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
@@ -2284,7 +2278,28 @@ do
             end
         end
 
+        -- CDM data is keyed by layout ID: this client's classes, each spec plus
+        -- the other role of a multi-role tree ("Blood (DPS)").
+        local specData
+        local Spec = EllesmereUI.Spec
+        if Spec and Spec.GetClassTokens and Spec.GetLayoutListForClass then
+            specData = {}
+            for _, classToken in ipairs(Spec:GetClassTokens()) do
+                local list = {}
+                for _, info in ipairs(Spec:GetLayoutListForClass(classToken)) do
+                    list[#list + 1] = { id = info.id, name = info.name }
+                end
+                specData[#specData + 1] = {
+                    class = classToken,
+                    name = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[classToken]) or classToken,
+                    specs = list,
+                }
+            end
+            table.sort(specData, function(a, b) return a.name < b.name end)
+        end
+
         EllesmereUI:ShowSpecAssignPopup({
+            specData        = specData,
             db              = dummyDB,
             dbKey           = "_cdmPick",
             presetKey       = "_cdm",
@@ -2720,9 +2735,9 @@ local function GetSpellStoreProfiles()
     return sa.profiles
 end
 
--- Overlay complete, independent per-spec CDM containers. Specs absent from the
--- payload are untouched. Payloads produced during the profile-wide-layout
--- window are upgraded by copying that shared layout into every incoming spec.
+-- Overlay the incoming per-spec CDM spell containers. Specs absent from the
+-- payload are untouched. Bar definitions and positions are profile-wide and
+-- travel in the CooldownManager addon blob, not here.
 local function BuildImportedCDMSpellBucket(profileName, incomingSpecs)
     if not EllesmereUIDB then return end
     EllesmereUIDB.spellAssignments = EllesmereUIDB.spellAssignments or { profiles = {} }
@@ -2733,39 +2748,8 @@ local function BuildImportedCDMSpellBucket(profileName, incomingSpecs)
     bucket.specProfiles = bucket.specProfiles or {}
     if type(incomingSpecs) ~= "table" then return end
 
-    local pdb = GetProfilesDB()
-    local root = pdb and pdb.profiles and pdb.profiles[profileName]
-    local addon = root and root.addons and root.addons["EllesmereUICooldownManager"]
-    local ul = root and root.unlockLayout
-
-    local function LegacyLinks()
-        local links = { anchors = {}, wm = {}, hm = {} }
-        for k, v in pairs((ul and ul.anchors) or {}) do
-            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
-            if barKey then links.anchors[barKey] = DeepCopy(v) end
-        end
-        for k, v in pairs((ul and ul.widthMatch) or {}) do
-            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
-            if barKey then links.wm[barKey] = DeepCopy(v) end
-        end
-        for k, v in pairs((ul and ul.heightMatch) or {}) do
-            local barKey = type(k) == "string" and k:match("^CDM_(.+)$")
-            if barKey then links.hm[barKey] = DeepCopy(v) end
-        end
-        return links
-    end
-
     for specKey, specProf in pairs(DeepCopy(incomingSpecs)) do
         if type(specProf) == "table" then
-            if not specProf.cdmBars and addon and addon.cdmBars then
-                specProf.cdmBars = DeepCopy(addon.cdmBars)
-            end
-            if not specProf.cdmBarPositions and addon and addon.cdmBarPositions then
-                specProf.cdmBarPositions = DeepCopy(addon.cdmBarPositions)
-            end
-            if not specProf.cdmUnlockLinks then
-                specProf.cdmUnlockLinks = LegacyLinks()
-            end
             bucket.specProfiles[specKey] = specProf
         end
     end
@@ -3324,7 +3308,7 @@ function EllesmereUI.SaveCurrentAsProfile(name)
     -- EllesmereUIDB.spellAssignments.profiles[<name>], OUTSIDE the profile blob.
     -- DeepCopy(src) does not include the independent per-spec CDM containers.
     -- Fork the whole external bucket so the new profile remains a true 1:1 copy
-    -- without sharing bar definitions, positions, or spell state by reference.
+    -- without sharing spell state or cross-spec sync sets by reference.
     local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
     if sa and type(sa.profiles) == "table" and type(sa.profiles[current]) == "table" then
         sa.profiles[name] = DeepCopy(sa.profiles[current])

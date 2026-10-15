@@ -290,6 +290,16 @@ WSkin.Retail = {
 		bodyInset = 14,
 		footerHeight = 45,
 		tabHeight = 26,
+		-- Bottom tab rows follow retail: label-sized tabs, left-aligned and
+		-- hanging under the window, separated by a one-pixel seam.
+		tabMinWidth = 76,
+		tabPadding = 24,
+		tabGap = 1,
+		tabInset = 10,
+		-- Window shade: a slightly lifted header band over a near-black body.
+		headerBand = 30,
+		headerShade = 0.62,
+		bodyShade = 0.82,
 		rowHeight = 28,
 	},
 	type = {
@@ -411,6 +421,30 @@ function WSkin:CreateRetailPageSurface(pane, top, bottom, inset)
 	return surface
 end
 
+-- Splits a window's black shade overlay into retail's lifted header band and
+-- darker body. headerHeight defaults to a single title line; windows with a
+-- second header line (Character, Inspect) pass a taller band.
+function WSkin:ApplyRetailShellShade(frame, overlay, headerHeight)
+	if not frame or not overlay or not frame.CreateTexture then return end
+	local geometry = WSkin.Retail.geometry
+	headerHeight = headerHeight or geometry.headerBand
+	local state = RetailState(frame)
+	overlay:ClearAllPoints()
+	overlay:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -headerHeight)
+	overlay:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+	overlay:SetTexture(0, 0, 0, geometry.bodyShade)
+	if not state.headerShade then
+		state.headerShade = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
+	end
+	local header = state.headerShade
+	header:ClearAllPoints()
+	header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+	header:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 0, -headerHeight)
+	header:SetTexture(0, 0, 0, geometry.headerShade)
+	header:Show()
+	return header
+end
+
 -- Shared outer shell for the older 3.3.5 Blizzard panels.  A number of the
 -- original skins only replaced Blizzard's artwork with an ElvUI-style black
 -- rectangle; using the same shell here as the newer Character, Inspect, LFG,
@@ -428,16 +462,8 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 		state.windowBackground = background
 
 		local overlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-		overlay:SetTexture(0, 0, 0, 0.62)
-		overlay:SetAllPoints(frame)
 		state.windowOverlay = overlay
-
-		local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-		topBar:SetTexture(0, 0, 0, 0.50)
-		topBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-		topBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-		topBar:SetHeight(25)
-		state.windowTopBar = topBar
+		self:ApplyRetailShellShade(frame, overlay, options.headerBand)
 
 		-- The atlas is a square sheet containing the 561x433 window crop in its
 		-- upper-right three quarters.  Cover-fit it without stretching when a
@@ -478,7 +504,7 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 
 	state.windowBackground:Show()
 	state.windowOverlay:Show()
-	state.windowTopBar:Show()
+	if state.headerShade then state.headerShade:Show() end
 
 	if options.content ~= false then
 		self:CreateRetailPageSurface(
@@ -765,30 +791,29 @@ function WSkin:StyleRetailTab(tab)
 	return tab
 end
 
-function WSkin:LayoutRetailTabRow(tabs, owner, tabWidth, gap)
+-- Lays out a window's bottom tab row the retail way: each tab sized to its
+-- label (with a minimum), left-aligned under the owner and joined by a
+-- one-pixel seam. Hidden tabs are skipped so rows never keep holes.
+function WSkin:LayoutRetailTabRow(tabs, owner)
 	if not tabs or not owner then return 0 end
-	local visible = {}
+	local geometry = WSkin.Retail.geometry
+	local previous, count = nil, 0
 	for _, tab in ipairs(tabs) do
 		if tab and (not tab.IsShown or tab:IsShown()) then
-			visible[#visible + 1] = tab
+			local label = RetailState(tab).label or (tab.GetFontString and tab:GetFontString())
+			local textWidth = label and label.GetStringWidth and label:GetStringWidth() or 0
+			tab:ClearAllPoints()
+			tab:SetSize(math.max(geometry.tabMinWidth, textWidth + geometry.tabPadding), geometry.tabHeight)
+			if previous then
+				tab:SetPoint("LEFT", previous, "RIGHT", geometry.tabGap, 0)
+			else
+				tab:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", geometry.tabInset, 0)
+			end
+			previous = tab
+			count = count + 1
 		end
 	end
-	local count = #visible
-	if count == 0 then return 0 end
-	gap = gap or 0
-	if not tabWidth then
-		tabWidth = (owner:GetWidth() - ((count - 1) * gap)) / count
-	end
-	for i, tab in ipairs(visible) do
-		tab:ClearAllPoints()
-		tab:SetSize(tabWidth, WSkin.Retail.geometry.tabHeight)
-		if i == 1 then
-			tab:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, 0)
-		else
-			tab:SetPoint("LEFT", visible[i - 1], "RIGHT", gap, 0)
-		end
-	end
-	return count, tabWidth
+	return count
 end
 
 function WSkin:UpdateRetailTab(tab, active)

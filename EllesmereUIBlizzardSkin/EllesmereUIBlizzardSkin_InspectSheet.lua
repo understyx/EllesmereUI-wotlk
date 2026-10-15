@@ -605,8 +605,15 @@ local function SkinInspectSheet()
         bg:SetAlpha(1)
         GetFFD(frame).bg = bg
         GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        GetFFD(frame).bgOverlay:SetTexture(0, 0, 0, 0.62)
-        GetFFD(frame).bgOverlay:SetAllPoints(frame)
+        -- Same retail shade as the character sheet: a 52px header band holds
+        -- the name and level lines above a near-black body.
+        local S = _G.EllesmereUIBlizzardSkin
+        if S and S.ApplyRetailShellShade then
+            GetFFD(frame).headerOverlay = S:ApplyRetailShellShade(frame, GetFFD(frame).bgOverlay, 52)
+        else
+            GetFFD(frame).bgOverlay:SetTexture(0, 0, 0, 0.62)
+            GetFFD(frame).bgOverlay:SetAllPoints(frame)
+        end
         -- Aspect-ratio-preserving cover mode (matches character sheet)
         local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
         local BASE_U = BASE_R - BASE_L
@@ -1721,13 +1728,7 @@ local function SkinInspectSheet()
 
     local function LayoutInspectTabs()
         if not isLegacyInspect or not S or not S.LayoutRetailTabRow then return end
-        local visibleCount = 0
-        for _, tab in ipairs(inspTabs) do
-            if tab and tab:IsShown() then visibleCount = visibleCount + 1 end
-        end
-        if visibleCount > 0 then
-            S:LayoutRetailTabRow(inspTabs, frame, INSPECT_WIDTH / visibleCount)
-        end
+        S:LayoutRetailTabRow(inspTabs, frame)
     end
     glyphUI.layoutTabs = LayoutInspectTabs
     LayoutInspectTabs()

@@ -170,18 +170,11 @@ local function SkinAtlasPanel(frame)
         bg:SetAllPoints(frame)
         d.bg = bg
         local overlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        overlay:SetTexture(0, 0, 0, 0.62)
-        overlay:SetAllPoints(frame)
         d.bgOverlay = overlay
 
-        -- Black top bar behind the window title, matching the engine shell's
-        -- strip. Sits above both style backdrops (-8/-7/-6) and below content.
-        local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-        topBar:SetTexture(0, 0, 0, 0.5)
-        topBar:SetPoint("TOPLEFT")
-        topBar:SetPoint("TOPRIGHT")
-        topBar:SetHeight(25)
-        d.topBar = topBar
+        -- Shared retail shade: lifted header band behind the window title
+        -- over a near-black body, matching the engine shell.
+        d.topBar = _G.EllesmereUIBlizzardSkin:ApplyRetailShellShade(frame, overlay)
 
         local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
         local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
@@ -1190,15 +1183,8 @@ local function SkinLegacyLFR()
 
     local tabs = { _G.LFRParentFrameTab1, _G.LFRParentFrameTab2 }
     if tabs[1] and tabs[2] and S and S.StyleRetailTab then
-        local d = GetFFD(parent)
-        if not d.legacyTabOwner then
-            d.legacyTabOwner = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-            d.legacyTabOwner:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 14, 0)
-            d.legacyTabOwner:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -14, 0)
-            d.legacyTabOwner:SetHeight(0)
-        end
         S:StyleRetailTab(tabs[1]); S:StyleRetailTab(tabs[2])
-        S:LayoutRetailTabRow(tabs, d.legacyTabOwner, (LEGACY_PVE_WIDTH - 28) / 2, 0)
+        S:LayoutRetailTabRow(tabs, parent)
         local active = parent.activeTab or 1
         S:UpdateRetailTab(tabs[1], active == 1)
         S:UpdateRetailTab(tabs[2], active == 2)
@@ -1624,12 +1610,7 @@ local function SkinLegacyPVPTabs()
     if not parent or not tab1 or not tab2 or not (S and S.StyleRetailTab) then return end
     tab1:Show(); tab2:Show()
     S:StyleRetailTab(tab1); S:StyleRetailTab(tab2)
-    tab1:ClearAllPoints()
-    tab1:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, 0)
-    tab1:SetSize(216, 26)
-    tab2:ClearAllPoints()
-    tab2:SetPoint("LEFT", tab1, "RIGHT", 0, 0)
-    tab2:SetSize(216, 26)
+    S:LayoutRetailTabRow({ tab1, tab2 }, parent)
     tab1:SetFrameLevel(parent:GetFrameLevel() + 5)
     tab2:SetFrameLevel(parent:GetFrameLevel() + 5)
     UpdateLegacyPVPTabs()

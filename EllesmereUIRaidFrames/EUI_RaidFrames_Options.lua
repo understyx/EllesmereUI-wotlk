@@ -5679,11 +5679,6 @@ initFrame:SetScript("OnEvent", function(self)
     BuildDebuffSections = function(parent, y, W, onSection)
         local row, h, _
         local _secY = y
-        -- 12.1 redesign: only the PRIVATE AURAS section survives here (it
-        -- renders on the Frames/Party pages; the Auras page is retired).
-        -- Defensives/externals and the debuff display/style are owned by
-        -- the Buff/Debuff Managers on 12.1. The 12.0 page is untouched.
-        if not EllesmereUI.IS_121 then
         -------------------------------------------------------------------
         --  DEFENSIVES & EXTERNALS
         -------------------------------------------------------------------
@@ -5743,9 +5738,15 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end  -- close do (eyeball)
 
+        -- Custom is exclusive with Defensives/Externals (ns.IsDefCustomMode).
+        local function DefCustomOn()
+            return SVal("showDefCustom", false) == true
+                and not SVal("showDefensives", true) and not SVal("showExternals", true)
+        end
         -- Shared disabled check for defensive settings
         local function DefDisabled()
             return not SVal("showDefensives", true) and not SVal("showExternals", true)
+                and not DefCustomOn()
         end
 
         local defPosValues = {
@@ -5776,8 +5777,9 @@ initFrame:SetScript("OnEvent", function(self)
         local defShowItems = {
             { key = "defensives", label = "Defensives" },
             { key = "externals",  label = "Externals" },
+            { key = "custom",     label = "Custom" },
         }
-        local defShowKeyMap = { defensives = "showDefensives", externals = "showExternals" }
+        local defShowKeyMap = { defensives = "showDefensives", externals = "showExternals", custom = "showDefCustom" }
         local defShowRow
         defShowRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Show Defensives & Externals",
@@ -5799,10 +5801,22 @@ initFrame:SetScript("OnEvent", function(self)
             local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
                 rgn, 170, rgn:GetFrameLevel() + 2,
                 defShowItems,
-                function(k) return SVal(defShowKeyMap[k], true) end,
+                function(k)
+                    if k == "custom" then return DefCustomOn() end
+                    return SVal(defShowKeyMap[k], true)
+                end,
                 function(k, v)
+                    -- Custom OR Defensives/Externals: picking one side
+                    -- clears the other.
+                    if v and k == "custom" then
+                        SSet("showDefensives", false)
+                        SSet("showExternals", false)
+                    elseif v then
+                        SSet("showDefCustom", false)
+                    end
                     SSet(defShowKeyMap[k], v)
                     if ns.RestartPvAuraTicker then ns.RestartPvAuraTicker() end
+                    EllesmereUI:RefreshPage()
                 end)
             PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
             rgn._control = cbDD
@@ -5955,8 +5969,40 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
+        -- Row 5: Custom spell list, picked from an icon grid (see
+        -- EUI_RaidFrames_DefCustomPicker.lua).
+        do
+            local function ButtonText()
+                return EllesmereUI.Lf("Select Spells (%d)",
+                    ns.CountDefCustomSpells(SVal("defCustomSpells", {})))
+            end
+            local customRow
+            customRow, h = W:DualRow(parent, y,
+                { type="labeledButton", text="Custom Spells", buttonText=ButtonText(), width=170,
+                  tooltip="Buffs shown in the defensives row from any caster while Custom is selected -- e.g. Hand of Freedom, Power Infusion, Tricks of the Trade.",
+                  disabled=function() return not DefCustomOn() end,
+                  disabledTooltip="Custom in Show Defensives & Externals",
+                  onClick=function()
+                      if not DefCustomOn() then return end
+                      ns.ShowDefCustomSpellPicker(
+                          function() return SVal("defCustomSpells", {}) end,
+                          function(set)
+                              SSet("defCustomSpells", set)
+                              if ns.RestartPvAuraTicker then ns.RestartPvAuraTicker() end
+                          end,
+                          function() EllesmereUI:RefreshPage() end)
+                  end }, nil); y = y - h
+            local btn = customRow._leftRegion._control
+            local btnLabel
+            for _, region in ipairs({ btn:GetRegions() }) do
+                if region.GetObjectType and region:GetObjectType() == "FontString" then btnLabel = region end
+            end
+            if btnLabel then
+                EllesmereUI.RegisterWidgetRefresh(function() btnLabel:SetText(ButtonText()) end)
+            end
+        end
+
         if onSection then onSection("defensives", _secY, y) end
-        end -- not IS_121 (defensives section)
         -------------------------------------------------------------------
         --  PRIVATE AURAS
         -------------------------------------------------------------------
@@ -6529,7 +6575,9 @@ initFrame:SetScript("OnEvent", function(self)
                 for i, entry in ipairs(Styles) do
                     if not entry.shapeGlow then
                         GLOW_VALUES[i] = entry.name
-                        GLOW_ORDER[#GLOW_ORDER + 1] = i
+                        if EllesmereUI.Glows.IsStyleAvailable(entry) then
+                            GLOW_ORDER[#GLOW_ORDER + 1] = i
+                        end
                     end
                 end
             end
@@ -6980,7 +7028,7 @@ initFrame:SetScript("OnEvent", function(self)
                 reducedMaxHealth = false,
                 dispels = false,
                 debuffs = s.debuffFilter ~= "none",
-                defensives = s.showDefensives or s.showExternals or false,
+                defensives = s.showDefensives or s.showExternals or ns.IsDefCustomMode(s) or false,
                 privateAuras = not ns.IS_WRATH,
                 buffs = true,
                 indicators = false,

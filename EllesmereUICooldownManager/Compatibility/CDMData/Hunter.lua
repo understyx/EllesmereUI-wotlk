@@ -38,7 +38,6 @@ end
 
 local AURA_TAGS = {
     ["hunter.deterrence"] = { defensive = true },
-    ["hunter.misdirection"] = { external = true },
     ["hunter.roar_of_sacrifice"] = { external = true, defensive = true },
 }
 
@@ -453,7 +452,7 @@ RegisterBasic("mongoose_bite",    103026, 120, { 1495, 14269, 14270, 14271, 3691
 RegisterBasic("counterattack",    103027, 130, { 19306, 20909, 20910, 27067, 48998, 48999 })
 RegisterBasic("tranquilizing_shot", 103028, 140, { 19801 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("distracting_shot", 103029, 150, { 20736 }, CDM_CATEGORY_UTILITY)
-RegisterBasic("masters_call",     103030, 160, { 53271 }, CDM_CATEGORY_UTILITY, { external = true })
+RegisterBasic("masters_call",     103030, 160, { 53271 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("flare",            103031, 170, { 1543 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("immolation_trap",  103032, 180, { 13795, 14302, 14303, 14304, 14305, 27023, 49055, 49056 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("freezing_arrow",   103033, 190, { 60192 }, CDM_CATEGORY_UTILITY)

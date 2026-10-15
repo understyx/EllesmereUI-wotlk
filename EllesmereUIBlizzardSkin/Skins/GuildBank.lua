@@ -57,7 +57,7 @@ local function LayoutGuildBankTabs()
 	if not shell or laying then return end
 	laying = true
 	local tabs = TabList()
-	WSkin:LayoutRetailTabRow(tabs, shell, 110, 0)
+	WSkin:LayoutRetailTabRow(tabs, shell)
 	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
 		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
 	for i, tab in ipairs(tabs) do WSkin:UpdateRetailTab(tab, i == selected) end

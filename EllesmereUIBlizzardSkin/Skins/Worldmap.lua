@@ -79,14 +79,11 @@ WSkin:AddCallback("Skin_WorldMap", function()
 		local detail = _G.WorldMapDetailFrame
 		if not detail then return end
 		SetRect(shellState and shellState.windowBackground, detail, "TOPLEFT", -6, 34, detail, "BOTTOMRIGHT", 6, -32)
-		SetRect(shellState and shellState.windowOverlay, detail, "TOPLEFT", -6, 34, detail, "BOTTOMRIGHT", 6, -32)
+		-- Header band covers the 34px title strip above the map; the darker
+		-- body shade covers the map and its footer controls.
+		SetRect(shellState and shellState.headerShade, detail, "TOPLEFT", -6, 34, detail, "TOPRIGHT", 6, 0)
+		SetRect(shellState and shellState.windowOverlay, detail, "TOPLEFT", -6, 0, detail, "BOTTOMRIGHT", 6, -32)
 		SetRect(shellBorder, detail, "TOPLEFT", -6, 34, detail, "BOTTOMRIGHT", 6, -32)
-		if shellState and shellState.windowTopBar then
-			shellState.windowTopBar:ClearAllPoints()
-			shellState.windowTopBar:SetPoint("TOPLEFT", detail, "TOPLEFT", -6, 34)
-			shellState.windowTopBar:SetPoint("TOPRIGHT", detail, "TOPRIGHT", 6, 34)
-			shellState.windowTopBar:SetHeight(34)
-		end
 		shellBorder:SetFrameLevel(frame:GetFrameLevel() + 1)
 		if shellState and shellState.updateWindowTexCoords then shellState.updateWindowTexCoords() end
 	end
@@ -97,14 +94,7 @@ WSkin:AddCallback("Skin_WorldMap", function()
 			shellState.windowBackground:SetAllPoints(frame)
 		end
 		if shellState and shellState.windowOverlay then
-			shellState.windowOverlay:ClearAllPoints()
-			shellState.windowOverlay:SetAllPoints(frame)
-		end
-		if shellState and shellState.windowTopBar then
-			shellState.windowTopBar:ClearAllPoints()
-			shellState.windowTopBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-			shellState.windowTopBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-			shellState.windowTopBar:SetHeight(25)
+			WSkin:ApplyRetailShellShade(frame, shellState.windowOverlay)
 		end
 		shellBorder:ClearAllPoints()
 		shellBorder:SetAllPoints(frame)

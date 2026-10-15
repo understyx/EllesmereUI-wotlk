@@ -577,6 +577,15 @@ function ns.IsTrackedBuffBarBroadcastable(cfg)
     return ns.TBBBroadcastKey(cfg) ~= nil
 end
 
+-- True when the bar's buff is marked broadcast to all specs (button reads
+-- "Remove Bar from All Specs"). Read from the persistent per-profile set.
+function ns.IsTrackedBuffBarBroadcast(cfg)
+    local key = ns.TBBBroadcastKey(cfg)
+    if not key then return false end
+    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
+    return set ~= nil and set[key] == true
+end
+
 -- Copy a configured bar (preset or custom buff) into every OTHER spec of the
 -- player's current class. The bar config and its screen position are deep-copied
 -- so it appears identically across specs. Specs that already hold the same
@@ -654,7 +663,85 @@ function ns.AddBarToAllSpecs(srcIdx)
         end
     end
 
+    -- Mark broadcast so the button flips to "Remove..." in every spec; set even
+    -- when added == 0 (all specs already held it).
+    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
+    if set then
+        local key = ns.TBBBroadcastKey(srcBar)
+        if key then set[key] = true end
+    end
+
     return added
+end
+
+-- Inverse of AddBarToAllSpecs: remove the bar's buff from every OTHER spec and
+-- clear the broadcast flag. The CURRENT spec's bar is left untouched. Returns the
+-- number of specs removed from.
+function ns.RemoveBarFromAllSpecs(srcIdx)
+    local activeKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    if not activeKey then return 0 end
+
+    local srcTbb = ns.GetTrackedBuffBars()
+    local srcBar = srcTbb and srcTbb.bars and srcTbb.bars[srcIdx]
+    local broadcastKey = ns.TBBBroadcastKey(srcBar)
+    if not broadcastKey then return 0 end
+
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    if not sp then return 0 end
+
+    local function Matches(b)
+        -- Track types must match: a broadcast buff bar for spell X must NEVER
+        -- delete a cooldown-tracking bar for the same spell.
+        if (b.trackType or "buff") ~= (srcBar.trackType or "buff") then
+            return false
+        end
+        if srcBar.popularKey and srcBar.popularKey ~= "" then
+            return b.popularKey == srcBar.popularKey
+        else
+            return (not b.popularKey or b.popularKey == "")
+                   and b.spellID and b.spellID == srcBar.spellID
+        end
+    end
+
+    local removed = 0
+    for _, info in ipairs(ns.GetCDMLayoutList()) do
+        local specKey = info.id and tostring(info.id)
+        if specKey and specKey ~= activeKey then
+            local prof = sp[specKey]
+            local tbb = prof and prof.trackedBuffBars
+            if tbb and tbb.bars and #tbb.bars > 0 then
+                -- Rebuild excluding matches, re-keying positions so compacted
+                -- indices and tbbPositions stay aligned (plain table.remove
+                -- would strand stale indices).
+                local oldPos = prof.tbbPositions or {}
+                local newBars, newPos = {}, {}
+                local didRemove = false
+                for j, b in ipairs(tbb.bars) do
+                    if Matches(b) then
+                        didRemove = true
+                    else
+                        newBars[#newBars + 1] = b
+                        local p = oldPos[tostring(j)]
+                        if p then newPos[tostring(#newBars)] = p end
+                    end
+                end
+                if didRemove then
+                    tbb.bars = newBars
+                    prof.tbbPositions = newPos
+                    if tbb.selectedBar and tbb.selectedBar > #newBars then
+                        tbb.selectedBar = math.max(1, #newBars)
+                    end
+                    removed = removed + 1
+                end
+            end
+        end
+    end
+
+    -- Clear the broadcast flag so the button flips back to "Add...".
+    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
+    if set then set[broadcastKey] = nil end
+
+    return removed
 end
 
 -------------------------------------------------------------------------------

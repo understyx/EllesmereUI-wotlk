@@ -420,6 +420,9 @@ ns.defaults = {
     showFriendlyPlayers = true,
     friendlyShowDefaultNames = false,
     classColorFriendly = true,
+    -- Name color for friendly players whose class is not cached yet. A pale
+    -- tint of Monk jade: no 3.3.5 class uses it, yet it stays unobtrusive.
+    friendlyUnknownClassColor = { r = 0.6, g = 1, b = 0.8 },
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameSize = 13,

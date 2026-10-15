@@ -378,8 +378,14 @@ local function StartSlotGlow(slotID)
     local w, h = slotBtn:GetWidth(), slotBtn:GetHeight()
     if not w or w < 1 then w = 37 end
     if not h or h < 1 then h = w end
-    -- Style 6 = Modern WoW Glow (proc-loop FlipBook).
-    G.StartGlow(slotGlow, 6, w, 1, 1, 1, nil, h)
+    -- Style 6 = Modern WoW Glow (proc-loop FlipBook). Where FlipBook is
+    -- missing (3.3.5), style 2 = Action Button Glow, tinted the proc gold
+    -- since it desaturates its textures.
+    if G.FLIPBOOK_SUPPORTED then
+        G.StartGlow(slotGlow, 6, w, 1, 1, 1, nil, h)
+    else
+        G.StartGlow(slotGlow, 2, w, 1, 0.788, 0.137, nil, h)
+    end
 end
 
 local function AcquireIcon(i)

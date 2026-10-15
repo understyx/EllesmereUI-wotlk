@@ -188,7 +188,6 @@ C_CooldownViewer.RegisterDefinition({
     spellID = 49016,
     iconSpellID = 49016,
     trackingType = "cooldown",
-    auraTags = { external = true },
 
     class = "DEATHKNIGHT",
     resolvers = {

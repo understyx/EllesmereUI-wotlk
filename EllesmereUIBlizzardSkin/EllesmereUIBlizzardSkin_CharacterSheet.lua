@@ -407,8 +407,15 @@ local function PreSkinCharacterSheet()
     GetFFD(frame).bg = bg
     bg:SetAlpha(1)
     GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-    GetFFD(frame).bgOverlay:SetTexture(0, 0, 0, 0.62)
-    GetFFD(frame).bgOverlay:SetAllPoints(frame)
+    -- Retail reads as a near-black body under a slightly lifted header band;
+    -- the band is 52px tall here to hold both the name and level lines.
+    local S = _G.EllesmereUIBlizzardSkin
+    if S and S.ApplyRetailShellShade then
+        GetFFD(frame).headerOverlay = S:ApplyRetailShellShade(frame, GetFFD(frame).bgOverlay, 52)
+    else
+        GetFFD(frame).bgOverlay:SetTexture(0, 0, 0, 0.62)
+        GetFFD(frame).bgOverlay:SetAllPoints(frame)
+    end
 
     -- Recompute tex coords on resize to maintain aspect ratio (cover mode)
     local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
@@ -598,6 +605,32 @@ local function PreSkinCharacterSheet()
         CharacterLevelText:ClearAllPoints()
         CharacterLevelText:SetPoint("TOP", CharacterFrameTitleText, "BOTTOM", 0, -5)
         CharacterLevelText:SetJustifyH("CENTER")
+    end
+    -- Retail level line: "Level 80" in gold, then "<Spec> <Class>" in the
+    -- class color. The race Blizzard's 3.3.5 line includes is dropped.
+    if PaperDollFrame_SetLevel and CharacterLevelText and not GetFFD(frame).levelHooked then
+        GetFFD(frame).levelHooked = true
+        local function SetRetailLevelText()
+            if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
+            local level = UnitLevel("player")
+            local className, classToken = UnitClass("player")
+            if not level or not className then return end
+            local spec = EUI and EUI.Spec and EUI.Spec:GetCurrent()
+            local specName = spec and spec.points and spec.points > 0 and spec.name
+            local label = specName and (specName .. " " .. className) or className
+            local cc = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+            local hex = cc and string.format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255) or "ffffff"
+            CharacterLevelText:SetText(string.format("|cffffd100%s %d|r |cff%s%s|r", LEVEL or "Level", level, hex, label))
+        end
+        hooksecurefunc("PaperDollFrame_SetLevel", SetRetailLevelText)
+        local levelEvents = EllesmereUI.SafeCreateFrame("Frame")
+        levelEvents:RegisterEvent("PLAYER_TALENT_UPDATE")
+        levelEvents:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+        levelEvents:SetScript("OnEvent", function()
+            if frame:IsShown() then SetRetailLevelText() end
+        end)
+        frame:HookScript("OnShow", SetRetailLevelText)
+        SetRetailLevelText()
     end
 
     if CharacterModelFrameHelpText then CharacterModelFrameHelpText:Hide() end
@@ -1390,6 +1423,8 @@ local function SkinCharacterSheet()
                 visibleTabs[#visibleTabs + 1] = tab
             end
         end
+        -- Retail keeps compact, left-aligned tabs hanging under the frame
+        -- rather than stretching them across the full sheet width.
         WSkin:LayoutRetailTabRow(visibleTabs, frame)
     end
 

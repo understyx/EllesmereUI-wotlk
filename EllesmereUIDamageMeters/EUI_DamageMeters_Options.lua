@@ -512,6 +512,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type = "toggle", label = "Mouseover Icons",
                       get = function() return Cfg("hdrMouseoverIcons") or false end,
                       set = function(v) Set("hdrMouseoverIcons", v); ApplyHdr() end },
+                    { type = "toggle", label = "Hide Report Button",
+                      get = function() return Cfg("hideReportButton") == true end,
+                      set = function(v) Set("hideReportButton", v); ApplyHdr() end },
                 },
             })
             local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)

@@ -4607,10 +4607,12 @@ local function CreatePowerBar(frame, unit, settings)
     local texKey = (settings and settings.healthBarTexture) or (db.profile.healthBarTexture) or "none"
     local texPath = EllesmereUI.ResolveTexturePath(healthBarTextures, texKey, "Interface\\Buttons\\WHITE8X8")
     power:SetStatusBarTexture(texPath)
-    power:GetStatusBarTexture():SetHorizTile(false)
     do
         local pFill = power:GetStatusBarTexture()
-        if pFill then UnsnapTex(pFill) end
+        if pFill then
+            pFill:SetHorizTile(false)
+            UnsnapTex(pFill)
+        end
     end
 
     local bg = power:CreateTexture(nil, "BACKGROUND")

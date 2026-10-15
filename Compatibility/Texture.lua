@@ -100,3 +100,29 @@ do
         end
     end
 end
+
+-- WotLK refuses to load any texture file whose width or height is not a power
+-- of two (retail has no such limit). The failure is silent: SetTexture returns
+-- nil, and a StatusBar given such a path never creates its fill texture, so
+-- GetStatusBarTexture() returns nil and the next method call on it raises.
+-- Paths reach us from retail profile imports and LibSharedMedia, so check
+-- them before use. A probe load is cheap, but cache per path anyway.
+do
+    local probe = UIParent and UIParent:CreateTexture(nil, "BACKGROUND")
+    if probe then probe:Hide() end
+    local cache = {}
+    -- If the client does not report load success, we cannot tell a bad file
+    -- from a good one: trust every path rather than reject them all.
+    local reliable = probe and probe:SetTexture("Interface\\Buttons\\WHITE8X8") and true
+
+    function EllesmereUI.IsTextureLoadable(path)
+        if type(path) ~= "string" or not reliable then return true end
+        local ok = cache[path]
+        if ok == nil then
+            ok = probe:SetTexture(path) and true or false
+            probe:SetTexture(nil)
+            cache[path] = ok
+        end
+        return ok
+    end
+end

@@ -733,7 +733,10 @@ local function GetSecondaryResource()
         -- caster/moonkin/travel). max is a normalized fraction (0..1).
         ironfurBaseDur = IronfurBaseDuration()
         return { power = "IRONFUR_BAR", max = 1, type = "bar" }
-    elseif classFile == "DRUID" and form == 1 then
+    elseif classFile == "DRUID" and (form == 1 or (select(4, GetBuildInfo()) <= 30300
+           and UnitPowerType("player") == PT.ENERGY)) then
+        -- Energy only exists in Cat Form on Wrath, so it also identifies the
+        -- form if the legacy form-ID lookup misses.
         local mx = ns.GetSecondaryPowerMax("player", PT.COMBO)
         return { power = PT.COMBO, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
     elseif classFile == "DRUID" and spec == 1 then

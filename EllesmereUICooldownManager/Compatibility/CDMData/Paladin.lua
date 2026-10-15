@@ -46,24 +46,19 @@ end
 -- Paladin class abilities use 102XXX; paladin buffs and procs use 202XXX.
 -- These IDs are stable handles and must remain globally unique.
 local DEFENSIVE = { defensive = true }
-local EXTERNAL = { external = true }
 local EXTERNAL_DEFENSIVE = { external = true, defensive = true }
 local AURA_TAGS = {
     ["paladin.divine_shield"] = DEFENSIVE,
     ["paladin.divine_protection"] = DEFENSIVE,
     ["paladin.hand_of_protection"] = EXTERNAL_DEFENSIVE,
-    ["paladin.hand_of_freedom"] = EXTERNAL,
     ["paladin.hand_of_sacrifice"] = EXTERNAL_DEFENSIVE,
-    ["paladin.hand_of_salvation"] = EXTERNAL,
     ["paladin.aura_mastery"] = DEFENSIVE,
     ["paladin.divine_sacrifice"] = DEFENSIVE,
     ["paladin.ardent_defender"] = DEFENSIVE,
     ["paladin.buff.divine_protection"] = DEFENSIVE,
     ["paladin.buff.divine_shield"] = DEFENSIVE,
-    ["paladin.buff.hand_of_freedom"] = EXTERNAL,
     ["paladin.buff.hand_of_protection"] = EXTERNAL_DEFENSIVE,
     ["paladin.buff.hand_of_sacrifice"] = EXTERNAL_DEFENSIVE,
-    ["paladin.buff.hand_of_salvation"] = EXTERNAL,
     ["paladin.buff.divine_sacrifice"] = DEFENSIVE,
     ["paladin.buff.aura_mastery"] = DEFENSIVE,
 }

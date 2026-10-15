@@ -26,11 +26,9 @@ end
 local AURA_TAGS = {
     ["rogue.evasion"] = { defensive = true },
     ["rogue.cloak_of_shadows"] = { defensive = true },
-    ["rogue.tricks_of_the_trade"] = { external = true },
     ["rogue.cheating_death"] = { defensive = true },
     ["rogue.evasion_buff"] = { defensive = true },
     ["rogue.cloak_of_shadows_buff"] = { defensive = true },
-    ["rogue.tricks_of_the_trade_buff"] = { external = true },
 }
 
 local function Register(def)

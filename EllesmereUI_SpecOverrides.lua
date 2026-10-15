@@ -310,13 +310,6 @@ local function DBFor(folder)
     if not reg then return nil end
     for _, db in ipairs(reg) do
         if db.folder == folder then
-            if folder == "EllesmereUICooldownManager" then
-                local ecme = _G.ECME
-                local cdmBars = ecme and ecme.GetActiveCDMConfig and ecme:GetActiveCDMConfig()
-                if cdmBars and db.profile then
-                    db.profile.cdmBars = cdmBars
-                end
-            end
             return db.profile
         end
     end
@@ -528,11 +521,6 @@ local function HasRegisteredDefault(fkey)
     for _, db in ipairs(reg) do
         if db.folder == folder then
             t = db._profileDefaults
-            if folder == "EllesmereUICooldownManager" and t and not t.cdmBars then
-                if _G._ECME_SpecDefaults then
-                    t.cdmBars = _G._ECME_SpecDefaults.cdmBars
-                end
-            end
             break
         end
     end
@@ -1456,9 +1444,9 @@ end
 --  A LAYER is the complete unlock layout, captured and applied WHOLESALE:
 --    anchors / widthMatch / heightMatch   global unlock link tables, verbatim
 --                                         (incl. offsets, growth-edge pins)
---    abPos                                raw saved-edge store incl. the
+--    cdmPos / abPos                       raw saved-edge stores incl. the
 --                                         tgt* follow baselines
---    abGrow                               grow directions by bar key
+--    cdmGrow / abGrow                     grow directions by bar key
 --    elems[key] = {point,relPoint,x,y,w,h} generic registered elements via
 --                                         their own loadPosition/getSize
 --
@@ -1466,8 +1454,8 @@ end
 --  systems edited the live layout during play (drags, sliders, value-override
 --  applies, match propagation, offset upkeep, blesses), harvest-on-leave
 --  records the final live truth into the owning layer and apply-on-enter
---  reproduces it. CDM_/TBB_ keys are excluded because their complete layout
---  state is owned by CDM's per-spec containers; TBBG_ is globally shared.
+--  reproduces it. The system converges by construction. TBB_/TBBG_ keys are
+--  excluded (natively spec-scoped / globally shared).
 -------------------------------------------------------------------------------
 
 local function LiteProfile(folder)
@@ -1487,7 +1475,7 @@ end
 -- TBB Tracking Bar CHILD-role link entries are per-spec data owned by
 -- CDM's link buckets. Layers never carry or wipe them. Entries where one of
 -- these keys is only the TARGET live under the child's key and remain managed.
-local function IsSpecOwnedCDMKey(key)
+local function IsTBBChildKey(key)
     return type(key) == "string" and key:find("^TBB_%d+$") ~= nil
 end
 
@@ -1496,20 +1484,31 @@ local function HarvestLayer()
         anchors     = DeepCopy(EllesmereUIDB and EllesmereUIDB.unlockAnchors or {}),
         widthMatch  = DeepCopy(EllesmereUIDB and EllesmereUIDB.unlockWidthMatch or {}),
         heightMatch = DeepCopy(EllesmereUIDB and EllesmereUIDB.unlockHeightMatch or {}),
-        abGrow = {}, elems = {},
+        cdmGrow = {}, abGrow = {}, elems = {},
     }
     -- Strip TBB child-role entries: per-spec data, not layer data.
     local stripSets = { layer.anchors, layer.widthMatch, layer.heightMatch }
     for i = 1, 3 do
         local t, kill = stripSets[i], nil
         for k in pairs(t) do
-            if IsSpecOwnedCDMKey(k) then
+            if IsTBBChildKey(k) then
                 kill = kill or {}
                 kill[#kill + 1] = k
             end
         end
         if kill then
             for _, k in ipairs(kill) do t[k] = nil end
+        end
+    end
+    local cdm = LiteProfile("EllesmereUICooldownManager")
+    if cdm then
+        layer.cdmPos = DeepCopy(cdm.cdmBarPositions or {})
+        if cdm.cdmBars and cdm.cdmBars.bars then
+            for _, bar in ipairs(cdm.cdmBars.bars) do
+                if bar.key and bar.growDirection then
+                    layer.cdmGrow[bar.key] = bar.growDirection
+                end
+            end
         end
     end
     local ab = LiteProfile("EllesmereUIActionBars")
@@ -1616,7 +1615,7 @@ local function ApplyLayer(layer, baseline)
         -- before TBB entries were excluded) are skipped on refill.
         local fallbacks, tbbKept
         for k, info in pairs(anchors) do
-            if IsSpecOwnedCDMKey(k) then
+            if IsTBBChildKey(k) then
                 tbbKept = tbbKept or {}
                 tbbKept[k] = info
             elseif info.fallback then
@@ -1626,7 +1625,7 @@ local function ApplyLayer(layer, baseline)
         end
         wipe(anchors)
         for k, info in pairs(layer.anchors or {}) do
-            if not IsSpecOwnedCDMKey(k) then
+            if not IsTBBChildKey(k) then
                 anchors[k] = DeepCopy(info)
                 local f = fallbacks and fallbacks[k]
                 if f and f.tgt == info.target then anchors[k].fallback = f.fb end
@@ -1640,14 +1639,14 @@ local function ApplyLayer(layer, baseline)
         if not wm then wm = {}; EllesmereUIDB.unlockWidthMatch = wm end
         local wmKept
         for k, v in pairs(wm) do
-            if IsSpecOwnedCDMKey(k) then
+            if IsTBBChildKey(k) then
                 wmKept = wmKept or {}
                 wmKept[k] = v
             end
         end
         wipe(wm)
         for k, v in pairs(layer.widthMatch or {}) do
-            if not IsSpecOwnedCDMKey(k) then wm[k] = v end
+            if not IsTBBChildKey(k) then wm[k] = v end
         end
         if wmKept then
             for k, v in pairs(wmKept) do wm[k] = v end
@@ -1656,17 +1655,64 @@ local function ApplyLayer(layer, baseline)
         if not hm then hm = {}; EllesmereUIDB.unlockHeightMatch = hm end
         local hmKept
         for k, v in pairs(hm) do
-            if IsSpecOwnedCDMKey(k) then
+            if IsTBBChildKey(k) then
                 hmKept = hmKept or {}
                 hmKept[k] = v
             end
         end
         wipe(hm)
         for k, v in pairs(layer.heightMatch or {}) do
-            if not IsSpecOwnedCDMKey(k) then hm[k] = v end
+            if not IsTBBChildKey(k) then hm[k] = v end
         end
         if hmKept then
             for k, v in pairs(hmKept) do hm[k] = v end
+        end
+    end
+    local cdm = LiteProfile("EllesmereUICooldownManager")
+    if cdm then
+        -- Positions: a layer harvested while CDM was disabled has no cdmPos;
+        -- restore the baseline's instead of leaving the outgoing layer's
+        -- positions live (they would be harvested INTO this layer next).
+        local pos = layer.cdmPos or (baseline and baseline.cdmPos)
+        if pos then
+            local t = cdm.cdmBarPositions
+            if not t then t = {}; cdm.cdmBarPositions = t end
+            wipe(t)
+            for k, v in pairs(pos) do t[k] = DeepCopy(v) end
+            -- Per-bar missing-means-baseline: a layer's cdmPos is a snapshot
+            -- from its last harvest, so bars created AFTER that harvest have
+            -- no entry in older layers -- and an entryless bar falls to its
+            -- DEFAULT (centered) placement at layout time (the "CDM centered
+            -- on this one spec" class: the layer applied 12 of 15 bars).
+            -- Fill the gaps from the baseline, mirroring the per-bar rule
+            -- the grow keys below already follow; the layer self-heals to
+            -- full coverage at its next harvest.
+            local bpos = baseline and baseline.cdmPos
+            if bpos and bpos ~= pos then
+                for k, v in pairs(bpos) do
+                    if t[k] == nil then t[k] = DeepCopy(v) end
+                end
+            end
+        end
+        if cdm.cdmBars and cdm.cdmBars.bars then
+            -- Grow keys follow missing-means-baseline too. A grow store is
+            -- AUTHORITATIVE only when its layer was harvested with CDM
+            -- loaded (cdmPos present <=> the harvest's cdm block ran); a
+            -- layer that never saw CDM knows nothing about grows. Per bar:
+            -- layer value, else baseline value, else CLEAR (module default)
+            -- so one fork's grow can no longer stick to every other layer.
+            local lg = (layer.cdmPos ~= nil) and layer.cdmGrow or nil
+            local bg = (baseline and baseline.cdmPos ~= nil) and baseline.cdmGrow or nil
+            if lg or bg then
+                for _, bar in ipairs(cdm.cdmBars.bars) do
+                    if bar.key then
+                        local gd
+                        if lg then gd = lg[bar.key] end
+                        if gd == nil and bg then gd = bg[bar.key] end
+                        bar.growDirection = gd
+                    end
+                end
+            end
         end
     end
     local ab = LiteProfile("EllesmereUIActionBars")
@@ -1677,7 +1723,7 @@ local function ApplyLayer(layer, baseline)
             if not t then t = {}; ab.barPositions = t end
             wipe(t)
             for k, v in pairs(pos) do t[k] = DeepCopy(v) end
-            -- Per-bar missing-means-baseline.
+            -- Per-bar missing-means-baseline, same as cdmPos above.
             local bpos = baseline and baseline.abPos
             if bpos and bpos ~= pos then
                 for k, v in pairs(bpos) do
@@ -1686,7 +1732,7 @@ local function ApplyLayer(layer, baseline)
             end
         end
         if ab.bars then
-            -- Grow values follow the same authority and per-bar fallback rule.
+            -- Same authority rule and per-bar fallback as cdmGrow.
             local lg = (layer.abPos ~= nil) and layer.abGrow or nil
             local bg = (baseline and baseline.abPos ~= nil) and baseline.abGrow or nil
             if lg or bg then
@@ -1792,8 +1838,10 @@ function EllesmereUI.SpecOverrides_ApplyUnlock(specID, force)
             end
             return added
         end
+        local cdm = LiteProfile("EllesmereUICooldownManager")
         local ab = LiteProfile("EllesmereUIActionBars")
-        local added = false
+        local added = GapFill(cdm, "cdmBarPositions",
+            target and target.cdmPos, base and base.cdmPos)
         if GapFill(ab, "barPositions",
             target and target.abPos, base and base.abPos) then added = true end
         if added then
@@ -3724,13 +3772,6 @@ local function SnapshotProfiles()
     if not reg then return snap end
     for _, db in ipairs(reg) do
         if db.folder and type(db.profile) == "table" then
-            if db.folder == "EllesmereUICooldownManager" then
-                local ecme = _G.ECME
-                local cdmBars = ecme and ecme.GetActiveCDMConfig and ecme:GetActiveCDMConfig()
-                if cdmBars then
-                    db.profile.cdmBars = cdmBars
-                end
-            end
             snap[db.folder] = DeepCopy(db.profile)
         end
     end
@@ -7207,15 +7248,15 @@ local function PromoteGroupToProfile(g)
         local base = s.baselineLayout
         if layer then
             local nb = { anchors = {}, widthMatch = {}, heightMatch = {},
-                         abGrow = {}, elems = {} }
+                         cdmGrow = {}, abGrow = {}, elems = {} }
             for k, v in pairs(layer.anchors or {}) do
-                if not IsSpecOwnedCDMKey(k) then nb.anchors[k] = DeepCopy(v) end
+                if not IsTBBChildKey(k) then nb.anchors[k] = DeepCopy(v) end
             end
             for k, v in pairs(layer.widthMatch or {}) do
-                if not IsSpecOwnedCDMKey(k) then nb.widthMatch[k] = v end
+                if not IsTBBChildKey(k) then nb.widthMatch[k] = v end
             end
             for k, v in pairs(layer.heightMatch or {}) do
-                if not IsSpecOwnedCDMKey(k) then nb.heightMatch[k] = v end
+                if not IsTBBChildKey(k) then nb.heightMatch[k] = v end
             end
             local function MergePos(lp, bp)
                 local out = lp and DeepCopy(lp) or (bp and DeepCopy(bp) or nil)
@@ -7226,6 +7267,7 @@ local function PromoteGroupToProfile(g)
                 end
                 return out
             end
+            nb.cdmPos = MergePos(layer.cdmPos, base and base.cdmPos)
             nb.abPos = MergePos(layer.abPos, base and base.abPos)
             -- A grow store is authoritative only when its layer was
             -- harvested with the owning module loaded (pos store present);
@@ -7238,6 +7280,8 @@ local function PromoteGroupToProfile(g)
                     for k, v in pairs(lg) do out[k] = v end
                 end
             end
+            MergeGrow(nb.cdmGrow, layer.cdmPos ~= nil, layer.cdmGrow,
+                      base and base.cdmPos ~= nil, base and base.cdmGrow)
             MergeGrow(nb.abGrow, layer.abPos ~= nil, layer.abGrow,
                       base and base.abPos ~= nil, base and base.abGrow)
             if base and base.elems then

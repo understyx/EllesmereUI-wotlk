@@ -687,7 +687,33 @@ end
 --  Handles atlas-based and raw-texture FlipBook animations (GCD, Modern WoW
 --  Glow, Classic WoW Glow, and any future FlipBook styles).
 -------------------------------------------------------------------------------
+-- The FlipBook animation type (and the retail glow atlases) do not exist on
+-- 3.3.5: CreateAnimation("FlipBook") yields a plain Animation without the
+-- SetFlipBook* API. Probed once at load. When missing, atlas styles (GCD,
+-- Modern WoW Glow) render as the Action Button Glow and are hidden from style
+-- dropdowns; Classic WoW Glow keeps its look as the button glow's marching
+-- ants without the soft outer glow, driven by the Lua texcoord cycler.
+local FLIPBOOK_SUPPORTED
+do
+    local probe = CreateFrame("Frame")
+    local ag = probe:CreateAnimationGroup()
+    local ok, anim = pcall(ag.CreateAnimation, ag, "FlipBook")
+    FLIPBOOK_SUPPORTED = (ok and anim and anim.SetFlipBookRows) and true or false
+end
+
+-- False for styles this client cannot draw natively; dropdown builders skip them.
+local function IsStyleAvailable(entry)
+    return not (entry and entry.atlas) or FLIPBOOK_SUPPORTED
+end
+
 local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
+    if not FLIPBOOK_SUPPORTED then
+        if not cr then cr, cg, cb = 1.0, 0.788, 0.137 end
+        wrapper._euiFlipFallback = true
+        StartButtonGlow(wrapper, szOrW or 36, cr, cg, cb, nil, szH)
+        if not entry.atlas then wrapper._euiBgData.glow:Hide() end
+        return
+    end
     -- FlipBook frames have transparent padding baked in. Each atlas
     -- has a different amount, so the style entry carries a texPadding
     -- multiplier (defaults to 1 = no compensation).
@@ -763,6 +789,10 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
 end
 
 local function StopFlipBookGlow(wrapper)
+    if wrapper._euiFlipFallback then
+        wrapper._euiFlipFallback = nil
+        StopButtonGlow(wrapper)
+    end
     if wrapper._euiFlipData then
         wrapper._euiFlipData.tex:Hide()
         if wrapper._euiFlipData.ag then wrapper._euiFlipData.ag:Stop() end
@@ -961,6 +991,8 @@ end
 -- WoW Glow (the standard proc loop).
 local SAFE_STYLE_MAP = { [1] = 7, [2] = 6, [3] = 6, [4] = 6 }
 local function RestrictionSafeStyle(idx)
+    -- No aura restrictions on 3.3.5, and the FlipBook targets are unavailable.
+    if not FLIPBOOK_SUPPORTED then return idx end
     local entry = GLOW_STYLES[idx]
     if entry and (entry.procedural or entry.buttonGlow or entry.autocast or entry.shapeGlow) then
         return SAFE_STYLE_MAP[idx] or 6
@@ -975,6 +1007,8 @@ EllesmereUI.Glows = {
     StartGlow           = StartGlow,
     StopGlow            = StopGlow,
     RestrictionSafeStyle = RestrictionSafeStyle,
+    FLIPBOOK_SUPPORTED  = FLIPBOOK_SUPPORTED,
+    IsStyleAvailable    = IsStyleAvailable,
 
     -- Low-level engines (for addons that need direct control)
     StartProceduralAnts = StartProceduralAnts,

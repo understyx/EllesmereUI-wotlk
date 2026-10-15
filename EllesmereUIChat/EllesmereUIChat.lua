@@ -4218,10 +4218,16 @@ initFrame:SetScript("OnEvent", function(self)
                 cfg.chatHeight = height
             end
         end)
-        if FCF_StopMoving and hooksecurefunc then
-            hooksecurefunc("FCF_StopMoving", function(chatFrame)
-                if chatFrame == ChatFrame1 then CaptureChatPosition() end
-            end)
+        -- 3.3.5 ends a tab drag in FCF_StopDragging; FCF_StopMoving only
+        -- exists on newer clients. Hook whichever are present.
+        if hooksecurefunc then
+            for _, fn in ipairs({ "FCF_StopDragging", "FCF_StopMoving" }) do
+                if _G[fn] then
+                    hooksecurefunc(fn, function(chatFrame)
+                        if chatFrame == ChatFrame1 then CaptureChatPosition() end
+                    end)
+                end
+            end
         end
 
         local captureFrame = EllesmereUI.SafeCreateFrame("Frame")
