@@ -6,6 +6,22 @@
 local L = EllesmereUI.RegisterLocale("zhCN")
 if not L then return end
 
+-- Shared bar layouts, spell pickers, and custom icons
+L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "是否将“%1$s”添加到所有专精？它会复制到尚未包含它的每个专精。"
+L["Browse..."] = "浏览..."
+L["Choose which specs sync with %1$s, including your alts' specs (the source is always included)"] = "选择要与 %1$s 同步的专精，包括你其他角色的专精（始终包含来源专精）。"
+L["Click an icon to show or hide it in the defensives row, from any caster."] = "点击图标，在防御技能行中显示或隐藏来自任意施法者的该技能。"
+L["Click an icon to track or stop tracking it in the selected group."] = "点击图标，在所选分组中开始或停止追踪。"
+L["Custom Defensive Spells"] = "自定义防御技能"
+L["Custom Icon:"] = "自定义图标："
+L["Enable the Cooldown Manager module to browse spells, or add spell IDs below."] = "启用冷却管理器模块以浏览法术，或在下方添加法术 ID。"
+L["Manage (%d)"] = "管理 (%d)"
+L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "是否从其他所有专精中移除“%1$s”？当前专精中的技能条仍会保留。"
+L["Select Spells (%d)"] = "选择法术 (%d)"
+L["Sync cleared -- fewer than two specs remained selected."] = "同步已清除——所选专精已不足两个。"
+L["Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them."] = "同步已清除——仅选择了一个专精。请至少勾选两个专精（包括其他角色的专精）以在它们之间同步。"
+L["Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."] = "正在跨 %d 个专精同步通用冷却和增益。图标顺序不会同步——每个专精保留自己的排列。"
+
 -- == 常用标签 (Common labels) ===============================================
 L["Anchor"] = "锚点"
 L["Anchor Point"] = "锚点位置"
@@ -5816,7 +5832,6 @@ L["Enable ClickCast"] = "启用点击施法"
 L["21:23"]                         = "21:23"
 L["Name Text Format"] = "名称文字格式"
 L["Auto Hide"]                     = "自动隐藏"
-L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "将“%1$s”添加到所有专精？它将复制到尚未包含该项的每个专精。"
 L["Show Health Deficit"] = "显示已损失生命值"
 L["Behind Unit Frame"] = "显示在单位框体后方"
 L["Custom spells cannot track charges."] = "自定义法术无法追踪充能次数。"
@@ -5839,7 +5854,6 @@ L["Activate Custom Buff Manager"] = "启用自定义增益效果管理器"
 L["Show Self"] = "显示自己"
 L["%1$s Outline"]      = "%1$s 描边"
 L["11:37"]                         = "11:37"
-L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "从其他所有专精中移除“%1$s”？此专精中的追踪条会保留。"
 L["Set to None for the flat hover highlight."] = "设为“无”时使用纯色悬停高亮。"
 L["Edit Tab Settings"]              = "编辑标签页设置"
 L["%1$s Removed in 12.1 Unless API Changes"] = "%1$s 已于 12.1 移除，除非 API 发生变化"

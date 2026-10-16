@@ -6,6 +6,22 @@
 local L = EllesmereUI.RegisterLocale("deDE")
 if not L then return end
 
+-- Shared bar layouts, spell pickers, and custom icons
+L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "„%1$s“ zu jeder Spezialisierung hinzufügen? Es wird in jede deiner Spezialisierungen kopiert, die es noch nicht enthält."
+L["Browse..."] = "Durchsuchen..."
+L["Choose which specs sync with %1$s, including your alts' specs (the source is always included)"] = "Wähle aus, welche Spezialisierungen mit %1$s synchronisiert werden, einschließlich der Spezialisierungen deiner Twinks (die Quelle ist immer enthalten)."
+L["Click an icon to show or hide it in the defensives row, from any caster."] = "Klicke auf ein Symbol, um es in der Reihe der defensiven Fähigkeiten ein- oder auszublenden, unabhängig vom Zaubernden."
+L["Click an icon to track or stop tracking it in the selected group."] = "Klicke auf ein Symbol, um es in der ausgewählten Gruppe zu verfolgen oder nicht mehr zu verfolgen."
+L["Custom Defensive Spells"] = "Benutzerdefinierte defensive Zauber"
+L["Custom Icon:"] = "Benutzerdefiniertes Symbol:"
+L["Enable the Cooldown Manager module to browse spells, or add spell IDs below."] = "Aktiviere das Modul Abklingzeiten Manager, um Zauber zu durchsuchen, oder füge unten Zauber-IDs hinzu."
+L["Manage (%d)"] = "Verwalten (%d)"
+L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "„%1$s“ aus allen anderen Spezialisierungen entfernen? Die Leiste in dieser Spezialisierung bleibt erhalten."
+L["Select Spells (%d)"] = "Zauber auswählen (%d)"
+L["Sync cleared -- fewer than two specs remained selected."] = "Synchronisierung aufgehoben – weniger als zwei Spezialisierungen blieben ausgewählt."
+L["Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them."] = "Synchronisierung aufgehoben – nur eine Spezialisierung wurde ausgewählt. Wähle mindestens zwei Spezialisierungen (einschließlich der Spezialisierungen anderer Charaktere), um sie zu synchronisieren."
+L["Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."] = "Generische Abklingzeiten und Stärkungszauber werden über %d Spezialisierungen synchronisiert. Die Symbolreihenfolge wird nicht synchronisiert – jede Spezialisierung behält ihre eigene Anordnung."
+
 L["    Enemy Units"] = "    Feindliche Einheiten"
 L["    Friendly Units"] = "    Freundliche Einheiten"
 L["  ... and %d more"]  = "  ... und %d weitere"
@@ -226,7 +242,6 @@ L["Active State"] = "Aktiver Zustand"
 L["Active Tab Border"] = "Aktiver Reiterrahmen"
 L["Active Underline"] = "Aktive Unterstreichung"
 L["ACTIVE"] = "AKTIV"
-L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "„%1$s“ zu jeder Spezifikation hinzufügen? Es wird in jede deiner Spezifikationen kopiert, die es noch nicht hat."
 L["Add a block to this bar"] = "Einen Block zu dieser Leiste hinzufügen"
 L["Add Active State"] = "Aktiven Zustand hinzufügen"
 L["Add Bar to All Specs"] = "Leiste für alle Spezifikationen hinzufügen"

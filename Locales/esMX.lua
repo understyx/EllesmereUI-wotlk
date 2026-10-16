@@ -6,6 +6,27 @@
 local L = EllesmereUI.RegisterLocale("esMX")
 if not L then return end
 
+-- Shared bar layouts, spell pickers, and custom icons
+L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "¿Agregar «%1$s» a todas las especializaciones? Se copiará a cada una de tus especializaciones que aún no lo tenga."
+L["Apply to Bar (All Specs)"] = "Aplicar a la barra (todas las especializaciones)"
+L["Browse..."] = "Examinar..."
+L["Buff Display Mode"] = "Modo de visualización de beneficios"
+L["Choose how buffs are displayed on raid frames."] = "Elige cómo se muestran los beneficios en los marcos de banda."
+L["Choose which specs sync with %1$s, including your alts' specs (the source is always included)"] = "Elige qué especializaciones se sincronizan con %1$s, incluidas las de tus personajes alternativos (la fuente siempre está incluida)."
+L["Click an icon to show or hide it in the defensives row, from any caster."] = "Haz clic en un icono para mostrarlo u ocultarlo en la fila de defensivos, sin importar quién lo lance."
+L["Click an icon to track or stop tracking it in the selected group."] = "Haz clic en un icono para rastrearlo o dejar de rastrearlo en el grupo seleccionado."
+L["Custom Defensive Spells"] = "Hechizos defensivos personalizados"
+L["Custom Icon:"] = "Icono personalizado:"
+L["Enable the Cooldown Manager module to browse spells, or add spell IDs below."] = "Activa el módulo Gestor de reutilización para examinar hechizos o agrega sus ID abajo."
+L["Manage (%d)"] = "Administrar (%d)"
+L["Other"] = "Otro"
+L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "¿Eliminar «%1$s» de todas las demás especializaciones? Se conservará la barra de esta especialización."
+L["Select Spells (%d)"] = "Seleccionar hechizos (%d)"
+L["Sync cleared -- fewer than two specs remained selected."] = "Sincronización cancelada: quedaban seleccionadas menos de dos especializaciones."
+L["Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them."] = "Sincronización cancelada: solo se seleccionó una especialización. Marca al menos dos (incluidas las de otros personajes) para sincronizarlas."
+L["Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."] = "Sincronizando reutilizaciones y beneficios genéricos entre %d especializaciones. El orden de los iconos no se sincroniza: cada especialización conserva su propia disposición."
+L["Weapon"] = "Arma"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "VENTANAS EMERGENTES Y MENÚ DE JUEGO DE BLIZZARD"
 L["Reskin Popups and Menus"] = "Rediseñar ventanas emergentes y menús"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Rediseña los menús contextuales y los cuadros de diálogo emergentes de Blizzard con el estilo oscuro de EUI. Requiere recargar la interfaz."

@@ -4,6 +4,22 @@
 -- to generate the full remaining key list. Untranslated keys fall back to English.
 local L = EllesmereUI.RegisterLocale("zhTW")
 if not L then return end
+
+-- Shared bar layouts, spell pickers, and custom icons
+L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "是否將「%1$s」新增至所有專精？它會複製到尚未包含它的每個專精。"
+L["Browse..."] = "瀏覽..."
+L["Choose which specs sync with %1$s, including your alts' specs (the source is always included)"] = "選擇要與 %1$s 同步的專精，包括你其他角色的專精（來源專精一律包含）。"
+L["Click an icon to show or hide it in the defensives row, from any caster."] = "點擊圖示，即可在防禦技能列中顯示或隱藏來自任何施法者的該技能。"
+L["Click an icon to track or stop tracking it in the selected group."] = "點擊圖示，在所選群組中開始或停止追蹤。"
+L["Custom Defensive Spells"] = "自訂防禦技能"
+L["Custom Icon:"] = "自訂圖示："
+L["Enable the Cooldown Manager module to browse spells, or add spell IDs below."] = "啟用冷卻管理器模組以瀏覽法術，或在下方新增法術 ID。"
+L["Manage (%d)"] = "管理 (%d)"
+L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "是否從其他所有專精中移除「%1$s」？目前專精中的技能列會保留。"
+L["Select Spells (%d)"] = "選擇法術 (%d)"
+L["Sync cleared -- fewer than two specs remained selected."] = "同步已清除——所選專精已少於兩個。"
+L["Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them."] = "同步已清除——只選擇了一個專精。請至少勾選兩個專精（包括其他角色的專精），以便在它們之間同步。"
+L["Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."] = "正在跨 %d 個專精同步通用冷卻和增益效果。圖示順序不會同步——每個專精保留自己的排列。"
 L["Behind Unit Frame"] = "顯示於單位框架後方"
 
 -- == Common labels =========================================================
@@ -597,7 +613,6 @@ L["Active State"]                  = "啟用狀態"
 L["Active State Duration"]         = "啟用狀態持續時間"
 L["Active State Glow"]             = "啟用狀態發光"
 L["Add"]                           = "新增"
-L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "要將「%1$s」新增至每個專精嗎？它會被複製到每個尚未擁有它的專精。"
 L["Add a Buff Spell"]              = "新增增益效果法術"
 L["Add a CD/Utility Spell"]        = "新增冷卻／功能性法術"
 L["Add a talent variant of this entry"] = "為此項目新增天賦變體"
@@ -886,7 +901,6 @@ L["Racial"]                        = "種族能力"
 L["Raise Strata"]                  = "提升層級"
 L["Recolor the countdown text below Threshold Seconds."] = "當剩餘時間低於「臨界值秒數」時，改變倒數文字的顏色。"
 L["Remove"]                        = "移除"
-L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "要從其他所有專精移除「%1$s」嗎？此專精中的列會保留。"
 L["Remove Active State"]           = "移除啟用狀態"
 L["Remove Bar from All Specs"]     = "從所有專精移除此條"
 L["Remove from All"]               = "從全部移除"

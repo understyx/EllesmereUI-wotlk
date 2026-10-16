@@ -7,6 +7,22 @@
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+-- Shared bar layouts, spell pickers, and custom icons
+L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "모든 전문화에 \"%1$s\"을(를) 추가할까요? 아직 없는 각 전문화에 복사됩니다."
+L["Browse..."] = "둘러보기..."
+L["Choose which specs sync with %1$s, including your alts' specs (the source is always included)"] = "%1$s와 동기화할 전문화를 선택하세요. 부캐 전문화도 포함됩니다(원본은 항상 포함됨)."
+L["Click an icon to show or hide it in the defensives row, from any caster."] = "아이콘을 클릭하여 시전자와 관계없이 생존기 행에 표시하거나 숨깁니다."
+L["Click an icon to track or stop tracking it in the selected group."] = "아이콘을 클릭하여 선택한 그룹에서 추적하거나 추적을 중지합니다."
+L["Custom Defensive Spells"] = "사용자 지정 생존기 주문"
+L["Custom Icon:"] = "사용자 지정 아이콘:"
+L["Enable the Cooldown Manager module to browse spells, or add spell IDs below."] = "주문을 찾아보려면 재사용 대기시간 관리자 모듈을 활성화하거나 아래에 주문 ID를 추가하세요."
+L["Manage (%d)"] = "관리 (%d)"
+L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "다른 모든 전문화에서 \"%1$s\"을(를) 제거할까요? 현재 전문화의 바는 유지됩니다."
+L["Select Spells (%d)"] = "주문 선택 (%d)"
+L["Sync cleared -- fewer than two specs remained selected."] = "동기화가 해제되었습니다. 선택된 전문화가 두 개 미만입니다."
+L["Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them."] = "동기화가 해제되었습니다. 전문화를 하나만 선택했습니다. 다른 캐릭터의 전문화를 포함해 두 개 이상 선택해야 서로 동기화할 수 있습니다."
+L["Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."] = "일반 재사용 대기시간 및 강화 효과를 %d개 전문화에서 동기화합니다. 아이콘 순서는 동기화되지 않으며 각 전문화의 배열이 유지됩니다."
+
 L["BLIZZARD POPUPS & GAME MENU"] = "블리자드 팝업 및 게임 메뉴"
 
 -- == Common labels (공용 라벨) =============================================
@@ -3484,7 +3500,6 @@ L["When your spec has no class resource, automatically adds the class resource h
 L["Draw tick lines across the bar at positions you choose."] = "지정한 위치에 바를 가로지르는 눈금선을 긋습니다."
 
 -- add ResourceBars Format (자원 바 포맷)
-L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "\"%1$s\"을(를) 모든 전문화에 추가하시겠습니까? 아직 가지고 있지 않은 각 전문화에 복사됩니다."
 L["CDM Bar - %s"] = "CDM 바 - %s"   -- concat "CDM Bar - "..name; reverse-format template re-translates suffix (접두 결합, 접미 재번역)
 L["Hash at %1$s"] = "%1$s 위치 눈금"
 L["+ Add Buff"] = "+ 강화 효과 추가"
@@ -5043,7 +5058,6 @@ L["%s matched to %s. Unmatch in Unlock Mode to edit."] = "%s가 %s에 맞춰져 
 L["%1$s Font"] = "%1$s 글꼴"
 L["%1$s Outline"] = "%1$s 외곽선"
 L["Currently active range cutoff: %1$syd."] = "현재 적용 중인 사거리 제한: %1$s야드(4.57미터)."
-L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "다른 모든 전문화에서 \"%1$s\"을(를) 제거할까요? 이 전문화의 바는 유지됩니다."
 L["Remove advanced settings for \"%1$s\"? It will revert to Simple mode."] = "\"%1$s\"의 고급 설정을 제거할까요? 간단 모드로 되돌아갑니다."
 L["Reset %1$s to its default position and zoom and reload your UI?"] = "%1$s을(를) 기본 위치와 확대로 초기화하고 UI를 리로드할까요?"
 L["Size matched to %1$s. Unmatch in Unlock Mode to edit."] = "크기가 %1$s에 맞춰져 있습니다. 잠금 해제 모드에서 맞춤 해제 후 편집하세요."

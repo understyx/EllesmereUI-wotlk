@@ -6,6 +6,22 @@
 local L = EllesmereUI.RegisterLocale("frFR")
 if not L then return end
 
+-- Shared bar layouts, spell pickers, and custom icons
+L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "Ajouter « %1$s » à toutes les spécialisations ? Il sera copié vers chacune de vos spécialisations qui ne le possède pas encore."
+L["Browse..."] = "Parcourir..."
+L["Choose which specs sync with %1$s, including your alts' specs (the source is always included)"] = "Choisissez les spécialisations à synchroniser avec %1$s, y compris celles de vos personnages secondaires (la source est toujours incluse)."
+L["Click an icon to show or hide it in the defensives row, from any caster."] = "Cliquez sur une icône pour l'afficher ou la masquer dans la rangée des défensifs, quel que soit le lanceur."
+L["Click an icon to track or stop tracking it in the selected group."] = "Cliquez sur une icône pour la suivre ou arrêter de la suivre dans le groupe sélectionné."
+L["Custom Defensive Spells"] = "Sorts défensifs personnalisés"
+L["Custom Icon:"] = "Icône personnalisée :"
+L["Enable the Cooldown Manager module to browse spells, or add spell IDs below."] = "Activez le module Gestionnaire de recharge pour parcourir les sorts, ou ajoutez des ID de sort ci-dessous."
+L["Manage (%d)"] = "Gérer (%d)"
+L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "Retirer « %1$s » de toutes les autres spécialisations ? La barre de cette spécialisation est conservée."
+L["Select Spells (%d)"] = "Sélectionner les sorts (%d)"
+L["Sync cleared -- fewer than two specs remained selected."] = "Synchronisation annulée : moins de deux spécialisations sont restées sélectionnées."
+L["Sync cleared -- only one spec was selected. Tick at least two specs (including other characters' specs) to sync between them."] = "Synchronisation annulée : une seule spécialisation a été sélectionnée. Cochez-en au moins deux (y compris celles d'autres personnages) pour les synchroniser."
+L["Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."] = "Synchronisation des temps de recharge et améliorations génériques entre %d spécialisations. L'ordre des icônes n'est pas synchronisé : chaque spécialisation conserve sa propre disposition."
+
 L["BLIZZARD POPUPS & GAME MENU"] = "FENÊTRES BLIZZARD ET MENU DU JEU"
 L["Resurrect Accept Glow"] = "Lueur d’acceptation de résurrection"
 L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Ajoute une bordure lumineuse et pulsante autour du bouton Accepter des fenêtres de résurrection afin de ne pas manquer une résurrection. Utilise le réglage de couleur des éléments et du texte. Application immédiate sans rechargement."
@@ -350,7 +366,6 @@ L["Add Module Font"]            = "Ajouter une police de module"
 L["Add New"]                    = "Ajouter"
 L["Add Reminder"]               = "Ajouter un rappel"
 L["Add Specs"]                  = "Ajouter des spés"
-L["Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it."] = "Ajouter « %1$s » à toutes les spés ? Il sera copié dans chacune de vos spés qui ne l'a pas déjà."
 L["Add diminishing-returns detail (adjusted rating, wasted rating, and current penalty bracket) to the Secondary and Tertiary stat tooltips."] = "Ajoute le détail des rendements décroissants (cote ajustée, cote gaspillée et palier de pénalité actuel) aux infobulles des stats secondaires et tertiaires."
 L["Add in Blizzard CDM"]        = "Ajouter dans le CDM de Blizzard"
 L["Add to All Specs"]           = "Ajouter à toutes les spés"
@@ -5035,7 +5050,6 @@ L["Remove Block"]                                               = "Retirer le bl
 L["Remove Conditional Override"]                                = "Retirer le remplacement conditionnel"
 L["Remove Override"]                                            = "Retirer le remplacement"
 L["Remove Spec Override"]                                       = "Retirer le remplacement de spé"
-L["Remove \"%1$s\" from every other spec? The bar in this spec is kept."] = "Retirer « %1$s » de toutes les autres spés ? La barre de cette spé est conservée."
 L["Remove advanced settings for \"%1$s\"? It will revert to Simple mode."] = "Retirer les réglages avancés de « %1$s » ? Elle reviendra au mode Simple."
 L["Remove from All"]                                            = "Retirer de toutes"
 L["Remove from Other Specs"]                                    = "Retirer des autres spés"
