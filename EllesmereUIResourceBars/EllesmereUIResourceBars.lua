@@ -1516,7 +1516,6 @@ local DEFAULTS = {
             lastTickR = 1.0, lastTickG = 0.82, lastTickB = 0.0, lastTickA = 0.95,
             showGCDBoundary   = false,
             gcdBoundaryR = 1.0, gcdBoundaryG = 0.82, gcdBoundaryB = 0.0, gcdBoundaryA = 0.95,
-            coloredEmpowerStages = false,  -- Color empowered spells from red to green per stage
             showTotalDuration = false,
             latencyEnabled    = false,
             latencyShowText   = false,
@@ -1734,7 +1733,7 @@ local UpdateCastBar
 local BuildCastBar
 local UpdateGCDBar
 local BuildGCDBar
-local OnCastStart, OnChannelStart, OnChannelUpdate, OnCastStop, OnEmpowerStart, OnEmpowerUpdate
+local OnCastStart, OnChannelStart, OnChannelUpdate, OnCastStop
 local ShowChannelTicks, HideChannelTicks
 
 -------------------------------------------------------------------------------
@@ -1755,12 +1754,6 @@ end
 local function IsVerticalOrientation(ori)
     return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN"
 end
-
--- Cached empower stage thresholds (set once at empower start, avoids per-frame API call)
-local cachedStageThresholds
--- Reusable CreateColor objects for gradient (avoids per-frame allocation)
-local empowerColorA = CreateColor(1, 0, 0, 1)
-local empowerColorB = CreateColor(1, 0, 0, 1)
 
 -- Additive bar gradients use two REUSED color objects so applying the gradient
 -- allocates nothing (CreateColor would allocate two tables per call). The gradient
@@ -1910,35 +1903,6 @@ ns.ClearPipFillOpacity = function(pip)
         pip._sbgAnchored = nil
         pip._bg:ClearAllPoints()
         pip._bg:SetAllPoints(pip)
-    end
-end
-
--- Returns the current empowered stage (0-based) based on progress and cached thresholds
-local function GetCurrentEmpowerStage(progress, numStages)
-    if not numStages or numStages <= 0 then return 0 end
-    local thresholds = cachedStageThresholds
-    if not thresholds then return 0 end
-
-    for i = 1, #thresholds do
-        if progress < thresholds[i] then
-            return i - 1
-        end
-    end
-    return #thresholds
-end
-
--- Returns RGB color for the current empower stage (red -> yellow -> green gradient)
-local function GetEmpowerStageColor(stage, maxStages)
-    if maxStages <= 1 then
-        return 0, 1, 0
-    end
-
-    local t = stage / maxStages
-
-    if t < 0.5 then
-        return 1, t * 2, 0
-    else
-        return 1 - (t - 0.5) * 2, 1, 0
     end
 end
 
@@ -6538,8 +6502,7 @@ end
 do
     local host = EllesmereUI.SafeCreateFrame("Frame")
     local function OnCastFrame()
-        if castBarFrame and (castBarFrame._casting or castBarFrame._channeling
-           or castBarFrame._empowering) then
+        if castBarFrame and (castBarFrame._casting or castBarFrame._channeling) then
             UpdateCastBar()
         else
             host:SetScript("OnUpdate", nil)
@@ -6820,13 +6783,10 @@ BuildCastBar = function()
         -- Casting state
         castBarFrame._casting = false
         castBarFrame._channeling = false
-        castBarFrame._empowering = false
         castBarFrame._castID = nil
         castBarFrame._startTime = 0
         castBarFrame._endTime = 0
         castBarFrame._spellName = ""
-        castBarFrame._pips = {}
-        castBarFrame._numStages = 0
         castBarFrame._ticks = {}
         castBarFrame._numTicks = 0
     end
@@ -7072,18 +7032,11 @@ end
     ns.ReflowFontString(timerText)
     ns.ReflowFontString(nameText)
 
-    -- Hide pips when not empowering
-    if castBarFrame._pips then
-        for i = 1, #castBarFrame._pips do
-            castBarFrame._pips[i]:Hide()
-        end
-    end
-
     -- Hide channel ticks when not channeling
     HideChannelTicks()
 
     -- Hide when not casting
-    if not castBarFrame._casting and not castBarFrame._channeling and not castBarFrame._empowering then
+    if not castBarFrame._casting and not castBarFrame._channeling then
         EllesmereUI.SetElementVisibility(castBarFrame, false)
     else
         castBarFrame:Show()
@@ -7097,7 +7050,6 @@ end
 --  Shows vertical tick marks on the cast bar during channeled spells whose
 --  spell name appears in CHANNEL_TICK_DATA.  The penultimate tick (the last
 --  safe point to chain/clip) is drawn slightly wider in gold.
---  Layout mirrors the empower pip code above for visual consistency.
 -------------------------------------------------------------------------------
 ShowChannelTicks = function(spellName)
     if not castBarFrame then return end
@@ -7122,7 +7074,7 @@ ShowChannelTicks = function(spellName)
     local barHeight = bar:GetHeight()
     if barWidth <= 0 or barHeight <= 0 then return end
 
-    -- Pixel-snap helpers (same approach as empower pips)
+    -- Pixel-snap helpers
     local effectiveScale = bar:GetEffectiveScale()
     local pixelSize = 1 / effectiveScale
     local tickWidth = max(pixelSize, floor(2 * effectiveScale + 0.5) / effectiveScale)
@@ -7239,42 +7191,6 @@ function ns.SetCastTimerText(f, now, totalDurMode, totalSuffix, latSuffix)
     end
 end
 
--- Engine-driven cast fill, same plumbing as the nameplate cast bars: hand the
--- cast's duration object to the inner StatusBar and the C engine animates the
--- fill with zero Lua per frame (pushback, haste and stage changes included).
--- Falls back to the Lua fill in UpdateCastBar when the duration API is
--- unavailable or returns nil; the ticker then redraws the fill as before.
--- Re-called from DELAYED / CHANNEL_UPDATE / EMPOWER_UPDATE so a mid-cast time
--- change retargets the engine timer. Returns true when the timer is armed.
-ns.ApplyCastTimer = function(kind)
-    if not castBarFrame then return end
-    castBarFrame._nativeFill = nil
-    local bar = castBarFrame._bar
-    local sb = bar and bar._sb
-    if not (sb and sb.SetTimerDuration and Enum and Enum.StatusBarTimerDirection) then
-        return
-    end
-    local durObj, dir
-    if kind == "channel" then
-        durObj = UnitChannelDuration and UnitChannelDuration("player")
-        dir = Enum.StatusBarTimerDirection.RemainingTime
-    elseif kind == "empower" then
-        -- true = include the hold-at-max window, matching the event mirrors
-        durObj = UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration("player", true)
-        dir = Enum.StatusBarTimerDirection.ElapsedTime
-    else
-        durObj = UnitCastingDuration and UnitCastingDuration("player")
-        dir = Enum.StatusBarTimerDirection.ElapsedTime
-    end
-    if not durObj then return end
-    sb:SetTimerDuration(durObj, nil, dir)
-    -- Snap to the timer's current position so the fill never sweeps in from
-    -- whatever value the previous cast left behind.
-    if sb.SetToTargetValue then sb:SetToTargetValue() end
-    castBarFrame._nativeFill = true
-    return true
-end
-
 UpdateCastBar = function(dt)
     if not castBarFrame then return end
     -- EllesmereUI.SetElementVisibility fades an idle cast bar to alpha 0 rather
@@ -7283,7 +7199,7 @@ UpdateCastBar = function(dt)
     -- including the spark reposition at the end, which OnCastStop never hides --
     -- ran every frame whether or not a cast was in progress. Gate on the cast
     -- state that actually drives this instead.
-    if not (castBarFrame._casting or castBarFrame._empowering or castBarFrame._channeling) then
+    if not (castBarFrame._casting or castBarFrame._channeling) then
         return
     end    -- No IsShown() test here. SetElementVisibility fades this frame to alpha 0
     -- rather than hiding it, so IsShown() is constant-true for the whole session
@@ -7304,7 +7220,6 @@ UpdateCastBar = function(dt)
         local cb = ERB.db.profile.castBar
         castBarFrame._cstShowTimer  = cb.showTimer
         castBarFrame._cstTotalMode  = cb.showTimer and cb.showTotalDuration
-        castBarFrame._cstEmpStages  = cb.coloredEmpowerStages
         castBarFrame._cstFillAlpha  = (cb.fillOpacity or 100) / 100
         -- The fill texture only changes when the bar is rebuilt, so resolving it
         -- here removes a GetStatusBarTexture call from the spark path below.
@@ -7315,11 +7230,6 @@ UpdateCastBar = function(dt)
         -- cast bar never uses, so on every frame of every cast it is a vararg
         -- function call for nothing. Hold the inner bar and drive it directly.
         castBarFrame._cstSB         = bar._sb
-        -- Native easing between redraws (live API; the GCD bar ships with the
-        -- same mechanism). The engine renders intermediate positions every
-        -- frame, so the redraw rate can drop without visible stepping.
-        castBarFrame._cstInterp     = Enum and Enum.StatusBarInterpolation
-            and Enum.StatusBarInterpolation.ExponentialEaseOut
     end
     local showTimer = castBarFrame._cstShowTimer
 
@@ -7328,9 +7238,8 @@ UpdateCastBar = function(dt)
     -- Cache the " / X.X" suffix once per cast (total duration is constant)
     local totalSuffix = totalDurMode and castBarFrame._totalDurSuffix
 
-    if castBarFrame._casting or castBarFrame._empowering then
-        -- Safety: if cast/empower ran 1s past expected end, force stop.
-        -- Catches missed EMPOWER_STOP events under network desync.
+    if castBarFrame._casting then
+        -- Safety: if a cast ran 1s past expected end, force stop.
         if castBarFrame._endTime and now > castBarFrame._endTime + 1 then
             OnCastStop()
             return
@@ -7338,55 +7247,31 @@ UpdateCastBar = function(dt)
         local castDur = castBarFrame._endTime - castBarFrame._startTime
         local progress = (castDur > 0) and ((now - castBarFrame._startTime) / castDur) or 0
         progress = min(max(progress, 0), 1)
-        -- Fill: only the fallback path draws from Lua. When the engine timer
-        -- owns the fill (ns.ApplyCastTimer), progress is still computed above
-        -- because the empower stage coloring below derives its stage from it.
-        if not castBarFrame._nativeFill then
-            if castBarFrame._cstSB then
-                castBarFrame._cstSB:SetValue(progress, castBarFrame._cstInterp)
-            else
-                bar:SetValue(progress, castBarFrame._cstInterp)
-            end
-            -- Size the gradient clip frame to match the fill width
-            if castBarFrame._gradientFullBar and castBarFrame._gradClip then
-                castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
-            end
+        if castBarFrame._cstSB then
+            castBarFrame._cstSB:SetValue(progress)
+        else
+            bar:SetValue(progress)
         end
-
-        -- Apply empowered stage coloring if enabled
-        if castBarFrame._empowering and castBarFrame._cstEmpStages then
-            local numStages = castBarFrame._numStages or 0
-            local stage = GetCurrentEmpowerStage(progress, numStages)
-            local r, g, b = GetEmpowerStageColor(stage, numStages)
-
-            -- Apply color to bar or gradient (fill alpha keeps Fill Opacity)
-            if castBarFrame._gradientFullBar and castBarFrame._gradTex then
-                empowerColorA:SetRGBA(r, g, b, 1)
-                empowerColorB:SetRGBA(r, g, b, 1)
-                castBarFrame._gradTex:SetGradient("HORIZONTAL", empowerColorA, empowerColorB)
-            else
-                castBarFrame._cstFillTex:SetVertexColor(r, g, b, castBarFrame._cstFillAlpha)
-            end
-            castBarFrame._empowerColorApplied = true
+        -- Size the gradient clip frame to match the fill width
+        if castBarFrame._gradientFullBar and castBarFrame._gradClip then
+            castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
         end
 
         if showTimer then
             ns.SetCastTimerText(castBarFrame, now, totalDurMode, totalSuffix, latSuffix)
         end
     elseif castBarFrame._channeling then
-        if not castBarFrame._nativeFill then
-            local chanDur = castBarFrame._endTime - castBarFrame._startTime
-            local progress = (chanDur > 0) and ((castBarFrame._endTime - now) / chanDur) or 0
-            progress = min(max(progress, 0), 1)
-            if castBarFrame._cstSB then
-                castBarFrame._cstSB:SetValue(progress, castBarFrame._cstInterp)
-            else
-                bar:SetValue(progress, castBarFrame._cstInterp)
-            end
-            -- Size the gradient clip frame to match the fill width
-            if castBarFrame._gradientFullBar and castBarFrame._gradClip then
-                castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
-            end
+        local chanDur = castBarFrame._endTime - castBarFrame._startTime
+        local progress = (chanDur > 0) and ((castBarFrame._endTime - now) / chanDur) or 0
+        progress = min(max(progress, 0), 1)
+        if castBarFrame._cstSB then
+            castBarFrame._cstSB:SetValue(progress)
+        else
+            bar:SetValue(progress)
+        end
+        -- Size the gradient clip frame to match the fill width
+        if castBarFrame._gradientFullBar and castBarFrame._gradClip then
+            castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
         end
         if showTimer then
             ns.SetCastTimerText(castBarFrame, now, totalDurMode, totalSuffix, latSuffix)
@@ -7481,35 +7366,26 @@ OnCastStart = function()
     local cb = ERB.db.profile.castBar
     if not cb.enabled then return end
 
-    local name, _, texture, startTimeMS, endTimeMS, _, _, notInterruptible, spellID, barID = ns.UnitCastingInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, _, _, notInterruptible, _, barID = ns.UnitCastingInfo("player")
     if not name then return end
 
     castBarFrame._casting = true
     castBarFrame._channeling = false
-    castBarFrame._empowering = false
     castBarFrame._castID = barID
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
     castBarFrame._spellName = name
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
-    if not ns.ApplyCastTimer("cast") then
-        local castDur = endTimeMS - startTimeMS
-        local initProgress = (castDur > 0) and ((GetTime() - startTimeMS / 1000) / (castDur / 1000)) or 0
-        castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
-    end
+    local castDur = endTimeMS - startTimeMS
+    local initProgress = (castDur > 0) and ((GetTime() - startTimeMS / 1000) / (castDur / 1000)) or 0
+    castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
 
-    -- Hide empower pips
-    if castBarFrame._pips then
-        for i = 1, #castBarFrame._pips do castBarFrame._pips[i]:Hide() end
-    end
-    castBarFrame._numStages = 0
     HideChannelTicks()
 
     -- Icon
     do
-        local spellInfo = spellID and C_Spell.GetSpellInfo(spellID)
-        local iconTex = (spellInfo and spellInfo.iconID) or texture
+        local iconTex = texture
         if iconTex and ERB.db.profile.castBar.showIcon ~= false then
             castBarFrame._icon:SetTexture(iconTex)
             castBarFrame._iconFrame:Show()
@@ -7529,7 +7405,7 @@ OnChannelStart = function()
     local cb = ERB.db.profile.castBar
     if not cb.enabled then return end
 
-    local name, _, texture, startTimeMS, endTimeMS, _, notInterruptible, spellID, _, _, channelCastID = ns.UnitChannelInfo("player")
+    local name, _, texture, startTimeMS, endTimeMS, _, notInterruptible, _, _, _, channelCastID = ns.UnitChannelInfo("player")
     if not name then
         -- UnitChannelInfo can be empty on rapid channel restarts (e.g. SCK spam).
         -- Single retry on the next frame; if still nil the channel was cancelled.
@@ -7545,29 +7421,20 @@ OnChannelStart = function()
 
     castBarFrame._casting = false
     castBarFrame._channeling = true
-    castBarFrame._empowering = false
     castBarFrame._castID = channelCastID
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
     castBarFrame._spellName = name
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
-    if not ns.ApplyCastTimer("channel") then
-        local chanDur = endTimeMS - startTimeMS
-        local initProgress = (chanDur > 0) and ((endTimeMS / 1000 - GetTime()) / (chanDur / 1000)) or 1
-        castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
-    end
+    local chanDur = endTimeMS - startTimeMS
+    local initProgress = (chanDur > 0) and ((endTimeMS / 1000 - GetTime()) / (chanDur / 1000)) or 1
+    castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
 
-    -- Hide empower pips
-    if castBarFrame._pips then
-        for i = 1, #castBarFrame._pips do castBarFrame._pips[i]:Hide() end
-    end
-    castBarFrame._numStages = 0
 
     -- Icon
     do
-        local spellInfo = spellID and C_Spell.GetSpellInfo(spellID)
-        local iconTex = (spellInfo and spellInfo.iconID) or texture
+        local iconTex = texture
         if iconTex and ERB.db.profile.castBar.showIcon ~= false then
             castBarFrame._icon:SetTexture(iconTex)
             castBarFrame._iconFrame:Show()
@@ -7594,7 +7461,6 @@ OnChannelUpdate = function()
 
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
-    ns.ApplyCastTimer("channel")
 
     -- Recompute tick mark and GCD boundary positions for new duration
     ShowChannelTicks(name)
@@ -7636,178 +7502,16 @@ local function OnChannelStop(eventCastID)
     EllesmereUI.SetElementVisibility(castBarFrame, false)
 end
 
--- Called for UNIT_SPELLCAST_EMPOWER_STOP.
-local function OnEmpowerStop(eventCastID)
-    if not castBarFrame then return end
-    if not castBarFrame._empowering then return end
-    -- Accept any empower stop while we're empowering. Strict castID
-    -- matching can reject valid stops due to event desync under load.
-    castBarFrame._empowering = false
-    castBarFrame._castID = nil
-    if castBarFrame._pips then
-        for i = 1, #castBarFrame._pips do
-            castBarFrame._pips[i]:Hide()
-        end
-    end
-    castBarFrame._numStages = 0
-
-    -- Reset empower stage coloring if it was applied
-    if castBarFrame._empowerColorApplied then
-        castBarFrame._empowerColorApplied = false
-        local cb = ERB.db.profile.castBar
-        local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
-        if cb.classColored then
-            local cc = CLASS_COLORS[cachedClass]
-            if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
-        end
-        if castBarFrame._gradientFullBar and castBarFrame._gradTex then
-            empowerColorA:SetRGBA(fR, fG, fB, fA)
-            empowerColorB:SetRGBA(cb.gradientR or fR, cb.gradientG or fG, cb.gradientB or fB, cb.gradientA or fA)
-            castBarFrame._gradTex:SetGradient(cb.gradientDir or "HORIZONTAL", empowerColorA, empowerColorB)
-        elseif cb.gradientEnabled then
-            -- Gradient colors live in the SetGradient endpoints (with Fill
-            -- Opacity baked in); the vertex color must return to plain white
-            -- or the empower tint would keep coloring the gradient.
-            castBarFrame._bar:GetStatusBarTexture():SetVertexColor(1, 1, 1, 1)
-        else
-            local fillTex = castBarFrame._bar:GetStatusBarTexture()
-            fillTex:SetVertexColor(fR, fG, fB, fA * ((cb.fillOpacity or 100) / 100))
-        end
-    end
-    cachedStageThresholds = nil
-
-    EllesmereUI.SetElementVisibility(castBarFrame, false)
-end
-
 OnCastStop = function()
     if not castBarFrame then return end
     castBarFrame._casting = false
     castBarFrame._channeling = false
-    castBarFrame._empowering = false
     castBarFrame._castID = nil
-    -- Hide pip textures
-    if castBarFrame._pips then
-        for i = 1, #castBarFrame._pips do
-            castBarFrame._pips[i]:Hide()
-        end
-    end
-    castBarFrame._numStages = 0
     HideChannelTicks()
     HideLatencyOverlay()
     EllesmereUI.SetElementVisibility(castBarFrame, false)
 end
 
-
-OnEmpowerStart = function()
-    if not castBarFrame then return end
-    local cb = ERB.db.profile.castBar
-    if not cb.enabled then return end
-
-    local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, empowering, _, empowerCastID = ns.UnitChannelInfo("player")
-    if not name or not empowering then return end
-
-    -- Add hold-at-max time to the end
-    local holdAtMax = GetUnitEmpowerHoldAtMaxTime("player")
-    endTimeMS = endTimeMS + holdAtMax
-
-    castBarFrame._casting = false
-    castBarFrame._channeling = false
-    castBarFrame._empowering = true
-    castBarFrame._castID = empowerCastID
-    castBarFrame._startTime = startTimeMS / 1000
-    castBarFrame._endTime = endTimeMS / 1000
-    castBarFrame._spellName = name
-    castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
-    HideLatencyOverlay()
-    castBarFrame._nameText:SetText(name)
-    if not ns.ApplyCastTimer("empower") then
-        local empDur = endTimeMS - startTimeMS
-        local empProgress = (empDur > 0) and ((GetTime() - startTimeMS / 1000) / (empDur / 1000)) or 0
-        castBarFrame._bar:SetValue(min(max(empProgress, 0), 1))
-    end
-    HideChannelTicks()
-
-    -- Icon
-    do
-        local spellInfo = C_Spell.GetSpellInfo(spellID)
-        local iconTex = spellInfo and spellInfo.iconID
-        if iconTex and ERB.db.profile.castBar.showIcon ~= false then
-            castBarFrame._icon:SetTexture(iconTex)
-            castBarFrame._iconFrame:Show()
-        else
-            castBarFrame._iconFrame:Hide()
-        end
-    end
-
-    -- Stage pips (hash marks) -- pixel-perfect positioning
-    local stages = UnitEmpoweredStagePercentages("player")
-    -- Cache cumulative thresholds for per-frame stage color lookup
-    if stages then
-        cachedStageThresholds = {}
-        local cum = 0
-        for i = 1, #stages do
-            cum = cum + stages[i]
-            cachedStageThresholds[i] = cum
-        end
-    else
-        cachedStageThresholds = nil
-    end
-    if stages then
-        local bar = castBarFrame._bar
-        local barWidth = bar:GetWidth()
-        local barHeight = bar:GetHeight()
-        local numStages = #stages
-        castBarFrame._numStages = numStages
-
-        -- Compute the effective scale so we can snap to physical pixels
-        local effectiveScale = bar:GetEffectiveScale()
-        local pixelSize = 1 / effectiveScale          -- 1 physical pixel in UI units
-        local pipWidth = max(pixelSize, floor(2 * effectiveScale + 0.5) / effectiveScale) -- at least 1px, target ~2px
-
-        -- Position a pip at each stage boundary (skip the last -- it's the bar end)
-        local lastOffset = 0
-        for i = 1, numStages - 1 do
-            local pip = castBarFrame._pips[i]
-            if not pip then
-                pip = bar:CreateTexture(nil, "OVERLAY", nil, 2)
-                pip:SetTexture(1, 1, 1, 0.85)
-                castBarFrame._pips[i] = pip
-            end
-            local rawOffset = lastOffset + (barWidth * stages[i])
-            lastOffset = rawOffset
-            -- Snap offset to nearest physical pixel
-            local snappedOffset = floor(rawOffset * effectiveScale + 0.5) / effectiveScale
-            local snappedHeight = floor(barHeight * effectiveScale + 0.5) / effectiveScale
-            pip:SetSize(pipWidth, snappedHeight)
-            pip:ClearAllPoints()
-            pip:SetPoint("CENTER", bar, "LEFT", snappedOffset, 0)
-            pip:Show()
-        end
-
-        -- Hide any extra pips from a previous cast with more stages
-        for i = numStages, #castBarFrame._pips do
-            castBarFrame._pips[i]:Hide()
-        end
-    end
-
-    castBarFrame:Show()
-    EllesmereUI.SetElementVisibility(castBarFrame, true)
-end
-
-OnEmpowerUpdate = function()
-    if not castBarFrame then return end
-    if not castBarFrame._empowering then return end
-
-    local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, empowering = ns.UnitChannelInfo("player")
-    if not name or not empowering then return end
-
-    local holdAtMax = GetUnitEmpowerHoldAtMaxTime("player")
-    endTimeMS = endTimeMS + holdAtMax
-
-    castBarFrame._startTime = startTimeMS / 1000
-    castBarFrame._endTime = endTimeMS / 1000
-    ns.ApplyCastTimer("empower")
-end
 
 -------------------------------------------------------------------------------
 --  GCD Bar
@@ -7903,11 +7607,10 @@ BuildGCDBar = function()
                 return
             end
 
-            if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START"
-               or event == "UNIT_SPELLCAST_EMPOWER_START" then
-                -- Remember this spell had a cast time/channel/empower so the
+            if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
+                -- Remember this spell had a cast time/channel so the
                 -- succeeded it fires can be skipped under instant-only.
-                -- Channels/empowers fire succeeded on start.
+                -- Channels fire succeeded on start.
                 -- verify there's an actual cast time, a spell made instant
                 -- (e.g. Swiftness Regrowth) will count as instant cast
                 if event ~= "UNIT_SPELLCAST_START" then
@@ -7980,7 +7683,6 @@ BuildGCDBar = function()
     gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
     gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
     gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
-    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START", "player")
 
     -- Size (orientation swaps width/height for vertical) + position
     local ori = g.orientation or "HORIZONTAL"
@@ -9084,7 +8786,6 @@ local function OnEvent(self, event, ...)
                 castBarFrame._startTime = startTimeMS / 1000
                 castBarFrame._endTime = endTimeMS / 1000
                 castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
-                ns.ApplyCastTimer("cast")
             end
         end
     elseif event == "UNIT_SPELLCAST_STOP" then
@@ -9108,16 +8809,6 @@ local function OnEvent(self, event, ...)
         -- args: unit, castGUID, spellID, interruptedBy, castID
         local unit, _, _, _, castID = ...
         if unit == "player" then OnChannelStop(castID) end
-    elseif event == "UNIT_SPELLCAST_EMPOWER_START" then
-        local unit = ...
-        if unit == "player" then OnEmpowerStart() end
-    elseif event == "UNIT_SPELLCAST_EMPOWER_STOP" then
-        -- args: unit, castGUID, spellID, empowerComplete, interruptedBy, castID
-        local unit, _, _, _, _, castID = ...
-        if unit == "player" then OnEmpowerStop(castID) end
-    elseif event == "UNIT_SPELLCAST_EMPOWER_UPDATE" then
-        local unit = ...
-        if unit == "player" then OnEmpowerUpdate() end
     end
 end
 
@@ -9363,9 +9054,6 @@ function ERB:OnEnable()
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START", "player")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_STOP", "player")
-    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", "player")
     eventFrame:RegisterEvent("PLAYER_DEAD")
     eventFrame:RegisterEvent("PLAYER_ALIVE")
     eventFrame:RegisterUnitEvent("UNIT_POWER_POINT_CHARGE", "player")
@@ -9379,8 +9067,7 @@ function ERB:OnEnable()
         -- Three independent subscribers. Each is armed only by the state that
         -- needs it, and each disarms itself, so a cast no longer drags the
         -- health/power/secondary blocks along at frame rate.
-        if castBarFrame and (castBarFrame._casting
-           or castBarFrame._channeling or castBarFrame._empowering) then
+        if castBarFrame and (castBarFrame._casting or castBarFrame._channeling) then
             ns.StartCastTick()
         end
         if gcdBarFrame and gcdBarFrame._gcdStart then

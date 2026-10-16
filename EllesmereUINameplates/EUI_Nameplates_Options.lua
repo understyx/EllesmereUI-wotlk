@@ -2001,47 +2001,14 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return DBVal("showFriendlyPlayers") ~= false end,
               setValue=function(v)
                 DB().showFriendlyPlayers = v
-                if SetCVar then
-                    if v then
-                        -- Enabling: re-assert every friendly player CVar
-                        -- that SetupAuraCVars sets on load. SetupAuraCVars
-                        -- skips these while the toggle is off, so toggling
-                        -- back on at runtime is the only chance to restore
-                        -- them without a /reload.
-                        local p = DB()
-                        local nameOnly = (p and p.friendlyNameOnly ~= false)
-                        local classColor = (p and p.classColorFriendly ~= false)
-                        -- Explicit intent: this is one of the two places EUI is
-                        -- allowed to force friendly plates visible (login no
-                        -- longer does). Also clears any follower-dungeon capture.
-                        if ns.ForceFriendlyPlayerCVarsOn then
-                            ns.ForceFriendlyPlayerCVarsOn()
-                        end
-                        pcall(SetCVar, "UnitNameFriendlyPlayerName", 1)
-                        pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnly and 1 or 0)
-                        pcall(SetCVar, "ShowClassColorInFriendlyNameplate", classColor and 1 or 0)
-                        pcall(SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", classColor and 1 or 0)
-                    else
-                        -- Disabling: reset the three CVars EUI uniquely
-                        -- manages (name-only override + class color) back
-                        -- to Blizzard defaults so the user starts from a
-                        -- clean slate. The visibility CVars are left
-                        -- untouched so the Blizzard Nameplate panel keeps
-                        -- whatever the user already had there.
-                        if GetCVarDefault then
-                            for _, cvar in ipairs({
-                                "nameplateShowOnlyNameForFriendlyPlayerUnits",
-                                "ShowClassColorInFriendlyNameplate",
-                                "nameplateUseClassColorForFriendlyPlayerUnitNames",
-                            }) do
-                                -- GetCVarDefault throws on legacy clients when
-                                -- a Retail-only CVar is unknown, so probe each
-                                -- default without letting the options UI fail.
-                                local ok, d = pcall(GetCVarDefault, cvar)
-                                if ok and d ~= nil then pcall(SetCVar, cvar, d) end
-                            end
-                        end
+                if SetCVar and v then
+                    -- Explicit intent: this is one of the two places EUI is
+                    -- allowed to force friendly plates visible (login no
+                    -- longer does). Also clears any follower-dungeon capture.
+                    if ns.ForceFriendlyPlayerCVarsOn then
+                        ns.ForceFriendlyPlayerCVarsOn()
                     end
+                    pcall(SetCVar, "UnitNameFriendlyPlayerName", 1)
                 end
                 if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
                 -- Re-assert stacking after friendly CVar changes, since Blizzard
@@ -2054,7 +2021,6 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return DBVal("friendlyNameOnly") ~= false end,
               setValue=function(v)
                 DB().friendlyNameOnly = v
-                if SetCVar then pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", v and 1 or 0) end
                 -- Turning name-only ON means the user wants to SEE friendly
                 -- plates, so this is the second sanctioned force-visible point.
                 if v and ns.ForceFriendlyPlayerCVarsOn then
@@ -2151,10 +2117,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local function ApplyClassColored(useClass)
                 DB().classColorFriendly = useClass and true or false
-                if SetCVar then
-                    pcall(SetCVar, "ShowClassColorInFriendlyNameplate", useClass and 1 or 0)
-                    pcall(SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", useClass and 1 or 0)
-                end
                 if ns.RefreshAllSettings then ns.RefreshAllSettings() end
                 if ns.RefreshFriendlyColors then ns.RefreshFriendlyColors() end
                 refreshNameSwatches()

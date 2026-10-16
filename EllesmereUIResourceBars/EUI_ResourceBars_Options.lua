@@ -8925,7 +8925,7 @@ initFrame:SetScript("OnEvent", function(self)
             "Channel Ticks"
         )
 
-        -- Marks Row 2: Last Tick (+ color) | Colored Empowered Stages
+        -- Marks Row 2: Last Tick (+ color)
         local marksRow2
         marksRow2, h = W:DualRow(parent, y,
             { type = "toggle", text = "Last Tick",
@@ -8938,15 +8938,7 @@ initFrame:SetScript("OnEvent", function(self)
                   p.castBar.showLastTick = v; RefreshCast()
                   EllesmereUI:RefreshPage()
               end },
-            { type = "toggle", text = "Colored Empowered Stages",
-              tooltip = "Changes the cast bar color based on the current empower stage. Colors transition from red (stage 1) through yellow to green (max stage).",
-              disabled = castOff,
-              disabledTooltip = "Player Cast Bar",
-              getValue = function() local p = DB(); return p and p.castBar.coloredEmpowerStages end,
-              setValue = function(v)
-                  local p = DB(); if not p then return end
-                  p.castBar.coloredEmpowerStages = v; RefreshCast()
-              end }
+            { type = "label", text = "" }
         );  y = y - h
 
         AttachInlineSwatch(marksRow2._leftRegion,

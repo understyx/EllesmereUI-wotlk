@@ -2593,7 +2593,11 @@ local function BuildColorPickerPopup()
     popup:SetSize(BASE_W, POPUP_H)
     popup:SetPoint("CENTER")
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
-    popup:SetFrameLevel(400)
+    -- The 3.3.5 client clamps frame levels far below retail's 10000 cap. At
+    -- 400 every child collapsed onto the popup's own level and the opaque bg
+    -- drew over their regions (title, previews, hex text, alpha bar). The
+    -- strata already isolates the popup; keep the level low.
+    popup:SetFrameLevel(50)
     popup:SetClampedToScreen(true)
     popup:SetMovable(true)
     popup:EnableMouse(true)

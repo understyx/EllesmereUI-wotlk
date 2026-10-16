@@ -49,7 +49,7 @@ ns.IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
 --  Kept on `ns` (not file-scope locals) to avoid the Lua 5.1 local cap in this
 --  large file, and shared with EUI_RaidFrames_BuffManager.lua.
 -------------------------------------------------------------------------------
-ns.LVL_DISPEL_OVERLAY = 7  -- Blizzard private-aura dispel gradient: below the border (+8) and name/health text (ns.LVL_TEXT) so it renders BEHIND them (like the regular dispel overlay), but above the health bar so it stays visible. Per-slot private-aura icons stay above at LVL_AURA.
+ns.LVL_DISPEL_OVERLAY = 7  -- dispel gradient: below the border (+8) and name/health text (ns.LVL_TEXT) so it renders BEHIND them, but above the health bar so it stays visible.
 ns.LVL_RAISE  = 10   -- main border while hovered/targeted (strips at +11: above
                      -- the base strips +9 and tie-above the threat/dispel strips
                      -- +11 -- the raise container is created later, ties render
@@ -245,18 +245,6 @@ local issecretvalue         = issecretvalue
 local CreateFrame           = CreateFrame
 local RAID_CLASS_COLORS     = RAID_CLASS_COLORS
 
--- Private aura container API (12.0.5+)
-local C_UnitAuras_AddPrivateAuraAnchor    = C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor
-local C_UnitAuras_RemovePrivateAuraAnchor = C_UnitAuras and C_UnitAuras.RemovePrivateAuraAnchor
-
--- Strata bump for the per-slot private aura ICON frames (workaround for 12.0.5
--- bug where private aura icons render behind the parent frame). The dispel
--- OVERLAY container does NOT use this -- it stays on the button's own strata at
--- a below-text frame level so it renders behind the text (see RegisterDispelContainer).
-local PA_STRATA_FIX = {
-    BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG",
-}
-
 -- Absorb shield textures (must match UnitFrames exactly)
 local ABSORB_STYLE_TEX = {
     striped         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5.tga",
@@ -429,121 +417,6 @@ ns._COMBAT_CLASS_COORDS = {
 -------------------------------------------------------------------------------
 --  Default settings
 -------------------------------------------------------------------------------
--- ElvUI-WotLK's RaidDebuffs whitelist, converted from spell-name keys to spell
--- IDs because EllesmereUI's aura path matches IDs directly. Keep this on ns so
--- the options editor can record explicit false values when a user removes a
--- default entry (otherwise the default merger would restore it on reload).
--- Source: ElvUI-WotLK/ElvUI, ElvUI/Settings/Filters/UnitFrame.lua
--- Commit: 58ea24f7979740221389ce09685eb445723a6346
-ns.DEFAULT_RAID_DEBUFF_WHITELIST = {
-    -- Naxxramas
-    [54022] = true, -- Locust Swarm
-    [54098] = true, -- Poison Bolt Volley
-    [54121] = true, -- Necrotic Poison
-    [54125] = true, -- Web Spray
-    [29306] = true, -- Infected Wound
-    [54378] = true, -- Mortal Wound
-    [27825] = true, -- Shadow Mark
-    [28679] = true, -- Harvest Soul
-    [55645] = true, -- Death Plague
-    [28832] = true, -- Mark of Korth'azz
-    [28833] = true, -- Mark of Blaumeux
-    [28834] = true, -- Mark of Rivendare
-    [28835] = true, -- Mark of Zeliek
-    [57369] = true, -- Unholy Shadow
-    [29212] = true, -- Cripple
-    [29213] = true, -- Curse of the Plaguebringer
-    [29214] = true, -- Wrath of the Plaguebringer
-    [29310] = true, -- Spell Disruption
-    [29998] = true, -- Decrepit Fever
-    [55052] = true, -- Inevitable Doom
-    [55053] = true, -- Deathbloom
-    [28522] = true, -- Icebolt
-    [55665] = true, -- Life Drain
-    [55699] = true, -- Chill
-    [28410] = true, -- Chains of Kel'Thuzad
-    [27819] = true, -- Detonate Mana
-    [27808] = true, -- Frost Blast
-
-    -- Ulduar
-    [62717] = true, -- Slag Pot
-    [63024] = true, -- Gravity Bomb
-    [63018] = true, -- Light Bomb
-    [61903] = true, -- Fusion Punch
-    [61912] = true, -- Static Disruption
-    [64290] = true, -- Stone Grip
-    [62130] = true, -- Unbalancing Strike
-    [63134] = true, -- Sara's Blessing
-    [64157] = true, -- Curse of Doom
-    [64412] = true, -- Phase Punch
-
-    -- Trial of the Crusader
-    [66331] = true, -- Impale
-    [66406] = true, -- Snowbolled!
-    [66869] = true, -- Burning Bile
-    [67618] = true, -- Paralytic Toxin
-    [66689] = true, -- Arctic Breathe
-    [66237] = true, -- Incinerate Flesh
-    [66197] = true, -- Legion Flame
-    [65812] = true, -- Unstable Affliction
-    [67309] = true, -- Twin Spike
-    [66013] = true, -- Penetrating Cold
-    [67574] = true, -- Pursued by Anub'arak
-    [67847] = true, -- Expose Weakness
-
-    -- Icecrown Citadel
-    [69065] = true, -- Impaled
-    [72109] = true, -- Death and Decay
-    [71289] = true, -- Dominate Mind
-    [71237] = true, -- Curse of Torpor
-    [72293] = true, -- Mark of the Fallen Champion
-    [72442] = true, -- Boiling Blood
-    [72449] = true, -- Rune of Blood
-    [72769] = true, -- Scent of Blood
-    [71218] = true, -- Vile Gas
-    [72219] = true, -- Gastric Bloat
-    [69279] = true, -- Gas Spore
-    [71224] = true, -- Mutated Infection
-    [71278] = true, -- Choking Gas Bomb
-    [70215] = true, -- Gaseous Bloat
-    [72549] = true, -- Malleable Goo
-    [70953] = true, -- Plague Sickness
-    [72856] = true, -- Unbound Plague
-    [70447] = true, -- Volatile Ooze Adhesive
-    [72796] = true, -- Glittering Sparks
-    [71822] = true, -- Shadow Resonance
-    [72265] = true, -- Delirious Slash
-    [71473] = true, -- Essence of the Blood Queen
-    [71474] = true, -- Frenzied Bloodthirst
-    [71340] = true, -- Pact of the Darkfallen
-    [71265] = true, -- Swarming Shadows
-    [70923] = true, -- Uncontrollable Frenzy
-    [71733] = true, -- Acid Burst
-    [71738] = true, -- Corrosion
-    [70873] = true, -- Emerald Vigor
-    [71283] = true, -- Gut Spray
-    [70106] = true, -- Chilled to the Bone
-    [70126] = true, -- Frost Beacon
-    [70157] = true, -- Ice Tomb
-    [69766] = true, -- Instability
-    [69762] = true, -- Unchained Magic
-    [72762] = true, -- Defile
-    [70541] = true, -- Infest
-    [70337] = true, -- Necrotic Plague
-    [72149] = true, -- Shockwave
-    [69409] = true, -- Soul Reaper
-    [69242] = true, -- Soul Shriek
-
-    -- The Ruby Sanctum
-    [75887] = true, -- Blazing Aura
-    [74502] = true, -- Enervating Brand
-    [74367] = true, -- Cleave Armor
-    [74562] = true, -- Fiery Combustion
-    [74567] = true, -- Mark of Combustion
-    [74792] = true, -- Soul Consumption
-    [74795] = true, -- Mark of Consumption
-}
-
 local defaults = {
     profile = {
         -- Size & layout
@@ -558,7 +431,10 @@ local defaults = {
         showSelfFirst    = true,
         showSelfLast     = false,
         mergeGroups      = false,
-        visibleGroups    = { true, true, true, true, true, true, false, false },
+        visibleGroups    = { true, true, true, true, true, true, true, true },
+        -- Battlegrounds put up to 40 players in groups 1-8; ignore Show
+        -- Groups there so AV / IoC never lose groups 7 and 8.
+        showAllGroupsInBG = true,
         hideEmptyGroups  = true,     -- collapse subgroups with no members (raid only, real frames)
         excludeHiddenGroupsFromSize = true, -- hidden Show Groups don't count toward the raid-size breakpoint
 
@@ -791,7 +667,6 @@ local defaults = {
         dispelOverlay    = "fill",   -- "none", "fill", "full", "gradient", "gradient_sharp"
         dispelOverlayOpacity = 100,
         dispelShowAll             = true,   -- true = highlight any dispellable debuff; false = only player-dispellable
-        dispelOverlayPosition     = 0,      -- 0=Top, 1=Bottom, 2=Left (aura-organization-type for private aura dispel container)
         showDispelIcons       = false,
         dispelIconPosition = "right",
         dispelIconOffsetX  = 0,
@@ -818,25 +693,16 @@ local defaults = {
         -- Buff Manager (indicator-centric model)
         bmIndicators      = {},  -- { [specKey] = { indicator1, indicator2, ... } }
 
-        -- Private Auras (Blizzard-rendered boss debuff icons)
-        paSize           = 20,
-        paShowCountdown  = false,
-        paHideTooltip    = true,
-        paPosition       = "center",
-        paOffsetX        = 0,
-        paOffsetY        = 0,
-        paGrowDirection  = "RIGHT",
-        paSpacing        = 0,
-
         -- Debuffs
         debuffFilter     = "all",  -- "none", "all", "raid", "dispellable"
         hideLustDebuff   = true,
-        -- Wrath has no Blizzard raid-debuff classification. These spell-ID
-        -- sets provide an explicit, allocation-free replacement: whitelist
-        -- entries are force-shown (and prioritized), blacklist entries are
-        -- always hidden. In "raid" mode the whitelist is the complete source.
-        raidDebuffWhitelist = ns.IS_WRATH and ns.DEFAULT_RAID_DEBUFF_WHITELIST or {},
-        raidDebuffBlacklist = {},
+        -- Wrath has no Blizzard raid-debuff classification. Per-instance
+        -- tracked debuffs (EUI_RaidFrames_RaidDebuffs.lua) are force-shown and
+        -- prioritized; in "raid" mode they are the complete source. Hidden
+        -- debuffs never appear. Both hold overrides only (see that file).
+        raidDebuffs      = {},
+        raidDebuffHidden = {},
+        raidDebuffSettings = {},
         -- CC Debuff Glow: glow displayed debuff icons whose aura is crowd control
         -- (Blizzard CROWD_CONTROL aura filter). Mirrors CDM's Buff Glow control.
         -- 0 = None (default); style index 1 = Pixel Glow.
@@ -1492,7 +1358,7 @@ end
 --  Raid size tier resolution
 --  Returns width, height for the given group size based on defined overrides.
 --  Cascades toward 20 man (the base) when a tier is not defined.
---  Tiers: 10, 15, 20(base), 25, 30
+--  Tiers: 10, 15, 20(base), 25, 30, 40
 -------------------------------------------------------------------------------
 ns._GetRaidSizeFrameDimensions = function(groupSize)
     local s = db.profile
@@ -1503,6 +1369,17 @@ ns._GetRaidSizeFrameDimensions = function(groupSize)
     local _, ov = ns._RFResolveTierOverride(groupSize)
     if ov then return ov.width or baseW, ov.height or baseH end
     return baseW, baseH
+end
+
+-- Show Groups as it applies right now: every group inside a battleground
+-- (unless turned off), else the saved selection. Read-only result. On ns,
+-- not a file local, to stay under the Lua 200-local cap.
+ns._RF_ALL_GROUPS = { true, true, true, true, true, true, true, true }
+ns._RFVisibleGroups = function(s)
+    if s.showAllGroupsInBG ~= false and select(2, IsInInstance()) == "pvp" then
+        return ns._RF_ALL_GROUPS
+    end
+    return s.visibleGroups or ns._RF_ALL_GROUPS
 end
 
 -- Effective raid head count for size-breakpoint determination. By default (and
@@ -1519,8 +1396,7 @@ ns._GetEffectiveRaidSize = function()
     if s.excludeHiddenGroupsFromSize == false then return n end
     -- Subgroups only exist in a raid; party/solo has nothing to exclude.
     if not IsInRaid() then return n end
-    local vg = s.visibleGroups
-    if not vg then return n end
+    local vg = ns._RFVisibleGroups(s)
     -- Skip the roster walk entirely when no group is actually hidden.
     local anyHidden = false
     for g = 1, 8 do
@@ -1733,6 +1609,31 @@ local function GetHealthColor(unit, s)
             if cc then return cc.r, cc.g, cc.b end
         end
         return 0.5, 0.5, 0.5
+    end
+end
+
+-- Health fill color + alpha for a live button. A tracked raid debuff with
+-- "Color health bar" set (d._rdHealthColor, see ns._UpdateRDHealthColor)
+-- overrides the color mode. On ns to stay under the 200-local cap.
+ns._ApplyHealthFill = function(d, unit, s)
+    local EllesmereUI = ns.EllesmereUI  -- upvalue read, not a global read (see taint note at top)
+    local health = d.health
+    local fillTex = health:GetStatusBarTexture()
+    local rc = d._rdHealthColor
+    if rc then
+        if fillTex then fillTex:SetAlpha(1) end
+        local a = s.healthColorMode == "dark" and 1 or (s.healthBarOpacity or 100) / 100
+        health:SetStatusBarColor(rc.r, rc.g, rc.b, a)
+        return
+    end
+    local r, g, b = GetHealthColor(unit, s)
+    if s.healthColorMode == "dark" then
+        health:SetStatusBarColor(r, g, b, 1)
+        -- 4th return of GetDarkModeFill() is the Dark Mode Fill Opacity.
+        if fillTex then fillTex:SetAlpha(select(4, EllesmereUI.GetDarkModeFill())) end
+    else
+        if fillTex then fillTex:SetAlpha(1) end
+        health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)
     end
 end
 
@@ -3390,67 +3291,6 @@ local function StyleButton(button)
         d.dispelIconTextures[idx] = tex
     end
 
-    -- Private aura dispel container (Blizzard-rendered overlay for private
-    -- dispellable debuffs). Only way to show dispel info for re-privated
-    -- auras in 12.0.5+. Uses alpha gating: our custom overlay wins for
-    -- normal debuffs, container catches private ones we can't see.
-    -- Frame level sits BELOW the name/health text (LVL_DISPEL_OVERLAY = +7,
-    -- text = +12) so the gradient renders behind text. RegisterDispelContainer
-    -- re-applies this level and forces Blizzard to re-read it (no strata bump).
-    if C_UnitAuras_AddPrivateAuraAnchor then
-        local dcWrapper = CreateFrame("Frame", nil, button)
-        dcWrapper:SetAllPoints(health)
-        dcWrapper:SetFrameLevel(button:GetFrameLevel() + ns.LVL_DISPEL_OVERLAY)
-        dcWrapper:EnableMouse(false)
-        if dcWrapper.SetMouseClickEnabled then dcWrapper:SetMouseClickEnabled(false) end
-        -- Set all required attributes BEFORE AddPrivateAuraAnchor
-        dcWrapper:SetAttribute("max-buffs", 0)
-        dcWrapper:SetAttribute("max-debuffs", 0)
-        dcWrapper:SetAttribute("max-dispel-debuffs", 1)
-        dcWrapper:SetAttribute("ignore-buffs", true)
-        dcWrapper:SetAttribute("ignore-debuffs", true)
-        dcWrapper:SetAttribute("ignore-dispel-debuffs", true)
-        dcWrapper:SetAttribute("show-dispel-indicator-overlay", true)
-        dcWrapper:SetAttribute("suppress-dispel-border-icons", true)
-        -- The container is the private-aura fallback for re-privated debuffs our
-        -- own overlay cannot see; Blizzard applies the dispel filter for us via this
-        -- attribute. When the user wants every dispellable debuff we ask Blizzard for
-        -- the wider set, otherwise we restrict it to what this character can remove.
-        -- Re-applied in RegisterDispelContainer so the setting survives a reload.
-        dcWrapper:SetAttribute("dispel-indicator-option", (s.dispelShowAll ~= false) and 2 or 1)
-        dcWrapper:SetAttribute("aura-organization-type", s.dispelOverlayPosition or 0)   -- 0=Top, 1=Bottom, 2=Left
-        dcWrapper:SetAttribute("always-hide-duration", true)
-        dcWrapper:SetAttribute("set-aura-size-to-icon-size", true)
-        dcWrapper:SetAttribute("icon-size", 12)
-        dcWrapper:SetAttribute("power-bar-used-height", 0)
-        dcWrapper:SetAttribute("group-type", 5)  -- updated per-unit in RebuildUnitMap
-        -- Start hidden via alpha (not Show/Hide -- container eventFrame
-        -- unregisters from UNIT_AURA on OnHide, so we keep it Shown and
-        -- gate visibility with alpha)
-        dcWrapper:SetAlpha(0)
-        dcWrapper:Show()
-        d.dispelContainer = dcWrapper
-        d.dispelContainerAnchorID = nil  -- set when unit is assigned
-    end
-
-    -- Per-slot private aura icon frames for boss debuffs (isContainer=false).
-    -- Created lazily here, anchors registered when units are assigned.
-    if C_UnitAuras_AddPrivateAuraAnchor then
-        local paCap = s.debuffCap or 3
-        local paSz = s.paSize or 18
-        d.privateAuraFrames = {}
-        d.privateAuraAnchorIDs = {}
-        for i = 1, paCap do
-            local paFrame = CreateFrame("Frame", nil, button)
-            paFrame:SetFrameLevel(button:GetFrameLevel() + ns.LVL_AURA)
-            paFrame:SetSize(paSz, paSz)
-            paFrame:EnableMouse(false)
-            if paFrame.SetMouseClickEnabled then paFrame:SetMouseClickEnabled(false) end
-            paFrame:Hide()
-            d.privateAuraFrames[i] = paFrame
-        end
-    end
-
     local function AnchorDispelIcon()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
         local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
@@ -3748,10 +3588,6 @@ local function StyleButton(button)
     -- Debuff icons (pre-created, anchored dynamically)
     d.debuffIcons = {}
     local cap = s.debuffCap or 3
-    -- 12.1: engine containers own debuff rendering; the legacy pool would
-    -- be dead frames built inside the login screen (every consumer
-    -- iterates this table, so leaving it empty is safe).
-    if ns.RFC_OwnsDebuffs then cap = 0 end
     for i = 1, cap do
         local icon = CreateFrame("Frame", nil, button)
         icon:SetFrameLevel(button:GetFrameLevel() + ns.LVL_AURA)
@@ -4316,16 +4152,10 @@ local function StyleButton(button)
         GameTooltip:Hide()
     end)
 
-    -- Private auras: re-anchor whenever the secure header reassigns this button's
-    -- unit. Blizzard's recent change drops the private-aura anchors on unit
-    -- reassignment (member join/leave, sort, zone-in) even when the unit token
-    -- string is unchanged, so the roster-event RebuildUnitMap path -- which
-    -- re-registers only when the token CHANGES -- can leave the anchor dropped
-    -- and the auras showing inconsistently. OnAttributeChanged is the reliable
-    -- per-button signal that fires on exactly those reassignments, so we
-    -- re-register from it. HookScript (never SetScript) preserves the secure
-    -- header's own attribute handlers; the helpers are referenced through ns
-    -- because they are defined later in the file.
+    -- Repaint whenever the secure header reassigns this button's unit
+    -- (member join/leave, sort, zone-in). HookScript (never SetScript)
+    -- preserves the secure header's own attribute handlers; the helpers are
+    -- referenced through ns because they are defined later in the file.
     button:HookScript("OnAttributeChanged", function(self, name)
         if name ~= "unit" then return end
         local u = self:GetAttribute("unit")
@@ -4340,29 +4170,13 @@ local function StyleButton(button)
             local d = GetFFD(self)
             -- Extra Frames duplicates never enter the real routing maps (one
             -- button per unit); XF_Apply owns ns._xfUnitToButton instead. The
-            -- repaint/range/private-aura work below applies to them 1:1.
+            -- repaint/range work below applies to them 1:1.
             if d._isExtra then
                 -- map owned by XF_Apply
             elseif d._isParty then ns._partyUnitToButton[u] = self
             else unitToButton[u] = self end
-            -- Containers first: legacy refresh below still has restriction-era
-            -- failure modes, and an error there must not starve the container
-            -- of its unit assignment.
-            if ns.RFC_OnUnitAssigned then ns.RFC_OnUnitAssigned(self, d, u) end
             if ns._RefreshAssignedButton then ns._RefreshAssignedButton(self, u) end
             if ns._UpdateButtonRange then ns._UpdateButtonRange(u, self) end
-            -- Only re-register private aura anchors when the unit actually
-            -- changed (same guard as RebuildUnitMap). OnAttributeChanged fires
-            -- even when the header re-sets the SAME unit, which it does on
-            -- every roster re-process -- an unguarded re-register tears down
-            -- and recreates Blizzard's private aura anchors each time, making
-            -- the Blizzard-rendered icons visibly blink.
-            if C_UnitAuras_AddPrivateAuraAnchor and ns._RegisterPrivateAuras
-                and (d.dispelContainerUnit ~= u or d.privateAuraUnit ~= u) then
-                ns._RegisterPrivateAuras(self, u)
-            end
-        elseif ns._UnregisterPrivateAuras then
-            ns._UnregisterPrivateAuras(self)
         end
     end)
 
@@ -4417,17 +4231,11 @@ local function StyleButton(button)
     -- spike. Options previews are unaffected: they build their OWN pools
     -- on dedicated preview frames (f._bm*), not these. Every d.bm* reader
     -- is nil-guarded.
-    if ns.BM_CreateIndicators and not ns.RFC_OwnsBM then
+    if ns.BM_CreateIndicators then
         ns.BM_CreateIndicators(button, health, d, PP)
         if ns.BM_AnchorIndicators then
             ns.BM_AnchorIndicators(d, health, s)
         end
-    end
-
-    -- 12.1 aura containers (buttons are always created out of combat, so
-    -- container creation here is safe by construction)
-    if ns.RFC_SetupButton then
-        ns.RFC_SetupButton(button, health, d)
     end
 end
 
@@ -4577,16 +4385,7 @@ local function UpdateButton(button)
             health:SetValue(pct)
         end
 
-        local r, g, b = GetHealthColor(unit, s)
-        local fillTex = health:GetStatusBarTexture()
-        if s.healthColorMode == "dark" then
-            health:SetStatusBarColor(r, g, b, 1)
-            -- 4th return of GetDarkModeFill() is the Dark Mode Fill Opacity.
-            if fillTex then fillTex:SetAlpha(select(4, EllesmereUI.GetDarkModeFill())) end
-        else
-            if fillTex then fillTex:SetAlpha(1) end
-            health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)
-        end
+        ns._ApplyHealthFill(d, unit, s)
     end
 
     -- Background (+ dead/offline status tint). Centralized in ns._ApplyHealthBg
@@ -4881,24 +4680,23 @@ local SATED_DEBUFFS = {
 local function IsDisplayDebuff(unit, auraData, s)
     local iid = auraData.auraInstanceID
     if not iid then return false end
-    -- Permanently hidden debuffs -- never shown, no toggle. Inlined (no file-scope
-    -- table) to stay under the 200-local cap. Secret-safe: skip when spellId is
-    -- secret. 1254550 = Arcane Empowerment, 308312 = Time Trial Practice.
-    local hsid = auraData.spellId
-    if hsid and not issecretvalue(hsid) and (hsid == 1254550 or hsid == 308312) then return false end
     s = s or (db and db.profile)
     local mode = s and s.debuffFilter or "all"
     if mode == "none" then return false end
 
-    -- User blacklist is absolute. The whitelist overrides the selected base
-    -- filter and is returned as a second value so full scans can keep important
-    -- raid mechanics ahead of ordinary debuffs when the icon cap is reached.
+    -- Hidden debuffs are absolute. Tracked raid debuffs (current instance +
+    -- Everywhere) override the selected base filter and are returned as a
+    -- second value so full scans can keep important raid mechanics ahead of
+    -- ordinary debuffs when the icon cap is reached. Both sets match by ID or
+    -- name (one name covers every difficulty's spell ID); a nil set means
+    -- nothing applies here and the lookup is skipped.
     local sid = hsid and not issecretvalue(hsid) and hsid or nil
     if sid and s then
-        local blacklist = s.raidDebuffBlacklist
-        if type(blacklist) == "table" and blacklist[sid] then return false end
-        local whitelist = s.raidDebuffWhitelist
-        if type(whitelist) == "table" and whitelist[sid] then return true, true end
+        local aname = auraData.name
+        local hidden = ns.RD_GetHiddenSet(s.raidDebuffHidden)
+        if hidden and (hidden[sid] or (aname and hidden[aname])) then return false end
+        local tracked = ns.RD_GetActiveSet(s.raidDebuffs)
+        if tracked and (tracked[sid] or (aname and tracked[aname])) then return true, true end
     end
 
     -- Sated blacklist (secret-safe: skip check if spellId is secret)
@@ -4909,15 +4707,11 @@ local function IsDisplayDebuff(unit, auraData, s)
     end
 
     if mode == "all" then return true end
-    -- There is no RAID aura-filter token in 3.3.5. On Wrath, "Raid Debuffs
-    -- Only" is therefore the explicit whitelist above instead of the previous
-    -- permissive fallback that accidentally displayed every harmful aura.
-    if mode == "raid" and ns.IS_WRATH then return false end
+    -- There is no RAID aura-filter token in 3.3.5, so "Raid Debuffs Only" is
+    -- exactly the tracked raid debuffs above.
+    if mode == "raid" then return false end
     if not C_UnitAuras_IsAuraFilteredOutByInstanceID then return true end
-    if mode == "raid" then
-        return not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HARMFUL|RAID")
-            or not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HARMFUL|RAID_IN_COMBAT")
-    elseif mode == "dispellable" then
+    if mode == "dispellable" then
         return not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HARMFUL|RAID_PLAYER_DISPELLABLE")
     end
     return true
@@ -4935,10 +4729,8 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
     local _z = s.debuffIconZoom or 0.08
     icon._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
 
-    -- A typed (dispellable) debuff carries a non-nil dispelName even when the
-    -- name itself is a secret value (other players' debuffs inside instances);
-    -- physical debuffs have a nil dispelName. So this nil check is the
-    -- secret-safe "is it dispellable" test (used by the border AND clock border).
+    -- Typed (dispellable) debuffs carry a dispelName; physical debuffs have nil
+    -- (used by the border AND clock border).
     local dispelName = auraData.dispelName
     local isDispellable = dispelName ~= nil
     icon._isDispellable = isDispellable   -- consumed by AnchorDebuffs for the split layout
@@ -4946,47 +4738,16 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
     -- animated clock border (erases clockwise) and drop the face pie swipe.
     local wantClockBorder = isDispellable and s.dispelClockBorder == true
 
-    -- Resolve the dispel-type color once (secret-safe); shared by the static
+    -- Resolve the dispel-type color once; shared by the static
     -- border and the animated clock border. dcDark is the same hue at 50%
     -- brightness for the clock border's already-elapsed arc.
     local dc, dcDark
     if dispelName ~= nil then
-        if not issecretvalue(dispelName) then
-            -- Clean string: direct per-type color lookup.
-            dc = GetDispelColor(dispelName, s)
-            if dc then
-                local sd = ns._dispelScratchDark
-                sd.r, sd.g, sd.b = dc.r * 0.5, dc.g * 0.5, dc.b * 0.5
-                dcDark = sd
-            end
-        else
-            -- Secret dispel type: resolve through Blizzard's color curves so the
-            -- user's custom dispel color still applies without ever reading the
-            -- secret (same route as the health-bar dispel border). A parallel
-            -- pre-darkened curve yields the 50%-blacker shade, also secret-safe.
-            if not ns._dispelCurve then ns._RebuildDispelCurves() end
-            local party = (s == ns._scaledPartyProxy)
-            local curve     = party and ns._dispelCurveParty     or ns._dispelCurve
-            local curveDark = party and ns._dispelCurveDarkParty or ns._dispelCurveDark
-            local iid = auraData.auraInstanceID
-            if iid and C_UnitAuras.GetAuraDispelTypeColor then
-                if curve then
-                    local col = C_UnitAuras.GetAuraDispelTypeColor(unit, iid, curve)
-                    if col then
-                        local sc = ns._dispelScratch
-                        sc.r, sc.g, sc.b = col:GetRGB()
-                        dc = sc
-                    end
-                end
-                if curveDark then
-                    local cold = C_UnitAuras.GetAuraDispelTypeColor(unit, iid, curveDark)
-                    if cold then
-                        local sd = ns._dispelScratchDark
-                        sd.r, sd.g, sd.b = cold:GetRGB()
-                        dcDark = sd
-                    end
-                end
-            end
+        dc = GetDispelColor(dispelName, s)
+        if dc then
+            local sd = ns._dispelScratchDark
+            sd.r, sd.g, sd.b = dc.r * 0.5, dc.g * 0.5, dc.b * 0.5
+            dcDark = sd
         end
     end
 
@@ -5332,11 +5093,33 @@ local function FullScanDebuffs(d, unit, s)
     end
 end
 
+-- Health-bar tint from the first displayed tracked raid debuff whose picker
+-- settings ask for one (raidDebuffSettings, EUI_RaidFrames_RaidDebuffs.lua).
+-- Repaints the fill only when the resolved color changes.
+ns._UpdateRDHealthColor = function(d, s, unit)
+    local col
+    local colors = d.debuffCache and ns.RD_GetHealthColorSet(s.raidDebuffSettings)
+    local tracked = colors and ns.RD_GetActiveSet(s.raidDebuffs)
+    if tracked then
+        for _, aura in ipairs(d.debuffCache) do
+            local sid, name = aura.spellId, aura.name
+            local c = (sid and colors[sid]) or (name and colors[name])
+            if c and ((sid and tracked[sid]) or (name and tracked[name])) then
+                col = c
+                break
+            end
+        end
+    end
+    if col == d._rdHealthColor then return end
+    d._rdHealthColor = col
+    if d.health then
+        ns._ApplyHealthFill(d, unit, s)
+        -- Dead / offline keep their status tint.
+        ns._ApplyHealthBg(d, d.health, s, unit)
+    end
+end
+
 local function UpdateDebuffs(button, unit, updateInfo)
-    -- 12.1: debuff rendering is container-owned (EUI_RaidFrames_AuraContainers).
-    -- Single gate covering every call site (dispatch, drain, full-update
-    -- loops, party, extra-frame tracker).
-    if ns.RFC_OwnsDebuffs then return end
     local d = GetFFD(button)
     if not d.debuffIcons then return end
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
@@ -5344,6 +5127,7 @@ local function UpdateDebuffs(button, unit, updateInfo)
     if s.debuffFilter == "none" then
         for _, icon in ipairs(d.debuffIcons) do icon:Hide(); ns.StopDebuffCCGlow(icon) end
         if d.debuffCache then wipe(d.debuffCache) end
+        ns._UpdateRDHealthColor(d, s, unit)
         return
     end
 
@@ -5418,6 +5202,7 @@ local function UpdateDebuffs(button, unit, updateInfo)
         d.debuffInstanceMap = imap
     end
 
+    ns._UpdateRDHealthColor(d, s, unit)
     RenderDebuffs(d, s, unit)
 end
 
@@ -5737,318 +5522,6 @@ local function ApplyDispelIcon(d, unit, iid)
     icon:Show()
 end
 
--------------------------------------------------------------------------------
---  Private aura container management (12.0.5+)
---  Dispel container: registers an isContainer=true anchor on a wrapper frame
---  so Blizzard renders its native dispel gradient for private auras.
---  Per-slot private auras: registers isContainer=false anchors for individual
---  boss debuff icon display.
--------------------------------------------------------------------------------
-
--- Register the dispel container anchor for a button's unit
-local function RegisterDispelContainer(button, unit)
-    if not C_UnitAuras_AddPrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    local wrapper = d.dispelContainer
-    if not wrapper then return end
-
-    -- Remove old anchor if unit changed
-    if d.dispelContainerAnchorID then
-        C_UnitAuras_RemovePrivateAuraAnchor(d.dispelContainerAnchorID)
-        d.dispelContainerAnchorID = nil
-    end
-
-    if not unit or not UnitExists(unit) then return end
-
-    -- Set group type from unit token
-    local groupType = unit:find("^party") and 4 or 5
-    wrapper:SetAttribute("group-type", groupType)
-    -- Re-apply dispel mode (follows dispelShowAll; runs on reload so the toggle takes effect)
-    local s = (groupType == 4) and ns._scaledPartyProxy or ns._scaledProfile
-    wrapper:SetAttribute("dispel-indicator-option", (s and s.dispelShowAll ~= false) and 2 or 1)
-    wrapper:SetAttribute("aura-organization-type", s and s.dispelOverlayPosition or 0)   -- 0=Top, 1=Bottom, 2=Left
-    wrapper:SetAttribute("update-settings", true)
-
-    -- Pin to the button's OWN strata + a below-text frame level (NO strata bump)
-    -- so the overlay renders BEHIND the name/health text. Re-applied here (not
-    -- only at creation) so it survives any button-level change before register.
-    wrapper:SetFrameStrata(button:GetFrameStrata())
-    wrapper:SetFrameLevel(button:GetFrameLevel() + ns.LVL_DISPEL_OVERLAY)
-
-    local ok, anchorID = pcall(function()
-        return C_UnitAuras_AddPrivateAuraAnchor({
-            unitToken     = unit,
-            parent        = wrapper,
-            isContainer   = true,
-            auraIndex     = 1,
-            -- 12.1 renamed this anchor key; retail keeps the old spelling.
-            [EllesmereUI.IS_121 and "showCooldownFrame" or "showCountdownFrame"] = false,
-            showCountdownNumbers = false,
-        })
-    end)
-    if ok and anchorID then
-        d.dispelContainerAnchorID = anchorID
-        -- AddPrivateAuraAnchor caches the parent's frame level on first register
-        -- and ignores later changes; toggling to 0 and back forces Blizzard to
-        -- re-read it on the next paint so our below-text level actually applies
-        -- (without this the overlay can render behind the whole frame).
-        local lvl = wrapper:GetFrameLevel()
-        wrapper:SetFrameLevel(0)
-        wrapper:SetFrameLevel(lvl)
-    end
-    d.dispelContainerUnit = unit
-end
-
--- Remove the dispel container anchor (cleanup)
-local function UnregisterDispelContainer(button)
-    if not C_UnitAuras_RemovePrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    if d.dispelContainerAnchorID then
-        C_UnitAuras_RemovePrivateAuraAnchor(d.dispelContainerAnchorID)
-        d.dispelContainerAnchorID = nil
-    end
-    d.dispelContainerUnit = nil
-    if d.dispelContainer then
-        d.dispelContainer:SetAlpha(0)
-    end
-end
-
--- Hybrid visibility gate: suppress Blizzard container when our overlay is
--- handling a normal (non-private) dispellable debuff; reveal container when
--- our overlay sees nothing (private aura only Blizzard can detect).
--- Uses alpha, never Show/Hide, so the container keeps receiving aura updates while suppressed.
-local function UpdateDispelContainerVisibility(button)
-    if not C_UnitAuras_AddPrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    local wrapper = d.dispelContainer
-    if not wrapper then return end
-
-    -- Our custom visuals are active = we handle this debuff, suppress container.
-    -- Must include the dispel-type ICON: with an icon-only setup (border 0,
-    -- overlay "none") the border/overlay checks alone read false and Blizzard's
-    -- container un-suppresses, drawing a second dispel indicator next to ours.
-    local ourShowing = (d.dispelFrame and d.dispelFrame:IsShown())
-        or (d.dispelOLTex and d.dispelOLTex:IsShown())
-        or (d.dispelIcon and d.dispelIcon:IsShown())
-    if ourShowing then
-        wrapper:SetAlpha(0)
-        return
-    end
-
-    -- Our overlay not showing = might be a private aura. Reveal on the next
-    -- frame so the container's own pending refresh settles first, preventing a
-    -- brief stale-overlay flash; re-check below since our overlay may reclaim
-    -- the slot within that frame.
-    C_Timer.After(0, function()
-        if not wrapper then return end
-        local d2 = GetFFD(button)
-        if not d2 then return end
-        local stillOurs = (d2.dispelFrame and d2.dispelFrame:IsShown())
-            or (d2.dispelOLTex and d2.dispelOLTex:IsShown())
-            or (d2.dispelIcon and d2.dispelIcon:IsShown())
-        if not stillOurs then
-            wrapper:SetAlpha(1)
-        end
-    end)
-end
-
--- Register per-slot private aura anchors for boss debuff icons
-local function RegisterPrivateAuraSlots(button, unit)
-    if not C_UnitAuras_AddPrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    if not d.privateAuraFrames then return end
-    if not unit or not UnitExists(unit) then return end
-
-    -- Remove old anchors
-    if d.privateAuraAnchorIDs then
-        for i, aid in ipairs(d.privateAuraAnchorIDs) do
-            C_UnitAuras_RemovePrivateAuraAnchor(aid)
-        end
-        wipe(d.privateAuraAnchorIDs)
-    end
-
-    local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-    local health = ns.RF_AnchorHost(d.health, s)
-    if not health then return end
-    local sz = s.paSize or 18
-    local showCD = s.paShowCountdown ~= false
-
-    -- Independent position/growth for private auras
-    local pos = s.paPosition or "bottomleft"
-    -- "None": private auras disabled. Old anchors were already removed above; hide
-    -- the slot frames and skip registration so Blizzard's secure layer draws
-    -- nothing for this unit. The dispel container is independent and unaffected.
-    if pos == "none" then
-        if d.privateAuraFrames then
-            for _, f in ipairs(d.privateAuraFrames) do f:Hide() end
-        end
-        d.privateAuraUnit = unit
-        return
-    end
-    local ox = s.paOffsetX or 0
-    local oy = s.paOffsetY or 0
-    local grow = s.paGrowDirection or "RIGHT"
-    local spc = PixelSnap(s.paSpacing or 1)
-
-    -- Hide Tooltips: Blizzard draws each private aura icon at iconInfo size
-    -- centered on the slot frame, but the icon's HOVER area comes from the
-    -- slot frame's own rect (the C-side icon ignores Lua mouse flags set on
-    -- the parent). Collapsing each slot to a sub-pixel point leaves the icon
-    -- rendering at full size with no surface left to hover, so the tooltip
-    -- can never trigger. The offset shift below moves the point to where the
-    -- full-size slot's CENTER used to sit, and the chain spacing regains the
-    -- icon width the collapsed frames no longer contribute -- the rendered
-    -- icons land pixel-identical to normal mode.
-    local slotSz = sz
-    if s.paHideTooltip then
-        slotSz = 0.001
-        local half = sz / 2
-        if pos == "topleft" or pos == "left" or pos == "bottomleft" then
-            ox = ox + half
-        elseif pos == "topright" or pos == "right" or pos == "bottomright" then
-            ox = ox - half
-        end
-        if pos == "topleft" or pos == "top" or pos == "topright" then
-            oy = oy - half
-        elseif pos == "bottomleft" or pos == "bottom" or pos == "bottomright" then
-            oy = oy + half
-        end
-        spc = spc + sz
-    end
-
-    local parentStrata = button:GetFrameStrata()
-    local fixedStrata = PA_STRATA_FIX[parentStrata] or "DIALOG"
-
-    -- Countdown text scale-trick: Blizzard draws the timer/stack text as a child
-    -- of the slot frame, so its on-screen size follows the frame's SCALE, not the
-    -- iconInfo pixel size. With the frame left at scale 1 and only iconInfo driving
-    -- the icon size, the text rendered at a fixed size regardless of icon size --
-    -- huge on small icons, tiny on big ones (the "all over the place" sizing).
-    -- Scaling the frame by (size / 32) makes the text track the icon size; the icon
-    -- dimension is compensated back to a constant 32 local units so the rendered
-    -- icon stays exactly paSize pixels. SetPoint offsets and spacing live in the
-    -- frame's local (pre-scale) space, so they are divided by the same factor.
-    local ts = sz / 32
-    if ts <= 0 then ts = 1 end
-    local comp = 32               -- icon size in local units; renders at comp*ts = paSize px
-    local oxL, oyL, spcL = ox / ts, oy / ts, spc / ts
-
-    for i, paFrame in ipairs(d.privateAuraFrames) do
-        paFrame:SetScale(ts)
-        paFrame:SetSize(slotSz / ts, slotSz / ts)
-        paFrame:SetFrameStrata(fixedStrata)
-        paFrame:SetFrameLevel(button:GetFrameLevel() + ns.LVL_AURA)
-        paFrame:ClearAllPoints()
-
-        if i == 1 then
-            -- Private auras anchor flush to the health bar edge (no 1px inset),
-            -- matching the debuff/role icon displays.
-            if pos == "topleft" then
-                paFrame:SetPoint("TOPLEFT", health, "TOPLEFT", oxL, oyL)
-            elseif pos == "top" then
-                paFrame:SetPoint("TOP", health, "TOP", oxL, oyL)
-            elseif pos == "topright" then
-                paFrame:SetPoint("TOPRIGHT", health, "TOPRIGHT", oxL, oyL)
-            elseif pos == "left" then
-                paFrame:SetPoint("LEFT", health, "LEFT", oxL, oyL)
-            elseif pos == "center" then
-                paFrame:SetPoint("CENTER", health, "CENTER", oxL, oyL)
-            elseif pos == "right" then
-                paFrame:SetPoint("RIGHT", health, "RIGHT", oxL, oyL)
-            elseif pos == "bottomright" then
-                paFrame:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", oxL, oyL)
-            elseif pos == "bottom" then
-                paFrame:SetPoint("BOTTOM", health, "BOTTOM", oxL, oyL)
-            else
-                paFrame:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", oxL, oyL)
-            end
-        else
-            local prev = d.privateAuraFrames[i - 1]
-            if grow == "RIGHT" then
-                paFrame:SetPoint("LEFT", prev, "RIGHT", spcL, 0)
-            elseif grow == "LEFT" then
-                paFrame:SetPoint("RIGHT", prev, "LEFT", -spcL, 0)
-            elseif grow == "UP" then
-                paFrame:SetPoint("BOTTOM", prev, "TOP", 0, spcL)
-            elseif grow == "DOWN" then
-                paFrame:SetPoint("TOP", prev, "BOTTOM", 0, -spcL)
-            end
-        end
-
-        paFrame:Show()
-
-        -- Register per-slot anchor
-        local iconInfoTbl = {
-            iconWidth  = comp,
-            iconHeight = comp,
-            iconAnchor = {
-                point         = "CENTER",
-                relativeTo    = paFrame,
-                relativePoint = "CENTER",
-                offsetX       = 0,
-                offsetY       = 0,
-            },
-        }
-        -- Scale Blizzard's native border 1:1 to OUR icon size. The border art is
-        -- authored for a 32px icon, so iconSize/32*2 makes it fit any size. Letting
-        -- Blizzard draw the border also means empty slots show nothing. the border
-        -- only appears when Blizzard actually renders an icon there. Divide by the
-        -- frame scale (ts) so the visible border stays identical to the pre-scale-
-        -- trick size -- otherwise the frame scaling would enlarge it on top.
-        iconInfoTbl.borderScale = (sz / 32 * 2) / ts
-        local ok, anchorID = pcall(function()
-            return C_UnitAuras_AddPrivateAuraAnchor({
-                unitToken     = unit,
-                auraIndex     = i,
-                parent        = paFrame,
-                isContainer   = false,
-                -- 12.1 renamed this anchor key; retail keeps the old spelling.
-                [EllesmereUI.IS_121 and "showCooldownFrame" or "showCountdownFrame"] = true,
-                showCountdownNumbers = showCD,
-                iconInfo = iconInfoTbl,
-            })
-        end)
-        if ok and anchorID then
-            d.privateAuraAnchorIDs[i] = anchorID
-        end
-    end
-    d.privateAuraUnit = unit
-end
-
--- Remove per-slot private aura anchors
-local function UnregisterPrivateAuraSlots(button)
-    if not C_UnitAuras_RemovePrivateAuraAnchor then return end
-    local d = GetFFD(button)
-    if d.privateAuraAnchorIDs then
-        for _, aid in ipairs(d.privateAuraAnchorIDs) do
-            C_UnitAuras_RemovePrivateAuraAnchor(aid)
-        end
-        wipe(d.privateAuraAnchorIDs)
-    end
-    if d.privateAuraFrames then
-        for _, f in ipairs(d.privateAuraFrames) do f:Hide() end
-    end
-    d.privateAuraUnit = nil
-end
-
--- Register all private aura anchors for a button (both container + per-slot)
-local function RegisterPrivateAuras(button, unit)
-    RegisterDispelContainer(button, unit)
-    RegisterPrivateAuraSlots(button, unit)
-end
-
--- Remove all private aura anchors from a button
-local function UnregisterPrivateAuras(button)
-    UnregisterDispelContainer(button)
-    UnregisterPrivateAuraSlots(button)
-end
-
--- Exposed for the per-button OnAttributeChanged watch installed in StyleButton,
--- which is defined earlier in the file than these locals and so cannot capture
--- them as upvalues. The watch reads them through ns at event time.
-ns._RegisterPrivateAuras = RegisterPrivateAuras
-ns._UnregisterPrivateAuras = UnregisterPrivateAuras
-
 -- "By Me" dispel selection no longer uses a per-aura predicate: the scan in
 -- UpdateDispelBorder queries auras with the "HARMFUL|RAID_PLAYER_DISPELLABLE"
 -- filter directly, so Blizzard returns only player-dispellable auras and we
@@ -6136,9 +5609,6 @@ function ns._GetDispelIconCurve(targetIdx)
 end
 
 local function UpdateDispelBorder(button, unit, updateInfo)
-    -- 12.1: dispel display is container-slot-owned
-    -- (EUI_RaidFrames_AuraContainers). Single gate for every call site.
-    if ns.RFC_OwnsDispel then return end
     local d = GetFFD(button)
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
     local borderSize  = s.dispelBorderSize or 2
@@ -6204,7 +5674,6 @@ local function UpdateDispelBorder(button, unit, updateInfo)
         elseif d.dispelIcon then
             d.dispelIcon:Hide()
         end
-        UpdateDispelContainerVisibility(button)
     end
 
     -- Scan HARMFUL auras for the dispel highlight/icon.
@@ -6267,8 +5736,6 @@ local function UpdateDispelBorder(button, unit, updateInfo)
 
     d.dispelInstanceID = nil
     HideDispelVisuals(d)
-    -- Our overlay found nothing -- let container show (private aura fallback)
-    UpdateDispelContainerVisibility(button)
 end
 
 -------------------------------------------------------------------------------
@@ -6353,21 +5820,11 @@ local function RebuildUnitMap()
                 local d = GetFFD(btn)
                 -- Extra Frames duplicates stay out of the routing map (one
                 -- button per unit; the real frame owns the slot). Everything
-                -- else here -- class cache, private auras -- applies to them.
+                -- else here -- class cache -- applies to them.
                 if not d._isExtra then unitToButton[u] = btn end
                 -- Cache class token for power border (avoids UnitClass in hot path)
                 local _, classToken = UnitClass(u)
                 d.classToken = classToken
-                -- Re-register private aura anchors if unit token changed
-                if d.dispelContainerUnit ~= u or d.privateAuraUnit ~= u then
-                    RegisterPrivateAuras(btn, u)
-                end
-            end
-        else
-            -- Button not visible -- clean up any stale private aura anchors
-            local d = GetFFD(btn)
-            if d.dispelContainerAnchorID or (d.privateAuraAnchorIDs and #d.privateAuraAnchorIDs > 0) then
-                UnregisterPrivateAuras(btn)
             end
         end
     end
@@ -6394,6 +5851,19 @@ local function UpdateAllButtons()
         end
     end
     ns.ProfEnd("UpdateAllButtons", t0)
+end
+
+-- Full debuff rescan of every visible raid and party button. Used when the
+-- tracked raid debuff set changes (zoning into / out of an instance).
+ns._RefreshAllDebuffs = function()
+    for _, btn in ipairs(allButtons) do
+        local u = btn:GetAttribute("unit")
+        if u and btn:IsVisible() then UpdateDebuffs(btn, u) end
+    end
+    for _, btn in ipairs(ns._partyAllButtons or {}) do
+        local u = btn:GetAttribute("unit")
+        if u and btn:IsVisible() then UpdateDebuffs(btn, u) end
+    end
 end
 
 -- Full per-button refresh for a freshly (re)assigned unit. Mirrors the
@@ -6611,16 +6081,7 @@ ns._UpdateButtonHealth = function(button)
         else
             health:SetValue(pct)
         end
-        local r, g, b = GetHealthColor(unit, s)
-        local fillTex = health:GetStatusBarTexture()
-        if s.healthColorMode == "dark" then
-            health:SetStatusBarColor(r, g, b, 1)
-            -- 4th return of GetDarkModeFill() is the Dark Mode Fill Opacity.
-            if fillTex then fillTex:SetAlpha(select(4, EllesmereUI.GetDarkModeFill())) end
-        else
-            if fillTex then fillTex:SetAlpha(1) end
-            health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)
-        end
+        ns._ApplyHealthFill(d, unit, s)
     end
 
     -- Absorb (clip frames anchor to fill texture, need visual update)
@@ -7037,14 +6498,6 @@ FB.EnsureBuilt = function()
         -- visible-count drives the range ticker lifecycle.
         b:HookScript("OnShow", function(self)
             FB.visCount = (FB.visCount or 0) + 1
-            -- Containers first: the legacy refresh below still has
-            -- restriction-era failure modes, and an error there must not
-            -- starve the container of its unit assignment.
-            if ns.RFC_OnUnitAssigned then
-                local d = GetFFD(self)
-                local unit = FB.UnitOf(self)
-                if d and unit then ns.RFC_OnUnitAssigned(self, d, unit) end
-            end
             FB.Update(self)
             FB.ApplyRange(self)
             FB.UpdateRangeTicker()
@@ -7069,12 +6522,6 @@ FB.EnsureBuilt = function()
         -- without an OnShow on already-visible buttons).
         b:HookScript("OnAttributeChanged", function(self, name)
             if name == "unit" and self:IsVisible() then
-                -- Containers first (same rationale as the OnShow hook).
-                if ns.RFC_OnUnitAssigned then
-                    local d = GetFFD(self)
-                    local unit = FB.UnitOf(self)
-                    if d and unit then ns.RFC_OnUnitAssigned(self, d, unit) end
-                end
                 FB.Update(self)
                 FB.ApplyRange(self)
             end
@@ -7102,11 +6549,6 @@ FB.EnsureBuilt = function()
         FB.trackers[i] = t
 
         FB.buttons[i] = b
-
-        if ns.RFC_SetupButton then
-            local d = GetFFD(b)
-            ns.RFC_SetupButton(b, b._health, d)
-        end
     end
 
     -- Slot controller: collapses friendly bosses into the FIRST slots. Button
@@ -7278,7 +6720,7 @@ FB.Anchor = function(owner)
             -- in Show Groups AND currently has players in it. When no group
             -- is populated (not in a raid yet), fall back to the Show Groups
             -- bounds alone so the position is still sane.
-            local vg = s.visibleGroups or {}
+            local vg = ns._RFVisibleGroups(s)
             local occupied = {}
             for ri = 1, GetNumGroupMembers() or 0 do
                 local _, _, sub = GetRaidRosterInfo(ri)
@@ -7550,7 +6992,7 @@ end -- FB scope block
 --  growth-corner pin (XF.GrowInfo / XF.FreeAnchor). Each duplicate is built
 --  through the SAME StyleButton
 --  pipeline as the real header children -- power bar, absorbs, auras,
---  defensives, dispel visuals, private auras, BM indicators, role/leader/
+--  defensives, dispel visuals, BM indicators, role/leader/
 --  marker icons, click-cast, ping -- and joins allButtons so every bulk
 --  restyle/update pass (ReloadFrames, UpdateAllButtons, ready checks, the
 --  in-combat roster repaint, BM spec rescans) covers it automatically.
@@ -7850,11 +7292,6 @@ XF.Layout = function()
             if d.AnchorDefensives then d.AnchorDefensives() end
         end
         if d.AnchorDispelIcon then d.AnchorDispelIcon() end
-        if d.privateAuraFrames then
-            for _, paFrame in ipairs(d.privateAuraFrames) do
-                paFrame:SetSize(xs.debuffSize or 18, xs.debuffSize or 18)
-            end
-        end
         if d.bmIconPool and d.health and ns.BM_AnchorIndicators then
             ns.BM_AnchorIndicators(d, ns.RF_AnchorHost(d.health, xs), xs)
         end
@@ -7992,8 +7429,8 @@ end
 -- Called from OnEnable, the options widgets, the hotkey toggle, roster/role
 -- events, ReloadFrames and profile swaps (_ERF_RefreshAll). The SetAttribute
 -- write triggers the StyleButton OnAttributeChanged hook, which repaints the
--- button in full (UpdateButton + auras + dispel + BM), seeds range and
--- re-registers private auras -- the same path a real header assignment takes.
+-- button in full (UpdateButton + auras + dispel + BM) and seeds range --
+-- the same path a real header assignment takes.
 function ns.XF_Apply()
     if not db or not db.profile then return end
     local set = XF.Settings()
@@ -8461,13 +7898,6 @@ local function CreateHeaders()
     -----------------------------------------------------------
     for group = 1, 8 do
         local hdr = CreateFrame("Frame", "ERFGroupHeader" .. group, containerFrame, "SecureGroupHeaderTemplate")
-        -- 12.1: the header births an AuraContainer per child SECURE-SIDE --
-        -- the only combat-legal container source (covers in-combat /reload
-        -- and mid-combat roster growth). The containers file adopts it as
-        -- the debuff shell.
-        if EllesmereUI.IS_121 then
-            hdr:SetAttribute("auraContainerTemplate", "CustomAuraContainerTemplate")
-        end
         hdr:SetAttribute("template", "SecureUnitButtonTemplate")
         hdr:SetAttribute("templateType", "Button")
         hdr:SetAttribute("initialConfigFunction", initConfig)
@@ -8525,9 +7955,6 @@ local function CreateHeaders()
     --  Flat header for merge-groups mode (all members in one grid)
     -----------------------------------------------------------
     ns._flatHeader = CreateFrame("Frame", "ERFFlatHeader", containerFrame, "SecureGroupHeaderTemplate")
-    if EllesmereUI.IS_121 then
-        ns._flatHeader:SetAttribute("auraContainerTemplate", "CustomAuraContainerTemplate")
-    end
     ns._flatHeader:SetAttribute("template", "SecureUnitButtonTemplate")
     ns._flatHeader:SetAttribute("templateType", "Button")
     ns._flatHeader:SetAttribute("initialConfigFunction", initConfig)
@@ -8643,7 +8070,7 @@ function ns._UpdateGroupNumbers()
     local unitGrowth = s.unitGrowth or "DOWN"
     local activeOv = ns._activeTierOverride
     if activeOv and activeOv.unitGrowth then unitGrowth = activeOv.unitGrowth end
-    local vg = s.visibleGroups or { true, true, true, true, true, true, false, false }
+    local vg = ns._RFVisibleGroups(s)
     local size = s.groupNumberSize or 10
     local gc = s.groupNumberColor or {}
     local ox = s.groupNumberOffsetX or 0
@@ -8745,7 +8172,7 @@ ns._LayoutGroupsImpl = function()
     end
 
     -- Build visible groups filter string from settings
-    local vg = s.visibleGroups or { true, true, true, true, true, true, false, false }
+    local vg = ns._RFVisibleGroups(s)
 
     if merged then
         ---------------------------------------------------------------
@@ -9141,13 +8568,6 @@ local function ReloadFrames()
         -- Dispel icon position
         if d.AnchorDispelIcon then d.AnchorDispelIcon() end
 
-        -- Private aura per-slot frames (re-anchor for changed debuff settings)
-        if d.privateAuraFrames then
-            for _, paFrame in ipairs(d.privateAuraFrames) do
-                paFrame:SetSize(s.debuffSize or 18, s.debuffSize or 18)
-            end
-        end
-
         -- Buff manager indicators
         if d.bmIconPool and d.health and ns.BM_AnchorIndicators then
             ns.BM_AnchorIndicators(d, ns.RF_AnchorHost(d.health, s), s)
@@ -9163,21 +8583,11 @@ local function ReloadFrames()
     -- Immediate range update so new buttons don't flash full alpha
     RangeUpdate()
 
-    -- Re-register private aura anchors with updated settings
-    for unit, btn in pairs(unitToButton) do
-        RegisterPrivateAuras(btn, unit)
-    end
-
     -- Friendly Boss Frames and Extra Frames inherit size/growth/spacing/
     -- border/text settings; restyle + re-anchor them with everything else
     -- (growth changes move the anchor points, not just the anchored-to header).
     if ns.FB_Apply then ns.FB_Apply() end
     if ns.XF_Apply then ns.XF_Apply() end
-
-    -- 12.1 aura containers reload with every real pass (direct call inside
-    -- the body -- immune to the Options file's setup-time capture of
-    -- ns.ReloadFrames).
-    if ns.RFC_ReloadAll then ns.RFC_ReloadAll() end
 end
 
 ns.ReloadFrames = ReloadFrames
@@ -9459,7 +8869,7 @@ ns._RFTierTopLeft = function(tw, th, unitGrowth, groupGrowth, ox, oy)
 end
 
 -- Resolve the active size tier bucket and its override table, cascading
--- toward 20 (10 falls back to 15, 30 falls back to 25). The single copy of
+-- toward 20 (10 falls back to 15, 40 to 30 then 25, 30 to 25). The single copy of
 -- the cascade -- _GetRaidSizeFrameDimensions, ReloadFrames and
 -- _ApplyTierOffset all route through here. Returns tier, override; the
 -- override is nil for the base 20 tier or when none is defined.
@@ -9471,14 +8881,17 @@ ns._RFResolveTierOverride = function(numMembers)
     elseif numMembers <= 15 then tier = 15
     elseif numMembers <= 20 then tier = 20
     elseif numMembers <= 25 then tier = 25
-    else                         tier = 30
+    elseif numMembers <= 30 then tier = 30
+    else                         tier = 40   -- AV / IoC / 40-man raids
     end
     if tier == 20 then return 20, nil end
     local ov
     if tier < 20 then
         ov = overrides[tier] or (tier == 10 and overrides[15]) or nil
     else
-        ov = overrides[tier] or (tier == 30 and overrides[25]) or nil
+        ov = overrides[tier]
+            or (tier == 40 and overrides[30])
+            or (tier >= 30 and overrides[25]) or nil
     end
     return tier, ov or nil
 end
@@ -10022,10 +9435,6 @@ local function UpdateVisibility()
         containerFrame:Hide()
         StopRangeTicker()
         StopGhostTicker()
-        -- Clean up private aura anchors when hiding
-        for unit, btn in pairs(unitToButton) do
-            UnregisterPrivateAuras(btn)
-        end
         wipe(unitToButton)
     end
 end
@@ -10570,12 +9979,8 @@ local function OnEvent(self, event, arg1, ...)
             end
             if ns._partyFramesVisible then
                 -- Full party reload (not just layout), mirroring the raid
-                -- branch above: private aura anchors registered during the
-                -- loading screen can carry stale geometry (icon size /
-                -- border scale are baked in at registration), and the
-                -- unit-guarded rebuild paths skip re-registration when
-                -- units are unchanged. ReloadPartyFrames recomputes the
-                -- Auto Resize scale and re-registers every anchor.
+                -- branch above: ReloadPartyFrames recomputes the Auto
+                -- Resize scale from the current group.
                 ns.ReloadPartyFrames()
             end
             -- Blizzard's legacy party frames may be created/recycled after our
@@ -10621,7 +10026,7 @@ ns._PARTY_OVERRIDE_KEYS = {}
 
 ns._PARTY_SECTION_ORDER = {
     "healthBar", "absorbs", "powerBar", "textDisplay", "indicators", "dispels", "topNameBar",
-    "rangeTooltip", "defensives", "privateAuras", "debuffDisplay", "debuffStyle",
+    "rangeTooltip", "defensives", "debuffDisplay", "debuffStyle",
 }
 ns._PARTY_SECTION_LABELS = {
     healthBar     = "Health Bar",
@@ -10633,7 +10038,6 @@ ns._PARTY_SECTION_LABELS = {
     topNameBar    = "Top Name Bar",
     rangeTooltip  = "Range & Tooltip",
     defensives    = "Defensives & Externals",
-    privateAuras  = "Private Auras",
     debuffDisplay = "Debuff Display",
     debuffStyle   = "Debuff Style",
 }
@@ -10707,12 +10111,8 @@ do
             "defSize", "defIconZoom", "defSpacing", "defBorderSize", "defBorderColor",
             "defShowSwipe", "defShowDurText", "defDurTextColor", "defDurTextSize", "defDurTextOffsetX", "defDurTextOffsetY",
         },
-        privateAuras = {
-            "paSize", "paShowCountdown", "paHideTooltip",
-            "paPosition", "paOffsetX", "paOffsetY", "paGrowDirection", "paSpacing",
-        },
         debuffDisplay = {
-            "debuffFilter", "hideLustDebuff", "raidDebuffWhitelist", "raidDebuffBlacklist",
+            "debuffFilter", "hideLustDebuff", "raidDebuffs", "raidDebuffHidden", "raidDebuffSettings",
             "debuffPosition", "debuffOffsetX", "debuffOffsetY",
             "debuffGrowDirection", "debuffPerRow", "debuffWrapDirection",
             "debuffCap", "debuffHideTooltips",
@@ -10792,7 +10192,7 @@ for _, k in ipairs({
     "debuffStacksTextSize", "debuffDurTextSize", "defDurTextSize",
     -- Icon sizes
     "roleIconSize", "leaderIconSize", "raidMarkerSize", "combatIndicatorSize",
-    "debuffSize", "defSize", "paSize", "dispellableDebuffSize",
+    "debuffSize", "defSize", "dispellableDebuffSize",
     -- Offsets
     "nameOffsetX", "nameOffsetY",
     "healthTextOffsetX", "healthTextOffsetY",
@@ -10808,7 +10208,6 @@ for _, k in ipairs({
     "debuffDurTextOffsetX", "debuffDurTextOffsetY",
     "defOffsetX", "defOffsetY",
     "defDurTextOffsetX", "defDurTextOffsetY",
-    "paOffsetX", "paOffsetY",
     "dispelIconOffsetX", "dispelIconOffsetY",
 }) do INDICATOR_SCALE_KEYS[k] = true end
 
@@ -10919,9 +10318,6 @@ ns._CreatePartyHeader = function()
     ]]):format(bw, bh)
 
     local hdr = CreateFrame("Frame", "ERFPartyHeader", ns._partyContainerFrame, "SecureGroupHeaderTemplate")
-    if EllesmereUI.IS_121 then
-        hdr:SetAttribute("auraContainerTemplate", "CustomAuraContainerTemplate")
-    end
     hdr:SetAttribute("template", "SecureUnitButtonTemplate")
     hdr:SetAttribute("templateType", "Button")
     hdr:SetAttribute("initialConfigFunction", initConfig)
@@ -10996,14 +10392,6 @@ ns._RebuildPartyUnitMap = function()
                 local d = GetFFD(btn)
                 local _, classToken = UnitClass(u)
                 d.classToken = classToken
-                if d.dispelContainerUnit ~= u or d.privateAuraUnit ~= u then
-                    RegisterPrivateAuras(btn, u)
-                end
-            end
-        else
-            local d = GetFFD(btn)
-            if d.dispelContainerAnchorID or (d.privateAuraAnchorIDs and #d.privateAuraAnchorIDs > 0) then
-                UnregisterPrivateAuras(btn)
             end
         end
     end
@@ -11344,10 +10732,6 @@ ns._UpdatePartyVisibility = function()
             StopRangeTicker()
             StopGhostTicker()
         end
-
-        for unit, btn in pairs(ns._partyUnitToButton) do
-            UnregisterPrivateAuras(btn)
-        end
         wipe(ns._partyUnitToButton)
     end
 end
@@ -11524,13 +10908,6 @@ ns.ReloadPartyFrames = function()
         -- Dispel icon
         if d.AnchorDispelIcon then d.AnchorDispelIcon() end
 
-        -- Private aura frames
-        if d.privateAuraFrames then
-            for _, paFrame in ipairs(d.privateAuraFrames) do
-                paFrame:SetSize(pp.debuffSize or 18, pp.debuffSize or 18)
-            end
-        end
-
         -- Buff manager indicators (pass the scaled proxy: BM picks the party
         -- indicator scale by recognizing this exact table)
         if d.bmIconPool and d.health and ns.BM_AnchorIndicators then
@@ -11553,18 +10930,9 @@ ns.ReloadPartyFrames = function()
     if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
     ns._UpdateAllPartyButtons()
 
-    -- Re-register private aura anchors
-    for unit, btn in pairs(ns._partyUnitToButton) do
-        RegisterPrivateAuras(btn, unit)
-    end
-
     -- Targeted Spells icons scale through the party Auto Resize factor
     -- recomputed above; restyle them with everything else.
     if ns.TS_ApplySettings then ns.TS_ApplySettings() end
-
-    -- Aura containers read the party class through its scaled proxy; the
-    -- fingerprint guards make this near-free when nothing party-side changed.
-    if ns.RFC_ReloadAll then ns.RFC_ReloadAll() end
 end
 
 local function RegisterWithUnlockMode()
@@ -11902,8 +11270,6 @@ local function PvAuraGetGroup(index)
 end
 
 -- Pick a random icon for the given type and frame index
-ns._PV_PA_ICONS = { 136090, 135894, 237274, 132301, 136116 }
-
 local function PvAuraPickIcon(auraType, frameIndex)
     if auraType == "def" then
         local s2 = PvSettings()
@@ -11925,8 +11291,6 @@ local function PvAuraPickIcon(auraType, frameIndex)
         end
         if #pool == 0 then return nil end
         return GetSpellIcon(pool[math.random(#pool)])
-    elseif auraType == "pa" then
-        return ns._PV_PA_ICONS[math.random(#ns._PV_PA_ICONS)]
     else
         local spells = ns._PV_DEBUFF_SPELLS
         return GetSpellIcon(spells[math.random(#spells)])
@@ -11940,7 +11304,7 @@ local function PvAuraAnchor(icon, f, auraType, slot, totalShown)
     -- Debuffs use the shared grid layout (same DebuffGridPoint helper as the live
     -- frames) so the preview matches exactly -- including row wrapping and CENTER
     -- per-row centering. `slot` is the 0-based index among visible icons.
-    if auraType ~= "def" and auraType ~= "pa" then
+    if auraType ~= "def" then
         local sz = s2.debuffSize or 18
         icon:SetSize(sz, sz)
         icon:ClearAllPoints()
@@ -11949,23 +11313,13 @@ local function PvAuraAnchor(icon, f, auraType, slot, totalShown)
         return
     end
 
-    -- Defensives / private auras: single-line relative chaining (no wrapping).
-    local pos, ox, oy, grow, sz, spc
-    if auraType == "def" then
-        pos = s2.defPosition or "center"
-        ox = s2.defOffsetX or 0
-        oy = s2.defOffsetY or 0
-        grow = s2.defGrowDirection or "CENTER"
-        sz = s2.defSize or 22
-        spc = PixelSnap(s2.defSpacing or 1)
-    else -- pa
-        pos = s2.paPosition or "bottomleft"
-        ox = s2.paOffsetX or 0
-        oy = s2.paOffsetY or 0
-        grow = s2.paGrowDirection or "RIGHT"
-        sz = s2.paSize or 18
-        spc = PixelSnap(s2.paSpacing or 1)
-    end
+    -- Defensives: single-line relative chaining (no wrapping).
+    local pos = s2.defPosition or "center"
+    local ox = s2.defOffsetX or 0
+    local oy = s2.defOffsetY or 0
+    local grow = s2.defGrowDirection or "CENTER"
+    local sz = s2.defSize or 22
+    local spc = PixelSnap(s2.defSpacing or 1)
     local spacing = sz + spc
     local centerOff = 0
     if grow == "CENTER" and totalShown > 0 then
@@ -11975,7 +11329,7 @@ local function PvAuraAnchor(icon, f, auraType, slot, totalShown)
     icon:ClearAllPoints()
     if slot == 0 then
         local fx = ox + (grow == "CENTER" and centerOff or 0)
-        -- All aura icon previews (debuffs, defensives, private auras) anchor flush
+        -- All aura icon previews (debuffs, defensives) anchor flush
         -- to the health bar edge -- no 1px inset -- matching the real frames.
         local pvHost = ns.RF_AnchorHost(f._health, s2)
         if pos == "topleft" then icon:SetPoint("TOPLEFT", pvHost, "TOPLEFT", fx, oy)
@@ -11990,7 +11344,7 @@ local function PvAuraAnchor(icon, f, auraType, slot, totalShown)
         end
     else
         -- Chain from previous icon in same pool
-        local pool = (auraType == "def") and f._pvDefs or f._pvPA
+        local pool = f._pvDefs
         local prev = pool[slot] -- slot is 0-based; current is slot+1, prev is pool[slot]
         if prev and prev:IsShown() then
             if grow == "RIGHT" or grow == "CENTER" then
@@ -12011,7 +11365,6 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
     local f = PvFrames()[frameIndex]
     if not f or not f._health then return end
     local pool = auraType == "def" and f._pvDefs
-        or auraType == "pa" and f._pvPA
         or f._pvDebuffs
     local icon = pool and pool[slotIndex]
     if not icon then return end
@@ -12024,8 +11377,6 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
     local startTime = GetTime()
 
     icon._tex:SetTexture(tex)
-    -- Private auras keep the fixed crop: live PA icons are Blizzard-rendered
-    -- and can't be zoomed, so the preview must not suggest otherwise.
     if auraType == "db" then
         local _z = s2.debuffIconZoom or 0.08
         icon._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
@@ -12035,22 +11386,7 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
     end
     if icon._cooldown then
         local showSwipe, showDurText, dtColor, dtSize, dtOX, dtOY
-        if auraType == "pa" then
-            -- Private auras: swipe always on, text controlled by paShowCountdown.
-            -- Real frames now scale the slot frame by (paSize / 32) so Blizzard's
-            -- countdown text tracks the icon size. The preview can't use Blizzard
-            -- rendering, so mirror that proportionality: size the fake timer font
-            -- to the same fraction of the icon (~0.44, calibrated so the default
-            -- icon size keeps the prior ~8px look). Keeps preview and live frames
-            -- visually matched as paSize changes. Centered, like Blizzard's text.
-            showSwipe = true
-            showDurText = s2.paShowCountdown ~= false
-            dtColor = { r = 1, g = 1, b = 1 }
-            local paSz = s2.paSize or 18
-            dtSize = math.max(1, math.floor(paSz * 8 / 18 + 0.5))
-            dtOX = 0
-            dtOY = 0
-        elseif auraType == "db" then
+        if auraType == "db" then
             showSwipe = s2.debuffShowSwipe ~= false
             showDurText = s2.debuffShowDurText
             dtColor = s2.debuffDurTextColor or { r = 1, g = 1, b = 1 }
@@ -12085,13 +11421,7 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
 
     -- Border
     local bdrSz, bdrC
-    if auraType == "pa" then
-        -- Private auras: real frames use Blizzard's native border scaled 1:1 to
-        -- the icon. The preview can't use Blizzard rendering, so approximate it
-        -- with a fixed 1px EUI border (no longer user-configurable).
-        bdrSz = 1
-        bdrC = { r = 0, g = 0, b = 0 }
-    elseif auraType == "def" then
+    if auraType == "def" then
         bdrSz = s2.defBorderSize or 1
         bdrC = s2.defBorderColor or { r = 0, g = 0, b = 0 }
     else
@@ -12161,7 +11491,6 @@ local function PvAuraReanchorFrame(frameIndex, auraType)
     local f = PvFrames()[frameIndex]
     if not f then return end
     local pool = auraType == "def" and f._pvDefs
-        or auraType == "pa" and f._pvPA
         or f._pvDebuffs
     if not pool then return end
     local shown = 0
@@ -12186,7 +11515,7 @@ local function PvAuraTick()
     local wantDb = ns._debuffsPreviewVisible and s2.debuffFilter ~= "none"
 
     -- Expire finished auras. In Real/Overlay preview the random per-player auras
-    -- (defensives, private auras, and random debuffs in slot 2+) loop on the SAME
+    -- (defensives and random debuffs in slot 2+) loop on the SAME
     -- frame with a fresh duration instead of being removed -- otherwise the
     -- per-group top-up below re-picks a new random player every cycle, so icons
     -- appear to "jump" between players. Full Preview (test mode) keeps rotating.
@@ -12195,7 +11524,7 @@ local function PvAuraTick()
     local loopSame = not ns._testMode
     for key, info in pairs(ns._pvActiveAuras) do
         if key ~= "_stackKey" and key ~= "raidwide:db" and info.expTime and info.expTime <= now then
-            local isRandom = info.auraType == "def" or info.auraType == "pa"
+            local isRandom = info.auraType == "def"
                 or (info.auraType == "db" and info.slot >= 2)
             if loopSame and isRandom then
                 -- Re-spawn on the same frame/slot (overwrites this same key, so the
@@ -12208,7 +11537,6 @@ local function PvAuraTick()
                 local f = PvFrames()[info.frameIndex]
                 if f then
                     local pool = info.auraType == "def" and f._pvDefs
-                        or info.auraType == "pa" and f._pvPA
                         or f._pvDebuffs
                     local ic = pool and pool[info.slot]
                     if ic then
@@ -12389,33 +11717,6 @@ local function PvAuraTick()
             end
         end
     end
-
-    -- Private aura preview: cycling icons like defensives/debuffs.
-    -- Party (single group of 5) gets 2 guaranteed + a 50% 3rd; raid keeps
-    -- 1 guaranteed + a 50% 2nd per group.
-    -- "None" position disables private auras entirely, so the preview hides them
-    -- too (read from the same settings source the pa anchor renderer uses).
-    local wantPA = ns._privateAurasPreviewVisible
-        and (PvSettings().paPosition or "center") ~= "none"
-    if wantPA then
-        local paBase = ns._partyPvActive and 2 or 1
-        local paMax  = ns._partyPvActive and 3 or 2
-        -- Ensure the guaranteed PA icons (1 per frame, spread across the group)
-        for group = 1, 4 do
-            while PvAuraCountInGroup(group, "pa") < paBase do
-                local fi = PvAuraPickFrame(group, "pa")
-                if not fi then break end
-                PvAuraApply(fi, "pa", 1); PvAuraReanchorFrame(fi, "pa")
-            end
-        end
-        -- Add one more icon on a random frame per group (50% chance)
-        for group = 1, 4 do
-            if PvAuraCountInGroup(group, "pa") < paMax and math.random() > 0.5 then
-                local fi = PvAuraPickFrame(group, "pa")
-                if fi then PvAuraApply(fi, "pa", 2); PvAuraReanchorFrame(fi, "pa") end
-            end
-        end
-    end
 end
 
 local function StartPvAuraTicker()
@@ -12442,12 +11743,6 @@ local function StopPvAuraTicker()
         end
         if f._pvDefs then
             for _, ic in ipairs(f._pvDefs) do
-                ic:Hide()
-                CooldownFrame_Clear(ic._cooldown)
-            end
-        end
-        if f._pvPA then
-            for _, ic in ipairs(f._pvPA) do
                 ic:Hide()
                 CooldownFrame_Clear(ic._cooldown)
             end
@@ -12695,7 +11990,7 @@ end
 -- Restart: stop (instant clear) then start if any eyeball is on
 local function RestartPvAuraTicker()
     StopPvAuraTicker()
-    if PvActive() and (ns._defensivesPreviewVisible or ns._debuffsPreviewVisible or ns._privateAurasPreviewVisible) then
+    if PvActive() and (ns._defensivesPreviewVisible or ns._debuffsPreviewVisible) then
         StartPvAuraTicker()
     end
 end
@@ -12801,26 +12096,6 @@ ns.RefreshPvAuraVisuals = function()
                 end
             end
             _reanchor(fi, "def")
-        end
-        if f._pvPA then
-            local paSz = s2.paSize or 20
-            local paCD = s2.paShowCountdown ~= false
-            for _, ic in ipairs(f._pvPA) do
-                if ic:IsShown() then
-                    ic:SetSize(paSz, paSz)
-                    -- Fixed 1px border approximating Blizzard's 1:1 native border
-                    -- (Border Size is no longer user-configurable).
-                    if ic._borderFrame and _PP then
-                        _PP.UpdateBorder(ic._borderFrame, 1, 0, 0, 0, 1)
-                        ic._borderFrame:Show()
-                    end
-                    if ic._cooldown then
-                        if ic._cooldown.SetDrawSwipe then ic._cooldown:SetDrawSwipe(true) end
-                        if ic._cooldown.SetHideCountdownNumbers then ic._cooldown:SetHideCountdownNumbers(not paCD) end
-                    end
-                end
-            end
-            _reanchor(fi, "pa")
         end
     end
 end
@@ -13378,12 +12653,6 @@ local function CreatePreviewFrame(index)
     f._pvDefs = {}
     for i = 1, 4 do
         f._pvDefs[i] = MakePreviewAuraIcon(f, f:GetFrameLevel() + ns.LVL_AURA, s.defSize or 22)
-    end
-
-    -- Private aura preview icons (simulated Blizzard-rendered boss debuffs)
-    f._pvPA = {}
-    for i = 1, 3 do
-        f._pvPA[i] = MakePreviewAuraIcon(f, f:GetFrameLevel() + ns.LVL_AURA, s.paSize or 18)
     end
 
     -- Buff preview icons (test mode: configured buffs cycled across frames)
@@ -15387,7 +14656,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Size preview (simple: just health + power bars at the tier's dimensions)
---  Shows the correct number of frames for the tier (10/15/25/30).
+--  Shows the correct number of frames for the tier (10/15/25/30/40).
 --  Always screen-anchored exactly where the live frames land (shared
 --  growth-corner origin ns._RFTierTopLeft), regardless of preview mode.
 --  No indicators, no randomization.
@@ -15586,7 +14855,7 @@ ns._ShowSizePreview = function(tier)
         f:SetParent(container)
         f:SetSize(bw, bh)
         -- GENERIC SIZING PLACEHOLDER (NOT a style preview):
-        -- The custom raid-size previews (10/15/25/30) deliberately do NOT mimic the
+        -- The custom raid-size previews (10/15/25/30/40) deliberately do NOT mimic the
         -- user's real raid-frame style. They render as plain blocks that only show
         -- each frame's footprint at the chosen width/height/spacing, so the size
         -- preview can never be mistaken for a live style preview when it does not
@@ -16376,9 +15645,15 @@ function ERF:OnInitialize()
                     if pf.party_showThreat == false then pf.party_threatBorderSize = 0 end
                     pf.party_showThreat = nil
                 end
+                -- Comma-separated raid debuff white/blacklists became the
+                -- per-instance picker (EUI_RaidFrames_RaidDebuffs.lua).
+                ns.RD_MigrateProfile(pf)
             end
         end
     end
+
+    -- Same raid debuff migration for the live profile (no-op once migrated).
+    ns.RD_MigrateProfile(db.profile)
 
     -- Mark if we need to snapshot Blizzard's raid frame position
     local sv = self.db.sv

@@ -273,6 +273,35 @@ function DurationObject:IsZero()
     return false
 end
 
+-- Retail DurationObject accessors (callers use method syntax, not fields).
+function DurationObject:GetStartTime()
+    if self.startTime == 0 and self.expirationTime > 0 then
+        return self.expirationTime - self.duration
+    end
+    return self.startTime
+end
+
+function DurationObject:GetTotalDuration()
+    return self.duration
+end
+
+function DurationObject:GetRemainingDuration()
+    if self.duration == 0 then return 0 end
+    local endTime = self.expirationTime > 0 and self.expirationTime
+        or (self.startTime + self.duration)
+    local rem = endTime - GetTime()
+    return rem > 0 and rem or 0
+end
+
+function DurationObject:GetEndTime()
+    if self.expirationTime > 0 then return self.expirationTime end
+    return self.startTime + self.duration
+end
+
+function DurationObject:GetModRate()
+    return 1
+end
+
 -- AuraUtil Namespace fallback
 if not AuraUtil then
     AuraUtil = {
