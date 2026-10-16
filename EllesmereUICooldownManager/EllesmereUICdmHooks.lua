@@ -3975,6 +3975,50 @@ local function HideAllPlaceholders()
 end
 ns.HideAllPlaceholders = HideAllPlaceholders
 
+-- Hosted-aura "Visibility When": independent Active and Missing effects, each
+-- one of "show", "desaturated", "hidden" (slot kept) or "hiddenShift" (slot
+-- removed). hostedActiveVis holds the Active effect (nil = show).
+-- hostedMissingVis holds the Missing effect (nil = family default: buffs are
+-- active-only, debuffs stay grey). Older profiles stored a single Active rule
+-- in hostedMissingVis ("active*"), with the Missing side in full colour.
+local LEGACY_HOSTED_ACTIVE_VIS = {
+    activeDesaturated = "desaturated",
+    activeHidden = "hidden",
+    activeHiddenShift = "hiddenShift",
+}
+local HOSTED_VIS_EFFECTS = { desaturated = true, hidden = true, hiddenShift = true }
+
+function ns.GetHostedAuraVisibility(ss, isDebuff)
+    local av = ss and ss.hostedActiveVis
+    local mv = ss and ss.hostedMissingVis
+    local missing
+    if mv == "show" or mv == "hidden" or mv == "hiddenShift" then
+        missing = mv
+    elseif mv == "missingDesaturated" then
+        missing = "desaturated"
+    elseif LEGACY_HOSTED_ACTIVE_VIS[mv] then
+        missing = "show"
+        if av == nil then av = LEGACY_HOSTED_ACTIVE_VIS[mv] end
+    else
+        missing = isDebuff and "desaturated" or "hiddenShift"
+    end
+    if not HOSTED_VIS_EFFECTS[av] then av = "show" end
+    return av, missing
+end
+
+-- Writes both effects back in the current two-key form (dropping any legacy
+-- single-key value). Defaults are stored as nil.
+function ns.SetHostedAuraVisibility(ss, isDebuff, active, missing)
+    ss.hostedActiveVis = (active ~= "show") and active or nil
+    if missing == (isDebuff and "desaturated" or "hiddenShift") then
+        ss.hostedMissingVis = nil
+    elseif missing == "desaturated" then
+        ss.hostedMissingVis = "missingDesaturated"
+    else
+        ss.hostedMissingVis = missing
+    end
+end
+
 -- Blizzard can re-assert a live aura frame's alpha after its viewer updates.
 -- Hosted Active -> Hidden/Hidden (Shift Icons) must survive those writes: the
 -- former keeps a reserved slot, while the latter is omitted from layout. One
@@ -5156,18 +5200,11 @@ local function CollectAndReanchor()
                                         phAV.cooldownID = dedupKey
                                         local ssAV = ns.ResolveSpellSettings(phAV,
                                             displaySID, sdAV, targetBar)
-                                        -- Debuffs are always visible. Buff-family auras
-                                        -- retain their optional active-state styling.
-                                        if defaultBarKey ~= "debuffs" then
-                                            local av = ssAV and ssAV.hostedMissingVis
-                                            if av == "activeDesaturated" then
-                                                hostedActiveVis = "desaturated"
-                                            elseif av == "activeHidden" then
-                                                hostedActiveVis = "hidden"
-                                            elseif av == "activeHiddenShift" then
-                                                hostedActiveVis = "hiddenShift"
-                                            end
-                                        end
+                                        -- Buff and debuff auras hosted here share the
+                                        -- optional active-state styling.
+                                        local av = ns.GetHostedAuraVisibility(ssAV,
+                                            defaultBarKey == "debuffs")
+                                        if av ~= "show" then hostedActiveVis = av end
                                         local wasHostedHidden = frame._hostedActiveHidden
                                             or frame._hostedActiveShift
                                         EnsureHostedVisibilityAlphaHook(frame)
@@ -5272,43 +5309,24 @@ local function CollectAndReanchor()
                                     -- _isPlaceholderFrame flag routes the resolver to
                                     -- the buff store even when the real frame was never
                                     -- decorated this session (buff not yet active).
-                                    -- nil = active-only default;
-                                    -- "missingDesaturated" = grey placeholder;
+                                    -- See ns.GetHostedAuraVisibility. "show" /
+                                    -- "desaturated" = coloured / grey placeholder;
                                     -- "hidden" = inject but render alpha-0 (slot stays
                                     -- reserved); "hiddenShift" = skip the injection so
                                     -- later icons close the gap (HideAllPlaceholders at
                                     -- the top of every collect already hid the pooled
                                     -- frame -- same outcome as Hidden on CD (Shift
-                                    -- Icons) for cooldowns).
+                                    -- Icons) for cooldowns). Hosted debuffs take the
+                                    -- same choice; their unset default is grey.
                                     local hostedMissingVis
-                                    if hostCD and not isDebuffFamily then
+                                    if hostCD then
                                         local phMV = GetOrCreatePlaceholderFrame(targetBar, realSID, nil)
                                         phMV._hostedAuraFamily = defaultBarKey
                                         local ssMV = ns.ResolveSpellSettings(phMV, realSID, ns.GetBarSpellData(targetBar), targetBar)
-                                        local mv = ssMV and ssMV.hostedMissingVis
-                                        if mv == "missingDesaturated" then
-                                            hostedMissingVis = "desaturated"
-                                            showInactive = true
-                                        elseif mv == "hidden" then
-                                            hostedMissingVis = mv
-                                            showInactive = true
-                                        elseif mv == "hiddenShift" then
-                                            hostedMissingVis = mv
-                                            showInactive = false
-                                        elseif mv == "activeDesaturated" or mv == "activeHidden"
-                                           or mv == "activeHiddenShift" then
-                                            -- The configured effect applies while ACTIVE;
-                                            -- while missing, keep the placeholder visible in
-                                            -- full colour so the two conditions are true
-                                            -- opposites of the same single setting.
-                                            hostedMissingVis = "saturated"
-                                            showInactive = true
-                                        else
-                                            -- Buff-family hosted auras are active-only by
-                                            -- default. An explicit visibility rule can opt
-                                            -- back into a reserved missing-state slot.
-                                            hostedMissingVis = "hiddenShift"
-                                        end
+                                        local _, mv = ns.GetHostedAuraVisibility(ssMV, isDebuffFamily)
+                                        -- "show" keeps the placeholder in full colour.
+                                        hostedMissingVis = (mv == "show") and "saturated" or mv
+                                        showInactive = (mv ~= "hiddenShift")
                                     end
                                     -- Per-icon Always-Show override (on/off) applies only in
                                     -- Always-Show mode. "Keep Buffs in Same Place" reserves
@@ -5352,10 +5370,12 @@ local function CollectAndReanchor()
                                             ph._missingHidden = (hostedMissingVis == "hidden") or nil
                                             ph._hostedMissingSaturated =
                                                 (hostedMissingVis == "saturated") or nil
-                                            -- Missing debuffs are an invariant: always keep
-                                            -- the icon visible and grey, regardless of the
-                                            -- bar's inactive-buff desaturation preference.
-                                            ph._forceInactiveDesaturated = isDebuffFamily or nil
+                                            -- Missing debuffs on debuff bars, and hosted
+                                            -- auras set to Missing -> Desaturate, stay grey
+                                            -- regardless of the bar's inactive-buff
+                                            -- desaturation preference.
+                                            ph._forceInactiveDesaturated = (isDebuffFamily and not hostCD)
+                                                or hostedMissingVis == "desaturated" or nil
                                             ph.layoutIndex = frame.layoutIndex or 0
                                             -- Carry the viewer slot's cooldownID so the
                                             -- drag-reorder sort can key this placeholder
@@ -5465,17 +5485,10 @@ local function CollectAndReanchor()
                             ph._forceInactiveDesaturated = nil
                             ph.cooldownID = nil
                             local ssHV = ns.ResolveSpellSettings(ph, sid, sdCustom, barKey)
-                            local vis = ssHV and ssHV.hostedMissingVis
+                            local visActive, visMissing = ns.GetHostedAuraVisibility(ssHV, false)
 
                             if auraActive then
-                                local activeVis
-                                if vis == "activeDesaturated" then
-                                    activeVis = "desaturated"
-                                elseif vis == "activeHidden" then
-                                    activeVis = "hidden"
-                                elseif vis == "activeHiddenShift" then
-                                    activeVis = "hiddenShift"
-                                end
+                                local activeVis = (visActive ~= "show") and visActive or nil
 
                                 local f = GetOrCreateCustomBuffFrame(barKey, sid)
                                 f._isHostedCustomAuraFrame = true
@@ -5505,21 +5518,12 @@ local function CollectAndReanchor()
                             else
                                 -- Hosted buffs are active-only by default. Explicit
                                 -- missing-state rules can reserve a placeholder slot.
-                                -- When the chosen condition is Active, Missing is the
-                                -- opposite full-colour state.
-                                local missingVis = "hiddenShift"
-                                if vis == "missingDesaturated" then
-                                    missingVis = "desaturated"
-                                elseif vis == "hidden" or vis == "hiddenShift" then
-                                    missingVis = vis
-                                elseif vis == "activeDesaturated" or vis == "activeHidden"
-                                   or vis == "activeHiddenShift" then
-                                    missingVis = "saturated"
-                                end
-                                if missingVis ~= "hiddenShift" then
-                                    ph._missingHidden = (missingVis == "hidden") or nil
+                                if visMissing ~= "hiddenShift" then
+                                    ph._missingHidden = (visMissing == "hidden") or nil
                                     ph._hostedMissingSaturated =
-                                        (missingVis == "saturated") or nil
+                                        (visMissing == "show") or nil
+                                    ph._forceInactiveDesaturated =
+                                        (visMissing == "desaturated") or nil
                                     ph.layoutIndex = 99999
                                     ph:Show()
                                     cdFrames[barKey][#cdFrames[barKey] + 1] = ph

@@ -10418,32 +10418,36 @@ initFrame:SetScript("OnEvent", function(self)
                         end
 
                         -- Hosted-aura visibility is a two-stage choice:
-                        --   Visibility When -> Missing / Active -> visual effect.
-                        -- It remains one per-spell setting, so selecting Active
-                        -- reverses the condition instead of layering a second rule
-                        -- on top. Explicit legacy missing-state values are
-                        -- preserved; an unset value follows the new active-only
-                        -- buff default.
-                        if isHostedAura and not isDebuffIcon then
-                            local function DecodeHostedVisibility()
-                                local v = ss.hostedMissingVis
-                                if v == false then v = nil end
-                                if v == "activeDesaturated" then return "active", "desaturated" end
-                                if v == "activeHidden" then return "active", "hidden" end
-                                if v == "activeHiddenShift" then return "active", "hiddenShift" end
-                                if v == "hidden" then return "missing", "hidden" end
-                                if v == "hiddenShift" then return "missing", "hiddenShift" end
-                                if v == "missingDesaturated" then return "missing", "desaturated" end
-                                -- Active-only is the default for every buff-family
-                                -- aura, including buffs hosted on CD/utility bars.
-                                return "missing", "hiddenShift"
+                        --   Visibility When -> Active / Missing -> effect.
+                        -- Active and Missing are independent; each condition row
+                        -- shows its current effect. Unset values follow the family
+                        -- default (see ns.GetHostedAuraVisibility): buffs are
+                        -- active-only, debuffs stay grey while missing.
+                        if isHostedAura then
+                            local function GetVis()
+                                if ns.GetHostedAuraVisibility then
+                                    return ns.GetHostedAuraVisibility(ss, isDebuffIcon)
+                                end
+                                return "show", isDebuffIcon and "desaturated" or "hiddenShift"
+                            end
+                            local function GetVisFor(when)
+                                local active, missing = GetVis()
+                                if when == "active" then return active end
+                                return missing
+                            end
+                            local function IsVisDefault(when, effect)
+                                if when == "active" then return effect == "show" end
+                                return effect == (isDebuffIcon and "desaturated" or "hiddenShift")
                             end
 
                             local VIS_EFFECTS = {
-                                { key = "desaturated", label = "Desaturated" },
+                                { key = "show", label = "Show" },
+                                { key = "desaturated", label = "Desaturate" },
                                 { key = "hidden", label = "Hidden" },
                                 { key = "hiddenShift", label = "Hidden (Shift Icons)" },
                             }
+                            local VIS_EFFECT_LABEL = {}
+                            for _, e in ipairs(VIS_EFFECTS) do VIS_EFFECT_LABEL[e.key] = e.label end
 
                             local row = EllesmereUI.SafeCreateFrame("Button", nil, inner)
                             row:SetHeight(ITEM_H)
@@ -10459,11 +10463,11 @@ initFrame:SetScript("OnEvent", function(self)
                             lbl:SetText(EllesmereUI.L("Visibility When"))
 
                             local function UpdateVisibilityLabel()
-                                local v = ss.hostedMissingVis
-                                if v ~= nil and v ~= false then
-                                    lbl:SetTextColor(acR, acG, acB, 1)
-                                else
+                                local active, missing = GetVis()
+                                if IsVisDefault("active", active) and IsVisDefault("missing", missing) then
                                     lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                else
+                                    lbl:SetTextColor(acR, acG, acB, 1)
                                 end
                             end
                             UpdateVisibilityLabel()
@@ -10480,24 +10484,30 @@ initFrame:SetScript("OnEvent", function(self)
                             local conditionSub, effectSub
                             local conditionRows = {}
                             local effectRows = {}
+                            local hoveredWhen
 
                             local function RefreshConditionRows()
-                                local selectedWhen = DecodeHostedVisibility()
                                 for _, entry in ipairs(conditionRows) do
-                                    local selected = entry.when == selectedWhen
-                                    entry.label:SetTextColor(selected and acR or tDimR,
-                                        selected and acG or tDimG,
-                                        selected and acB or tDimB,
-                                        selected and 1 or tDimA)
-                                    entry.highlight:SetAlpha(selected and 1 or 0)
+                                    local effect = GetVisFor(entry.when)
+                                    entry.value:SetText(EllesmereUI.L(VIS_EFFECT_LABEL[effect]))
+                                    if IsVisDefault(entry.when, effect) then
+                                        entry.value:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                    else
+                                        entry.value:SetTextColor(acR, acG, acB, 1)
+                                    end
+                                    local hovered = entry.when == hoveredWhen
+                                    if hovered then
+                                        entry.label:SetTextColor(1, 1, 1, 1)
+                                    else
+                                        entry.label:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                    end
+                                    entry.highlight:SetAlpha(hovered and 1 or 0)
                                 end
                             end
 
                             local function RefreshEffectRows()
-                                local selectedWhen, selectedEffect = DecodeHostedVisibility()
                                 for _, entry in ipairs(effectRows) do
-                                    local selected = entry.when == selectedWhen
-                                        and entry.effect == selectedEffect
+                                    local selected = GetVisFor(entry.when) == entry.effect
                                     entry.label:SetTextColor(selected and acR or tDimR,
                                         selected and acG or tDimG,
                                         selected and acB or tDimB,
@@ -10521,10 +10531,11 @@ initFrame:SetScript("OnEvent", function(self)
                                         if rg.Hide then rg:Hide() end
                                     end
                                 end
+                                hoveredWhen = when
+                                RefreshConditionRows()
 
                                 -- FitMenuWidth expects FontString regions, not raw
-                                -- text. These three fixed captions fit the same 180px
-                                -- width used by the original visibility flyout.
+                                -- text. These fixed captions fit a 180px flyout.
                                 local effectW = 180
                                 effectSub:SetSize(effectW, 4 + (#VIS_EFFECTS * ITEM_H) + 4)
                                 effectSub:ClearAllPoints()
@@ -10562,29 +10573,18 @@ initFrame:SetScript("OnEvent", function(self)
                                         itemHl:SetAlpha(1)
                                     end)
                                     item:SetScript("OnLeave", function()
-                                        local curWhen, curEffect = DecodeHostedVisibility()
-                                        local nowSelected = curWhen == when and curEffect == effectKey
-                                        itemLabel:SetTextColor(nowSelected and acR or tDimR,
-                                            nowSelected and acG or tDimG,
-                                            nowSelected and acB or tDimB,
-                                            nowSelected and 1 or tDimA)
-                                        itemHl:SetAlpha(nowSelected and 1 or 0)
+                                        RefreshEffectRows()
                                     end)
                                     item:SetScript("OnClick", function()
+                                        if not ns.SetHostedAuraVisibility then return end
                                         EnsureSS()
-                                        local value
+                                        local active, missing = GetVis()
                                         if when == "active" then
-                                            if effectKey == "desaturated" then value = "activeDesaturated"
-                                            elseif effectKey == "hidden" then value = "activeHidden"
-                                            else value = "activeHiddenShift" end
-                                        elseif effectKey == "hidden" then
-                                            value = "hidden"
-                                        elseif effectKey == "hiddenShift" then
-                                            value = "hiddenShift"
+                                            active = effectKey
                                         else
-                                            value = "missingDesaturated"
+                                            missing = effectKey
                                         end
-                                        ss.hostedMissingVis = value
+                                        ns.SetHostedAuraVisibility(ss, isDebuffIcon, active, missing)
                                         UpdateVisibilityLabel()
                                         RefreshConditionRows()
                                         RefreshEffectRows()
@@ -10619,8 +10619,11 @@ initFrame:SetScript("OnEvent", function(self)
                                         if rg.Hide then rg:Hide() end
                                     end
                                 end
+                                hoveredWhen = nil
 
-                                local conditionW = 130
+                                -- Wide enough for "Missing" plus the longest effect
+                                -- caption ("Hidden (Shift Icons)") and the arrow.
+                                local conditionW = 210
                                 conditionSub:SetSize(conditionW, 4 + (2 * ITEM_H) + 4)
                                 conditionSub:ClearAllPoints()
                                 conditionSub:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)
@@ -10632,8 +10635,8 @@ initFrame:SetScript("OnEvent", function(self)
                                 conditionRows = {}
                                 local y = 4
                                 local choices = {
-                                    { when = "missing", label = "Missing" },
                                     { when = "active", label = "Active" },
+                                    { when = "missing", label = "Missing" },
                                 }
                                 for _, choice in ipairs(choices) do
                                     local when = choice.when
@@ -10653,22 +10656,23 @@ initFrame:SetScript("OnEvent", function(self)
                                     itemArrow:SetPoint("RIGHT", item, "RIGHT", -8, 0)
                                     itemArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
                                     itemArrow:SetAlpha(0.7)
+                                    -- Current effect for this condition, beside the arrow.
+                                    local itemValue = item:CreateFontString(nil, "OVERLAY")
+                                    itemValue:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+                                    itemValue:SetPoint("RIGHT", itemArrow, "LEFT", -6, 0)
+                                    itemValue:SetJustifyH("RIGHT")
                                     local itemHl = item:CreateTexture(nil, "ARTWORK")
                                     itemHl:SetAllPoints(); itemHl:SetTexture(1, 1, 1, hlA)
 
                                     conditionRows[#conditionRows + 1] = {
-                                        when = when, label = itemLabel, highlight = itemHl,
+                                        when = when, label = itemLabel, value = itemValue,
+                                        highlight = itemHl,
                                     }
                                     item:SetScript("OnEnter", function()
-                                        itemLabel:SetTextColor(1, 1, 1, 1)
-                                        itemHl:SetAlpha(1)
                                         ShowEffects(item, when)
                                     end)
-                                    item:SetScript("OnLeave", function()
-                                        RefreshConditionRows()
-                                    end)
-                                    -- These are navigation rows; the effect is selected
-                                    -- in the third-level flyout.
+                                    -- Navigation rows; the effect is selected in the
+                                    -- third-level flyout.
                                     item:SetScript("OnClick", function()
                                         ShowEffects(item, when)
                                     end)
