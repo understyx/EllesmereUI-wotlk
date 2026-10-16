@@ -319,17 +319,6 @@ function RCD:RefreshRoster()
     self:RefreshAllGroups()
 end
 
-local function DefaultEnabledSpells()
-    local enabled = {}
-    local faction = UnitFactionGroup and UnitFactionGroup("player")
-    for spellID in pairs(Catalog and Catalog.bySpellID or {}) do
-        local unavailableLust = (faction == "Horde" and spellID == 32182)
-            or (faction == "Alliance" and spellID == 2825)
-        if not unavailableLust then enabled[spellID] = true end
-    end
-    return enabled
-end
-
 function RCD:CreateGroup(name)
     local db = DB()
     if not db then return nil end
@@ -341,6 +330,8 @@ function RCD:CreateGroup(name)
         enabled = true,
         showReady = true,
         showHeader = true,
+        displayStyle = "bars",
+        iconSize = 36,
         showIcon = true,
         showSpellName = true,
         colorBarByClass = false,
@@ -348,7 +339,7 @@ function RCD:CreateGroup(name)
         rowHeight = 26,
         spacing = 4,
         targetDisplay = "none",
-        enabledSpells = DefaultEnabledSpells(),
+        enabledSpells = {},
         visibility = { classes = {}, specs = {}, roles = {} },
         memberFilter = { classes = {}, specs = {}, roles = {} },
         position = {
@@ -506,6 +497,22 @@ local function AcquireRow(parent)
         row.spellText:SetJustifyH("LEFT")
         row.timeText = row.textFrame:CreateFontString(nil, "OVERLAY")
         row.timeText:SetJustifyH("RIGHT")
+        -- Icon display style: swipe over the spell icon with the timer
+        -- centered and the caster's name across the bottom edge.
+        row.cd = EUI.SafeCreateFrame("Cooldown", nil, row.iconFrame, "CooldownFrameTemplate")
+        row.cd:SetAllPoints(row.iconFrame)
+        row.cd.noCooldownCount = true
+        if row.cd.SetDrawEdge then row.cd:SetDrawEdge(false) end
+        if row.cd.SetHideCountdownNumbers then row.cd:SetHideCountdownNumbers(true) end
+        row.iconOverlay = EUI.SafeCreateFrame("Frame", nil, row.iconFrame)
+        row.iconOverlay:SetAllPoints(row.iconFrame)
+        row.iconOverlay:SetFrameLevel(row.cd:GetFrameLevel() + 2)
+        row.iconTime = row.iconOverlay:CreateFontString(nil, "OVERLAY")
+        row.iconTime:SetPoint("CENTER", row.iconOverlay, "CENTER", 0, 2)
+        row.iconName = row.iconOverlay:CreateFontString(nil, "OVERLAY")
+        row.iconName:SetPoint("BOTTOMLEFT", row.iconOverlay, "BOTTOMLEFT", 1, 2)
+        row.iconName:SetPoint("BOTTOMRIGHT", row.iconOverlay, "BOTTOMRIGHT", -1, 2)
+        row.iconName:SetJustifyH("CENTER")
         row:SetScript("OnClick", function(self, button)
             if RCD.preview then return end
             local data = self._data
@@ -532,6 +539,7 @@ end
 
 local function ReleaseRow(row)
     row._data = nil
+    row._cdStart = nil
     row:Hide()
     row:ClearAllPoints()
     RCD.rowPool[#RCD.rowPool + 1] = row
@@ -580,16 +588,44 @@ end
 
 -- Geometry, fonts, and borders only change with settings, so they are applied
 -- once per style generation rather than on every countdown tick.
+local function StyleIconRow(row, size)
+    local db = DB()
+    row:SetSize(size, size)
+    row.barFrame:Hide()
+    row.iconFrame:ClearAllPoints()
+    row.iconFrame:SetAllPoints(row)
+    row.iconFrame:Show()
+    row.cd:Show()
+    row.iconOverlay:Show()
+    if not db or db.showBorders ~= false then row.iconBorder._frame:Show()
+    else row.iconBorder._frame:Hide() end
+
+    local font = EUI.GetFontPath and EUI.GetFontPath("raidCooldowns") or STANDARD_TEXT_FONT
+    local outline = EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("raidCooldowns") or ""
+    if outline == "" then outline = "OUTLINE" end
+    local useShadow = EUI.GetFontUseShadow and EUI.GetFontUseShadow("raidCooldowns") or false
+    StyleFont(row.iconTime, font, math.max(9, math.floor(size * 0.36)), outline, useShadow)
+    StyleFont(row.iconName, font, math.max(7, math.floor(size * 0.24)), outline, useShadow)
+    row.iconName:SetHeight(math.max(7, math.floor(size * 0.24)) + 2)
+end
+
 local function StyleRow(row, group, width, height)
     local db = DB()
+    local iconMode = group.displayStyle == "icons"
     local showIcon = group.showIcon ~= false
     if row._styleGen == RCD.styleGen and row._styleW == width
-        and row._styleH == height and row._styleIcon == showIcon then
+        and row._styleH == height and row._styleIcon == showIcon
+        and row._styleMode == iconMode then
         return
     end
     row._styleGen, row._styleW, row._styleH, row._styleIcon = RCD.styleGen, width, height, showIcon
+    row._styleMode = iconMode
+    if iconMode then return StyleIconRow(row, height) end
 
     row:SetSize(width, height)
+    row.barFrame:Show()
+    row.cd:Hide()
+    row.iconOverlay:Hide()
     local barLeft = 0
     row.iconFrame:ClearAllPoints()
     if showIcon then
@@ -635,13 +671,39 @@ local function StyleRow(row, group, width, height)
     row.spellText:SetPoint("RIGHT", row.timeText, "LEFT", -4, 0)
 end
 
+local function LayoutIcon(row, data)
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[data.class]
+    local ready = data.remaining <= 0
+    row.iconName:SetText(ShortName(data.name) or "Unknown")
+    row.iconName:SetTextColor(color and color.r or 1, color and color.g or 1, color and color.b or 1)
+    row.iconTime:SetText(ready and "" or FormatTime(data.remaining))
+    if data.remaining < 10 then row.iconTime:SetTextColor(1, 0.35, 0.35)
+    else row.iconTime:SetTextColor(1, 1, 1) end
+    row.icon:SetDesaturated(not ready)
+    -- Only restart the swipe when the cooldown itself changes; the 0.1s
+    -- countdown tick would otherwise reset the animation constantly.
+    if ready then
+        if row._cdStart then row._cdStart = nil; row.cd:Hide() end
+    else
+        local start = GetTime() - (data.duration - data.remaining)
+        if not row._cdStart or math.abs(start - row._cdStart) > 0.5
+            or row._cdDuration ~= data.duration then
+            row._cdStart, row._cdDuration = start, data.duration
+            row.cd:SetCooldown(start, data.duration)
+            row.cd:Show()
+        end
+    end
+end
+
 local function LayoutRow(row, data, group, width, height)
     row._data = data
     StyleRow(row, group, width, height)
     if row._iconKey ~= data.spellID then
         row._iconKey = data.spellID
+        row._cdStart = nil
         row.icon:SetTexture(SpellIcon(data.spellID, data.isItem))
     end
+    if group.displayStyle == "icons" then return LayoutIcon(row, data) end
 
     local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[data.class]
     row.nameText:SetText(ShortName(data.name) or "Unknown")
@@ -754,17 +816,35 @@ function RCD:RefreshGroup(id)
     local width = math.max(MIN_WIDTH, group.width or 270)
     local rowHeight = math.max(16, group.rowHeight or 26)
     local y = group.showHeader == false and 0 or HEADER_H
-    local previous
-    for i, data in ipairs(rows) do
-        local def = Catalog:Get(data.spellID)
-        local classKey = def and def.class or data.class
-        if previous and previous ~= classKey .. ":" .. data.spellID then y = y + (group.spacing or 4) end
-        previous = classKey .. ":" .. data.spellID
-        local row = frame.rows[i]
-        LayoutRow(row, data, group, width, rowHeight)
-        row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -y)
-        y = y + rowHeight + ROW_GAP
+    if group.displayStyle == "icons" then
+        -- Icons flow left to right and wrap at the group width.
+        local size = math.max(16, group.iconSize or 36)
+        local gap = group.spacing or 4
+        local perRow = math.max(1, math.floor((width + gap) / (size + gap)))
+        for i, data in ipairs(rows) do
+            local row = frame.rows[i]
+            LayoutRow(row, data, group, size, size)
+            local col = (i - 1) % perRow
+            local line = math.floor((i - 1) / perRow)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", frame, "TOPLEFT", col * (size + gap), -(y + line * (size + gap)))
+        end
+        if #rows > 0 then
+            y = y + math.ceil(#rows / perRow) * (size + gap) - gap + ROW_GAP
+        end
+    else
+        local previous
+        for i, data in ipairs(rows) do
+            local def = Catalog:Get(data.spellID)
+            local classKey = def and def.class or data.class
+            if previous and previous ~= classKey .. ":" .. data.spellID then y = y + (group.spacing or 4) end
+            previous = classKey .. ":" .. data.spellID
+            local row = frame.rows[i]
+            LayoutRow(row, data, group, width, rowHeight)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -y)
+            y = y + rowHeight + ROW_GAP
+        end
     end
     frame:SetWidth(width)
     local newHeight = math.max(group.showHeader == false and 4 or HEADER_H + 4, y)
@@ -772,8 +852,12 @@ function RCD:RefreshGroup(id)
         frame:SetHeight(newHeight)
         if EUI.NotifyElementResized then EUI.NotifyElementResized(GROUP_KEY_PREFIX .. id) end
     end
-    if group.showHeader == false then frame.header:Hide(); frame.title:Hide()
-    else frame.header:Show(); frame.title:Show(); frame.title:SetText(group.name) end
+    if group.showHeader == false then
+        frame.header:Hide(); frame.headerLine:Hide(); frame.title:Hide()
+    else
+        frame.header:Show(); frame.headerLine:Show(); frame.title:Show()
+        frame.title:SetText(group.name)
+    end
     if #rows > 0 or self.preview then frame:Show() else frame:Hide() end
     return active
 end

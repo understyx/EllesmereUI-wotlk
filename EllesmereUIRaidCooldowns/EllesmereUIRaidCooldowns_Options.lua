@@ -15,6 +15,8 @@ local ACTION_VALUES = {
 local ACTION_ORDER = { "none", "announce", "request" }
 local TARGET_VALUES = { none = "Hidden", inline = "Inline" }
 local TARGET_ORDER = { "none", "inline" }
+local STYLE_VALUES = { bars = "Bars", icons = "Icons" }
+local STYLE_ORDER = { "bars", "icons" }
 local ROLE_ITEMS = {
     { key = "TANK", label = "Tank" },
     { key = "HEALER", label = "Healer" },
@@ -311,38 +313,44 @@ local function BuildGroupsPage(parent, yOffset)
     end
 
     _, h = W:Spacer(parent, y, 8); y = y - h
+    local iconMode = group.displayStyle == "icons"
     _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Enable This Group",
           getValue = function() return group.enabled ~= false end,
           setValue = function(value) group.enabled = value; RefreshRuntime(false) end },
-        { type = "toggle", text = "Show Ready Cooldowns",
-          getValue = function() return group.showReady ~= false end,
-          setValue = function(value) group.showReady = value; RefreshRuntime(false) end }
+        { type = "dropdown", text = "Display Style", values = STYLE_VALUES, order = STYLE_ORDER,
+          tooltip = "Bars show a row per cooldown. Icons show a grid of spell icons with a cooldown swipe and the caster's name.",
+          getValue = function() return group.displayStyle or "bars" end,
+          setValue = function(value) group.displayStyle = value; RefreshRuntime(true) end }
     ); y = y - h
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Header",
           getValue = function() return group.showHeader ~= false end,
           setValue = function(value) group.showHeader = value; RefreshRuntime(false) end },
-        { type = "toggle", text = "Show Spell Icons",
-          getValue = function() return group.showIcon ~= false end,
-          setValue = function(value) group.showIcon = value; RefreshRuntime(false) end }
+        { type = "toggle", text = "Show Ready Cooldowns",
+          getValue = function() return group.showReady ~= false end,
+          setValue = function(value) group.showReady = value; RefreshRuntime(false) end }
     ); y = y - h
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Show Spell Names",
-          getValue = function() return group.showSpellName ~= false end,
-          setValue = function(value) group.showSpellName = value; RefreshRuntime(false) end },
-        { type = "toggle", text = "Class-Colored Bars",
-          tooltip = "Colors bars by class. Otherwise cooldowns use the accent color and ready spells turn green.",
-          getValue = function() return group.colorBarByClass == true end,
-          setValue = function(value) group.colorBarByClass = value; RefreshRuntime(false) end }
-    ); y = y - h
-    _, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Last Target", values = TARGET_VALUES, order = TARGET_ORDER,
-          getValue = function() return group.targetDisplay or "none" end,
-          setValue = function(value) group.targetDisplay = value; RefreshRuntime(false) end },
-        nil
-    ); y = y - h
+    if not iconMode then
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Spell Icons",
+              getValue = function() return group.showIcon ~= false end,
+              setValue = function(value) group.showIcon = value; RefreshRuntime(false) end },
+            { type = "dropdown", text = "Last Target", values = TARGET_VALUES, order = TARGET_ORDER,
+              getValue = function() return group.targetDisplay or "none" end,
+              setValue = function(value) group.targetDisplay = value; RefreshRuntime(false) end }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Spell Names",
+              getValue = function() return group.showSpellName ~= false end,
+              setValue = function(value) group.showSpellName = value; RefreshRuntime(false) end },
+            { type = "toggle", text = "Class-Colored Bars",
+              tooltip = "Colors bars by class. Otherwise cooldowns use the accent color and ready spells turn green.",
+              getValue = function() return group.colorBarByClass == true end,
+              setValue = function(value) group.colorBarByClass = value; RefreshRuntime(false) end }
+        ); y = y - h
+    end
 
     _, h = W:Spacer(parent, y, 8); y = y - h
     _, h = W:SectionHeader(parent, "SIZE", y); y = y - h
@@ -350,12 +358,17 @@ local function BuildGroupsPage(parent, yOffset)
         { type = "slider", text = "Group Width", min = 150, max = 600, step = 1,
           getValue = function() return group.width or 270 end,
           setValue = function(value) group.width = value; RefreshRuntime(false) end },
+        iconMode and
+        { type = "slider", text = "Icon Size", min = 16, max = 64, step = 1,
+          getValue = function() return group.iconSize or 36 end,
+          setValue = function(value) group.iconSize = value; RefreshRuntime(false) end }
+        or
         { type = "slider", text = "Row Height", min = 16, max = 50, step = 1,
           getValue = function() return group.rowHeight or 26 end,
           setValue = function(value) group.rowHeight = value; RefreshRuntime(false) end }
     ); y = y - h
     _, h = W:DualRow(parent, y,
-        { type = "slider", text = "Spell Spacing", min = 0, max = 20, step = 1,
+        { type = "slider", text = iconMode and "Icon Spacing" or "Spell Spacing", min = 0, max = 20, step = 1,
           getValue = function() return group.spacing or 4 end,
           setValue = function(value) group.spacing = value; RefreshRuntime(false) end },
         nil
