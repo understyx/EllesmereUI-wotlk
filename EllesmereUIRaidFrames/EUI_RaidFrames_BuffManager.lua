@@ -450,6 +450,13 @@ local activeSpecKey_BM = nil
 -- -> Holy), this holds that borrow config so tracking can be restricted to the
 -- borrowed spells and the borrow's signature variants can merge in.
 local activeBorrow_BM = nil
+-- True while the lookup was built before the client had loaded the player's
+-- talents (fresh login on 3.3.5: every tree still reads 0 points, so no spec
+-- resolves). Distinct from a resolved non-healer spec. While set, the aura
+-- path re-probes the spec (throttled) and rebuilds once it resolves -- the
+-- talent events are not a reliable signal for this at login.
+local specPending_BM = false
+local specPendingNextCheck_BM = 0
 
 local function GetSpecSignatures(specKey)
     if specSignatures[specKey] then return specSignatures[specKey] end
@@ -489,6 +496,7 @@ local function DetectActiveSpecKey()
     -- borrowed spec's indicators to the spells this spec can actually cast.
     activeBorrow_BM = nil
     local specIdx = GetSpecialization and GetSpecialization()
+    specPending_BM = specIdx == nil
     local specID  = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx)
     if specID then activeBorrow_BM = BORROW_SPECS[specID] end
 end
@@ -2349,6 +2357,20 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
     if not GetFFD then return end
     local d = GetFFD(button)
     if not d.bmIconPool then return end
+
+    -- Lookup built before talents loaded: once the spec resolves, rebuild and
+    -- rescan every visible button (which includes this one).
+    if specPending_BM then
+        local now = GetTime()
+        if now >= specPendingNextCheck_BM then
+            specPendingNextCheck_BM = now + 1
+            if GetSpecialization and GetSpecialization() and _G._ERF_BMRefresh then
+                specPending_BM = false
+                _G._ERF_BMRefresh(true)
+                return
+            end
+        end
+    end
 
     -- Simple Setup mode takes over entirely: hide every custom-indicator visual
     -- and render the isolated buff grid instead. The two systems never coexist.
