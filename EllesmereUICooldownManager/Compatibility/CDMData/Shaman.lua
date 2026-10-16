@@ -433,3 +433,12 @@ RegisterBasic("fire_nova",        107023, 140, { 1535, 8498, 8499, 11314, 11315,
 RegisterBasic("earthbind_totem",  107024, 150, { 2484 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("stoneclaw_totem",  107025, 160, { 5730, 6390, 6391, 6392, 10427, 10428, 25525, 58580, 58581, 58582 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("reincarnation",    107026, 170, { 20608 }, CDM_CATEGORY_UTILITY)
+
+-- Self-buffs applied by the cooldowns above, listed in the buff picker so
+-- the buff can be tracked on its own (see C_CooldownViewer.RegisterSelfBuff).
+for _, key in ipairs({
+    "shamanistic_rage", "nature_swiftness", "tidal_force",
+}) do
+    C_CooldownViewer.RegisterSelfBuff("shaman." .. key)
+end
+C_CooldownViewer.RegisterSelfBuff("shaman.elemental_mastery", { 16166, 64701 }) -- instant cast, then haste

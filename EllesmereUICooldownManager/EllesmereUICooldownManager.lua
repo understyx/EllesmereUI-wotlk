@@ -398,6 +398,7 @@ local BUFF_BAR_PRESETS = {
         icon     = "Interface\\Icons\\inv_alchemy_elixir_04",
         spellIDs = { 53908 },
         duration = 15,
+        inBuffCatalog = true,  -- the buff picker lists the Potions row instead
     },
     {
         key      = "potion_wild_magic",
@@ -405,6 +406,7 @@ local BUFF_BAR_PRESETS = {
         icon     = "Interface\\Icons\\inv_alchemy_elixir_03",
         spellIDs = { 53909 },
         duration = 15,
+        inBuffCatalog = true,  -- the buff picker lists the Potions row instead
     },
     {
         key      = "indestructible_potion",
@@ -412,6 +414,7 @@ local BUFF_BAR_PRESETS = {
         icon     = "Interface\\Icons\\inv_alchemy_endlessflask_06",
         spellIDs = { 53762 },
         duration = 120,
+        inBuffCatalog = true,  -- the buff picker lists the Potions row instead
     },
 }
 ns.BUFF_BAR_PRESETS = BUFF_BAR_PRESETS
@@ -454,6 +457,21 @@ local CDM_ITEM_PRESETS = {
     },
 }
 ns.CDM_ITEM_PRESETS = CDM_ITEM_PRESETS
+
+-- Gear slots whose on-use effect usually comes from an engineering tinker.
+-- Listed under "Item Enchants" in the CD/utility picker and added to every
+-- spec's Utility bar; a slot icon only shows while the equipped item has a
+-- Use: effect (see UpdateTrinketFrame), so non-engineers never see them.
+ns.CDM_ITEM_ENCHANT_SLOTS = {
+    { slot = 10, label = "Gloves", icon = "Interface\\Icons\\INV_Gauntlets_04",
+      examples = "Hyperspeed Accelerators, Hand-Mounted Pyro Rocket" },
+    { slot = 6,  label = "Belt",   icon = "Interface\\Icons\\INV_Belt_03",
+      examples = "Frag Belt" },
+    { slot = 8,  label = "Boots",  icon = "Interface\\Icons\\INV_Boots_03",
+      examples = "Nitro Boosts" },
+    { slot = 15, label = "Cloak",  icon = "Interface\\Icons\\INV_Misc_Cape_02",
+      examples = "Flexweave Underlay, Springy Arachnoweave" },
+}
 
 
 local BuildAllCDMBars
@@ -1563,7 +1581,7 @@ function ns.RescanCustomIconFlag()
     if not EllesmereUIDB then return end
     ns._customIconFlagScanned = true
     ns.ForEachSavedSettingsBlock(function(ss)
-        if type(ss.customIcon) == "number" and ss.customIcon > 0 then
+        if type(ss.customIcon) == "string" and ss.customIcon ~= "" then
             ns._cdmAnyCustomIcon = true
             return true
         end

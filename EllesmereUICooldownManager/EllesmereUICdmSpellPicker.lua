@@ -542,6 +542,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                 -- entries appended below may not be.
                 isKnown     = true,
                 isEquipmentProc = info and info.isEquipmentProc or false,
+                isEquipmentProcGroup = info and info.isEquipmentProcGroup or false,
                 isTrinketProc = info and info.isTrinketProc or false,
                 isItemSetProc = info and info.isItemSetProc or false,
                 isTalentProc = info and info.isTalentProc or false,
@@ -708,6 +709,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                         onEUIBar = isOnThisBar,
                         isKnown = knownCd[cdID] == true,
                         isEquipmentProc = info.isEquipmentProc == true,
+                        isEquipmentProcGroup = info.isEquipmentProcGroup == true,
                         isTrinketProc = false,
                         isItemSetProc = info.isItemSetProc == true,
                         isTalentProc = info.isTalentProc == true,
@@ -994,6 +996,26 @@ local function SeedSpecDefaults(prof, specKey, barList)
         if not placed then
             local sd = BarData("utility")
             sd.assignedSpells[#sd.assignedSpells + 1] = ns._activeRacialSpellID or 20572
+        end
+    end
+
+    -- Every spec gets the tinker-carrying gear slots on Utility. Each slot
+    -- shows only while its equipped item has a Use: effect, so the entries
+    -- stay invisible for characters without engineering tinkers.
+    if liveBars.utility and ns.CDM_ITEM_ENCHANT_SLOTS then
+        for _, row in ipairs(ns.CDM_ITEM_ENCHANT_SLOTS) do
+            local key = -(row.slot)
+            local placed = false
+            for _, bsd in pairs(prof.barSpells) do
+                for _, sid in ipairs(type(bsd) == "table" and bsd.assignedSpells or {}) do
+                    if sid == key then placed = true; break end
+                end
+                if placed then break end
+            end
+            if not placed then
+                local sd = BarData("utility")
+                sd.assignedSpells[#sd.assignedSpells + 1] = key
+            end
         end
     end
 

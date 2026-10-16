@@ -507,3 +507,12 @@ RegisterBasic("howling_blast",    106026, 180, { 49184, 51409, 51410, 51411 })
 RegisterBasic("hungering_cold",   106027, 190, { 49203 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("deathchill",       106028, 200, { 49796 })
 RegisterBasic("blood_boil",       106029, 210, { 48721, 49939, 49940, 49941 })
+
+-- Self-buffs applied by the cooldowns above, listed in the buff picker so
+-- the buff can be tracked on its own (see C_CooldownViewer.RegisterSelfBuff).
+for _, key in ipairs({
+    "icebound_fortitude", "anti_magic_shell", "unbreakable_armor",
+    "vampiric_blood", "lichborne", "deathchill",
+}) do
+    C_CooldownViewer.RegisterSelfBuff("deathknight." .. key)
+end

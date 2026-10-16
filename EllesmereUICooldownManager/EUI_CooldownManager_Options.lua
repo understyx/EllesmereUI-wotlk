@@ -7089,6 +7089,66 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  Buff picker sections, shared by both buff pickers. Returns an ordered
+    --  list of { label, rows }; empty sections are kept and skipped by callers.
+    ---------------------------------------------------------------------------
+    local ITEM_BUFF_SECTIONS = { consumable = true, enchant = true, equipment = true }
+    local function GroupBuffRowsBySection(rows)
+        local classBuffs, talentProcs, itemSetProcs, items = {}, {}, {}, {}
+        local raidBuffs, externals, healing = {}, {}, {}
+        for _, sp in ipairs(rows) do
+            if sp.isTalentProc or sp.buffCatalogSection == "talent" then
+                talentProcs[#talentProcs + 1] = sp
+            elseif sp.isItemSetProc or sp.buffCatalogSection == "item_set" then
+                itemSetProcs[#itemSetProcs + 1] = sp
+            elseif sp.isEquipmentProc or ITEM_BUFF_SECTIONS[sp.buffCatalogSection] then
+                items[#items + 1] = sp
+            elseif not sp.externalBuff then
+                classBuffs[#classBuffs + 1] = sp
+            elseif sp.buffCatalogSection == "raid" then
+                raidBuffs[#raidBuffs + 1] = sp
+            elseif sp.buffCatalogSection == "healing" then
+                healing[#healing + 1] = sp
+            else
+                externals[#externals + 1] = sp
+            end
+        end
+        return {
+            { "Class Buffs", classBuffs },
+            { "Talent Procs", talentProcs },
+            { "Item Set Procs", itemSetProcs },
+            { "Consumables & Items", items },
+            { "Raid Buffs", raidBuffs },
+            { "External Buffs", externals },
+            { "Healing Buffs", healing },
+        }
+    end
+
+    -- Centered caption with an underline at yOffset; returns its height.
+    local function CreateBuffSectionHeader(inner, menu, yOffset, label)
+        local header = EllesmereUI.SafeCreateFrame("Frame", nil, inner)
+        header:SetHeight(24)
+        header:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -yOffset)
+        header:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -yOffset)
+        -- The menu background lives on a high fullscreen-dialog level.
+        -- Match the spell rows so the caption is not composited behind it.
+        header:SetFrameLevel(menu:GetFrameLevel() + 2)
+        local fs = header:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+        fs:SetPoint("CENTER", header, "CENTER", 0, 2)
+        fs:SetJustifyH("CENTER")
+        fs:SetText(EllesmereUI.L(label))
+        fs:SetTextColor(EllesmereUI.DD_ITEM_R or 0.75, EllesmereUI.DD_ITEM_G or 0.75,
+            EllesmereUI.DD_ITEM_B or 0.75, 0.9)
+        local line = header:CreateTexture(nil, "ARTWORK")
+        line:SetHeight(1)
+        line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 8, 1)
+        line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, 1)
+        line:SetTexture(1, 1, 1, 0.12)
+        return 24
+    end
+
+    ---------------------------------------------------------------------------
     --  Buff Bar Spell Picker
     --  Shows ONLY spells from CDM buff categories (2, 3).
     --  None grayed out. Selecting moves the spell to the target bar.
@@ -7125,7 +7185,10 @@ initFrame:SetScript("OnEvent", function(self)
         for _, sp in ipairs(allSpells) do
             -- Individual equipment-proc aura definitions remain the runtime
             -- frames, but users manage them through the catch-all row below.
-            if sp.cdmCatGroup == "buff" and not sp.isTrinketProc then
+            -- The Trinket Procs group row is skipped too: on buff bars the
+            -- Equipment Procs entry tracks the same auras as separate icons.
+            if sp.cdmCatGroup == "buff" and not sp.isTrinketProc
+               and not sp.isEquipmentProcGroup then
                 knownSpells[#knownSpells + 1] = sp
             end
         end
@@ -7333,7 +7396,8 @@ initFrame:SetScript("OnEvent", function(self)
             local _, _pClass = UnitClass("player")
             for _, preset in ipairs(ns.BUFF_BAR_PRESETS or {}) do
                 if (not preset.class or preset.class == _pClass)
-                   and (not preset.tbbOnly or preset.customAuraToo) then
+                   and (not preset.tbbOnly or preset.customAuraToo)
+                   and not preset.inBuffCatalog then
                     local primaryID = preset.spellIDs and preset.spellIDs[1]
                     local isAdded = primaryID and alreadyTracked[primaryID]
                     local si = EllesmereUI.SafeCreateFrame("Button", nil, inner)
@@ -7396,19 +7460,24 @@ initFrame:SetScript("OnEvent", function(self)
             -- claim tells them apart.
             local sdRows = ns.GetBarSpellData(targetBarKey)
             local cdTracked = sdRows and ns.CollectCdClaimSet(sdRows)
-            for _, sp in ipairs(knownSpells) do
-                local item = MakeSpellRow(sp)
-                if sp.onEUIBar or (cdTracked and sp.cdID and cdTracked[sp.cdID]) then
-                    if item._grayOut then item._grayOut() end
-                else
-                    item:SetScript("OnClick", function()
-                        -- cdID rides along so collided buffs can be claimed per
-                        -- viewer slot rather than per (shared) spellID.
-                        if onChanged then onChanged(sp.spellID, sp.cdID) end
-                        -- Keep the picker open so several buffs can be added in a
-                        -- row; gray this row in place to reflect that it was added.
+            for _, section in ipairs(GroupBuffRowsBySection(knownSpells)) do
+                if #section[2] > 0 then
+                    mH = mH + CreateBuffSectionHeader(inner, menu, mH, section[1])
+                end
+                for _, sp in ipairs(section[2]) do
+                    local item = MakeSpellRow(sp)
+                    if sp.onEUIBar or (cdTracked and sp.cdID and cdTracked[sp.cdID]) then
                         if item._grayOut then item._grayOut() end
-                    end)
+                    else
+                        item:SetScript("OnClick", function()
+                            -- cdID rides along so collided buffs can be claimed per
+                            -- viewer slot rather than per (shared) spellID.
+                            if onChanged then onChanged(sp.spellID, sp.cdID) end
+                            -- Keep the picker open so several buffs can be added in a
+                            -- row; gray this row in place to reflect that it was added.
+                            if item._grayOut then item._grayOut() end
+                        end)
+                    end
                 end
             end
         end
@@ -7562,7 +7631,9 @@ initFrame:SetScript("OnEvent", function(self)
         local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
-            if sp.cdmCatGroup == wantedGroup and sp.spellID then
+            -- Per-item equipment procs (live while their item is equipped) are
+            -- covered by the single Trinket Procs row.
+            if sp.cdmCatGroup == wantedGroup and sp.spellID and not sp.isTrinketProc then
                 knownSpells[#knownSpells + 1] = sp
             end
         end
@@ -7706,25 +7777,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local function AddSection(label, rows)
             if #rows == 0 then return end
-            local header = EllesmereUI.SafeCreateFrame("Frame", nil, inner)
-            header:SetHeight(24)
-            header:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
-            header:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
-            -- The menu background lives on a high fullscreen-dialog level.
-            -- Match the spell rows so the caption is not composited behind it.
-            header:SetFrameLevel(menu:GetFrameLevel() + 2)
-            local fs = header:CreateFontString(nil, "OVERLAY")
-            fs:SetFont(FONT_PATH, 10, GetCDMOptOutline())
-            fs:SetPoint("CENTER", header, "CENTER", 0, 2)
-            fs:SetJustifyH("CENTER")
-            fs:SetText(EllesmereUI.L(label))
-            fs:SetTextColor(tDimR, tDimG, tDimB, 0.9)
-            local line = header:CreateTexture(nil, "ARTWORK")
-            line:SetHeight(1)
-            line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 8, 1)
-            line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, 1)
-            line:SetTexture(1, 1, 1, 0.12)
-            mH = mH + 24
+            mH = mH + CreateBuffSectionHeader(inner, menu, mH, label)
             for _, sp in ipairs(rows) do MakeSpellRow(sp) end
         end
 
@@ -7740,29 +7793,9 @@ initFrame:SetScript("OnEvent", function(self)
             AddSection("Personal Debuffs", personal)
             AddSection("Raid Debuffs", raid)
         else
-            local classBuffs, talentProcs, itemSetProcs = {}, {}, {}
-            local raidBuffs, externals, healing = {}, {}, {}
-            for _, sp in ipairs(knownSpells) do
-                if sp.isTalentProc or sp.buffCatalogSection == "talent" then
-                    talentProcs[#talentProcs + 1] = sp
-                elseif sp.isItemSetProc or sp.buffCatalogSection == "item_set" then
-                    itemSetProcs[#itemSetProcs + 1] = sp
-                elseif not sp.externalBuff then
-                    classBuffs[#classBuffs + 1] = sp
-                elseif sp.buffCatalogSection == "raid" then
-                    raidBuffs[#raidBuffs + 1] = sp
-                elseif sp.buffCatalogSection == "healing" then
-                    healing[#healing + 1] = sp
-                else
-                    externals[#externals + 1] = sp
-                end
+            for _, section in ipairs(GroupBuffRowsBySection(knownSpells)) do
+                AddSection(section[1], section[2])
             end
-            AddSection("Class Buffs", classBuffs)
-            AddSection("Talent Procs", talentProcs)
-            AddSection("Item Set Procs", itemSetProcs)
-            AddSection("Raid Buffs", raidBuffs)
-            AddSection("External Buffs", externals)
-            AddSection("Healing Buffs", healing)
         end
 
         -- "Missing Buffs?" footer -- opens Blizzard's CDM to Display more buffs.
@@ -8141,125 +8174,20 @@ initFrame:SetScript("OnEvent", function(self)
         popup._box:HighlightText()
     end
 
-    -- Numeric popup for the per-spell "Custom Icon": the user enters a texture
-    -- fileID (icon ID) that permanently replaces this spell's bar icon,
-    -- including every form the spell transforms into. Empty (or 0) removes the
-    -- override. Mirrors ShowThresholdSecondsPopup's look, plus a live preview
-    -- of the typed ID (empty/invalid shows the question-mark fallback, so a
-    -- typo is visible before saving). onConfirm receives the integer fileID,
-    -- or nil for remove. Assigned to ns instead of a new page-scope local so
-    -- this enormous builder function stays clear of the Lua 5.1 200-local cap.
-    ns.ShowCDMCustomIconPopup = function(currentID, onConfirm)
-        local popupName = "EUI_CDM_CustomIconPopup"
-        local popup = _G[popupName]
-        if not popup then
-            local dimmer = EllesmereUI.SafeCreateFrame("Frame", popupName .. "Dimmer", UIParent)
-            dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-            dimmer:SetAllPoints(UIParent)
-            dimmer:EnableMouse(true)
-            dimmer:Hide()
-            local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-            dimTex:SetAllPoints(); dimTex:SetTexture(0, 0, 0, 0.25)
-            dimmer:SetScript("OnMouseDown", function(self) self:Hide() end)
-
-            popup = EllesmereUI.SafeCreateFrame("Frame", popupName, dimmer)
-            popup:SetSize(300, 196)
-            popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-            popup:SetFrameStrata("FULLSCREEN_DIALOG")
-            popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-            popup:EnableMouse(true)
-            local popBg = popup:CreateTexture(nil, "BACKGROUND")
-            popBg:SetAllPoints(); popBg:SetTexture(0.06, 0.08, 0.10, 1)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
-            popup._dimmer = dimmer
-
-            local title = popup:CreateFontString(nil, "OVERLAY")
-            title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
-            title:SetPoint("TOP", popup, "TOP", 0, -18)
-            title:SetTextColor(1, 1, 1, 1)
-            title:SetText(EllesmereUI.L("Custom Icon"))
-
-            local hint = popup:CreateFontString(nil, "OVERLAY")
-            hint:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-            hint:SetPoint("TOP", title, "BOTTOM", 0, -6)
-            hint:SetTextColor(0.7, 0.7, 0.7, 0.85)
-            hint:SetText(EllesmereUI.L("Icon ID always shown for this spell (empty removes)"))
-
-            local box = EllesmereUI.SafeCreateFrame("EditBox", nil, popup)
-            box:SetSize(180, 28)
-            box:SetPoint("TOP", hint, "BOTTOM", 0, -12)
-            box:SetAutoFocus(true)
-            box:SetNumeric(true)
-            box:SetMaxLetters(9)
-            box:SetFont(FONT_PATH, 13, GetCDMOptOutline())
-            box:SetTextColor(1, 1, 1, 0.9)
-            box:SetJustifyH("CENTER")
-            local boxBg = box:CreateTexture(nil, "BACKGROUND")
-            boxBg:SetAllPoints(); boxBg:SetTexture(0.04, 0.06, 0.08, 1)
-            EllesmereUI.MakeBorder(box, 1, 1, 1, 0.12, EllesmereUI.PP)
-            popup._box = box
-
-            -- Live preview of the typed ID (question mark for empty/unknown;
-            -- fires via OnTextChanged, including the SetText on reopen below).
-            local prev = popup:CreateTexture(nil, "ARTWORK")
-            prev:SetSize(30, 30)
-            prev:SetPoint("TOP", box, "BOTTOM", 0, -10)
-            prev:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            prev:SetTexture(134400)
-            popup._prev = prev
-            box:SetScript("OnTextChanged", function(b)
-                local id = tonumber(b:GetText())
-                prev:SetTexture((id and id > 0) and id or 134400)
-            end)
-
-            local ar, ag, ab = EllesmereUI.GetAccentColor()
-            local okBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
-            okBtn:SetSize(80, 28)
-            okBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
-            local okBg = okBtn:CreateTexture(nil, "BACKGROUND")
-            okBg:SetAllPoints(); okBg:SetTexture(ar, ag, ab, 0.15)
-            EllesmereUI.MakeBorder(okBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
-            local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
-            okLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-            okLbl:SetPoint("CENTER"); okLbl:SetText(EllesmereUI.L("Save"))
-            okLbl:SetTextColor(ar, ag, ab, 0.9)
-            okBtn:SetScript("OnEnter", function() okLbl:SetTextColor(1, 1, 1, 1) end)
-            okBtn:SetScript("OnLeave", function() okLbl:SetTextColor(ar, ag, ab, 0.9) end)
-
-            local cancelBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
-            cancelBtn:SetSize(80, 28)
-            cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
-            local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
-            cBg:SetAllPoints(); cBg:SetTexture(0.12, 0.12, 0.12, 0.5)
-            EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
-            local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
-            cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-            cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
-            cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8)
-            cancelBtn:SetScript("OnEnter", function() cLbl:SetTextColor(1, 1, 1, 1) end)
-            cancelBtn:SetScript("OnLeave", function() cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8) end)
-            cancelBtn:SetScript("OnClick", function() dimmer:Hide() end)
-
-            local function Commit()
-                local v = tonumber(box:GetText())
-                dimmer:Hide()
-                if popup._onConfirm then
-                    if v and v > 0 then
-                        popup._onConfirm(math.floor(v))
-                    else
-                        popup._onConfirm(nil)  -- empty or 0 = remove
-                    end
-                end
-            end
-            okBtn:SetScript("OnClick", Commit)
-            box:SetScript("OnEnterPressed", Commit)
-            box:SetScript("OnEscapePressed", function() dimmer:Hide() end)
-        end
-        popup._onConfirm = onConfirm
-        popup._box:SetText(currentID and tostring(currentID) or "")
-        popup._dimmer:Show()
-        popup._box:SetFocus()
-        popup._box:HighlightText()
+    -- Per-spell "Custom Icon": opens the shared searchable icon picker
+    -- (EllesmereUI_IconPicker.lua). The chosen texture PATH permanently
+    -- replaces this spell's bar icon, including every form the spell
+    -- transforms into. onConfirm receives the path, or nil for Remove.
+    -- Legacy numeric fileIDs (never rendered on 3.3.5) open as "no icon".
+    -- Assigned to ns instead of a new page-scope local so this enormous
+    -- builder function stays clear of the Lua 5.1 200-local cap.
+    ns.ShowCDMCustomIconPopup = function(currentIcon, onConfirm)
+        EllesmereUI.ShowIconPicker({
+            title       = "Custom Icon",
+            current     = type(currentIcon) == "string" and currentIcon or nil,
+            allowRemove = true,
+            onPick      = onConfirm,
+        })
     end
 
     local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSelect, removeOnly)
@@ -12340,7 +12268,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- customActiveStates, which nothing reads customIcon from).
                     -- Popup flow closes the menu, matching Lower Alpha convention.
                     if not (type(spellID) == "number" and spellID < 0) then
-                        local hasCI = type(rawget(ss, "customIcon")) == "number"
+                        local hasCI = rawget(ss, "customIcon") ~= nil
                         local ciRow = EllesmereUI.SafeCreateFrame("Button", nil, inner)
                         ciRow:SetHeight(ITEM_H)
                         ciRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -12364,10 +12292,10 @@ initFrame:SetScript("OnEvent", function(self)
                         ciRow:SetScript("OnClick", function()
                             -- Close the per-spell dropdown so only the popup shows.
                             menu:Hide()
-                            ns.ShowCDMCustomIconPopup(rawget(ss, "customIcon"), function(id)
+                            ns.ShowCDMCustomIconPopup(rawget(ss, "customIcon"), function(path)
                                 EnsureSS()
-                                ss.customIcon = id
-                                if id then
+                                ss.customIcon = path
+                                if path then
                                     -- Live-arm the session gate (monotonic; the
                                     -- login rescan covers already-saved settings).
                                     ns._cdmAnyCustomIcon = true
@@ -13399,74 +13327,79 @@ initFrame:SetScript("OnEvent", function(self)
                 mH = mH + ITEM_H
             end
 
-            -- "Potions & Healthstone" flyout subnav
-            local _potionsSub
-            menu._potionsSub = nil  -- reference for OnUpdate close-check
-            local itemPresets = ns.CDM_ITEM_PRESETS
-            if itemPresets and #itemPresets > 0 then
-                local potItem = EllesmereUI.SafeCreateFrame("Button", nil, inner)
-                potItem:SetHeight(ITEM_H)
-                potItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
-                potItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
-                potItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+            -- Flyout subnav rows: a caption row whose hover opens a side list of
+            -- entries ({ id = assignedSpells key, name, icon }). Each open
+            -- flyout is registered in menu._flyoutSubs for the close-check.
+            menu._flyoutSubs = {}
+            local function AddEntryFlyout(caption, entries)
+                if #entries == 0 then return end
+                local flyout
+                local capItem = EllesmereUI.SafeCreateFrame("Button", nil, inner)
+                capItem:SetHeight(ITEM_H)
+                capItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                capItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                capItem:SetFrameLevel(menu:GetFrameLevel() + 2)
 
-                local potHl = potItem:CreateTexture(nil, "ARTWORK")
-                potHl:SetAllPoints(); potHl:SetTexture(1, 1, 1, 0); potHl:SetAlpha(0)
+                local capHl = capItem:CreateTexture(nil, "ARTWORK")
+                capHl:SetAllPoints(); capHl:SetTexture(1, 1, 1, 0); capHl:SetAlpha(0)
 
-                local potLbl = potItem:CreateFontString(nil, "OVERLAY")
-                potLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                potLbl:SetPoint("LEFT", 10, 0)
-                potLbl:SetJustifyH("LEFT")
-                potLbl:SetText(EllesmereUI.L("Potions & Healthstone"))
-                potLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                local capLbl = capItem:CreateFontString(nil, "OVERLAY")
+                capLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                capLbl:SetPoint("LEFT", 10, 0)
+                capLbl:SetJustifyH("LEFT")
+                capLbl:SetText(EllesmereUI.L(caption))
+                capLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
 
-                local potArrow = potItem:CreateTexture(nil, "ARTWORK")
-                potArrow:SetSize(10, 10)
-                potArrow:SetPoint("RIGHT", potItem, "RIGHT", -8, 0)
-                potArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
-                potArrow:SetAlpha(0.7)
+                local capArrow = capItem:CreateTexture(nil, "ARTWORK")
+                capArrow:SetSize(10, 10)
+                capArrow:SetPoint("RIGHT", capItem, "RIGHT", -8, 0)
+                capArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.tga")
+                capArrow:SetAlpha(0.7)
 
-                local function ShowPotionsSub()
-                    if not _potionsSub then
-                        _potionsSub = EllesmereUI.SafeCreateFrame("Frame", nil, menu)
-                        menu._potionsSub = _potionsSub
-                        _potionsSub:SetFrameStrata("FULLSCREEN_DIALOG")
-                        _potionsSub:SetFrameLevel(menu:GetFrameLevel() + 5)
-                        _potionsSub:SetClampedToScreen(true)
-                        _potionsSub:EnableMouse(true)
-                    elseif _potionsSub:IsShown() then
+                local function ShowFlyout()
+                    if not flyout then
+                        flyout = EllesmereUI.SafeCreateFrame("Frame", nil, menu)
+                        menu._flyoutSubs[#menu._flyoutSubs + 1] = flyout
+                        flyout:SetFrameStrata("FULLSCREEN_DIALOG")
+                        flyout:SetFrameLevel(menu:GetFrameLevel() + 5)
+                        flyout:SetClampedToScreen(true)
+                        flyout:EnableMouse(true)
+                    elseif flyout:IsShown() then
                         return
                     else
-                        for _, child in ipairs({_potionsSub:GetChildren()}) do
+                        for _, child in ipairs({flyout:GetChildren()}) do
                             child:Hide(); child:SetParent(nil)
                         end
-                        for _, rgn in ipairs({_potionsSub:GetRegions()}) do
+                        for _, rgn in ipairs({flyout:GetRegions()}) do
                             if rgn.Hide then rgn:Hide() end
                         end
+                    end
+                    -- Only one flyout open at a time.
+                    for _, other in ipairs(menu._flyoutSubs) do
+                        if other ~= flyout then other:Hide() end
                     end
 
                     local subW = 220
                     local SUB_ITEM_H = 26
                     -- Captions collected as the rows are built so the frame can be
-                    -- widened to the longest preset name instead of ellipsising it.
+                    -- widened to the longest entry name instead of ellipsising it.
                     local subLabels = {}
-                    _potionsSub:SetSize(subW, 10)
-                    _potionsSub:ClearAllPoints()
-                    _potionsSub:SetPoint("TOPLEFT", potItem, "TOPRIGHT", 2, 0)
+                    flyout:SetSize(subW, 10)
+                    flyout:ClearAllPoints()
+                    flyout:SetPoint("TOPLEFT", capItem, "TOPRIGHT", 2, 0)
 
-                    local subBg = _potionsSub:CreateTexture(nil, "BACKGROUND")
+                    local subBg = flyout:CreateTexture(nil, "BACKGROUND")
                     subBg:SetAllPoints()
                     subBg:SetTexture(mBgR, mBgG, mBgB, mBgA)
-                    EllesmereUI.MakeBorder(_potionsSub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                    EllesmereUI.MakeBorder(flyout, 1, 1, 1, mBrdA, EllesmereUI.PP)
 
-                    local subInner = EllesmereUI.SafeCreateFrame("Frame", nil, _potionsSub)
+                    local subInner = EllesmereUI.SafeCreateFrame("Frame", nil, flyout)
                     subInner:SetWidth(subW)
                     subInner:SetPoint("TOPLEFT")
 
                     local subH = 4
-                    for _, preset in ipairs(itemPresets) do
-                        do
-                        local pID = -(preset.itemID)
+                    for _, entry in ipairs(entries) do
+                        local pID = entry.id
                         local isAdded = alreadyOnBar[pID]
                         local pOtherBar = not isAdded and usedOnOtherBar[pID]
                         local pIsDisabled = isAdded  -- other bars stay claimable (auto-move)
@@ -13475,14 +13408,14 @@ initFrame:SetScript("OnEvent", function(self)
                         si:SetHeight(SUB_ITEM_H)
                         si:SetPoint("TOPLEFT", subInner, "TOPLEFT", 1, -subH)
                         si:SetPoint("TOPRIGHT", subInner, "TOPRIGHT", -1, -subH)
-                        si:SetFrameLevel(_potionsSub:GetFrameLevel() + 2)
+                        si:SetFrameLevel(flyout:GetFrameLevel() + 2)
                         si:RegisterForClicks("AnyUp")
 
                         local sIco = si:CreateTexture(nil, "ARTWORK")
                         local icoSz = SUB_ITEM_H - 2
                         sIco:SetSize(icoSz, icoSz)
                         sIco:SetPoint("RIGHT", si, "RIGHT", -6, 0)
-                        sIco:SetTexture(preset.icon or (preset.itemID and C_Item.GetItemIconByID(preset.itemID)))
+                        sIco:SetTexture(entry.icon)
                         sIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
                         local sLbl = si:CreateFontString(nil, "OVERLAY")
@@ -13492,7 +13425,7 @@ initFrame:SetScript("OnEvent", function(self)
                         sLbl:SetJustifyH("LEFT")
                         sLbl:SetWordWrap(false)
                         sLbl:SetMaxLines(1)
-                        sLbl:SetText(EllesmereUI.L(preset.name))
+                        sLbl:SetText(entry.name)
                         subLabels[#subLabels + 1] = sLbl
 
                         local sHl = si:CreateTexture(nil, "ARTWORK")
@@ -13513,13 +13446,17 @@ initFrame:SetScript("OnEvent", function(self)
                             si:SetScript("OnEnter", function()
                                 sLbl:SetTextColor(1, 1, 1, 1)
                                 sHl:SetTexture(1, 1, 1, hlA); sHl:SetAlpha(1)
+                                if entry.tooltip then
+                                    EllesmereUI.ShowWidgetTooltip(si, entry.tooltip)
+                                end
                             end)
                             si:SetScript("OnLeave", function()
                                 sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
                                 sHl:SetAlpha(0)
+                                if entry.tooltip then EllesmereUI.HideWidgetTooltip() end
                             end)
                             si:SetScript("OnClick", function()
-                                _potionsSub:Hide()
+                                flyout:Hide()
                                 menu:Hide()
                                 EnsureAssignedSpells(barKey)
                                 ns.AddTrackedSpell(barKey, pID)
@@ -13527,40 +13464,66 @@ initFrame:SetScript("OnEvent", function(self)
                             end)
                         end
                         subH = subH + SUB_ITEM_H
-                        end -- healthstone filter
                     end
 
-                    -- Widen to the longest preset name (pad leaves room for the text
+                    -- Widen to the longest entry name (pad leaves room for the text
                     -- inset and the row's right-hand item icon).
                     subW = FitMenuWidth(subLabels, subW, 48)
-                    _potionsSub:SetWidth(subW)
+                    flyout:SetWidth(subW)
                     subInner:SetWidth(subW)
                     local totalSubH = subH + 4
                     subInner:SetHeight(totalSubH)
-                    _potionsSub:SetHeight(totalSubH)
-                    subInner:SetParent(_potionsSub)
+                    flyout:SetHeight(totalSubH)
+                    subInner:SetParent(flyout)
                     subInner:SetPoint("TOPLEFT")
-                    _potionsSub:Show()
+                    flyout:Show()
                 end
 
-                potItem:SetScript("OnEnter", function()
-                    potLbl:SetTextColor(1, 1, 1, 1)
-                    potHl:SetTexture(1, 1, 1, hlA); potHl:SetAlpha(1)
-                    ShowPotionsSub()
+                capItem:SetScript("OnEnter", function()
+                    capLbl:SetTextColor(1, 1, 1, 1)
+                    capHl:SetTexture(1, 1, 1, hlA); capHl:SetAlpha(1)
+                    ShowFlyout()
                 end)
-                potItem:SetScript("OnLeave", function()
-                    potLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                    potHl:SetAlpha(0)
+                capItem:SetScript("OnLeave", function()
+                    capLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                    capHl:SetAlpha(0)
                     C_Timer.After(0.3, function()
-                        if _potionsSub and _potionsSub:IsShown() and not _potionsSub:IsMouseOver() and not potItem:IsMouseOver() then
-                            _potionsSub:Hide()
+                        if flyout and flyout:IsShown() and not flyout:IsMouseOver() and not capItem:IsMouseOver() then
+                            flyout:Hide()
                         end
                     end)
                 end)
 
-                allItems[#allItems + 1] = potItem
+                allItems[#allItems + 1] = capItem
                 mH = mH + ITEM_H
             end
+
+            -- "Potions & Healthstone": item presets, stored as -itemID.
+            local potionEntries = {}
+            for _, preset in ipairs(ns.CDM_ITEM_PRESETS or {}) do
+                potionEntries[#potionEntries + 1] = {
+                    id = -(preset.itemID),
+                    name = EllesmereUI.L(preset.name),
+                    icon = preset.icon or (preset.itemID and C_Item.GetItemIconByID(preset.itemID)),
+                }
+            end
+            AddEntryFlyout("Potions & Healthstone", potionEntries)
+
+            -- "Item Enchants": the gear slots that carry on-use tinkers, stored
+            -- as -slotID like the trinket slots. The slot icon appears only
+            -- while the equipped item has a usable Use: effect, so swapping to
+            -- gear without the tinker drops it from the bar.
+            local enchantEntries = {}
+            for _, row in ipairs(ns.CDM_ITEM_ENCHANT_SLOTS or {}) do
+                local itemID = GetInventoryItemID("player", row.slot)
+                enchantEntries[#enchantEntries + 1] = {
+                    id = -(row.slot),
+                    name = EllesmereUI.L(row.label),
+                    icon = (itemID and C_Item.GetItemIconByID(itemID)) or row.icon,
+                    tooltip = EllesmereUI.L(row.examples),
+                }
+            end
+            AddEntryFlyout("Item Enchants", enchantEntries)
 
             -- Divider after trinkets/potions
             local trDiv = inner:CreateTexture(nil, "ARTWORK")
@@ -13897,7 +13860,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- Close on left-click outside (non-blocking, preserves world interactions)
         menu:SetScript("OnUpdate", function(m)
             local overSub = (_customTrackingSub and _customTrackingSub:IsShown() and _customTrackingSub:IsMouseOver())
-                or (m._potionsSub and m._potionsSub:IsShown() and m._potionsSub:IsMouseOver())
+            if not overSub then
+                for _, sub in ipairs(m._flyoutSubs or {}) do
+                    if sub:IsShown() and sub:IsMouseOver() then overSub = true; break end
+                end
+            end
             if not m:IsMouseOver() and not anchorFrame:IsMouseOver() and not overSub and IsMouseButtonDown("LeftButton") then
                 m:Hide()
             end

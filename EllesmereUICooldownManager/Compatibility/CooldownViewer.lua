@@ -1051,6 +1051,44 @@ function C_CooldownViewer.RegisterDefinition(def)
     end
 end
 
+-- Buff-catalog row for the self-buff a cooldown applies (Death Wish,
+-- Icy Veins, Barkskin, ...). Class files register the cooldown once and call
+-- this for the abilities whose buff is worth tracking on its own. The row
+-- inherits the cooldown's class, ranks and talent gate, so it is learned
+-- exactly when the ability is. auraSpellIDs is only needed when the buff's ID
+-- differs from the cast (Bloodrage casts 2687 and applies 29131). The
+-- 2000000 offset keeps these cooldownIDs stable and clear of the
+-- 700000-offset category-4 mirrors above.
+function C_CooldownViewer.RegisterSelfBuff(sourceKey, auraSpellIDs)
+    local sourceID = cooldownIDsByKey[sourceKey]
+    local source = sourceID and definitions[sourceID]
+    if not source then
+        print("|cffff5555[CDM Polyfill Error]|r Self-buff source missing: " .. tostring(sourceKey))
+        return
+    end
+    C_CooldownViewer.RegisterDefinition({
+        key = sourceKey .. ".self_buff",
+        cooldownID = 2000000 + sourceID,
+        category = 3,
+        order = 500 + (source.order or 0),
+
+        spellID = source.spellID,
+        spellIDs = source.spellIDs,
+        auraSpellID = auraSpellIDs and auraSpellIDs[1] or nil,
+        auraSpellIDs = auraSpellIDs or source.auraSpellIDs,
+        linkedSpellIDs = auraSpellIDs,
+        iconSpellID = source.iconSpellID,
+        displayName = source.displayName,
+
+        trackingType = "aura",
+        hasAura = true,
+        selfAura = true,
+        class = source.class,
+        resolvers = source.resolvers,
+        selfBuffOf = sourceKey,
+    })
+end
+
 -- Shared classification API used by the WotLK unit-frame and raid-frame aura
 -- filter polyfill. Tags live on CDM definitions so adding or correcting a
 -- spell in the catalog automatically updates every consumer.
@@ -1165,6 +1203,7 @@ function C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         buffCatalogSection = def.buffCatalogSection,
         catalogMirror = def.catalogMirror == true,
         isEquipmentProc = def.isEquipmentProc == true,
+        isEquipmentProcGroup = def.isEquipmentProcGroup == true,
         isTrinketProc = def.isTrinketProc,
         isItemSetProc = def.isItemSetProc == true,
         isTalentProc = def.isTalentProc == true,

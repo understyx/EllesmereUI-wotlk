@@ -510,3 +510,13 @@ RegisterBasic("faerie_fire_feral", 111024, 150, { 16857 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("cower",             111025, 160, { 8998, 9000, 9892, 31709, 27004, 48575 })
 RegisterBasic("natures_grasp",     111026, 170, { 16689, 16810, 16811, 16812, 16813, 17329, 27009, 53312 }, CDM_CATEGORY_UTILITY, { defensive = true })
 RegisterBasic("hurricane",         111027, 180, { 16914, 17401, 17402, 27012, 48467 }, CDM_CATEGORY_ESSENTIAL)
+
+-- Self-buffs applied by the cooldowns above, listed in the buff picker so
+-- the buff can be tracked on its own (see C_CooldownViewer.RegisterSelfBuff).
+for _, key in ipairs({
+    "barkskin", "starfall", "berserk", "survival_instincts",
+    "frenzied_regeneration", "natures_swiftness", "dash", "enrage",
+    "tigers_fury",
+}) do
+    C_CooldownViewer.RegisterSelfBuff("druid." .. key)
+end

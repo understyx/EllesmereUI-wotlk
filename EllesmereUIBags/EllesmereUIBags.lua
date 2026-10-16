@@ -4627,7 +4627,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(customLbl, 11)
                     customLbl:SetPoint("TOPLEFT", iconLbl, "BOTTOMLEFT", 0, -(4 + lastRow * (ICON_SZ + ICON_PAD) + 6))
                     customLbl:SetTextColor(0.7, 0.7, 0.7, 1)
-                    customLbl:SetText(EllesmereUI.L("Custom Icon ID:"))
+                    customLbl:SetText(EllesmereUI.L("Custom Icon:"))
 
                     -- Preview icon to the left of the editbox
                     local preview = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
@@ -4654,33 +4654,34 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     cBorder:Hide()
                     popup._customBorder = cBorder
 
-                    local customEB = EllesmereUI.SafeCreateFrame("EditBox", nil, popup)
-                    customEB:SetSize(80, 22)
-                    customEB:SetPoint("LEFT", preview, "RIGHT", 8, 0)
-                    customEB:SetAutoFocus(false)
-                    customEB:SetFont(GetFont(), 11, "")
-                    customEB:SetTextColor(1, 1, 1, 1)
-                    customEB:SetTextInsets(4, 4, 0, 0)
-                    customEB:SetNumeric(true)
-                    local cBg = customEB:CreateTexture(nil, "BACKGROUND")
-                    cBg:SetAllPoints()
-                    cBg:SetTexture(0.1, 0.1, 0.1, 1)
-                    if PP and PP.CreateBorder then PP.CreateBorder(customEB, 0.15, 0.15, 0.15, 1) end
-                    customEB:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
-                    customEB:SetScript("OnEnterPressed", function(s) s:ClearFocus() end)
-                    customEB:SetScript("OnTextChanged", function(s)
-                        local txt = s:GetText()
-                        local id = tonumber(txt)
-                        if txt and txt ~= "" and id and id > 0 then
-                            popup._selectedIcon = id
-                            popup._customMode = true
-                            prevTex:SetTexture(id)
-                        else
-                            popup._customMode = false
-                        end
-                        UpdateSelection()
+                    -- "Browse..." opens the shared searchable icon picker;
+                    -- the picked texture path becomes the custom selection.
+                    local browseBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
+                    browseBtn:SetSize(90, 22)
+                    browseBtn:SetPoint("LEFT", preview, "RIGHT", 8, 0)
+                    local brBg = browseBtn:CreateTexture(nil, "BACKGROUND")
+                    brBg:SetAllPoints()
+                    brBg:SetTexture(0.1, 0.1, 0.1, 1)
+                    if PP and PP.CreateBorder then PP.CreateBorder(browseBtn, 0.15, 0.15, 0.15, 1) end
+                    local brLbl = browseBtn:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(brLbl, 11)
+                    brLbl:SetPoint("CENTER")
+                    brLbl:SetTextColor(1, 1, 1, 0.8)
+                    brLbl:SetText(EllesmereUI.L("Browse..."))
+                    browseBtn:SetScript("OnEnter", function() brBg:SetTexture(0.18, 0.18, 0.18, 1) end)
+                    browseBtn:SetScript("OnLeave", function() brBg:SetTexture(0.1, 0.1, 0.1, 1) end)
+                    browseBtn:SetScript("OnClick", function()
+                        EllesmereUI.ShowIconPicker({
+                            title   = "Category Icon",
+                            current = popup._selectedIcon,
+                            onPick  = function(path)
+                                popup._selectedIcon = path
+                                popup._customMode = true
+                                prevTex:SetTexture(path)
+                                UpdateSelection()
+                            end,
+                        })
                     end)
-                    popup._customEB = customEB
 
                     -- Create button
                     local createBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
@@ -4779,7 +4780,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 end
                 -- Reset state
                 popup._nameEB:SetText("")
-                popup._customEB:SetText("")
                 popup._selectedIcon = popup._iconIDs[1]
                 popup._customMode = false
                 popup._prevTex:SetTexture(popup._iconIDs[1])

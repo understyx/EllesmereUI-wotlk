@@ -253,47 +253,44 @@ local PT = {
 }
 
 -------------------------------------------------------------------------------
---  Channel tick data — spellID → { ticks, [modSpell, modTicks] } or { tickInterval }
+--  Channel tick data — spell name → { ticks } or { tickInterval }
 --  ticks: fixed tick count (haste changes tick speed, count stays the same).
 --  tickInterval: fixed interval in seconds (haste extends duration, adding ticks).
---  modSpell/modTicks: if the player knows modSpell (talent), use modTicks instead.
---  Spell IDs verified against Wowhead/Warcraft Wiki as of 12.0.1 — if a spell
---  is reworked or a new channeled spell is added, add a row here.
+--  3.3.5 UnitChannelInfo / channel events carry no spellID, so the table is
+--  keyed by localized spell name (resolved from a rank-1 ID via GetSpellInfo,
+--  which covers every rank).
 -------------------------------------------------------------------------------
-local CHANNEL_TICK_DATA = {
-    -- Evoker
-    [356995]  = { ticks = 4, modSpell = 1219723, modTicks = 5 },   -- Disintegrate / Azure Celerity
-    -- Priest
-    [15407]   = { ticks = 6 },                                     -- Mind Flay
-    [48045]   = { ticks = 6 },                                     -- Mind Sear
-    [64843]   = { ticks = 4 },                                     -- Divine Hymn
-    [47757]   = { ticks = 3 },                                     -- Penance (Heal)
-    [47758]   = { ticks = 3 },                                     -- Penance (DPS)
-    [373129]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (DPS)
-    [400171]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (Heal)
-    -- Mage
-    [5143]    = { ticks = 5 },                                     -- Arcane Missiles
-    [12051]   = { ticks = 6 },                                     -- Evocation
-    [205021]  = { ticks = 5 },                                     -- Ray of Frost
-    -- Druid
-    [740]     = { ticks = 4 },                                     -- Tranquility
-    -- Demon Hunter
-    [198013]  = { tickInterval = 0.2 },                            -- Eye Beam
-    [473728]  = { tickInterval = 0.2 },                            -- Void Ray (Devourer)
-    [212084]  = { ticks = 10 },                                    -- Fel Devastation
-    -- Warlock
-    [198590]  = { ticks = 5 },                                     -- Drain Soul
-    [755]     = { ticks = 5 },                                     -- Health Funnel
-    [234153]  = { ticks = 5 },                                     -- Drain Life
-    -- Death Knight
-    [206931]  = { ticks = 3 },                                     -- Blooddrinker
-    -- Monk
-    [113656]  = { ticks = 4 },                                     -- Fists of Fury
-    [115175]  = { ticks = 12 },                                     -- Soothing Mist
-    [443028]  = { ticks = 4 },                                     -- Celestial Conduit
-    -- Racial
-    [291944]  = { ticks = 6 },                                     -- Regeneratin (Zandalari)
-}
+local CHANNEL_TICK_DATA = {}
+do
+    local byID = {
+        -- Priest
+        [15407] = { ticks = 3 },   -- Mind Flay
+        [48045] = { ticks = 5 },   -- Mind Sear
+        [47540] = { ticks = 2 },   -- Penance (first bolt lands on cast start)
+        [64843] = { ticks = 4 },   -- Divine Hymn
+        [64901] = { ticks = 4 },   -- Hymn of Hope
+        -- Mage
+        [5143]  = { ticks = 5 },   -- Arcane Missiles
+        [10]    = { ticks = 8 },   -- Blizzard
+        [12051] = { ticks = 4 },   -- Evocation
+        -- Druid
+        [740]   = { ticks = 4 },   -- Tranquility
+        [16914] = { ticks = 10 },  -- Hurricane
+        -- Warlock
+        [1120]  = { ticks = 5 },   -- Drain Soul
+        [689]   = { ticks = 5 },   -- Drain Life
+        [5138]  = { ticks = 5 },   -- Drain Mana
+        [755]   = { ticks = 10 },  -- Health Funnel
+        [5740]  = { ticks = 4 },   -- Rain of Fire
+        [1949]  = { ticks = 15 },  -- Hellfire
+        -- Hunter
+        [1510]  = { ticks = 6 },   -- Volley
+    }
+    for id, data in pairs(byID) do
+        local name = GetSpellInfo(id)
+        if name then CHANNEL_TICK_DATA[name] = data end
+    end
+end
 
 
 -------------------------------------------------------------------------------
@@ -6525,51 +6522,55 @@ function ns.ArmTick()
     end
 end
 
--- Cast bar redraw without per-frame dispatch: a looping Animation fires
--- OnLoop at the redraw rate and the C engine sleeps between fires, so an
--- active cast runs ZERO Lua at frame rate. The old driver subscriber ran an
--- accumulator at ~200 fps just to gate a 60 Hz redraw, and that per-frame
--- entry cost more than the redraw itself (measured: 0.14% floor vs 0.06%
--- body). Host frame and group are born HERE at file scope so the work bills
--- ResourceBars (frame-birth attribution rule).
--- Self-stopping: the loop halts itself the moment no cast state remains, so
--- every stop path (complete, failed, interrupted, channel stop, safety) is
--- covered without wiring Stop calls into each handler; the cost of that is
--- at most one no-op fire after the cast ends.
+-- Cast bar / GCD bar redraw: one OnUpdate per bar, installed only while that
+-- bar is animating. WotLK has no StatusBar interpolation or duration-object
+-- timer, so the fill has to be set from Lua. A fixed-rate anim ticker (the
+-- previous 1/60 driver) is not phase-locked to rendering: above 60 fps it
+-- fires on an irregular 2-3 frame cadence and the fill judders. Redrawing on
+-- every rendered frame from frame-coherent GetTime() gives evenly sized steps
+-- at any refresh rate. Cost is one direct call per frame during a cast and
+-- nothing at all otherwise (no shared dispatcher; the script is removed).
+-- Host frames are born HERE at file scope so the work bills ResourceBars
+-- (frame-birth attribution rule).
+-- Self-stopping: each loop clears its own script the moment its state is
+-- gone, so every stop path (complete, failed, interrupted, channel stop,
+-- safety) is covered without wiring Stop calls into each handler.
 do
     local host = EllesmereUI.SafeCreateFrame("Frame")
-    local ag = host:CreateAnimationGroup()
-    ag:SetLooping("REPEAT")
-    local tick = ag:CreateAnimation("Animation")
-    -- WotLK has no StatusBar interpolation or duration-object timer, so the
-    -- fallback SetValue path must redraw at display rate.  The previous 20 Hz
-    -- cadence was smooth on retail only because the engine filled the frames
-    -- between Lua updates; on 3.3.5 it visibly advanced in 50 ms steps.
-    -- Timer text remains change-gated to tenths and all layout data is cached.
-    tick:SetDuration(1 / 60)
-    ag:SetScript("OnLoop", function()
+    local function OnCastFrame()
         if castBarFrame and (castBarFrame._casting or castBarFrame._channeling
            or castBarFrame._empowering) then
             UpdateCastBar()
         else
-            ag:Stop()
+            host:SetScript("OnUpdate", nil)
         end
-    end)
+    end
     -- Idempotent; safe to call from every cast event.
     ns.StartCastTick = function()
-        if not ag:IsPlaying() then
-            ag:Play()
+        if host:GetScript("OnUpdate") ~= OnCastFrame then
+            host:SetScript("OnUpdate", OnCastFrame)
         end
     end
 end
 
--- GCD bar ticker: WotLK has no native interpolation, so redraw at 60 Hz just
--- like the cast bar. Runs only while a GCD is live, and the final fire
--- renders the idle state before the loop stops itself.
-ns.GCDTick = EllesmereUI.Tick.NewAnimTicker(EllesmereUI.SafeCreateFrame("Frame"), function()
-    UpdateGCDBar()
-    return gcdBarFrame and gcdBarFrame._gcdStart ~= nil
-end, 1 / 60)
+-- GCD bar: same per-frame redraw. Runs only while a GCD is live; the final
+-- frame renders the idle state before the script removes itself.
+do
+    local host = EllesmereUI.SafeCreateFrame("Frame")
+    local function OnGCDFrame()
+        UpdateGCDBar()
+        if not (gcdBarFrame and gcdBarFrame._gcdStart ~= nil) then
+            host:SetScript("OnUpdate", nil)
+        end
+    end
+    ns.GCDTick = {
+        Start = function()
+            if host:GetScript("OnUpdate") ~= OnGCDFrame then
+                host:SetScript("OnUpdate", OnGCDFrame)
+            end
+        end,
+    }
+end
 
 -------------------------------------------------------------------------------
 
@@ -7094,16 +7095,16 @@ end
 -------------------------------------------------------------------------------
 --  Channel tick marks
 --  Shows vertical tick marks on the cast bar during channeled spells whose
---  spell ID appears in CHANNEL_TICK_DATA.  The penultimate tick (the last
+--  spell name appears in CHANNEL_TICK_DATA.  The penultimate tick (the last
 --  safe point to chain/clip) is drawn slightly wider in gold.
 --  Layout mirrors the empower pip code above for visual consistency.
 -------------------------------------------------------------------------------
-ShowChannelTicks = function(spellID)
+ShowChannelTicks = function(spellName)
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
     if not cb.showChannelTicks then return end
 
-    local tickData = CHANNEL_TICK_DATA[spellID]
+    local tickData = spellName and CHANNEL_TICK_DATA[spellName]
     local wantTicks = tickData and (cb.showTickMarks or cb.showLastTick)
 
     -- Nothing to draw: hide stale marks and bail
@@ -7140,9 +7141,6 @@ ShowChannelTicks = function(spellID)
             end
         else
             numTicks = tickData.ticks
-            if tickData.modSpell and IsPlayerSpell(tickData.modSpell) then
-                numTicks = tickData.modTicks
-            end
         end
 
         -- Pre-read colors once outside the loop
@@ -7436,8 +7434,9 @@ local function ShowLatencyOverlay(castType)
     -- through the world server, so its latency is the relevant one; fall back to
     -- the home/realm value only while world latency has not been measured yet.
     local _, _, latencyHome, latencyWorld = GetNetStats()
-    local latencyMs = latencyWorld
-    if latencyMs <= 0 then latencyMs = latencyHome end
+    -- 3.3.5 returns only (in, out, latency): no separate world value.
+    local latencyMs = latencyWorld or 0
+    if latencyMs <= 0 then latencyMs = latencyHome or 0 end
     local latencySec = latencyMs / 1000
     local castDur = castBarFrame._endTime - castBarFrame._startTime
     local barWidth = castBarFrame._bar:GetWidth()
@@ -7578,7 +7577,7 @@ OnChannelStart = function()
     end
 
     -- Channel tick marks
-    ShowChannelTicks(spellID)
+    ShowChannelTicks(name)
 
     ShowLatencyOverlay("channel")
 
@@ -7590,7 +7589,7 @@ OnChannelUpdate = function()
     if not castBarFrame then return end
     if not castBarFrame._channeling then return end
 
-    local name, _, _, startTimeMS, endTimeMS, _, _, spellID = ns.UnitChannelInfo("player")
+    local name, _, _, startTimeMS, endTimeMS = ns.UnitChannelInfo("player")
     if not name then return end
 
     castBarFrame._startTime = startTimeMS / 1000
@@ -7598,7 +7597,7 @@ OnChannelUpdate = function()
     ns.ApplyCastTimer("channel")
 
     -- Recompute tick mark and GCD boundary positions for new duration
-    if spellID then ShowChannelTicks(spellID) end
+    ShowChannelTicks(name)
 end
 
 -- Called for UNIT_SPELLCAST_STOP only (normal cast completion).

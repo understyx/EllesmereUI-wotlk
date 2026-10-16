@@ -1927,7 +1927,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Per-spell Custom Icon
---  Stamp the configured replacement icon (a texture fileID) over whatever the
+--  Stamp the configured replacement icon (a texture path) over whatever the
 --  icon texture currently shows. Runs from DecorateFrame on every (re)claim
 --  and from a per-frame RefreshSpellTexture post-hook (installed below on the
 --  first gated visit), so the custom icon survives every Blizzard repaint AND
@@ -1969,7 +1969,7 @@ local function ApplyCustomIcon(frame, fd)
     end
     local ss = ns._ResolveCdmSS(frame)
     local ci = ss and ss.customIcon
-    if type(ci) == "number" and ci > 0 then
+    if type(ci) == "string" and ci ~= "" then
         tex:SetTexture(ci)
         fd._customIconOn = true
     elseif fd._customIconOn then
@@ -3403,6 +3403,53 @@ local function GetOrCreateTrinketFrame(slotID)
     return f
 end
 
+-- true/false when the equipped item's tooltip has (or lacks) a "Use:" line,
+-- nil while the tooltip data is not available yet. Settled results are cached
+-- by item link, which carries the enchant ID, so re-enchanting or swapping the
+-- item rescans while reanchors stay cheap.
+local _slotScanTip
+local _slotUseByLink = {}
+local ScanSlotTooltipForUse
+local function SlotTooltipHasUse(slotID)
+    local link = GetInventoryItemLink("player", slotID)
+    if not link then return nil end
+    local cached = _slotUseByLink[link]
+    if cached ~= nil then return cached end
+    local hasUse = ScanSlotTooltipForUse(slotID)
+    if hasUse ~= nil then _slotUseByLink[link] = hasUse end
+    return hasUse
+end
+
+function ScanSlotTooltipForUse(slotID)
+    local prefix = ITEM_SPELL_TRIGGER_ONUSE
+    if not prefix then return nil end
+    local function IsUseLine(text)
+        return text and text:sub(1, #prefix) == prefix
+    end
+    -- 3.3.5 has no tooltip data API: read a hidden GameTooltip instead. The
+    -- equipped instance's tooltip includes its enchant, so tinker Use: lines
+    -- (Nitro Boosts, Hyperspeed Accelerators, Frag Belt) are visible here.
+    if not _slotScanTip then
+        _slotScanTip = CreateFrame("GameTooltip", "EUI_CDMSlotScanTooltip", nil, "GameTooltipTemplate")
+    end
+    local tip = _slotScanTip
+    tip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    tip:ClearLines()
+    tip:SetInventoryItem("player", slotID)
+    local numLines = tip:NumLines()
+    if not numLines or numLines == 0 then
+        tip:Hide()
+        return nil
+    end
+    local found = false
+    for i = 1, numLines do
+        local fs = _G["EUI_CDMSlotScanTooltipTextLeft" .. i]
+        if fs and IsUseLine(fs:GetText()) then found = true; break end
+    end
+    tip:Hide()
+    return found
+end
+
 local function UpdateTrinketFrame(slotID)
     local f = _trinketFrames[slotID]
     if not f then return end
@@ -3433,20 +3480,7 @@ local function UpdateTrinketFrame(slotID)
         -- on the equipped INSTANCE -- the base item has no use spell, so the
         -- trinket path's GetItemSpell/GetItemByID scan can never see it.
         -- Scan the instance tooltip for a localized "Use:" line instead.
-        local hasUse = nil
-        local tip = C_TooltipInfo and C_TooltipInfo.GetInventoryItem
-            and C_TooltipInfo.GetInventoryItem("player", slotID)
-        if tip and tip.lines then
-            hasUse = false
-            local prefix = ITEM_SPELL_TRIGGER_ONUSE
-            for _, tipLine in ipairs(tip.lines) do
-                local lt = tipLine.leftText
-                if lt and prefix and lt:sub(1, #prefix) == prefix then
-                    hasUse = true
-                    break
-                end
-            end
-        end
+        local hasUse = SlotTooltipHasUse(slotID)
         if spellID and spellID > 0 then
             -- Base item carries its own use spell (on-use gear).
             f._trinketIsOnUse = true

@@ -456,3 +456,11 @@ RegisterBasic("masters_call",     103030, 160, { 53271 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("flare",            103031, 170, { 1543 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("immolation_trap",  103032, 180, { 13795, 14302, 14303, 14304, 14305, 27023, 49055, 49056 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("freezing_arrow",   103033, 190, { 60192 }, CDM_CATEGORY_UTILITY)
+
+-- Self-buffs applied by the cooldowns above, listed in the buff picker so
+-- the buff can be tracked on its own (see C_CooldownViewer.RegisterSelfBuff).
+for _, key in ipairs({
+    "rapid_fire", "deterrence", "feign_death", "call_of_the_wild",
+}) do
+    C_CooldownViewer.RegisterSelfBuff("hunter." .. key)
+end

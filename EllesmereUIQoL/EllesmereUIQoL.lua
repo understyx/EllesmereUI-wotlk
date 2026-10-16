@@ -1618,6 +1618,7 @@ do
             local showLocal = (_localMS == nil) and true or _localMS
             local hideLabel = EllesmereUI.QoLExtrasGet("fpsHideLabel")
             local _, _, latHome, latWorld = GetNetStats()
+            latWorld = latWorld or latHome  -- 3.3.5: single latency value
 
             fsFps:ClearAllPoints()
             fsFps:SetPoint("LEFT", fpsFrame, "LEFT", 0, 0)

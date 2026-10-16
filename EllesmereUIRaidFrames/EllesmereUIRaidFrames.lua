@@ -14915,6 +14915,38 @@ local function GetOrCreateOverlayContainer()
     return oc
 end
 
+-- Dock an overlay preview container OUTSIDE the options panel so it never
+-- covers the menu: left of the panel when it fits, else right, else whichever
+-- side has more room (clamping handles the remainder). Bottom-aligned with the
+-- scroll area. The panel has its own scale, so edges are compared in screen
+-- pixels. Must be called after the container has been sized.
+local function DockOverlayToPanel(oc)
+    oc:ClearAllPoints()
+    local panel = EllesmereUI._clickArea
+    local sf = EllesmereUI._scrollFrame
+    if not (panel and sf) then
+        oc:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        return
+    end
+    local pL, pR = panel:GetLeft(), panel:GetRight()
+    local sL, sR = sf:GetLeft(), sf:GetRight()
+    if not (pL and pR and sL and sR) then
+        oc:SetPoint("BOTTOMRIGHT", sf, "BOTTOMLEFT", 0, 0)
+        return
+    end
+    -- sf is a child of panel, so their edges share one coordinate space.
+    -- SetPoint offsets are in oc's own scale, hence the ps / ocs conversion.
+    local ps, ocs = panel:GetEffectiveScale(), oc:GetEffectiveScale()
+    local spaceL = pL * ps
+    local spaceR = GetScreenWidth() * UIParent:GetEffectiveScale() - pR * ps
+    local need = oc:GetWidth() * ocs
+    if spaceL < need and (spaceR >= need or spaceR > spaceL) then
+        oc:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", (pR - sR) * ps / ocs, 0)
+    else
+        oc:SetPoint("BOTTOMRIGHT", sf, "BOTTOMLEFT", (pL - sL) * ps / ocs, 0)
+    end
+end
+
 local function RefreshPreview()
     if not previewActive then return end
     if not containerFrame then return end
@@ -15134,15 +15166,9 @@ local function RefreshPreview()
         else
             overlayContainer:SetFrameStrata("FULLSCREEN_DIALOG")
             overlayContainer:SetFrameLevel(10)
-            overlayContainer:ClearAllPoints()
-            -- Hardcoded default position (not draggable, not saved): docked to
-            -- the left edge of the options panel, screen center as a fallback.
-            local sf = EllesmereUI._scrollFrame
-            if sf then
-                overlayContainer:SetPoint("BOTTOMRIGHT", sf, "BOTTOMLEFT", 0, 0)
-            else
-                overlayContainer:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-            end
+            -- Hardcoded default position (not draggable, not saved): docked
+            -- beside the options panel (see DockOverlayToPanel).
+            DockOverlayToPanel(overlayContainer)
         end
         overlayContainer:Show()
     end
@@ -16033,15 +16059,9 @@ local function RefreshPartyPreview()
             ns._partyOC._title:SetTextColor(1, 1, 1, 0.9)
             ns._partyOC._title:Show()
         end
-        -- Hardcoded default position (not draggable, not saved): docked to the
-        -- left edge of the options panel, screen center as a fallback.
-        ns._partyOC:ClearAllPoints()
-        local sf = EllesmereUI._scrollFrame
-        if sf then
-            ns._partyOC:SetPoint("BOTTOMRIGHT", sf, "BOTTOMLEFT", 0, 0)
-        else
-            ns._partyOC:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
+        -- Hardcoded default position (not draggable, not saved): docked
+        -- beside the options panel (see DockOverlayToPanel).
+        DockOverlayToPanel(ns._partyOC)
         ns._partyOC:Show()
     end
 

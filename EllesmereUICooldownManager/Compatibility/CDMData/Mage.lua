@@ -461,3 +461,14 @@ Register({
     trackingType = "aura",
     hasAura = true,
 })
+
+-- Self-buffs applied by the cooldowns above, listed in the buff picker so
+-- the buff can be tracked on its own (see C_CooldownViewer.RegisterSelfBuff).
+for _, key in ipairs({
+    "icy_veins", "arcane_power", "presence_of_mind", "evocation", "ice_block",
+    "ice_barrier", "fire_ward", "frost_ward",
+}) do
+    C_CooldownViewer.RegisterSelfBuff("mage." .. key)
+end
+C_CooldownViewer.RegisterSelfBuff("mage.combustion", { 28682 }) -- the stacking crit buff
+C_CooldownViewer.RegisterSelfBuff("mage.invisibility", { 66, 32612 }) -- fading, then invisible

@@ -72,13 +72,11 @@ local function Join(...)
     return out
 end
 
--- Appended to every spec's Buffs bar after its own procs: Bloodlust/Heroism
--- and the consumables the packs track for every spec. Each shows only while
+-- Appended to every spec's Buffs bar after its own procs: Bloodlust/Heroism,
+-- the grouped potion and enchant rows, and Flame Cap. Each shows only while
 -- its buff is up.
 ns.CDM_DEFAULT_SHARED_PROCS = {
-    "buff.bloodlust", "consumable.potion_of_speed", "consumable.potion_of_wild_magic",
-    "consumable.indestructible_potion", "consumable.flame_cap",
-    "consumable.oil_of_immolation",
+    "buff.bloodlust", "consumable.potions", "enchant.procs", "consumable.flame_cap",
 }
 
 ns.CDM_SPEC_DEFAULT_SPELLS = {

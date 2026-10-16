@@ -500,6 +500,49 @@ local function RegisterTrinketProc(procSpellID, itemIDs, cooldownID, order)
     EUI_CDM_AuraTrackerTrinketData.cooldownIDs[cooldownID] = true
 end
 
+-- 42292 (PvP Trinket) is an instant effect that never leaves an aura, so its
+-- per-item row could never show. Its spellID instead identifies the generic
+-- Trinket Procs row below, which needs a real spell with a trinket icon that no
+-- other buff row uses. The index still advances so later procs keep their IDs.
+local TRINKET_GROUP_SPELL_ID = 42292
+
 for index, procSpellID in ipairs(procIDs) do
-    RegisterTrinketProc(procSpellID, procToItems[procSpellID], 400100 + index, 100 + index)
+    if procSpellID ~= TRINKET_GROUP_SPELL_ID then
+        RegisterTrinketProc(procSpellID, procToItems[procSpellID], 400100 + index, 100 + index)
+    end
 end
+
+-- One row for every mapped proc aura, for a single slot that lights up with
+-- whichever proc is active (shown with that proc's icon). Buff bars can also
+-- use the Equipment Procs entry, which gives each active proc its own icon.
+local trinketGroupAuras = {}
+for _, procSpellID in ipairs(procIDs) do
+    if procSpellID ~= TRINKET_GROUP_SPELL_ID then
+        trinketGroupAuras[#trinketGroupAuras + 1] = procSpellID
+    end
+end
+
+C_CooldownViewer.RegisterDefinition({
+    key = "trinket.procs",
+    -- Top of Shared.lua's reserved 400001-400099 block.
+    cooldownID = 400099,
+    category = CDM_CATEGORY_BUFF_ICON,
+    order = 40,
+
+    spellID = TRINKET_GROUP_SPELL_ID,
+    auraSpellIDs = trinketGroupAuras,
+    iconSpellID = TRINKET_GROUP_SPELL_ID,
+    displayName = "Trinket Procs",
+
+    trackingType = "aura",
+    hasAura = true,
+    selfAura = true,
+    isEquipmentProcGroup = true,
+    procSource = "equipment",
+    buffCatalogSection = "equipment",
+
+    resolvers = {
+        requirements = function() return true end,
+        resolveSpellID = function() return TRINKET_GROUP_SPELL_ID end,
+    },
+})

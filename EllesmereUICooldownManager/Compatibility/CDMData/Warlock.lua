@@ -466,3 +466,11 @@ RegisterBasic("shadow_ward",    109018, 80, { 6229, 11739, 11740, 28610, 47890, 
 RegisterBasic("spell_lock",     109019, 90, { 19244, 19647 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("devour_magic",   109020, 100, { 19505, 19731, 19734, 19736, 27276, 27277, 48011 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("intercept",      109021, 110, { 30151, 30194, 30198, 47996 }, CDM_CATEGORY_UTILITY)
+
+-- Self-buffs applied by the cooldowns above, listed in the buff picker so
+-- the buff can be tracked on its own (see C_CooldownViewer.RegisterSelfBuff).
+for _, key in ipairs({
+    "metamorphosis", "fel_domination", "shadow_ward",
+}) do
+    C_CooldownViewer.RegisterSelfBuff("warlock." .. key)
+end

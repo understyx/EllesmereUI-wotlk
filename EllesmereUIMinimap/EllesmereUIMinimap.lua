@@ -3941,6 +3941,7 @@ local function ApplyMinimap()
                 local _localMS = mp and mp.fpsShowLocalMS
                 local showLocal = (_localMS == nil) and true or _localMS
                 local _, _, latHome, latWorld = GetNetStats()
+                latWorld = latWorld or latHome  -- 3.3.5: single latency value
 
                 fsFps:ClearAllPoints()
                 fsFps:SetPoint("LEFT", self, "LEFT", 0, 0)

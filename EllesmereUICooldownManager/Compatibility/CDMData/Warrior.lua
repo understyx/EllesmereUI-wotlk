@@ -462,3 +462,14 @@ RegisterBasic("sweeping_strikes", 101033, 180, { 12328 })
 RegisterBasic("heroic_fury",      101034, 130, { 60970 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("taunt",            101035, 140, { 355 }, CDM_CATEGORY_UTILITY)
 RegisterBasic("shield_bash",      101036, 150, { 72 }, CDM_CATEGORY_UTILITY)
+
+-- Self-buffs applied by the cooldowns above, listed in the buff picker so
+-- the buff can be tracked on its own (see C_CooldownViewer.RegisterSelfBuff).
+for _, key in ipairs({
+    "death_wish", "recklessness", "enraged_regeneration", "shield_wall",
+    "shield_block", "last_stand", "bladestorm", "spell_reflection",
+    "berserker_rage", "retaliation", "sweeping_strikes",
+}) do
+    C_CooldownViewer.RegisterSelfBuff("warrior." .. key)
+end
+C_CooldownViewer.RegisterSelfBuff("warrior.bloodrage", { 29131 }) -- the buff is a separate spell
