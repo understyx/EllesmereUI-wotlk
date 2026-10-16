@@ -25,128 +25,216 @@ local ADDON_NAME, ns = ...
 -- Default debuffs: ElvUI-WotLK's RaidDebuffs filter
 -- (ElvUI/Settings/Filters/UnitFrame.lua, commit 58ea24f7), plus a few
 -- player debuffs from the DBM-Warmane boss modules.
+-- Each instance groups its debuffs by encounter (wing / progression order),
+-- trash last. The picker shows one section per group.
 ns.RAID_DEBUFF_INSTANCES = {
-    { key = "global", name = "Everywhere", global = true, spells = {} },
-    { key = "icc", name = "Icecrown Citadel", mapID = 605, spells = {
-        69065, -- Impaled
-        72109, -- Death and Decay
-        71289, -- Dominate Mind
-        71237, -- Curse of Torpor
-        72293, -- Mark of the Fallen Champion
-        72442, -- Boiling Blood
-        72449, -- Rune of Blood
-        72769, -- Scent of Blood
-        71218, -- Vile Gas
-        72219, -- Gastric Bloat
-        69279, -- Gas Spore
-        71224, -- Mutated Infection
-        71278, -- Choking Gas Bomb
-        70215, -- Gaseous Bloat
-        72549, -- Malleable Goo
-        70953, -- Plague Sickness
-        72856, -- Unbound Plague
-        70447, -- Volatile Ooze Adhesive
-        72796, -- Glittering Sparks
-        71822, -- Shadow Resonance
-        72265, -- Delirious Slash
-        71473, -- Essence of the Blood Queen
-        71474, -- Frenzied Bloodthirst
-        71340, -- Pact of the Darkfallen
-        71265, -- Swarming Shadows
-        70923, -- Uncontrollable Frenzy
-        71733, -- Acid Burst
-        71738, -- Corrosion
-        70873, -- Emerald Vigor
-        71283, -- Gut Spray
-        70106, -- Chilled to the Bone
-        70126, -- Frost Beacon
-        70157, -- Ice Tomb
-        69766, -- Instability
-        69762, -- Unchained Magic
-        72762, -- Defile
-        70541, -- Infest
-        70337, -- Necrotic Plague
-        72149, -- Shockwave
-        69409, -- Soul Reaper
-        69242, -- Soul Shriek
+    { key = "global", name = "Everywhere", global = true, bosses = {} },
+    { key = "icc", name = "Icecrown Citadel", mapID = 605, bosses = {
+        { name = "Lord Marrowgar", spells = {
+            69065, -- Impaled
+        } },
+        { name = "Lady Deathwhisper", spells = {
+            72109, -- Death and Decay
+            71289, -- Dominate Mind
+            71237, -- Curse of Torpor
+        } },
+        { name = "Deathbringer Saurfang", spells = {
+            72293, -- Mark of the Fallen Champion
+            72442, -- Boiling Blood
+            72449, -- Rune of Blood
+            72769, -- Scent of Blood
+        } },
+        { name = "Festergut", spells = {
+            71218, -- Vile Gas
+            72219, -- Gastric Bloat
+            69279, -- Gas Spore
+        } },
+        { name = "Rotface", spells = {
+            71224, -- Mutated Infection
+        } },
+        { name = "Professor Putricide", spells = {
+            71278, -- Choking Gas Bomb
+            70215, -- Gaseous Bloat
+            72549, -- Malleable Goo
+            70953, -- Plague Sickness
+            72856, -- Unbound Plague
+            70447, -- Volatile Ooze Adhesive
+        } },
+        { name = "Blood Prince Council", spells = {
+            72796, -- Glittering Sparks
+            71822, -- Shadow Resonance
+        } },
+        { name = "Blood-Queen Lana'thel", spells = {
+            72265, -- Delirious Slash
+            71473, -- Essence of the Blood Queen
+            71474, -- Frenzied Bloodthirst
+            71340, -- Pact of the Darkfallen
+            71265, -- Swarming Shadows
+            70923, -- Uncontrollable Frenzy
+        } },
+        { name = "Valithria Dreamwalker", spells = {
+            71733, -- Acid Burst
+            71738, -- Corrosion
+            70873, -- Emerald Vigor
+            71283, -- Gut Spray
+        } },
+        { name = "Sindragosa", spells = {
+            70106, -- Chilled to the Bone
+            70126, -- Frost Beacon
+            70157, -- Ice Tomb
+            69766, -- Instability
+            69762, -- Unchained Magic
+        } },
+        { name = "The Lich King", spells = {
+            72762, -- Defile
+            70541, -- Infest
+            70337, -- Necrotic Plague
+            72149, -- Shockwave
+            69409, -- Soul Reaper
+            69242, -- Soul Shriek
+        } },
     } },
-    { key = "rs", name = "The Ruby Sanctum", mapID = 610, spells = {
-        75887, -- Blazing Aura
-        74502, -- Enervating Brand
-        74367, -- Cleave Armor
-        74562, -- Fiery Combustion
-        74567, -- Mark of Combustion
-        74792, -- Soul Consumption
-        74795, -- Mark of Consumption
+    { key = "rs", name = "The Ruby Sanctum", mapID = 610, bosses = {
+        { name = "Baltharus the Warborn", spells = {
+            74502, -- Enervating Brand
+        } },
+        { name = "General Zarithrian", spells = {
+            74367, -- Cleave Armor
+        } },
+        { name = "Halion", spells = {
+            74562, -- Fiery Combustion
+            74567, -- Mark of Combustion
+            74792, -- Soul Consumption
+            74795, -- Mark of Consumption
+        } },
+        { name = "Trash", trash = true, spells = {
+            75887, -- Blazing Aura
+        } },
     } },
-    { key = "toc", name = "Trial of the Crusader", mapID = 544, spells = {
-        66331, -- Impale
-        66406, -- Snobolled!
-        66869, -- Burning Bile
-        67618, -- Paralytic Toxin
-        66689, -- Arctic Breath
-        66237, -- Incinerate Flesh
-        66197, -- Legion Flame
-        65812, -- Unstable Affliction
-        67309, -- Twin Spike
-        66013, -- Penetrating Cold
-        67574, -- Pursued by Anub'arak
-        67847, -- Expose Weakness
+    { key = "toc", name = "Trial of the Crusader", mapID = 544, bosses = {
+        { name = "Northrend Beasts", spells = {
+            66331, -- Impale
+            66406, -- Snobolled!
+            66869, -- Burning Bile
+            67618, -- Paralytic Toxin
+            66689, -- Arctic Breath
+        } },
+        { name = "Lord Jaraxxus", spells = {
+            66237, -- Incinerate Flesh
+            66197, -- Legion Flame
+        } },
+        { name = "Faction Champions", spells = {
+            65812, -- Unstable Affliction
+        } },
+        { name = "Twin Val'kyr", spells = {
+            67309, -- Twin Spike
+        } },
+        { name = "Anub'arak", spells = {
+            66013, -- Penetrating Cold
+            67574, -- Pursued by Anub'arak
+            67847, -- Expose Weakness
+        } },
     } },
-    { key = "ulduar", name = "Ulduar", mapID = 530, spells = {
-        62717, -- Slag Pot
-        63024, -- Gravity Bomb
-        63018, -- Light Bomb
-        61903, -- Fusion Punch
-        61912, -- Static Disruption
-        64290, -- Stone Grip
-        62130, -- Unbalancing Strike
-        63134, -- Sara's Blessing
-        64157, -- Curse of Doom
-        64412, -- Phase Punch
+    { key = "ulduar", name = "Ulduar", mapID = 530, bosses = {
+        { name = "Ignis the Furnace Master", spells = {
+            62717, -- Slag Pot
+        } },
+        { name = "XT-002 Deconstructor", spells = {
+            63024, -- Gravity Bomb
+            63018, -- Light Bomb
+        } },
+        { name = "Assembly of Iron", spells = {
+            61903, -- Fusion Punch
+            61912, -- Static Disruption
+        } },
+        { name = "Kologarn", spells = {
+            64290, -- Stone Grip
+        } },
+        { name = "Thorim", spells = {
+            62130, -- Unbalancing Strike
+        } },
+        { name = "Yogg-Saron", spells = {
+            63134, -- Sara's Blessing
+            64157, -- Curse of Doom
+        } },
+        { name = "Algalon the Observer", spells = {
+            64412, -- Phase Punch
+        } },
     } },
-    { key = "naxx", name = "Naxxramas", mapID = 536, spells = {
-        54022, -- Locust Swarm
-        54098, -- Poison Bolt Volley
-        54121, -- Necrotic Poison
-        54125, -- Web Spray
-        29306, -- Infected Wound
-        54378, -- Mortal Wound
-        27825, -- Shadow Mark
-        28679, -- Harvest Soul
-        55645, -- Death Plague
-        28832, -- Mark of Korth'azz
-        28833, -- Mark of Blaumeux
-        28834, -- Mark of Rivendare
-        28835, -- Mark of Zeliek
-        57369, -- Unholy Shadow
-        29212, -- Cripple
-        29213, -- Curse of the Plaguebringer
-        29214, -- Wrath of the Plaguebringer
-        29310, -- Spell Disruption
-        29998, -- Decrepit Fever
-        55052, -- Inevitable Doom
-        55053, -- Deathbloom
-        28522, -- Icebolt
-        55665, -- Life Drain
-        55699, -- Chill
-        28410, -- Chains of Kel'Thuzad
-        27819, -- Detonate Mana
-        27808, -- Frost Blast
+    { key = "naxx", name = "Naxxramas", mapID = 536, bosses = {
+        { name = "Anub'Rekhan", spells = {
+            54022, -- Locust Swarm
+        } },
+        { name = "Grand Widow Faerlina", spells = {
+            54098, -- Poison Bolt Volley
+        } },
+        { name = "Maexxna", spells = {
+            54121, -- Necrotic Poison
+            54125, -- Web Spray
+        } },
+        { name = "Noth the Plaguebringer", spells = {
+            29212, -- Cripple
+            29213, -- Curse of the Plaguebringer
+            29214, -- Wrath of the Plaguebringer
+        } },
+        { name = "Heigan the Unclean", spells = {
+            29310, -- Spell Disruption
+            29998, -- Decrepit Fever
+        } },
+        { name = "Loatheb", spells = {
+            55052, -- Inevitable Doom
+            55053, -- Deathbloom
+        } },
+        { name = "Gothik the Harvester", spells = {
+            27825, -- Shadow Mark
+            28679, -- Harvest Soul
+            55645, -- Death Plague
+        } },
+        { name = "The Four Horsemen", spells = {
+            28832, -- Mark of Korth'azz
+            28833, -- Mark of Blaumeux
+            28834, -- Mark of Rivendare
+            28835, -- Mark of Zeliek
+            57369, -- Unholy Shadow
+        } },
+        { name = "Gluth", spells = {
+            29306, -- Infected Wound
+            54378, -- Mortal Wound
+        } },
+        { name = "Sapphiron", spells = {
+            28522, -- Icebolt
+            55665, -- Life Drain
+            55699, -- Chill
+        } },
+        { name = "Kel'Thuzad", spells = {
+            28410, -- Chains of Kel'Thuzad
+            27819, -- Detonate Mana
+            27808, -- Frost Blast
+        } },
     } },
-    { key = "os", name = "The Obsidian Sanctum", mapID = 532, spells = {
-        57491, -- Flame Tsunami
+    { key = "os", name = "The Obsidian Sanctum", mapID = 532, bosses = {
+        { name = "Sartharion", spells = {
+            57491, -- Flame Tsunami
+        } },
     } },
-    { key = "eoe", name = "The Eye of Eternity", mapID = 528, spells = {
-        57407, -- Surge of Power
-        60936, -- Surge of Power (25)
+    { key = "eoe", name = "The Eye of Eternity", mapID = 528, bosses = {
+        { name = "Malygos", spells = {
+            57407, -- Surge of Power
+            60936, -- Surge of Power (25)
+        } },
     } },
-    { key = "voa", name = "Vault of Archavon", mapID = 533, spells = {
-        58678, -- Rock Shards
-        66684, -- Flaming Cinder
-        72004, -- Frostbite
+    { key = "voa", name = "Vault of Archavon", mapID = 533, bosses = {
+        { name = "Archavon the Stone Watcher", spells = {
+            58678, -- Rock Shards
+        } },
+        { name = "Koralon the Flame Watcher", spells = {
+            66684, -- Flaming Cinder
+        } },
+        { name = "Toravon the Ice Watcher", spells = {
+            72004, -- Frostbite
+        } },
     } },
-    { key = "ony", name = "Onyxia's Lair", mapID = 719, spells = {} },
+    { key = "ony", name = "Onyxia's Lair", mapID = 719, bosses = {} },
 }
 
 local INSTANCES = ns.RAID_DEBUFF_INSTANCES
@@ -155,8 +243,14 @@ for _, inst in ipairs(INSTANCES) do
     BY_KEY[inst.key] = inst
     if inst.mapID then BY_MAP[inst.mapID] = inst end
     BY_NAME[inst.name] = inst
-    inst.defaults = {}
-    for _, id in ipairs(inst.spells) do inst.defaults[id] = true end
+    -- Flat catalog list (catalog order) + membership set.
+    inst.spells, inst.defaults = {}, {}
+    for _, boss in ipairs(inst.bosses) do
+        for _, id in ipairs(boss.spells) do
+            inst.spells[#inst.spells + 1] = id
+            inst.defaults[id] = true
+        end
+    end
 end
 ns.RAID_DEBUFF_BY_KEY = BY_KEY
 
@@ -240,6 +334,22 @@ ns.RD_GetInstanceSpells = function(overrides, inst)
         for _, id in ipairs(extra) do list[#list + 1] = id end
     end
     return list
+end
+
+-- The instance's spells in sections: { { name, trash, spells }, ... } in
+-- catalog order, then hand-added spells in a final group with no name.
+ns.RD_GetInstanceGroups = function(overrides, inst)
+    local groups = {}
+    for _, boss in ipairs(inst.bosses) do
+        groups[#groups + 1] = { name = boss.name, trash = boss.trash, spells = boss.spells }
+    end
+    local all = ns.RD_GetInstanceSpells(overrides, inst)
+    if #all > #inst.spells then
+        local custom = {}
+        for i = #inst.spells + 1, #all do custom[#custom + 1] = all[i] end
+        groups[#groups + 1] = { custom = true, spells = custom }
+    end
+    return groups
 end
 
 ns.RD_CountTracked = function(overrides, inst)

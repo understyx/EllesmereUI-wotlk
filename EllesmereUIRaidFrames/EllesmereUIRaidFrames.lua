@@ -4690,9 +4690,9 @@ local function IsDisplayDebuff(unit, auraData, s)
     -- ordinary debuffs when the icon cap is reached. Both sets match by ID or
     -- name (one name covers every difficulty's spell ID); a nil set means
     -- nothing applies here and the lookup is skipped.
-    local sid = hsid and not issecretvalue(hsid) and hsid or nil
-    if sid and s then
-        local aname = auraData.name
+    local sid = auraData.spellId
+    local aname = auraData.name
+    if (sid or aname) and s then
         local hidden = ns.RD_GetHiddenSet(s.raidDebuffHidden)
         if hidden and (hidden[sid] or (aname and hidden[aname])) then return false end
         local tracked = ns.RD_GetActiveSet(s.raidDebuffs)

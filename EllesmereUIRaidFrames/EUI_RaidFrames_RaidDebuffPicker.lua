@@ -2,8 +2,9 @@
 --  EUI_RaidFrames_RaidDebuffPicker.lua
 --  Icon-grid editor for the per-instance raid debuff lists. Left rail: one
 --  entry per instance (plus Everywhere and Hidden Debuffs); right: the
---  instance's debuffs, tracked icons full color with an accent border.
---  Click toggles a debuff; right-click opens its settings (health bar color,
+--  instance's debuffs in one section per boss (trash and hand-added last),
+--  tracked icons full color with an accent border. Click a section header to
+--  toggle that boss's debuffs. Click toggles a debuff; right-click opens its settings (health bar color,
 --  hide everywhere, remove a hand-added one). Any spell ID can be added to the selected list
 --  from the footer.
 --  Catalog and saved-data format: EUI_RaidFrames_RaidDebuffs.lua.
@@ -14,6 +15,7 @@ local POPUP_W, POPUP_H = 760, 560
 local PAD = 20
 local RAIL_W, RAIL_ROW_H = 190, 26
 local CELL_W, CELL_H, CELL_ICON = 84, 64, 34
+local HEADER_H, SECTION_GAP = 24, 8
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local HIDDEN_KEY = "_hidden"
 
@@ -131,6 +133,36 @@ local function PageSpells()
     return ns.RD_GetInstanceSpells(Tracked(), SelectedInstance())
 end
 
+-- Sections for the current page. A page with a single unnamed group (Hidden
+-- Debuffs, Everywhere, an instance with no catalog) draws no header.
+local function PageGroups()
+    if IsHiddenPage() then return { { spells = PageSpells() } } end
+    local groups = ns.RD_GetInstanceGroups(Tracked(), SelectedInstance())
+    if #groups == 1 and groups[1].custom then groups[1].custom = nil end
+    return groups
+end
+
+-- Switch a set of the selected instance's spells together: all on unless
+-- they already are, else all off.
+local function ToggleSpells(spells)
+    local anyOff = false
+    for _, id in ipairs(spells) do
+        if not IsOn(id) then anyOff = true; break end
+    end
+    local inst = SelectedInstance()
+    local copy = CopyTracked()
+    local ov = copy[inst.key] or {}
+    for _, id in ipairs(spells) do
+        if inst.defaults[id] then
+            ov[id] = (not anyOff) and false or nil
+        else
+            ov[id] = anyOff
+        end
+    end
+    copy[inst.key] = next(ov) and ov or nil
+    opts.setTracked(copy)
+end
+
 local function RailCount(key)
     if key == HIDDEN_KEY then
         local n = 0
@@ -221,6 +253,7 @@ local function OnCellClick(self, button)
     end
     SetOn(self.spellID, not IsOn(self.spellID))
     RefreshCell(self)
+    if self._header then RefreshHeader(self._header) end
     RefreshRail()
     if GameTooltip:IsOwned(self) then OnCellEnter(self) end
 end
@@ -268,6 +301,58 @@ local function CreateCell(parent)
     cell:SetScript("OnEnter", OnCellEnter)
     cell:SetScript("OnLeave", OnCellLeave)
     return cell
+end
+
+-------------------------------------------------------------------------------
+--  Section headers (one per boss / trash / custom group)
+-------------------------------------------------------------------------------
+local function GroupLabel(group)
+    if group.custom then return L("Custom") end
+    if group.trash then return L("Trash") end
+    return group.name
+end
+
+local function RefreshHeader(h)
+    local on = 0
+    for _, id in ipairs(h.spells) do
+        if IsOn(id) then on = on + 1 end
+    end
+    h._count:SetText(on .. "/" .. #h.spells)
+    local r, g, b = EllesmereUI.GetAccentColor()
+    if on > 0 then
+        h._count:SetTextColor(r, g, b, 1)
+    else
+        h._count:SetTextColor(0.7, 0.7, 0.7, 0.6)
+    end
+end
+
+local function CreateHeader(parent)
+    local h = EllesmereUI.SafeCreateFrame("Button", nil, parent)
+    h:SetHeight(HEADER_H)
+    h._label = EllesmereUI.MakeFont(h, 11, nil, 1, 1, 1, 0.85)
+    h._label:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", 2, 6)
+    h._count = EllesmereUI.MakeFont(h, 10, nil, 0.7, 0.7, 0.7, 0.6)
+    h._count:SetPoint("LEFT", h._label, "RIGHT", 8, 0)
+    local line = EllesmereUI.SolidTex(h, "ARTWORK", 1, 1, 1, 0.08)
+    line:SetHeight(1)
+    line:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", 0, 1)
+    line:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", -4, 1)
+    h:SetScript("OnClick", function(self)
+        ToggleSpells(self.spells)
+        Rebuild()
+    end)
+    h:SetScript("OnEnter", function(self)
+        self._label:SetTextColor(1, 1, 1, 1)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(self._label:GetText(), 1, 1, 1)
+        GameTooltip:AddLine(L("Click to toggle every debuff in this section."), 0.72, 0.72, 0.72)
+        GameTooltip:Show()
+    end)
+    h:SetScript("OnLeave", function(self)
+        self._label:SetTextColor(1, 1, 1, 0.85)
+        GameTooltip:Hide()
+    end)
+    return h
 end
 
 -------------------------------------------------------------------------------
@@ -509,35 +594,62 @@ Rebuild = function()
     end
     Toggle(popup._toggleAll, not hiddenPage)
 
-    local spells = PageSpells()
+    for _, h in ipairs(popup._headers) do h:Hide() end
+
     local width = POPUP_W - PAD * 3 - RAIL_W
     local perRow = math.max(1, math.floor(width / CELL_W))
-    for i, id in ipairs(spells) do
-        local cell = popup._cells[i]
-        if not cell then
-            cell = CreateCell(child)
-            popup._cells[i] = cell
+    local y, nCells, nHeaders, total = 0, 0, 0, 0
+    for _, group in ipairs(PageGroups()) do
+        local spells = group.spells
+        local header
+        if #spells > 0 and (group.name or group.custom) then
+            if nHeaders > 0 then y = y + SECTION_GAP end
+            nHeaders = nHeaders + 1
+            header = popup._headers[nHeaders]
+            if not header then
+                header = CreateHeader(child)
+                popup._headers[nHeaders] = header
+            end
+            header:ClearAllPoints()
+            header:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+            header:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, -y)
+            header.spells = spells
+            header._label:SetText(GroupLabel(group))
+            RefreshHeader(header)
+            header:Show()
+            y = y + HEADER_H + 4
         end
-        local col = (i - 1) % perRow
-        local row = math.floor((i - 1) / perRow)
-        cell:ClearAllPoints()
-        cell:SetPoint("TOPLEFT", child, "TOPLEFT", col * CELL_W, -row * CELL_H)
-        cell.spellID = id
-        local name, _, icon = GetSpellInfo(id)
-        cell._icon:SetTexture(icon or FALLBACK_ICON)
-        cell._label:SetText(name or ("Spell " .. id))
-        RefreshCell(cell)
-        cell:Show()
+        for i, id in ipairs(spells) do
+            nCells = nCells + 1
+            local cell = popup._cells[nCells]
+            if not cell then
+                cell = CreateCell(child)
+                popup._cells[nCells] = cell
+            end
+            local col = (i - 1) % perRow
+            local row = math.floor((i - 1) / perRow)
+            cell:ClearAllPoints()
+            cell:SetPoint("TOPLEFT", child, "TOPLEFT", col * CELL_W, -(y + row * CELL_H))
+            cell.spellID = id
+            cell._header = header
+            local name, _, icon = GetSpellInfo(id)
+            cell._icon:SetTexture(icon or FALLBACK_ICON)
+            cell._label:SetText(name or ("Spell " .. id))
+            RefreshCell(cell)
+            cell:Show()
+        end
+        y = y + math.ceil(#spells / perRow) * CELL_H
+        total = total + #spells
     end
 
-    if #spells == 0 then
+    if total == 0 then
         popup._empty:SetText(L(hiddenPage and "No hidden debuffs. Add a spell ID below to hide it everywhere."
             or "No debuffs listed. Add a spell ID below."))
         popup._empty:Show()
     else
         popup._empty:Hide()
     end
-    child:SetHeight(math.max(1, math.ceil(#spells / perRow) * CELL_H))
+    child:SetHeight(math.max(1, y))
     popup._scroll:SetVerticalScroll(0)
     RefreshRail()
 end
@@ -592,23 +704,7 @@ local function CreatePopup()
     p._pageHint = pageHint
 
     local toggleAll = MakeButton(p, "Toggle All", 90, function()
-        local spells = PageSpells()
-        local anyOff = false
-        for _, id in ipairs(spells) do
-            if not IsOn(id) then anyOff = true; break end
-        end
-        local inst = SelectedInstance()
-        local copy = CopyTracked()
-        local ov = copy[inst.key] or {}
-        for _, id in ipairs(spells) do
-            if inst.defaults[id] then
-                ov[id] = (not anyOff) and false or nil
-            else
-                ov[id] = anyOff
-            end
-        end
-        copy[inst.key] = next(ov) and ov or nil
-        opts.setTracked(copy)
+        ToggleSpells(PageSpells())
         Rebuild()
     end)
     toggleAll:SetHeight(22)
@@ -628,7 +724,7 @@ local function CreatePopup()
         self:SetVerticalScroll(math.max(0, math.min(maxScroll, cur)))
     end)
     p._scroll, p._child = scroll, child
-    p._cells = {}
+    p._cells, p._headers = {}, {}
 
     local empty = EllesmereUI.MakeFont(p, 12, nil, 0.7, 0.7, 0.7, 0.85)
     empty:SetPoint("CENTER", scroll, "CENTER", 0, 0)
