@@ -1,14 +1,21 @@
-name: Package and Release EllesmereUI
+name: Release
+
+# Push a tag (e.g. `git tag v8.6.4-wotlk.20261017 && git push --tags`) or run
+# manually from the Actions tab. Produces a zip where every addon is its own
+# top-level folder, ready to extract into Interface/AddOns (no install script).
 
 on:
   push:
     tags:
-      - '**'
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create (blank = v<TOC version>)'
+        required: false
 
-env:
-  CF_API_KEY: ${{ secrets.CF_API_KEY }}
-  WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
-  GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+permissions:
+  contents: write
 
 jobs:
   release:
@@ -18,7 +25,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set version from the latest commit date
+      - name: Sync TOC versions
         run: bash .tools/update-version.sh
 
-      - uses: BigWigsMods/packager@v2
+      - name: Build zip
+        id: build
+        run: |
+          version=$(sed -n 's/^## Version: //p' EllesmereUI.toc | tr -d '\r')
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="${{ inputs.tag }}"
+            tag="${tag:-v$version}"
+          fi
+          zip=$(bash .tools/build-release.sh "$version" | tail -n1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.build.outputs.tag }}
+          ZIP: ${{ steps.build.outputs.zip }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --title "EllesmereUI $TAG" \
+              --target "$GITHUB_SHA" \
+              --generate-notes
+          fi

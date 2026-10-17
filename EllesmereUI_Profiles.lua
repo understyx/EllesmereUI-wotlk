@@ -73,7 +73,6 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIDamageMeters",     display = "Damage Meters",       svName = "EllesmereUIDamageMetersDB",      suffix = "DamageMeters"      },
     { folder = "EllesmereUIChat",             display = "Chat",                svName = "EllesmereUIChatDB",              suffix = "Chat"              },
     { folder = "EllesmereUIDataBars",         display = "DataBars",            svName = "EllesmereUIDataBarsDB",          suffix = "DataBars"          },
-    { folder = "EllesmereUIDBMSkin",          display = "DBM Timers",           svName = "EllesmereUIDBMSkinDB",           suffix = "DBMSkin"           },
     { folder = "EllesmereUISwingBars",       display = "Swingbars",           svName = "EllesmereUISwingBarsDB",         suffix = "SwingBars"         },
     { folder = "EllesmereUIQuickdraw",        display = "Quickdraw",           svName = "EllesmereUIQuickdrawDB",         suffix = "Quickdraw"         },
 }
@@ -1409,8 +1408,6 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EDB_Apply then _G._EDB_Apply() end
     -- Swingbars (visibility, appearance, layout and position)
     if _G._ESB_Apply then _G._ESB_Apply() end
-    -- DBM icon timers (appearance, visibility and both anchor positions)
-    if _G._EDBMS_Apply then _G._EDBMS_Apply() end
     -- Raid Cooldowns (enable state, groups, appearance)
     if _G._EUI_RaidCooldowns_Apply then _G._EUI_RaidCooldowns_Apply() end
     -- Quickdraw (enable state + palette count drive the override bindings)
@@ -1433,7 +1430,6 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EPP_RegisterUnlock then _G._EPP_RegisterUnlock() end
     if _G._ECL_RegisterUnlock then _G._ECL_RegisterUnlock() end
     if _G._EDB_RegisterUnlock then _G._EDB_RegisterUnlock() end
-    if _G._EDBMS_RegisterUnlock then _G._EDBMS_RegisterUnlock() end
     -- After all addons have rebuilt and positioned their frames from
     -- db.profile.positions, re-apply centralized grow-direction positioning
     -- (handles lazy migration of imported TOPLEFT positions to CENTER format)
@@ -3572,8 +3568,9 @@ do
     specFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     specFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
     specFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    specFrame:RegisterEvent("PLAYER_ALIVE")
     specFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    specFrame:SetScript("OnEvent", function(_, event, unit)
+    local function OnSpecEvent(_, event, unit)
         ---------------------------------------------------------------
         --  PLAYER_REGEN_ENABLED: handle deferred spec switch
         ---------------------------------------------------------------
@@ -3636,53 +3633,22 @@ do
         local specID = Spec and Spec:GetCurrentID()
 
         if not specID then
-            -- Spec info not available yet (common on brand new characters).
-            -- Start a short polling retry so we can assign the correct
-            -- profile once the server sends spec data.
+            -- Spec info not available yet: on 3.3.5 talent data only arrives
+            -- around PLAYER_ALIVE on a fresh login (also brand new
+            -- characters). Poll until it resolves, then run the FULL handler
+            -- as a first login -- profile switch AND the Spec Overrides
+            -- leave/enter transition. A retry path that only switched
+            -- profiles left the previous character's override values live
+            -- and never applied this spec's.
             if not specRetryTimer and (lastKnownSpecID == nil) then
                 local attempts = 0
                 specRetryTimer = C_Timer.NewTicker(1, function(ticker)
                     attempts = attempts + 1
-                    local sid = Spec and Spec:GetCurrentID()
-                    if sid then
+                    if Spec and Spec:GetCurrentID() then
                         ticker:Cancel()
                         specRetryTimer = nil
-                        -- Record the spec so future events use the fast path
-                        lastKnownSpecID = sid
-                        local ck = UnitName("player") .. " - " .. GetRealmName()
-                        lastKnownCharKey = ck
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        if not EllesmereUIDB.lastSpecByChar then
-                            EllesmereUIDB.lastSpecByChar = {}
-                        end
-                        EllesmereUIDB.lastSpecByChar[ck] = sid
-                        EllesmereUI._profileSaveLocked = false
-                        -- Resolve via the unified function
-                        local target = ResolveSpecProfile()
-                        if target then
-                            local cur = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
-                            if cur ~= target then
-                                local fontChange = EllesmereUI.ProfileChangesFont(
-                                    EllesmereUIDB.profiles[target])
-                                local skinsChange = EllesmereUI.ProfileChangesWindowSkins(
-                                    EllesmereUIDB.profiles[target])
-                                -- _specProfileSwitching disabled (see doSwitch comment)
-                                EllesmereUI.SwitchProfile(target)
-                                EllesmereUI.RefreshAllAddons()
-                                if fontChange or skinsChange then
-                                    EllesmereUI:ShowConfirmPopup({
-                                        title       = "Reload Required",
-                                        message     = fontChange
-                                            and "Font changed. A UI reload is needed to apply the new font."
-                                            or "Window skins changed for this profile. A UI reload is needed to apply them.",
-                                        confirmText = "Reload Now",
-                                        cancelText  = "Later",
-                                        onConfirm   = function() ReloadUI() end,
-                                    })
-                                end
-                            end
-                        end
-                    elseif attempts >= 10 then
+                        OnSpecEvent(nil, "EUI_SPEC_RETRY")
+                    elseif attempts >= 30 then
                         ticker:Cancel()
                         specRetryTimer = nil
                     end
@@ -3867,7 +3833,8 @@ do
         if specTransition and EllesmereUI.SpecOverrides_Apply then
             EllesmereUI.SpecOverrides_Apply(specID, isFirstLogin)
         end
-    end)
+    end
+    specFrame:SetScript("OnEvent", OnSpecEvent)
 end
 
 -------------------------------------------------------------------------------

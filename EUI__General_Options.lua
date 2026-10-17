@@ -4018,7 +4018,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
                 EllesmereUIRaidCooldowns     = "Configurable raid cooldown groups, announcements, and requests.",
                 EllesmereUISwingBars         = "Weapon swing timers for melee attacks and ranged Auto Shot.",
-                EllesmereUIDBMSkin           = "Replace DBM status bars with icon timers.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
 
@@ -6424,7 +6423,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
                 EllesmereUIRaidCooldowns     = "Configurable raid cooldown groups, announcements, and requests.",
                 EllesmereUISwingBars         = "Weapon swing timers for melee attacks and ranged Auto Shot.",
-                EllesmereUIDBMSkin           = "Replace DBM status bars with icon timers.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
 

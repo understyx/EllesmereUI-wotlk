@@ -2016,6 +2016,73 @@ local function ApplyOnlyNumbers(frame, fd, barData)
 end
 ns.ApplyOnlyNumbers = ApplyOnlyNumbers
 
+-- Proc text labels are resolved from the active aura spellID, not the static
+-- spellID of a generic row. The cache keeps user overrides per aura and lets
+-- an empty string explicitly suppress its built-in label.
+function ns.GetCDMProcLabelText(spellID)
+    if type(spellID) ~= "number" or spellID <= 0 then return nil end
+    -- Proc labels belong to aura spells, even when their adapter is hosted on
+    -- the default cooldown-family "procs" bar.
+    local store = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs")
+    local entry = store and store[spellID]
+    local override = entry and rawget(entry, "procLabel")
+    if override ~= nil then return override end
+    local defaults = ns.CDM_PROC_LABEL_DEFAULTS
+    return defaults and defaults[spellID]
+end
+
+local function UpdateCDMProcLabel(frame, barData, fd)
+    if not frame or not fd or not fd.textOverlay then return end
+    local info = frame.cooldownInfo
+    local auraSpellID = info and info.auraActive and info.matchedAuraSpellID
+    local label = auraSpellID and ns.GetCDMProcLabelText(auraSpellID)
+    if type(label) ~= "string" or label == "" then label = nil end
+
+    local fs = fd.procLabelText
+    if not label then
+        if fs then
+            if fd._lastProcLabelText ~= "" then
+                fs:SetText("")
+                fd._lastProcLabelText = ""
+            end
+            fs:Hide()
+        end
+        return
+    end
+
+    if not fs then
+        fs = fd.textOverlay:CreateFontString(nil, "OVERLAY")
+        fs:SetJustifyH("CENTER")
+        fs:SetTextColor(1, 1, 1, 1)
+        fd.procLabelText = fs
+    end
+    local scale = frame:GetScale() or 1
+    if scale < 0.01 then scale = 1 end
+    local font = GetCDMFont()
+    local size = (barData.procLabelSize or 9) / scale
+    if fd._procLabelFont ~= font or fd._procLabelFontSize ~= size then
+        EllesmereUI.ApplyIconTextFont(fs, font, size, "cdm")
+        fd._procLabelFont = font
+        fd._procLabelFontSize = size
+    end
+    -- 3.3.5 FontStrings error on SetText until a font is assigned.
+    if fd._lastProcLabelText ~= label then
+        fs:SetText(label)
+        fd._lastProcLabelText = label
+    end
+
+    local x = (barData.procLabelX or 0) / scale
+    local y = (barData.procLabelY or 1) / scale
+    if fd._procLabelX ~= x or fd._procLabelY ~= y then
+        fs:ClearAllPoints()
+        fs:SetPoint("BOTTOM", fd.textOverlay, "BOTTOM", x, y)
+        fd._procLabelX = x
+        fd._procLabelY = y
+    end
+    fs:Show()
+end
+ns.UpdateCDMProcLabel = UpdateCDMProcLabel
+
 -------------------------------------------------------------------------------
 --  DecorateFrame
 --  Add our visual overlays to a CDM frame (one-time per frame).
@@ -2107,6 +2174,11 @@ local function DecorateFrame(frame, barData)
     end
     if fd.glowOverlay then fd.glowOverlay:SetFrameLevel(baseLvl + 16) end
     if fd.textOverlay then fd.textOverlay:SetFrameLevel(baseLvl + 23) end
+
+    -- Aura-group adapters can change active spell without a visibility edge.
+    -- Re-anchor runs DecorateFrame again for those changes, including on pooled
+    -- frames that take the already-decorated return below.
+    if fd.textOverlay then UpdateCDMProcLabel(frame, barData, fd) end
 
     if fd.decorated then
         -- Late retry (see TryHookSwiftmend's helper comment): the unconditional
@@ -2241,6 +2313,7 @@ local function DecorateFrame(frame, barData)
         kt:Hide()
         fd.keybindText = kt
     end
+    UpdateCDMProcLabel(frame, barData, fd)
 
     fd.tooltipShown = false
 

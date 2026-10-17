@@ -8163,6 +8163,79 @@ initFrame:SetScript("OnEvent", function(self)
         })
     end
 
+    -- Resolve the aura identity represented by a multi-aura preview row for
+    -- the per-icon label editor. This runs only when that menu opens. Runtime
+    -- icons read the matched aura identity directly from cooldownInfo.
+    ns.ResolveCDMPreviewProcAura = function(anchorFrame, barKey, previewSpellID, isBuffBar)
+        if anchorFrame and anchorFrame._previewTrinketProcs then
+            local data = EUI_CDM_AuraTrackerTrinketData
+            local procToItems = data and data.procToItems
+            if procToItems and UnitAura then
+                for auraIndex = 1, 40 do
+                    local name, _, _, _, _, _, _, _, _, _, auraSpellID =
+                        UnitAura("player", auraIndex, "HELPFUL")
+                    if not name then break end
+                    local itemIDs = auraSpellID and procToItems[auraSpellID]
+                    if itemIDs then
+                        for slot = 13, 14 do
+                            local itemID = GetInventoryItemID("player", slot)
+                            if itemID and itemIDs[itemID] then
+                                return { auraSpellID = auraSpellID, isMultiAuraGroup = true,
+                                    canEditProcLabel = true }
+                            end
+                        end
+                    end
+                end
+            end
+            return { isMultiAuraGroup = true, canEditProcLabel = true }
+        end
+
+        local cdID = anchorFrame and anchorFrame._previewCdID
+        local isMultiAuraGroup = false
+        if not cdID and type(previewSpellID) == "number" and previewSpellID > 0 then
+            if ns.GetCooldownIDForMultiAuraSpellID then
+                cdID = ns.GetCooldownIDForMultiAuraSpellID(previewSpellID)
+            end
+            if cdID then
+                isMultiAuraGroup = true
+            elseif ns.GetCooldownIDForProcAuraSpellID then
+                cdID = ns.GetCooldownIDForProcAuraSpellID(previewSpellID)
+            end
+        end
+        local getInfo = C_CooldownViewer
+            and C_CooldownViewer.GetCooldownViewerCooldownInfo
+        local info = cdID and getInfo and getInfo(cdID)
+        local canEditProcLabel = false
+        if info then
+            local auraIDs = info.auraSpellIDs
+            if auraIDs and #auraIDs > 1 then
+                isMultiAuraGroup = true
+                canEditProcLabel = true
+            end
+            if info.isEquipmentProc or info.isEquipmentProcGroup or info.isItemSetProc
+               or info.isTalentProc or info.procSource then
+                canEditProcLabel = true
+            end
+            if info.auraActive and type(info.matchedAuraSpellID) == "number"
+               and info.matchedAuraSpellID > 0 then
+                return {
+                    auraSpellID = info.matchedAuraSpellID,
+                    isMultiAuraGroup = isMultiAuraGroup,
+                    canEditProcLabel = canEditProcLabel,
+                }
+            end
+            if canEditProcLabel and not isMultiAuraGroup
+               and type(previewSpellID) == "number" and previewSpellID > 0 then
+                return { auraSpellID = previewSpellID, canEditProcLabel = true }
+            end
+        end
+        if isBuffBar and not isMultiAuraGroup and type(previewSpellID) == "number"
+           and previewSpellID > 0 then
+            return { auraSpellID = previewSpellID }
+        end
+        return { isMultiAuraGroup = isMultiAuraGroup }
+    end
+
     local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSelect, removeOnly)
         -- Toggle: if the picker is already open for this same icon, close it
         if _spellPickerMenu and _spellPickerMenu:IsShown() and _spellPickerMenu._anchorFrame == anchorFrame then
@@ -8405,7 +8478,19 @@ initFrame:SetScript("OnEvent", function(self)
                 -- negative trinket/item markers _previewSpellID doesn't), so keep
                 -- the index path for those.
                 local spellID
-                if isBuffBar then
+                local procLabelCtx = ns.ResolveCDMPreviewProcAura
+                    and ns.ResolveCDMPreviewProcAura(anchorFrame, barKey,
+                        anchorFrame and anchorFrame._previewSpellID, isBuffBar)
+                    or {}
+                if anchorFrame and anchorFrame._previewTrinketProcs then
+                    spellID = procLabelCtx.auraSpellID
+                elseif procLabelCtx.canEditProcLabel and procLabelCtx.auraSpellID then
+                    spellID = procLabelCtx.auraSpellID
+                elseif procLabelCtx.isMultiAuraGroup then
+                    -- The row's static id is only a group placeholder. Wait
+                    -- for a matched aura before opening spell-specific settings.
+                    spellID = nil
+                elseif isBuffBar then
                     spellID = ResolveBuffSettingsKey(anchorFrame)
                         or (sd and sd.assignedSpells and sd.assignedSpells[slotIndex])
                 else
@@ -8433,6 +8518,9 @@ initFrame:SetScript("OnEvent", function(self)
                         spellID = ns.HostedDebuffMarkerToSpell(spellID)
                     end
                 end
+                if procLabelCtx.canEditProcLabel and procLabelCtx.auraSpellID then
+                    procLabelCtx.settingsSpellID = procLabelCtx.auraSpellID
+                end
                 if spellID and spellID ~= 0 then
                     -- Hosted-aura SLOT? The slot decides, not the flag alone: the
                     -- same spellID can also be this bar's cooldown entry, and that
@@ -8450,14 +8538,17 @@ initFrame:SetScript("OnEvent", function(self)
                        and sd.hostedDebuffSpellIDs[spellID] then
                         isHostedDebuff = true
                     end
-                    local isHostedAura = isHostedBuff or isHostedDebuff
+                    local isProcAura = procLabelCtx.settingsSpellID
+                        and spellID == procLabelCtx.settingsSpellID
+                    local isHostedAura = isHostedBuff or isHostedDebuff or isProcAura
                     -- Per-spell entries live in the spec FAMILY store (they travel
                     -- with the spell across bars). The bar tiers sit below them:
                     -- sd.barSettings ("Apply to Bar") -> bd.barSpellSettings
                     -- ("Apply to Bar (All Specs)"). A hosted aura uses its own
-                    -- Buffs/Debuffs family store and never chains to this bar's
-                    -- cooldown/utility tiers.
-                    local settingsBarKey = isHostedBuff and "buffs"
+                    -- Aura/proc settings use their Buffs/Debuffs family store
+                    -- and never chain to this bar's cooldown/utility tiers.
+                    local settingsBarKey = isProcAura and "buffs"
+                        or (isHostedBuff and "buffs")
                         or (isHostedDebuff and "debuffs") or barKey
                     local store = ns.GetSpellSettingsStore(settingsBarKey, true)
                     local bdSel = ns.barDataByKey and ns.barDataByKey[barKey]
@@ -8480,6 +8571,10 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end
                         return ss
+                    end
+                    if procLabelCtx.settingsSpellID then
+                        procLabelCtx.store = store
+                        procLabelCtx.entry = ss
                     end
                     -- Own-value writer for clearable keys: writing nil would let an
                     -- inherited bar-tier value show through; when that would change
@@ -10912,6 +11007,52 @@ initFrame:SetScript("OnEvent", function(self)
                             end)
                             mH = mH + ITEM_H
                             return row
+                        end
+
+                        if procLabelCtx.settingsSpellID then
+                            MakeCogRow("Proc Text Label", function()
+                                return rawget(procLabelCtx.entry, "procLabel") ~= nil
+                            end, function(row)
+                                return EllesmereUI.BuildCogPopup({
+                                    title = "Proc Text Label", noOwnerDim = true,
+                                    frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
+                                    rows = {
+                                        { type="input", label="Text", inputWidth=90,
+                                          get=function()
+                                              local own = rawget(procLabelCtx.entry, "procLabel")
+                                              if own ~= nil then return own end
+                                              local defaults = ns.CDM_PROC_LABEL_DEFAULTS
+                                              return defaults and defaults[procLabelCtx.settingsSpellID] or ""
+                                          end,
+                                          set=function(value)
+                                              local storeLabel = procLabelCtx.store
+                                              local entryLabel = procLabelCtx.entry
+                                              local idLabel = procLabelCtx.settingsSpellID
+                                              if storeLabel and not storeLabel[idLabel] then
+                                                  storeLabel[idLabel] = entryLabel
+                                              end
+                                              entryLabel.procLabel = string.sub(tostring(value or ""), 1, 12)
+                                              if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                              RefreshCDPreview()
+                                              if row._updateLabel then row._updateLabel() end
+                                          end },
+                                        { type="button", label="Use Default",
+                                          action=function()
+                                              local storeLabel = procLabelCtx.store
+                                              local entryLabel = procLabelCtx.entry
+                                              local idLabel = procLabelCtx.settingsSpellID
+                                              entryLabel.procLabel = nil
+                                              if storeLabel and storeLabel[idLabel] == entryLabel
+                                                 and next(entryLabel) == nil then
+                                                  storeLabel[idLabel] = nil
+                                              end
+                                              if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                              RefreshCDPreview()
+                                              if row._updateLabel then row._updateLabel() end
+                                          end },
+                                    },
+                                })
+                            end)
                         end
 
                         MakeCogRow("Duration Text", function()
@@ -14474,7 +14615,6 @@ initFrame:SetScript("OnEvent", function(self)
                     -- settings and don't map to assignedSpells[si]; middle-click
                     -- removes them. Ignore left/right-click to avoid a mis-indexed
                     -- settings menu.
-                    if self._previewTrinketProcs then return end
                     if isDefaultBuffs and self._previewItemID then return end
                     -- Translate the preview slot to its underlying assignedSpells
                     -- index (identity unless this buff slot collapsed a duplicate).
@@ -14485,7 +14625,8 @@ initFrame:SetScript("OnEvent", function(self)
                     local sdClick = ns.GetBarSpellData(bd.key)
                     local hasAssigned = sdClick and sdClick.assignedSpells
                         and sdClick.assignedSpells[dataIdx] and sdClick.assignedSpells[dataIdx] ~= 0
-                    if not hasAssigned and not self._previewSpellID then return end
+                    if not hasAssigned and not self._previewSpellID
+                       and not self._previewTrinketProcs then return end
 
                     -- Show remove-only dropdown (per-icon settings + Remove)
                     ShowSpellPicker(self, bd.key, dataIdx, {}, function()
@@ -19129,6 +19270,29 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         end -- if isAnyBuffBar (tooltip only) / else (tooltip + keybind)
+
+        -- Proc labels are resolved per active aura spell; these controls style
+        -- labels across the whole bar, matching the other icon-text settings.
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Proc Label Size", min=6, max=20, step=1, trackWidth=100,
+              getValue=function() return BD().procLabelSize or 9 end,
+              setValue=function(v)
+                  BD().procLabelSize = v
+                  ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+              end },
+            { type="slider", text="Label X Offset", min=-30, max=30, step=1, trackWidth=100,
+              getValue=function() return BD().procLabelX or 0 end,
+              setValue=function(v)
+                  BD().procLabelX = v
+                  ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+              end });  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Label Y Offset", min=-30, max=30, step=1, trackWidth=100,
+              getValue=function() return BD().procLabelY or 1 end,
+              setValue=function(v)
+                  BD().procLabelY = v
+                  ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+              end }, nil);  y = y - h
 
         -- Show Non-On Use Trinkets
         _, h = W:DualRow(parent, y,

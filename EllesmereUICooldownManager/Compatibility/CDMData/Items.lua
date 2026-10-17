@@ -421,6 +421,24 @@ local procCooldowns = {
     [60570] = 0,
 }
 
+-- Proc labels are keyed by the aura spellID actually reported by UnitAura.
+-- Deathbringer's Will normal: Strength, Agility, AP, Armor Pen, Crit, Haste.
+-- Heroic uses a different ID order, so keep the mappings explicit.
+ns.CDM_PROC_LABEL_DEFAULTS = {
+    [71484] = "STR",  -- Strength of the Taunka
+    [71485] = "AGI",  -- Agility of the Vrykul
+    [71486] = "AP",   -- Power of the Taunka
+    [71487] = "ARP",  -- Precision of the Iron Dwarves
+    [71491] = "CRIT", -- Aim of the Iron Dwarves
+    [71492] = "H",    -- Speed of the Vrykul
+    [71561] = "STR",  -- Strength of the Taunka (Heroic)
+    [71556] = "AGI",  -- Agility of the Vrykul (Heroic)
+    [71558] = "AP",   -- Power of the Taunka (Heroic)
+    [71557] = "ARP",  -- Precision of the Iron Dwarves (Heroic)
+    [71559] = "CRIT", -- Aim of the Iron Dwarves (Heroic)
+    [71560] = "H",    -- Speed of the Vrykul (Heroic)
+}
+
 local procToItems = {}
 for itemID, procData in pairs(trinketItemToProc) do
     if type(procData) == "number" then

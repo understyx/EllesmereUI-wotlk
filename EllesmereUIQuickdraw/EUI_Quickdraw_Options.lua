@@ -446,7 +446,7 @@ initFrame:SetScript("OnEvent", function(self)
         local slot = palette and palette.slots[widget.index]
         local text
         if slot then
-            local _, name = ns.SlotDisplay(slot)
+            local _, name, detail = ns.SlotDisplay(slot)
             local caption
             if slot.kind == "palette" then
                 -- Capped at what the palette being edited can seat, which is
@@ -472,16 +472,12 @@ initFrame:SetScript("OnEvent", function(self)
                                           #all - #kids)
                 end
             else
-                -- The stored kind strings are one word each; only the marker
-                -- kinds read better with the space put back.
+                -- Marker kinds read better with the space put back.
                 caption = (slot.kind == "raidtarget" and "target marker")
-                    or (slot.kind == "worldmarker" and "world marker")
                     or (slot.kind == "clearmarkers" and "target markers")
                     or (slot.kind == "cycleraidtarget"
                         and "target marker, next on each press")
-                    or (slot.kind == "cycleworldmarker"
-                        and "world marker, next on each press")
-                    or (slot.kind == "spec" and "specialization")
+                    or (slot.kind == "spec" and "talent spec")
                     -- The name above is already the spell this character would
                     -- cast, so the caption says what picked it rather than
                     -- repeating it.
@@ -491,6 +487,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             text = EllesmereUI.L(name or slot.kind)
                 .. "\n|cff999999" .. EllesmereUI.L(caption) .. "|r"
+                .. (detail and ("\n|cff999999" .. EllesmereUI.L(detail) .. "|r") or "")
                 .. EllesmereUI.L("\n|cff66ccffDrag to reorder."
                     .. "\nRight-click to change action."
                     .. "\nMiddle-click to remove."
@@ -556,18 +553,9 @@ initFrame:SetScript("OnEvent", function(self)
     -- this cache instead of re-enumerating on every keystroke.
     local pickerLists = {}
 
-    -- Wrath exposes the backpack as bag 0 and has no reagent bag or
-    -- Enum.BagIndex. Keep the newer constants optional so this same walk also
-    -- remains correct on clients which do provide them.
-    local FIRST_CARRIED_BAG =
-        (Enum and Enum.BagIndex and Enum.BagIndex.Backpack) or 0
-    local REAGENT_BAG = Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag
+    -- Wrath exposes the backpack as bag 0 and the four carried bags as 1..4.
     local function ScanCarriedBags(scan)
-        for bag = FIRST_CARRIED_BAG, (NUM_BAG_SLOTS or 4) do scan(bag) end
-        if REAGENT_BAG
-           and (REAGENT_BAG < FIRST_CARRIED_BAG or REAGENT_BAG > (NUM_BAG_SLOTS or 4)) then
-            scan(REAGENT_BAG)
-        end
+        for bag = 0, (NUM_BAG_SLOTS or 4) do scan(bag) end
     end
 
     ---------------------------------------------------------------------------
@@ -577,14 +565,27 @@ initFrame:SetScript("OnEvent", function(self)
     --  the picker never mutates any of the game's own UI state.
     ---------------------------------------------------------------------------
     local function SpellEntries()
+        ns.InvalidateSpellbookCache()
         local out, seen = {}, {}
-        local bank = Enum.SpellBookSpellBank.Player
 
-        local function Add(spellID, name, icon)
-            if type(spellID) ~= "number" or seen[spellID] or not name then return end
-            seen[spellID] = true
-            out[#out + 1] = { icon = icon, name = name,
-                              slot = { kind = "spell", id = spellID } }
+        local function Add(index)
+            local name = GetSpellName(index, BOOKTYPE_SPELL)
+            if not name or IsPassiveSpell(index, BOOKTYPE_SPELL) then return end
+            local link = GetSpellLink(index, BOOKTYPE_SPELL)
+            local spellID = link and tonumber(link:match("|Hspell:(%d+)"))
+            if not spellID then return end
+            local entry = { icon = GetSpellTexture(index, BOOKTYPE_SPELL), name = name,
+                slot = { kind = "spell", id = spellID } }
+            local existing = seen[name]
+            if existing then
+                -- The 3.3.5 book lists each learned rank in order, so the last
+                -- occurrence is the highest rank. Keep its ID and icon in the
+                -- original position in the picker.
+                out[existing] = entry
+            else
+                out[#out + 1] = entry
+                seen[name] = #out
+            end
         end
 
         -- Dynamic Rez ahead of the spellbook itself, the way the Mount Journal's
@@ -602,40 +603,12 @@ initFrame:SetScript("OnEvent", function(self)
             out[1] = { icon = icon, name = "Dynamic Rez", slot = slot, pin = true }
         end
 
-        -- There is no C_SpellBook.GetNumSpellBookItems in this client. The book
-        -- is described by its skill lines instead, each carrying an offset into
-        -- the item indices and a count -- which is how Blizzard's own spellbook
-        -- walks it (Blizzard_SpellBookCategory.lua:180-218).
-        for line = 1, (C_SpellBook.GetNumSpellBookSkillLines() or 0) do
-            local li = C_SpellBook.GetSpellBookSkillLineInfo(line)
-            -- offSpecID is set on the other specialisation's tabs; those spells
-            -- are listed in the book but cannot be cast.
-            if li and not li.shouldHide and not li.offSpecID then
-                for i = li.itemIndexOffset + 1, li.itemIndexOffset + li.numSpellBookItems do
-                    local info = C_SpellBook.GetSpellBookItemInfo(i, bank)
-                    -- FutureSpell (a rank not learned yet) falls out here too:
-                    -- only Spell and Flyout are handled.
-                    if info and not info.isPassive and not info.isOffSpec then
-                        if info.itemType == Enum.SpellBookItemType.Spell then
-                            -- actionID, not spellID: for a spell actionID is the
-                            -- BASE id while spellID is whatever override is up
-                            -- right now, and the base is what the game resolves
-                            -- overrides from when the button fires.
-                            Add(info.actionID, info.name, info.iconID)
-                        elseif info.itemType == Enum.SpellBookItemType.Flyout then
-                            -- A flyout is not castable itself, so its known
-                            -- slots are offered as individual spells.
-                            local numSlots = select(3, GetFlyoutInfo(info.actionID))
-                            for s = 1, (numSlots or 0) do
-                                local spellID, _, isKnown, spellName =
-                                    GetFlyoutSlotInfo(info.actionID, s)
-                                if isKnown then
-                                    Add(spellID, spellName, C_Spell.GetSpellTexture(spellID))
-                                end
-                            end
-                        end
-                    end
-                end
+        -- Every tab is included, including General. Ranks appear in order, so
+        -- replacing a prior name keeps the highest learned rank.
+        for tab = 1, GetNumSpellTabs() do
+            local _, _, offset, numSpells = GetSpellTabInfo(tab)
+            for index = (offset or 0) + 1, (offset or 0) + (numSpells or 0) do
+                Add(index)
             end
         end
         return out
@@ -688,31 +661,23 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
-    -- This character's own specializations, in the order the game lists them.
-    -- The slot banks the specID rather than the index -- the module resolves
-    -- the index back at fire time, so the same palette carried to an alt
-    -- points at nothing instead of at somebody else's spec.
+    -- Dual talent groups are character-wide and keep the same meaning on every
+    -- character: group 1 is Primary Talents and group 2 is Secondary Talents.
     local function SpecEntries()
         local out = {}
-        local classID = select(3, UnitClass("player"))
-        if not classID or not C_SpecializationInfo then return out end
-        for i = 1, (C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0) do
-            local specID, name, _, icon = C_SpecializationInfo.GetSpecializationInfo(i)
-            if specID and name then
-                out[#out + 1] = { icon = icon, name = name,
-                    slot = { kind = "spec", specID = specID, name = name } }
-            end
+        if not GetNumTalentGroups or GetNumTalentGroups() < 2 then return out end
+        for group = 1, 2 do
+            local name = group == 1 and "Primary Talents" or "Secondary Talents"
+            local slot = { kind = "spec", group = group, name = name }
+            local icon, label = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = label or name, slot = slot }
         end
         return out
     end
 
-    -- The markers need no enumeration at all: the slot kinds carry the icon
-    -- and the name, so a candidate slot handed to SlotDisplay IS the entry.
-    --
-    -- One row per marker per set is twenty-one rows, and the two sets are the
-    -- one thing a user has already decided between before opening the menu --
-    -- so Markers holds two lists rather than one, and neither is long enough to
-    -- scroll. See the subs field on its category below.
+    -- The target-marker kinds carry their icon and name, so a candidate slot
+    -- handed to SlotDisplay IS the entry. Their fixed list stays ordered and
+    -- does not need search.
     local function MarkerAdder(out)
         return function(kind, id, name)
             local slot = { kind = kind, id = id }
@@ -721,10 +686,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
-    -- The cyclers lead each list: one entry that steps through all eight is the
-    -- reason to come here at all on a palette with no room for nine, and
+    -- The cycler leads the target-marker list: one entry that steps through
+    -- all eight is the reason to come here at all on a palette with no room for
+    -- nine, and
     -- burying it under the eight it replaces hides it from exactly the person
-    -- who wants it. Deliberately NOT in the two marker presets -- a preset that
+    -- who wants it. Deliberately NOT in the marker preset -- a preset that
     -- lays out all eight has nothing to cycle.
     --
     -- Each is named without the marker SlotDisplay appends. On a placed entry
@@ -736,19 +702,25 @@ initFrame:SetScript("OnEvent", function(self)
         Add("cycleraidtarget", nil, "Cycle Target Markers")
         for i = 1, 8 do Add("raidtarget", i) end
         Add("raidtarget", 0)
-        -- The all-units counterpart of the /tm 0 row above; the world markers
-        -- need none because their 0 row already clears them all.
+        -- The all-units counterpart of the /tm 0 row above.
         Add("clearmarkers")
         return out
     end
 
-    local function WorldMarkerEntries()
-        local out = {}
-        local Add = MarkerAdder(out)
-        Add("cycleworldmarker", nil, "Cycle World Markers")
-        for i = 1, 8 do Add("worldmarker", i) end
-        Add("worldmarker", 0)
-        return out
+    -- The mount and companion pet lists. Each is stored as a plain spell slot:
+    -- on 3.3.5 a companion casts by its spell name like any spell does.
+    local function CompanionEntries(ctype)
+        return function()
+            local out = {}
+            for i = 1, (GetNumCompanions(ctype) or 0) do
+                local _, name, spellID, icon = GetCompanionInfo(ctype, i)
+                if spellID and name then
+                    out[#out + 1] = { icon = icon, name = name,
+                        slot = { kind = "spell", id = spellID } }
+                end
+            end
+            return out
+        end
     end
 
     -- Every palette this one may open. Not a list of things the game owns, so
@@ -792,6 +764,8 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "spell",     label = "Spells",       build = SpellEntries },
         { key = "item",      label = "Items",        build = ItemEntries },
         { key = "macro",     label = "Macros",       build = MacroEntries },
+        { key = "mount",     label = "Mounts",       build = CompanionEntries("MOUNT") },
+        { key = "critter",   label = "Companions",   build = CompanionEntries("CRITTER") },
         -- keepOrder on both: the markers run star to skull, the order every
         -- marker menu in the game shows. noSearch on both too -- a fixed
         -- handful of rows has nothing worth filtering, and the nav strip
@@ -799,14 +773,9 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "marker",    label = "Markers", subs = {
             { key = "marker_target", label = "Target Markers",
               build = TargetMarkerEntries, keepOrder = true, noSearch = true },
-            { key = "marker_world",  label = "World Markers",
-              build = WorldMarkerEntries,  keepOrder = true, noSearch = true },
         } },
-        -- keepOrder: the game lists a class's specs in one fixed order that
-        -- every character sheet shows, and alphabetising them would be the
-        -- one place in the interface they are not in it. noSearch: at most
-        -- four rows.
-        { key = "spec",      label = "Specializations", build = SpecEntries,
+        -- The two fixed talent groups stay in primary/secondary order.
+        { key = "spec",      label = "Dual Spec", build = SpecEntries,
           keepOrder = true, noSearch = true },
         { key = "macrotext", label = "Custom Macro...", custom = true },
     }
@@ -1390,8 +1359,8 @@ initFrame:SetScript("OnEvent", function(self)
     --  from what THIS character knows or carries at the moment the chooser
     --  opens -- a preset must never seed a slot that cannot fire. A preset
     --  whose builder comes back empty is left out of the chooser, which is
-    --  also how the class-specific ones gate themselves: IsPlayerSpell answers
-    --  no to every spell on the wrong class.
+    --  also how the class-specific ones gate themselves: spellbook name lookup
+    --  leaves out spells this character has not learned.
     ---------------------------------------------------------------------------
     local function TargetMarkerSlots()
         local out = {}
@@ -1400,15 +1369,8 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
-    local function WorldMarkerSlots()
-        local out = {}
-        for i = 1, 8 do out[#out + 1] = { kind = "worldmarker", id = i } end
-        out[#out + 1] = { kind = "worldmarker", id = 0 }
-        return out
-    end
-
-    -- The base item plus its two expansion siblings.
-    local HEARTH_ITEMS = { 6948, 140192, 110560 }   -- Hearthstone, Dalaran, Garrison
+    -- The Wrath hearthstone.
+    local HEARTH_ITEMS = { 6948 }
     local function HearthstoneSlots()
         local out = {}
         for _, itemID in ipairs(HEARTH_ITEMS) do
@@ -1424,22 +1386,21 @@ initFrame:SetScript("OnEvent", function(self)
     -- an owner wants.
     local TELEPORT_SPELLS = {
         DEATHKNIGHT = { 50977 },     -- Death Gate
-        DRUID       = { 193753 },    -- Dreamwalk
-        MONK        = { 126892 },    -- Zen Pilgrimage
         SHAMAN      = { 556 },       -- Astral Recall
         MAGE = {
-            3561, 3562, 3563, 3565, 3566, 3567,        -- the classic capitals
-            32271, 32272, 33690, 35715, 49358, 49359,  -- Outland-era cities
-            53140, 88342, 88344, 132621, 132627,       -- Dalaran, Tol Barad, Vale
-            176248, 176242, 224869, 281403, 281404,    -- Warspear era through Boralus
-            344587, 395277, 446540,                    -- Oribos, Valdrakken, Dornogal
+            3561, 3562, 3563, 3565, 3566, 3567,        -- classic capitals
+            32271, 32272,                              -- Exodar, Silvermoon
+            33690, 35715,                              -- Shattrath
+            49358, 49359,                              -- Stonard, Theramore
+            53140, 53142,                              -- Dalaran (Alliance, Horde)
         },
     }
     local function TeleportSlots()
+        ns.InvalidateSpellbookCache()
         local out, dropped = {}, 0
         local list = TELEPORT_SPELLS[select(2, UnitClass("player"))]
         for _, spellID in ipairs(list or {}) do
-            if IsPlayerSpell(spellID) then
+            if ns.IsSpellKnownInBook(spellID) then
                 if #out < MAX_SLOTS then
                     out[#out + 1] = { kind = "spell", id = spellID }
                 else
@@ -1474,24 +1435,24 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
-    -- Every form a druid can be in, plus the two that are really ways of
-    -- moving between them. Aquatic and Flight are listed even though Travel
-    -- Form has absorbed both on most builds: IsPlayerSpell is what decides,
-    -- and a spell nobody has simply does not appear.
+    -- Every WotLK druid form, plus Prowl. The learned spellbook name decides
+    -- which forms appear for this character.
     local FORM_SPELLS = {
         5487,    -- Bear Form
         768,     -- Cat Form
         5215,    -- Prowl
         783,     -- Travel Form
         1066,    -- Aquatic Form
-        165962,  -- Flight Form
+        33943,   -- Flight Form
+        40120,   -- Swift Flight Form
         24858,   -- Moonkin Form
-        114282,  -- Treant Form
+        33891,   -- Tree of Life
     }
     local function FormSlots()
+        ns.InvalidateSpellbookCache()
         local out, dropped = {}, 0
         for _, spellID in ipairs(FORM_SPELLS) do
-            if IsPlayerSpell(spellID) then
+            if ns.IsSpellKnownInBook(spellID) then
                 if #out < MAX_SLOTS then
                     out[#out + 1] = { kind = "spell", id = spellID }
                 else
@@ -1516,13 +1477,16 @@ initFrame:SetScript("OnEvent", function(self)
     -- paladin's auras are the same choice in two costumes, and both are
     -- ordinary spells.
     local STANCE_SPELLS = {
-        WARRIOR = { 386164, 386208, 386196 },   -- Battle, Defensive, Berserker
-        PALADIN = { 465, 32223, 183435, 317920 },  -- Devotion, Crusader, Retribution, Concentration
+        WARRIOR = { 2457, 71, 2458 },             -- Battle, Defensive, Berserker
+        -- Devotion, Crusader, Retribution, Concentration, then the Shadow,
+        -- Frost and Fire resistance auras.
+        PALADIN = { 465, 32223, 7294, 19746, 19876, 19888, 19891 },
     }
     local function StanceSlots()
+        ns.InvalidateSpellbookCache()
         local out, dropped = {}, 0
         for _, spellID in ipairs(STANCE_SPELLS[select(2, UnitClass("player"))] or {}) do
-            if IsPlayerSpell(spellID) then
+            if ns.IsSpellKnownInBook(spellID) then
                 if #out < MAX_SLOTS then
                     out[#out + 1] = { kind = "spell", id = spellID }
                 else
@@ -1533,8 +1497,7 @@ initFrame:SetScript("OnEvent", function(self)
         return out, dropped
     end
 
-    -- Every spec this character has. One entry short of useful on a class with
-    -- one spec, so a single-spec character is not offered it.
+    -- Both talent groups, offered only after Dual Spec is learned.
     local function SpecSlots()
         local out = SpecEntries()
         if #out < 2 then return {} end
@@ -1597,30 +1560,30 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- Every profession this character has, as the spells the profession book
-    -- itself offers: the window opener, and where a profession has one, its
-    -- second ability -- smelting, prospecting, milling, runeforging. Cooking,
-    -- fishing and archaeology arrive the same way, GetProfessions handing back
-    -- all five slots.
+    -- itself offers. Cooking and fishing arrive the same way, GetProfessions
+    -- handing back all five slots.
     --
-    -- Read out of the spellbook rather than from a list of spell IDs. Those IDs
-    -- change with every expansion's skill lines, and a list would go stale
-    -- silently -- the preset would simply stop offering a profession. This is
-    -- the walk Blizzard's own profession book makes
-    -- (Blizzard_ProfessionsBook.lua:387 for the offsets, :313 for the item).
+    -- Read through the profession's spellbook offset, which avoids maintaining
+    -- a separate list of profession spell IDs.
     --
     -- Passive entries are skipped: a profession's passive is a rank, not
     -- something a menu entry can do.
     local function ProfessionSlots()
         local out, dropped = {}, 0
+        local seen = {}
         local function AddProfession(index)
             if not index then return end
             local _, _, _, _, numSpells, spellOffset = GetProfessionInfo(index)
             for i = 1, (numSpells or 0) do
-                local info = C_SpellBook.GetSpellBookItemInfo(
-                    i + (spellOffset or 0), Enum.SpellBookSpellBank.Player)
-                if info and info.spellID and not info.isPassive then
+                local spellIndex = i + (spellOffset or 0)
+                local name = GetSpellName(spellIndex, BOOKTYPE_SPELL)
+                local link = GetSpellLink(spellIndex, BOOKTYPE_SPELL)
+                local spellID = link and tonumber(link:match("|Hspell:(%d+)"))
+                if name and spellID and not seen[name]
+                   and not IsPassiveSpell(spellIndex, BOOKTYPE_SPELL) then
+                    seen[name] = true
                     if #out < MAX_SLOTS then
-                        out[#out + 1] = { kind = "spell", id = info.spellID }
+                        out[#out + 1] = { kind = "spell", id = spellID }
                     else
                         dropped = dropped + 1
                     end
@@ -1641,13 +1604,12 @@ initFrame:SetScript("OnEvent", function(self)
 
     local PALETTE_PRESETS = {
         { label = "Target Markers", build = TargetMarkerSlots },
-        { label = "World Markers",  build = WorldMarkerSlots },
         { label = "Hearthstones",   build = HearthstoneSlots },
         { label = "Teleports",      build = TeleportSlots },
         { label = "Potions",        build = PotionSlots },
         { label = "Druid Forms",    build = FormSlots },
         { label = "Stances",        build = StanceSlots },
-        { label = "Specializations", build = SpecSlots },
+        { label = "Dual Spec",       build = SpecSlots },
         { label = "Professions",    build = ProfessionSlots },
         { label = "Quest Items",    build = QuestItemSlots },
     }
@@ -3424,55 +3386,16 @@ initFrame:SetScript("OnEvent", function(self)
         -- user's own animation pass.
         y = y - h
 
-        local wmRow
-        wmRow, h = W:DualRow(parent, y,
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Unusable Entries", noCapture=true,
               disabled=Disabled, disabledTooltip="the module",
-              tooltip="Hide entries this character cannot use: another class's "
-                      .."specializations and spells, and macros this character "
-                      .."does not have. One shared menu then fits every "
-                      .."character. The menu editor always shows every entry.",
+              tooltip="Hide talent specs and spells this character has not "
+                      .."learned, and macros this character does not have. "
+                      .."One shared menu then fits every character. The menu "
+                      .."editor always shows every entry.",
               getValue=function() return ACfg("hideUnusable") ~= false end,
-              setValue=function(v) ASet("hideUnusable", v); Refresh() end },
-            -- Beside the filter rather than in ACTION MENU SETUP: both of
-            -- these change what an entry does once the menu is drawn, and both
-            -- are per menu. It also keeps this the last row of the section
-            -- with no half of it empty.
-            { type="toggle", text="Toggle World Markers", noCapture=true,
-              disabled=Disabled, disabledTooltip="the module",
-              tooltip="Use a world marker entry again to pick that marker "
-                      .."back up. Off places the marker again, at the new "
-                      .."position.\n"
-                      .."This does not change the entry that clears all world "
-                      .."markers, or the cycling entry.",
-              getValue=function() return ACfg("worldMarkerToggle") ~= false end,
-              setValue=function(v) ASet("worldMarkerToggle", v); Refresh() end })
+              setValue=function(v) ASet("hideUnusable", v); Refresh() end }, nil)
         y = y - h
-
-        -- Inline cog on Toggle World Markers: the placed-marker pip opt-out.
-        if not EllesmereUI._prebuilding then
-            local rgn = wmRow._rightRegion
-            local _, wmCogShow = EllesmereUI.BuildCogPopup({
-                title = "World Marker Entries",
-                rows = {
-                    { type="toggle", label="Show Placed-Marker Pips",
-                      tooltip="Mark a world marker entry whose marker is on the ground with a small corner square, so you can see whether pressing it places or picks up.",
-                      get=function() return ACfg("worldMarkerPip") ~= false end,
-                      set=function(v) ASet("worldMarkerPip", v); Refresh() end },
-                },
-            })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) wmCogShow(self) end)
-        end
 
         _, h = W:Spacer(parent, y, 10); y = y - h
 

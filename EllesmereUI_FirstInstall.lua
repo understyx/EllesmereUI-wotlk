@@ -73,7 +73,6 @@ local GROUPS = {
         entries = {
             { label = "Blizz UI Enhanced", addon = "EllesmereUIBlizzardSkin" },
             { label = "Damage Meters",     addon = "EllesmereUIDamageMeters" },
-            { label = "DBM Timers",        addon = "EllesmereUIDBMSkin" },
             { label = "Chat",              addon = "EllesmereUIChat" },
             { label = "Bags",              addon = "EllesmereUIBags" },
             { label = "Mythic+ Timer",     addon = "EllesmereUIMythicTimer" },

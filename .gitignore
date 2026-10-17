@@ -25,5 +25,5 @@ MIDNIGHT_MERGE_PLAN.md
 /DoNotCommit/
 /donotcommit/
 
-# DBM skin addon (local only, not upstreamed yet)
-/EllesmereUIDBMSkin/
+# Release build output
+/dist/

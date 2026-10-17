@@ -236,6 +236,33 @@ function ns.GetCooldownIDForDefinitionKey(key)
     return cdID, def.category
 end
 
+-- Resolve a selected multi-aura row even when its adapter is currently
+-- inactive and therefore absent from the live viewer pool. Used by the CDM
+-- per-icon menu to edit the aura that is active when a group row is clicked.
+function ns.GetCooldownIDForMultiAuraSpellID(spellID)
+    if type(spellID) ~= "number" then return nil end
+    for cdID, def in pairs(definitions) do
+        local auraIDs = def.auraSpellIDs
+        if def.spellID == spellID and auraIDs and #auraIDs > 1 then
+            return cdID
+        end
+    end
+end
+
+-- Proc rows saved in assignedSpells (including the default "procs" bar) do
+-- not carry parallel cooldownID preview metadata. Resolve their definition
+-- only when a per-icon menu is opened.
+function ns.GetCooldownIDForProcAuraSpellID(spellID)
+    if type(spellID) ~= "number" then return nil end
+    for cdID, def in pairs(definitions) do
+        if def.category == CDM_CATEGORY_BUFF_ICON
+           and (def.isEquipmentProc or def.isItemSetProc or def.isTalentProc or def.procSource)
+           and (def.auraSpellID == spellID or def.spellID == spellID) then
+            return cdID
+        end
+    end
+end
+
 -- Raid Cooldowns is a separate optional addon and usually loads after CDM.
 -- Let its catalog merge the definitions that were already registered here.
 function EllesmereUI.MergeCDMRaidCooldownCatalog(catalog)
@@ -782,14 +809,23 @@ local function RefreshAdapterVisual(frame)
     local matchedAuraID = state and state.auraActive and state.matchedAuraSpellID
     local iconSpellID = matchedAuraID or def.iconSpellID or spellID
     if frame.Icon then
-        local texture = state and state.auraActive and state.matchedAuraIcon
-        if not texture and iconSpellID and GetSpellTexture then
-            texture = GetSpellTexture(iconSpellID)
+        local texture
+        if matchedAuraID and GetSpellInfo then
+            local _, _, auraTexture = GetSpellInfo(matchedAuraID)
+            texture = auraTexture
         end
-        if not texture and iconSpellID and C_Spell and C_Spell.GetSpellTexture then
-            texture = C_Spell.GetSpellTexture(iconSpellID)
+        texture = texture or (state and state.auraActive and state.matchedAuraIcon)
+        if not texture and iconSpellID and GetSpellInfo then
+            local _, _, staticTexture = GetSpellInfo(iconSpellID)
+            texture = staticTexture
         end
-        if texture then frame.Icon:SetTexture(texture) end
+        -- Group rows can switch from one active aura to another without
+        -- becoming inactive. Keep the texture tied to the matched aura and
+        -- clear it if a recycled adapter has no resolvable icon.
+        if texture ~= frame._lastIconTexture then
+            frame.Icon:SetTexture(texture)
+            frame._lastIconTexture = texture
+        end
     end
 
     if frame.Applications and frame.Applications.Applications then
@@ -840,8 +876,12 @@ local function RefreshAdapterVisual(frame)
     -- replace the buff-duration swipe).
     local isActive = isKnown and (not isAura or (state and state.auraActive))
     local wasActive = frame._adapterActive == true
+    local previousAuraSpellID = frame._activeAuraSpellID
     frame._adapterActive = isActive and true or false
     frame.wasSetFromAura = isAura and state and state.auraActive or false
+    local activeAuraSpellID = isAura and state and state.auraActive
+        and state.matchedAuraSpellID or nil
+    frame._activeAuraSpellID = activeAuraSpellID
 
     if isActive then frame:Show() else frame:Hide() end
 
@@ -860,7 +900,8 @@ local function RefreshAdapterVisual(frame)
     end
 
     if isAura and (wasActive ~= (isActive and true or false)
-        or (isActive and not wasShown)) then
+        or (isActive and not wasShown)
+        or activeAuraSpellID ~= previousAuraSpellID) then
         -- Notify the viewer's pool so the hooks layer installs
         -- OnActiveStateChanged hooks on newly created adapters and queues a
         -- reanchor for layout. Fires on gain/fade, and also repairs an active
@@ -1422,22 +1463,18 @@ local function UpdateAuraCache(fullSmartGroupRefresh)
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HELPFUL")
         if not name then break end
-        if spellID then
-            cachedPlayerAuras[spellID] = AcquireAuraRecord(duration or 0, expirationTime or 0, count or 0)
-        end
-        cachedPlayerAurasByName[name] = AcquireAuraRecord(
-            duration or 0, expirationTime or 0, count or 0, spellID, icon, name)
+        local aura = AcquireAuraRecord(duration or 0, expirationTime or 0,
+            count or 0, spellID, icon, name)
+        if spellID then cachedPlayerAuras[spellID] = aura end
+        cachedPlayerAurasByName[name] = aura
     end
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HARMFUL")
         if not name then break end
-        if spellID then
-            cachedPlayerAuras[spellID] = AcquireAuraRecord(duration or 0, expirationTime or 0, count or 0)
-        end
-        if not cachedPlayerAurasByName[name] then
-            cachedPlayerAurasByName[name] = AcquireAuraRecord(
-                duration or 0, expirationTime or 0, count or 0, spellID, icon, name)
-        end
+        local aura = AcquireAuraRecord(duration or 0, expirationTime or 0,
+            count or 0, spellID, icon, name)
+        if spellID then cachedPlayerAuras[spellID] = aura end
+        if not cachedPlayerAurasByName[name] then cachedPlayerAurasByName[name] = aura end
     end
     if UnitExists("target") then
         local targetGUID = UnitGUID and UnitGUID("target")

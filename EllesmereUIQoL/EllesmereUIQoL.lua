@@ -2428,6 +2428,42 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Center-screen alert fader (fade-in, hold, fade-out, then hide).
+--  Driven by OnUpdate instead of an AnimationGroup: on 3.3.5, hiding the frame
+--  from the group's OnFinished and stopping the group from OnHide re-enters
+--  the animation system while it is finishing and crashes the client.
+--  Returns a play() function that (re)starts the timeline from the beginning.
+-------------------------------------------------------------------------------
+local function MakeAlertFader(frame, fadeIn, hold, fadeOut)
+    local elapsed = 0
+    local holdEnd, total = fadeIn + hold, fadeIn + hold + fadeOut
+
+    local function OnUpdate(self, dt)
+        elapsed = elapsed + dt
+        if elapsed >= total then
+            self:SetScript("OnUpdate", nil)
+            self:Hide()
+            self:SetAlpha(1)
+        elseif elapsed < fadeIn then
+            self:SetAlpha(elapsed / fadeIn)
+        elseif elapsed < holdEnd then
+            self:SetAlpha(1)
+        else
+            self:SetAlpha(1 - (elapsed - holdEnd) / fadeOut)
+        end
+    end
+
+    frame:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil); self:SetAlpha(1) end)
+
+    return function()
+        elapsed = 0
+        frame:SetAlpha(0)
+        frame:Show()
+        frame:SetScript("OnUpdate", OnUpdate)
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Group Death Announcer
 --  Shows a large center-screen "<name> DIED!" alert when a party or raid
 --  member dies. Midnight removed the combat log, so deaths are detected by
@@ -2487,17 +2523,7 @@ do
         ApplyOverlaySettings()
 
         -- Quick fade-in, brief hold, fade-out; hide when finished.
-        local ag = alertOverlay:CreateAnimationGroup()
-        local fadeIn = ag:CreateAnimation("Alpha")
-        fadeIn:SetFromAlpha(0); fadeIn:SetToAlpha(1); fadeIn:SetDuration(0.15); fadeIn:SetOrder(1)
-        local hold = ag:CreateAnimation("Alpha")
-        hold:SetFromAlpha(1); hold:SetToAlpha(1); hold:SetDuration(1.6); hold:SetOrder(2)
-        local fadeOut = ag:CreateAnimation("Alpha")
-        fadeOut:SetFromAlpha(1); fadeOut:SetToAlpha(0); fadeOut:SetDuration(0.6); fadeOut:SetOrder(3)
-        ag:SetScript("OnFinished", function() alertOverlay:Hide() end)
-        alertOverlay._ag = ag
-
-        alertOverlay:SetScript("OnHide", function() ag:Stop() end)
+        alertOverlay._play = MakeAlertFader(alertOverlay, 0.15, 1.6, 0.6)
         alertOverlay:Hide()
     end
 
@@ -2514,10 +2540,7 @@ do
         local skull = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:0|t"
         alertOverlay._text:SetText(skull .. " " .. colored .. " |cffff2020DIED!|r")
 
-        alertOverlay._ag:Stop()
-        alertOverlay:SetAlpha(1)
-        alertOverlay:Show()
-        alertOverlay._ag:Play()
+        alertOverlay._play()
     end
 
     -- Configurable death alert sound (default "none"). The cog dropdown lists the
@@ -2874,17 +2897,7 @@ do
         ApplyOverlaySettings()
 
         -- Quick fade-in, brief hold, fade-out; hide when finished.
-        local ag = alertFrame:CreateAnimationGroup()
-        local fadeIn = ag:CreateAnimation("Alpha")
-        fadeIn:SetFromAlpha(0); fadeIn:SetToAlpha(1); fadeIn:SetDuration(0.15); fadeIn:SetOrder(1)
-        local hold = ag:CreateAnimation("Alpha")
-        hold:SetFromAlpha(1); hold:SetToAlpha(1); hold:SetDuration(1.2); hold:SetOrder(2)
-        local fadeOut = ag:CreateAnimation("Alpha")
-        fadeOut:SetFromAlpha(1); fadeOut:SetToAlpha(0); fadeOut:SetDuration(0.5); fadeOut:SetOrder(3)
-        ag:SetScript("OnFinished", function() alertFrame:Hide() end)
-        alertFrame._ag = ag
-
-        alertFrame:SetScript("OnHide", function() ag:Stop() end)
+        alertFrame._play = MakeAlertFader(alertFrame, 0.15, 1.2, 0.5)
         alertFrame:Hide()
     end
 
@@ -2898,10 +2911,7 @@ do
         alertFrame._text:SetTextColor(ResolveColor(which))
         alertFrame._text:SetAlpha(1)
 
-        alertFrame._ag:Stop()
-        alertFrame:SetAlpha(1)
-        alertFrame:Show()
-        alertFrame._ag:Play()
+        alertFrame._play()
     end
 
     local function OnCombatEvent(_, event)
@@ -2937,10 +2947,7 @@ do
         ApplyOverlaySettings()
         alertFrame._text:SetText(AlertText(which))
         alertFrame._text:SetTextColor(ResolveColor(which))
-        alertFrame._ag:Stop()
-        alertFrame:SetAlpha(1)
-        alertFrame:Show()
-        alertFrame._ag:Play()
+        alertFrame._play()
     end
 
     -- Re-apply font size / position (called from the Text Size slider and from

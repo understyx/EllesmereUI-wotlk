@@ -317,9 +317,9 @@ local DB_DEFAULTS = {
         -- blue short of the resource, gray and desaturated for anything else
         -- the game refuses. The same three cues an action button gives.
         showUsability = true,
-        -- Drop entries this character cannot use AT ALL -- another class's
-        -- specializations and spells, macros it does not have -- from the
-        -- drawn menu entirely, so one shared menu fits every character.
+        -- Drop entries this character cannot use AT ALL -- a talent group it
+        -- has not learned, spells its book does not hold, or macros it lacks --
+        -- from the drawn menu entirely, so one shared menu fits every character.
         -- Off draws them as the gray placeholders they always were.
         hideUnusable = true,
         -- The dark plate behind each entry's icon is FIXED at 0.65 opacity,
@@ -342,24 +342,6 @@ local DB_DEFAULTS = {
         -- setting this up yet": the alternative is a menu that opens and cannot
         -- be answered.
         toggleMode = false,
-        -- Toggle World Markers, per palette. On, a world marker entry answers
-        -- for its own marker in both directions: place it if it is not down,
-        -- pick it up if it is. Off places every press, which moves the marker
-        -- to wherever the cursor is now.
-        --
-        -- On by default. The raid manager offers both halves -- left click
-        -- places, right click picks up
-        -- (Mainline/Blizzard_CompactRaidFrameManager.lua:1058-1067) -- and a
-        -- menu entry has one press to spend rather than two mouse buttons, so
-        -- alternating is how it reaches the same pair.
-        --
-        -- The clear-all entry is unaffected, and so are the cycling entries.
-        -- See the worldmarker branch of ResolveAction for why.
-        worldMarkerToggle = true,
-        -- The placed-marker corner pip on live menus (see MarkerPip). On by
-        -- default: it is what tells a toggled entry's press apart -- place or
-        -- pick up -- before it is pressed.
-        worldMarkerPip = true,
         -- The key that fires the hovered entry of a latched menu, as a binding
         -- chord. One key for every palette. Claimed as an override binding for
         -- exactly as long as a menu is up and handed straight back on close, so
@@ -398,6 +380,12 @@ local function AutoPaletteName(index)
     return "Action Menu " .. index
 end
 ns.AutoPaletteName = AutoPaletteName
+
+local SUPPORTED_SLOT_KINDS = {
+    spell = true, item = true, macro = true, macrotext = true,
+    dynamicrez = true, spec = true, raidtarget = true,
+    clearmarkers = true, cycleraidtarget = true, palette = true,
+}
 
 -- Names the module has outgrown, converted in place. The defaults have already
 -- been merged in by the time this runs, so each of these takes the old value
@@ -550,7 +538,8 @@ local function EnsurePalette(index)
     local dense, n = {}, 0
     for i = 1, MAX_SLOTS do
         local slot = palette.slots[i]
-        if slot and slot.kind then
+        if slot and SUPPORTED_SLOT_KINDS[slot.kind]
+           and (slot.kind ~= "spec" or slot.group == 1 or slot.group == 2) then
             n = n + 1
             dense[n] = slot
         end
@@ -614,11 +603,6 @@ local APPEARANCE_KEYS = {
     -- the latched one answers to is NOT here -- it is one profile key, so the
     -- gesture means the same thing whichever menu is up.
     toggleMode = true,
-    -- Per palette for the same reason: a pull-timer menu that drops the eight
-    -- markers in one pass wants each press to place, and a menu kept open to
-    -- tidy them up afterwards wants each press to answer for its own marker.
-    worldMarkerToggle = true,
-    worldMarkerPip = true,
 }
 ns.APPEARANCE_KEYS = APPEARANCE_KEYS
 
@@ -847,19 +831,6 @@ ns.MAX_CHILDREN = MAX_CHILDREN
 --  ids, so a slot never caches a stale icon or name across a patch.
 -------------------------------------------------------------------------------
 
--- Both marker kinds store the ICON position: 1..8 in the star-to-skull order
--- every marker UI shows, 0 for the entry that clears instead of placing. The
--- engine numbers its WORLD markers differently, so the world kind maps the
--- stored position onto the engine's number before it names one.
---
--- The engine runs blue, green, purple, red, yellow, orange, silver, white --
--- square, triangle, diamond, cross, star, circle, moon, skull. Blizzard's
--- WORLD_RAID_MARKER_ORDER (Blizzard_CompactRaidFrameManager.lua:5-12) is the
--- same eight numbers listed SKULL to STAR, which is the order its dropdown
--- draws them in; read as though it ran star to skull it lands on the marker
--- mirrored about the middle.
-local WORLD_MARKER_ENGINE = { 5, 6, 3, 2, 7, 1, 4, 8 }
-
 local MARKER_NAMES = {
     "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull",
 }
@@ -883,15 +854,11 @@ local MARKER_NAMES = {
 local CYCLE_N = 8
 
 -- The macro text each step fires, in the order the entry runs through them.
--- Both cycles step through the eight ICON positions; the world one maps each
--- onto the engine's number exactly as a fixed world marker slot does. nil for
--- every kind that does not cycle, which is what marks a slot as one.
+-- nil for every kind that does not cycle, which is what marks a slot as one.
 local function CycleSteps(kind)
     local out = {}
     if kind == "cycleraidtarget" then
         for i = 1, CYCLE_N do out[i] = "/tm " .. i end
-    elseif kind == "cycleworldmarker" then
-        for i = 1, CYCLE_N do out[i] = "/wm " .. WORLD_MARKER_ENGINE[i] end
     else
         return nil
     end
@@ -920,21 +887,58 @@ local function MarkerIcon(id)
     return "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. id
 end
 
--- The CURRENT index of the specialization a slot names. A spec slot stores the
--- specID, which is the same number on every character that has that spec, and
--- resolves it here -- the index is only a position in one character's list, so
--- a palette carried to an alt would otherwise point at somebody else's spec.
--- A spec this character does not have answers nil, and the slot then does
--- nothing rather than switching to whatever sits at that position.
-local function SpecIndexFor(slot)
-    local want = tonumber(slot and slot.specID)
-    if not want or not C_SpecializationInfo then return nil end
-    local classID = select(3, UnitClass("player"))
-    if not classID then return nil end
-    for i = 1, (C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0) do
-        if C_SpecializationInfo.GetSpecializationInfo(i) == want then return i end
+function ns.IsSpellKnownInBook(id)
+    local name = type(id) == "number" and GetSpellInfo(id)
+    if not name then return false end
+    local names = ns._knownSpellNames
+    if not names then
+        names = {}
+        for tab = 1, (GetNumSpellTabs and GetNumSpellTabs() or 0) do
+            local _, _, offset, count = GetSpellTabInfo(tab)
+            for index = (offset or 0) + 1, (offset or 0) + (count or 0) do
+                local bookName = GetSpellName(index, BOOKTYPE_SPELL)
+                if bookName then names[bookName] = true end
+            end
+        end
+        -- Mounts and companion pets live outside the spellbook on 3.3.5 but
+        -- cast by their spell name all the same.
+        for _, ctype in ipairs({ "MOUNT", "CRITTER" }) do
+            for i = 1, (GetNumCompanions and GetNumCompanions(ctype) or 0) do
+                local _, _, spellID = GetCompanionInfo(ctype, i)
+                local spellName = spellID and GetSpellInfo(spellID)
+                if spellName then names[spellName] = true end
+            end
+        end
+        ns._knownSpellNames = names
     end
-    return nil
+    return names[name] or false
+end
+
+function ns.InvalidateSpellbookCache()
+    ns._knownSpellNames = nil
+end
+
+function ns.TalentGroupAvailable(slot)
+    local group = tonumber(slot and slot.group)
+    return (group == 1 or group == 2)
+       and GetNumTalentGroups and GetNumTalentGroups() >= 2
+       and group or nil
+end
+
+function ns.TalentGroupDisplay(group)
+    local label = group == 1 and "Primary Talents" or "Secondary Talents"
+    local icon, treeName, bestPoints
+    local points = {}
+    for tab = 1, (GetNumTalentTabs and GetNumTalentTabs() or 0) do
+        local name, texture, spent = GetTalentTabInfo(tab, false, false, group)
+        spent = tonumber(spent) or 0
+        points[#points + 1] = spent
+        if not bestPoints or spent > bestPoints then
+            bestPoints, treeName, icon = spent, name, texture
+        end
+    end
+    local detail = treeName and (treeName .. " " .. table.concat(points, "/")) or nil
+    return icon or QUESTION_MARK, label, detail
 end
 
 -------------------------------------------------------------------------------
@@ -944,7 +948,7 @@ end
 --  palette shared between a druid, a priest and a death knight carries the rez
 --  once rather than three times over with two of them dead on every character.
 --
---  single and group are the out-of-combat casts; battle is the in-combat one.
+--  single is the out-of-combat cast; battle is the in-combat one.
 --  The same kit the raid frames' Dynamic Rez click-cast binding uses
 --  (EUI_RaidFrames_ClickCast.lua:90), kept as a copy of the table rather than
 --  read across from it: that is a separate addon the user can switch off, and
@@ -962,12 +966,10 @@ local UnitExists, UnitIsFriend, UnitIsDeadOrGhost =
     UnitExists, UnitIsFriend, UnitIsDeadOrGhost
 
 local REZ_BY_CLASS = {
-    PRIEST      = { single = 2006,   group = 212036 },
-    PALADIN     = { single = 7328,   group = 212056, battle = 391054 },
-    SHAMAN      = { single = 2008,   group = 212048 },
-    DRUID       = { single = 50769,  group = 212040, battle = 20484 },
-    MONK        = { single = 115178, group = 212051 },
-    EVOKER      = { single = 361227, group = 361178 },
+    PRIEST      = { single = 2006 },
+    PALADIN     = { single = 7328 },
+    SHAMAN      = { single = 2008 },
+    DRUID       = { single = 50769, battle = 20484 },
     DEATHKNIGHT = { battle = 61999 },
     WARLOCK     = { battle = 20707 },
 }
@@ -978,13 +980,8 @@ local REZ_BY_CLASS = {
 -- has not got is a branch that matches and then casts nothing, which would eat
 -- the fallback the next branch was there to be.
 --
--- Not cached, and deliberately so. What is known moves with talents --
--- Intercession is a holy paladin's -- and it is also simply WRONG for a moment
--- at login, while the spellbook is still cold. A cache would latch that empty
--- answer and hold it until something invalidated it, which is a worse failure
--- than the reads it saves: three spellbook lookups, on a path that runs once
--- per palette open rather than per frame. See AdvanceLiveIcons for the one that
--- does run per frame.
+-- The spellbook name set is shared with the usability filter and refreshed
+-- whenever SPELLS_CHANGED requests a push.
 --
 -- The macro this feeds is written at push time, and SPELLS_CHANGED already
 -- requests a push for the usability filter -- so a talent swap, a spec change,
@@ -994,14 +991,9 @@ local function RezKit()
     local _, class = UnitClass("player")
     local kit = class and REZ_BY_CLASS[class]
     if not kit then return nil end
-    local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     local function Known(id)
         if not id then return nil end
-        if C_SpellBook.IsSpellInSpellBook and bank
-           and not C_SpellBook.IsSpellInSpellBook(id, bank, true) then
-            return nil
-        end
-        return id
+        return ns.IsSpellKnownInBook(id) and id or nil
     end
     return Known(kit.battle), Known(kit.single), Known(kit.group)
 end
@@ -1043,14 +1035,12 @@ end
 -- action is in progress".
 function Rez.MacroText()
     local battle, single, group = RezKit()
-    local Name = C_Spell.GetSpellName
-    if not Name then return nil end
 
     local parts = {}
     local function Add(cond, id)
         -- By NAME: /cast resolves against the localized one, and a hardcoded
         -- English name would fail silently on every other client.
-        local name = id and Name(id)
+        local name = id and GetSpellInfo(id)
         if name then parts[#parts + 1] = cond .. name end
     end
 
@@ -1081,9 +1071,8 @@ end
 
 -- Does this character's class have a resurrection spell at all? The picker asks
 -- so it can leave the entry out for a class that has none -- an entry that
--- could never do anything is worse than no entry. By CLASS rather than by what
--- is currently in the spellbook: a paladin who has not taken Intercession still
--- has Redemption, and a druid at level 10 will have Rebirth soon enough.
+-- could never do anything is worse than no entry. By class rather than by what
+-- is currently learned: a character may gain its resurrection later.
 function ns.HasRezKit()
     local _, class = UnitClass("player")
     return (class and REZ_BY_CLASS[class]) ~= nil
@@ -1096,10 +1085,10 @@ end
 -- between the push and the open (a pet swap mid-fight, say) -- usability is
 -- allowed to go stale until the next push rather than ever disagreeing with
 -- what a cell index fires. Every input that can change an answer lands here
--- through that same wipe: SPELLS_CHANGED and UPDATE_MACROS request a push,
--- every slot edit and the toggle itself request one through Refresh, class
--- and spec-list are fixed for the session, and a profile switch hands out
--- different palette tables (weak keys let the old ones go).
+-- through that same wipe: spellbook, talent-group, and macro events request a
+-- push, every slot edit and the toggle itself request one through Refresh, and
+-- a profile switch hands out different palette tables (weak keys let the old
+-- ones go).
 local usableMemo = setmetatable({}, { __mode = "k" })
 
 -- KnownForm, SpellKnownHere and SlotUsable are private to UsableSlots, and
@@ -1107,51 +1096,39 @@ local usableMemo = setmetatable({}, { __mode = "k" })
 -- Lua's ceiling of 200 locals, and merging two features into it went over.
 -- usableMemo stays outside the block -- PushAllPalettes wipes it.
 do
--- Is this one spell id in either of this character's books, player or pet?
-local function KnownForm(sid)
-    return (sid and sid > 0)
-        and (IsPlayerSpell(sid)
-             or (C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook
-                 and C_SpellBook.IsSpellKnownOrInSpellBook(sid)))
-        or false
+-- Does the player's spellbook contain this spell under any learned rank?
+local function KnownSpellName(sid)
+    return sid and sid > 0 and ns.IsSpellKnownInBook(sid) or false
 end
 
--- Whether this character's books hold the spell in ANY of its forms: the
--- stored id, its talent override, and its base form. Generous on purpose --
--- hiding a castable entry is a worse failure than drawing a dead one, so
--- every form is checked before answering no, and a malformed id answers yes
--- and leaves the slot to render as the placeholder it always was.
+-- Whether this character's spellbook contains the name for a stored spell ID.
+-- A higher learned rank has the same name, so older saved rank IDs stay usable.
+-- A malformed ID answers yes and leaves the slot to render as the placeholder
+-- it always was.
 local function SpellKnownHere(id)
     if type(id) ~= "number" or id <= 0 then return true end
-    if KnownForm(id) then return true end
-    local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-        and C_SpellBook.FindSpellOverrideByID(id)
-    if ovr ~= id and KnownForm(ovr) then return true end
-    local base = C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(id)
-    return base ~= id and KnownForm(base)
+    return KnownSpellName(id)
 end
 
 -- Can this character do anything with the slot? Only the kinds that resolve
--- against one character's own kit are tested -- another class's
--- specialization, a spell no book here holds, a macro this character does
+-- against one character's own kit are tested -- a talent group this character
+-- has not learned, a spell no book here holds, a macro this character does
 -- not have, a resurrection this class has none of. Everything else (items,
--- mounts, pets, markers, nested menus) is account-wide or
+-- mounts, pets, target markers, nested menus) is account-wide or
 -- self-resolving and stays.
 local function SlotUsable(slot)
     local k = slot and slot.kind
     if k == "spec" then
-        return SpecIndexFor(slot) ~= nil
+        return ns.TalentGroupAvailable(slot) ~= nil
     elseif k == "spell" then
         return SpellKnownHere(tonumber(slot.id))
     elseif k == "macro" then
         return GetMacroInfo(slot.name or slot.id) ~= nil
     elseif k == "dynamicrez" then
-        -- By CLASS rather than by what is in the book right now, which is what
-        -- ns.HasRezKit answers: a paladin who has not taken Intercession still
-        -- has Redemption, and a druid too low for Rebirth will have it. Hiding
-        -- the entry on those would take it away from the character it is FOR.
-        -- A mage carrying the shared menu is the case this catches, and it is
-        -- the one the entry's own note names.
+        -- By class rather than by the current book: a lower-level character may
+        -- not have learned its resurrection yet, but the shared entry is still
+        -- meant for that class. A mage carrying the shared menu is the case
+        -- this filter hides.
         return ns.HasRezKit()
     end
     return true
@@ -1187,13 +1164,9 @@ end
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
 -- would otherwise read it in preference. Returns nil for the kinds with no
--- secure action type at all (spec), which FireInsecure handles instead.
+-- secure action type (talent spec changes), which FireInsecure handles instead.
 --
--- p is the palette's appearance view, for the one kind whose action depends on
--- a setting rather than only on the slot (worldmarker). It is the view of the
--- palette being PUSHED, which for a nest's cells is the owner's -- the same
--- palette whose appearance draws them.
-local function ResolveAction(slot, p)
+local function ResolveAction(slot)
     if not slot or not slot.kind then return nil end
     local k = slot.kind
 
@@ -1204,7 +1177,9 @@ local function ResolveAction(slot, p)
 
     if k == "spell" then
         if type(slot.id) ~= "number" then return nil end
-        return "spell", "spell", slot.id
+        local name = GetSpellInfo(slot.id)
+        if not name then return nil end
+        return "spell", "spell", name
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return nil end
@@ -1228,10 +1203,7 @@ local function ResolveAction(slot, p)
         return "macro", "macrotext", slot.macrotext, "macro"
 
     elseif k == "raidtarget" then
-        -- Fired as the /tm slash command rather than through
-        -- SECURE_ACTIONS.raidtarget: that action reads TWO attributes, marker
-        -- and action, and the firing end of the snippet pushes exactly one key
-        -- per cell. The command reaches SetRaidTarget itself
+        -- Fired as the /tm slash command, which reaches SetRaidTarget itself
         -- (SlashCommands.lua:1381-1406), and /tm 0 is its documented clear.
         --
         -- What makes that legal is the secure button running the macro, NOT
@@ -1250,54 +1222,14 @@ local function ResolveAction(slot, p)
         -- ADDON_ACTION_FORBIDDEN on its first call -- so going through the
         -- secure button, which runs the action untainted, is the only route.
         --
-        -- The ACTION rides in the ordinary key/value slot: raidtarget reads
-        -- "marker" and "action", and the firing end of the snippet pushes one
-        -- key per cell. clear-all is the one branch that never looks at
-        -- "marker", so the single key can be spent on "action" instead.
+        -- The action rides in the ordinary key/value slot, and the firing end
+        -- of the snippet pushes that one key for this cell.
         --
         -- It also clears more than the loop could: RemoveRaidTargets reaches
         -- marks on units the client cannot currently name, which no clear-all
         -- macro can. In a group it needs lead or assist, and quietly does
         -- nothing without them -- the same rule as marking itself.
         return "raidtarget", "action", "clear-all"
-
-    elseif k == "worldmarker" then
-        -- Same one-attribute reasoning as /tm above: /wm places a world
-        -- marker, /cwm clears. Both take the ENGINE's marker number, so the
-        -- stored icon position goes through the map.
-        local id = tonumber(slot.id)
-        if not id or id < 0 or id > 8 then return nil end
-        if id == 0 then
-            -- The /cwm handler compares its argument against the client's own
-            -- ALL string (SlashCommands.lua:824-830), so that string is what
-            -- gets baked -- a hardcoded "all" would fail on a localized client.
-            return "macro", "macrotext", "/cwm " .. (ALL or "all"), "macro"
-        end
-        if p == nil or p.worldMarkerToggle ~= false then
-            -- Toggle World Markers. Not a macro: /wm is PlaceRaidMarker with
-            -- no test at all (SlashCommands.lua:820), and no macro conditional
-            -- reports a world marker as down. SECURE_ACTIONS.worldmarker does
-            -- the test itself (SecureTemplates.lua:602-618), and still costs
-            -- the ONE attribute a cell may spend -- it reads "marker" and
-            -- "action", and "action" falls back to "toggle" when unset, which
-            -- the snippet's clear guarantees it is.
-            --
-            -- Placement is unchanged: neither Blizzard nor /wm passes a unit
-            -- token, so the marker still lands under the cursor.
-            return "worldmarker", "marker", WORLD_MARKER_ENGINE[id]
-        end
-        -- Repeating ONE marker fast stalls here, where cycling eight does not:
-        -- the game holds each marker on its own cooldown -- about four spammed
-        -- presses -- and answers "You can't do that right now". Nothing to do
-        -- with this module: a plain /wm macro alone does it.
-        --
-        -- Clearing before placing, the way retail's own marker button does
-        -- (Mainline/Blizzard_CompactRaidFrameManager.lua:1065-1066), does not
-        -- buy anything from a macro: the /cwm spends the cooldown and the /wm
-        -- behind it lands inside the window, which reads as a toggle. Blizzard
-        -- gets away with it by calling both C functions straight from an
-        -- OnClick, which is not a route an addon has.
-        return "macro", "macrotext", "/wm " .. WORLD_MARKER_ENGINE[id], "macro"
 
     elseif k == "dynamicrez" then
         -- Fired as macro text, which is what makes it dynamic in the way that
@@ -1309,19 +1241,12 @@ local function ResolveAction(slot, p)
         if not text then return nil end
         return "macro", "macrotext", text, "macro"
 
-    elseif k == "cycleraidtarget" or k == "cycleworldmarker" then
+    elseif k == "cycleraidtarget" then
         -- The step the position on the slot says is up. The snippet overwrites
         -- this with its own answer on every press -- see the eqdCycN branch --
         -- so what is pushed here is only what the entry would fire if the
         -- cycle attributes went missing: the right marker, just not advancing.
         --
-        -- Deliberately NOT affected by Toggle World Markers, though the step
-        -- machinery would carry a marker number as readily as a macro. A cycle
-        -- is a run THROUGH the eight, and a step that picks its marker back up
-        -- because that one happened to be down already breaks the run: the
-        -- press that should have placed the circle places nothing, and the
-        -- position still advances. Placing every time is the only behavior
-        -- that keeps a cycle predictable.
         local steps = CycleSteps(k)
         return "macro", "macrotext", steps[CycleNext(slot)], "macro"
     end
@@ -1330,18 +1255,17 @@ local function ResolveAction(slot, p)
 end
 ns.ResolveAction = ResolveAction
 
--- Specialization changes use the ordinary API from PostClick.
+-- Talent group changes use the ordinary API from PostClick.
 --
 -- WHICH cell reaches here is the snippet's answer rather than the live view's
 -- selection; see OnPostClick.
 local function FireInsecure(slot)
     if not slot then return end
     if slot.kind == "spec" then
-        local index = SpecIndexFor(slot)
-        -- Refused in combat by the game itself, with its own error message.
-        -- Nothing to defer to PLAYER_REGEN_ENABLED: a spec change the user
-        -- asked for mid-fight and got minutes later is not what they meant.
-        if index then C_SpecializationInfo.SetSpecialization(index) end
+        local group = ns.TalentGroupAvailable(slot)
+        if group and GetActiveTalentGroup() ~= group then
+            SetActiveTalentGroup(group)
+        end
     end
 end
 
@@ -1376,8 +1300,8 @@ local function MacroIcon(nameOrIndex)
 
     local spellID = GetMacroSpell(index)
     if spellID then
-        local info = C_Spell.GetSpellInfo(spellID)
-        if info and info.iconID then return info.iconID end
+        local _, _, icon = GetSpellInfo(spellID)
+        if icon then return icon end
     end
 
     -- An item branch answers no spell. The link, not the name: it carries the
@@ -1411,8 +1335,8 @@ local function SlotDisplay(slot)
     local k = slot.kind
 
     if k == "spell" then
-        local info = C_Spell.GetSpellInfo(slot.id)
-        if info then return info.iconID or QUESTION_MARK, info.name end
+        local name, _, icon = GetSpellInfo(slot.id)
+        if name then return icon or QUESTION_MARK, name end
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return QUESTION_MARK, slot.name end
@@ -1439,30 +1363,19 @@ local function SlotDisplay(slot)
         -- having because it changes, and one picture over three different casts
         -- would hide the only thing it has to say.
         local id = Rez.SpellNow()
-        local info = id and C_Spell.GetSpellInfo(id)
-        if info then return info.iconID or QUESTION_MARK, info.name end
+        local name, _, icon
+        if id then name, _, icon = GetSpellInfo(id) end
+        if name then return icon or QUESTION_MARK, name end
         -- A character with no resurrection spell at all -- the mage carrying
-        -- the shared palette. Drawn as an occupied slot under its own name, the
-        -- same as a spec this character does not have.
+        -- the shared palette. Drawn as an occupied slot under its own name,
+        -- the same as a talent group this character has not learned.
         return QUESTION_MARK, "Dynamic Rez"
 
     elseif k == "spec" then
-        local index = SpecIndexFor(slot)
-        if index then
-            local _, name, _, icon = C_SpecializationInfo.GetSpecializationInfo(index)
-            return icon or QUESTION_MARK, name or slot.name
-        end
-        -- A spec this character's class does not have. Its identity is still
-        -- global -- the specID answers by itself -- so the editor and an
-        -- unfiltered menu draw the real specialization, not a placeholder.
-        local want = tonumber(slot.specID)
-        if want and GetSpecializationInfoByID then
-            local _, name, _, icon = GetSpecializationInfoByID(want)
-            if icon or name then
-                return icon or QUESTION_MARK, name or slot.name
-            end
-        end
-        return QUESTION_MARK, slot.name
+        local group = ns.TalentGroupAvailable(slot)
+        if group then return ns.TalentGroupDisplay(group) end
+        return QUESTION_MARK, slot.group == 1 and "Primary Talents"
+            or slot.group == 2 and "Secondary Talents" or slot.name
 
     elseif k == "raidtarget" then
         local id = tonumber(slot.id) or 0
@@ -1474,20 +1387,12 @@ local function SlotDisplay(slot)
     elseif k == "clearmarkers" then
         return "Interface\\Buttons\\UI-GroupLoot-Pass-Up", "Clear All Target Markers"
 
-    elseif k == "worldmarker" then
-        local id = tonumber(slot.id) or 0
-        if id < 1 or id > 8 then
-            return "Interface\\Buttons\\UI-GroupLoot-Pass-Up", "Clear World Markers"
-        end
-        return MarkerIcon(id), "World Marker: " .. MARKER_NAMES[id]
-
-    elseif k == "cycleraidtarget" or k == "cycleworldmarker" then
+    elseif k == "cycleraidtarget" then
         -- Drawn as the marker the next press places, not as a fixed emblem: in
         -- a radial the icon is what the entry is picked by, and one that never
         -- changed while the action did would be worse than no entry at all.
         local id = CycleNext(slot)
-        local what = (k == "cycleraidtarget") and "Target" or "World"
-        return MarkerIcon(id), "Cycle " .. what .. " Marker: " .. MARKER_NAMES[id]
+        return MarkerIcon(id), "Cycle Target Marker: " .. MARKER_NAMES[id]
 
     elseif k == "palette" then
         -- ReadPalette, not EnsurePalette: a nested parent is repainted from the
@@ -1526,15 +1431,15 @@ local function SlotCooldown(slot)
     local k = slot.kind
     if k == "spell" or k == "dynamicrez" then
         local id = SlotSpellID(slot)
-        if id and C_Spell.GetSpellCooldownDuration then
-            -- Parenthesised, so only the duration comes back: 12.1 returns a
-            -- second value that would land in this function's `start` slot and
-            -- hand a boolean to CooldownFrame_Set.
-            return (C_Spell.GetSpellCooldownDuration(id))
+        local name = id and GetSpellInfo(id)
+        if name then
+            local start, duration, enable = GetSpellCooldown(name)
+            return nil, start, duration, enable
         end
     elseif k == "item" then
-        if slot.id and C_Item.GetItemCooldown then
-            return nil, C_Item.GetItemCooldown(slot.id)
+        if slot.id and GetItemCooldown then
+            local start, duration, enable = GetItemCooldown(slot.id)
+            return nil, start, duration, enable
         end
     end
     return nil
@@ -1544,16 +1449,7 @@ local function SlotCount(slot)
     if not slot then return false end
     local k = slot.kind
 
-    -- A battle rez is the charge-carrying spell this matters most for: how many
-    -- are left is the whole question a raid asks of it.
-    if k == "spell" or k == "dynamicrez" then
-        local id = SlotSpellID(slot)
-        if not id or not C_Spell.GetSpellCharges then return false end
-        local charges = C_Spell.GetSpellCharges(id)
-        if not charges then return false end
-        return true, charges.currentCharges
-
-    elseif k == "item" then
+    if k == "item" then
         if type(slot.id) ~= "number" then return false end
         -- Position 8 is the stack size. It is nil until the item's data has
         -- been cached, which costs at most the count on one open -- the
@@ -1583,18 +1479,19 @@ local function SlotUsability(slot)
     if k == "spell" or k == "dynamicrez" then
         local id = SlotSpellID(slot)
         if not id then return nil end
-        if C_Spell.IsSpellInRange(id) == false then return "OUTOFRANGE" end
-        local usable, noPower = C_Spell.IsSpellUsable(id)
+        local name = GetSpellInfo(id)
+        if not name then return nil end
+        if IsSpellInRange(name, "target") == 0 then return "OUTOFRANGE" end
+        local usable, noPower = IsUsableSpell(name)
         if usable then return nil end
         return noPower and "NOPOWER" or "UNUSABLE"
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return nil end
-        if C_Item.ItemHasRange(slot.id)
-           and C_Item.IsItemInRange(slot.id, "target") == false then
+        if IsItemInRange and IsItemInRange(slot.id, "target") == 0 then
             return "OUTOFRANGE"
         end
-        local usable, noPower = C_Item.IsUsableItem(slot.id)
+        local usable, noPower = IsUsableItem(slot.id)
         if usable then return nil end
         return noPower and "NOPOWER" or "UNUSABLE"
     end
@@ -1605,17 +1502,23 @@ end
 -- Build a slot table from whatever is on the cursor. Returns nil when the
 -- cursor holds something the palette can't fire.
 local function SlotFromCursor()
-    local cursorType, a, b, c = GetCursorInfo()
+    local cursorType, a, b = GetCursorInfo()
     if not cursorType then return nil end
 
     if cursorType == "spell" then
-        -- Position 2 is the spellbook SLOT, not the spell -- Blizzard's own
-        -- comment says so at SharedUIPanelTemplates.lua:1823, where it reads
-        -- select(4, GetCursorInfo()) for the id. No fallback to position 2:
-        -- that would store a slot number as a spellID and silently create a
-        -- slot that casts the wrong thing.
-        if type(c) ~= "number" then return nil end
-        return { kind = "spell", id = c }
+        -- 3.3.5 hands back the spellbook SLOT and book type only, with no
+        -- spell ID. The slot's link carries the ID; a slot number must never
+        -- be stored as a spellID or the entry casts the wrong thing.
+        local link = type(a) == "number" and GetSpellLink(a, b or BOOKTYPE_SPELL)
+        local id = link and tonumber(link:match("|Hspell:(%d+)"))
+        if not id then return nil end
+        return { kind = "spell", id = id }
+
+    elseif cursorType == "companion" then
+        -- a is the index into the mount or pet list, b is "MOUNT"/"CRITTER".
+        local _, _, spellID = GetCompanionInfo(b, a)
+        if type(spellID) ~= "number" then return nil end
+        return { kind = "spell", id = spellID }
 
     elseif cursorType == "item" then
         local itemID = tonumber(a)
@@ -1928,16 +1831,6 @@ local function CreateSlotWidget(view, index)
     if w.count.SetWordWrap then w.count:SetWordWrap(false) end
     w.count:Hide()
     AdoptFontString(w.count, true)
-
-    -- "This world marker is on the ground right now", in the corner the count
-    -- does not use. Drawn above the border host so a selected entry does not
-    -- bury it. Shown only by PaletteView:MarkerPip, which is also what sizes
-    -- and colors it; created here unconditionally because a widget is reused
-    -- for whatever entry the next open puts in it.
-    w.markerPip = w:CreateTexture(nil, "OVERLAY", nil, 7)
-    w.markerPip:SetTexture("Interface\\Buttons\\WHITE8X8")
-    w.markerPip:SetPoint("TOPLEFT", w, "TOPLEFT", 2, -2)
-    w.markerPip:Hide()
 
     -- "This entry opens a menu", in the corner nothing else uses. Without it a
     -- nested entry is drawn exactly like a plain one until it arms, which is
@@ -4479,8 +4372,8 @@ end
 -- Does this cell's icon depend on any of that? Two kinds do: a macro, whose
 -- conditionals are evaluated at the release (see MacroIcon), and a Dynamic Rez,
 -- which is three spells wearing one slot (see Rez.SpellNow). Every other kind
--- resolves to one fixed thing, and the built-in macrotext kinds -- markers,
--- world markers, the cycling pair -- carry an icon of their own that no
+-- resolves to one fixed thing, and the built-in macrotext kinds -- target
+-- markers and their cycling entry -- carry an icon of their own that no
 -- conditional can move.
 local function HasLiveIcon(slot)
     if slot == nil then return false end
@@ -4558,11 +4451,6 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
             t:SetShown(nests and true or false)
         end
     end
-
-    -- Through the view because PaintCell is not a method and the pip needs one
-    -- (see MarkerPip). Every open repaints every cell, so this is the reading
-    -- that matters; the event below only keeps a menu left open honest.
-    if w.view then w.view:MarkerPip(w, slot, iconSize) end
 
     ApplySlotVisual(w, false)
 end
@@ -4906,80 +4794,6 @@ function PaletteView:Layout(paletteIndex)
     -- selection writes just the action's name -- see SetSelection.
     hub.text:SetText("")
     hub.hint:SetText("")
-end
-
-function PaletteView:MarkerPip(w, slot, iconSize)
-    local pip = w.markerPip
-    if not pip then return end
-    -- Live menus only: the pip reads REAL marker state, which is noise on the
-    -- options preview and the editor -- those show arrangement, not the
-    -- battlefield. Hidden rather than skipped, so a reused widget never
-    -- carries a stale pip across views.
-    if not (self.opts and self.opts.live) then
-        pip:Hide()
-        return
-    end
-    -- Per-palette opt-out (Show Placed-Marker Pips, in the Toggle World
-    -- Markers cog).
-    local pp = self:P()
-    if pp and pp.worldMarkerPip == false then
-        pip:Hide()
-        return
-    end
-    local id
-    if slot then
-        if slot.kind == "worldmarker" then
-            id = tonumber(slot.id)
-        elseif slot.kind == "cycleworldmarker" then
-            -- The one the NEXT press places, which is the marker this entry is
-            -- already drawing (SlotDisplay). Through CycleNext rather than off
-            -- the stored position, so the pip and the icon cannot disagree
-            -- about which marker the entry is currently offering.
-            --
-            -- The target-marker cycle is NOT this: raid targets sit on units,
-            -- and IsRaidMarkerActive answers for world markers alone -- which
-            -- Blizzard says in as many words at
-            -- Mainline/Blizzard_CompactRaidFrameManager.lua:1088.
-            id = CycleNext(slot)
-        end
-    end
-    if not id or id < 1 or id > 8
-       or not IsRaidMarkerActive(WORLD_MARKER_ENGINE[id]) then
-        pip:Hide()
-        return
-    end
-    -- The widget's own width when no size is passed: a nest scales its
-    -- children as it opens, and the refresh below runs long after the paint
-    -- that knew the unscaled figure.
-    local s = max(3, floor((iconSize or w:GetWidth() or 40) * 0.18))
-    pip:SetSize(s, s)
-    local ar, ag, ab = 0.047, 0.824, 0.624
-    if EllesmereUI.ResolveActiveAccent then
-        ar, ag, ab = EllesmereUI.ResolveActiveAccent()
-    end
-    pip:SetVertexColor(ar, ag, ab, 1)
-    pip:Show()
-end
-
--- Every drawn cell's pip, for a menu that is already up when the markers move.
--- Walks the cells rather than a collected list the way AdvanceLiveIcons does:
--- that list earns itself by being read every frame, and this runs a handful of
--- times a pull.
-function PaletteView:RefreshMarkerPips()
-    local n = self.cellCount
-    if not n then return end
-    for i = 1, n do
-        local w = self.widgets[i]
-        if w then
-            -- Through a local, NOT straight into the call: CellSlot answers a
-            -- nested cell with slot, claim, subIndex, and in final argument
-            -- position all three would expand -- landing the claim table in
-            -- MarkerPip's iconSize, which the size arithmetic there then
-            -- multiplies. Top-level cells return one value and hid this.
-            local slot = self:CellSlot(i)
-            self:MarkerPip(w, slot)
-        end
-    end
 end
 
 function PaletteView:AdvanceLiveIcons()
@@ -6919,17 +6733,11 @@ local SNIPPET_PRE = [==[
     self:SetAttribute("item", nil)
     self:SetAttribute("macro", nil)
     self:SetAttribute("macrotext", nil)
-    -- "action" is the marker sweep's key, and type="raidtarget" falls back to
+    -- "action" is the clear-all key, and type="raidtarget" falls back to
     -- "toggle" when it is unset -- so a sweep left behind would turn the next
     -- raidtarget slot into a clear-all of the whole group.
     --
-    -- "marker" is the other half of that pair, read by both raidtarget and
-    -- worldmarker. Every cell that uses it writes it, so no stale value can
-    -- reach one of those -- but clearing it is what keeps the fallback in
-    -- SECURE_ACTIONS.worldmarker honest, and the pair is only safe cleared
-    -- together.
     self:SetAttribute("action", nil)
-    self:SetAttribute("marker", nil)
 
     -- A cycling entry names a different marker on every press, and the position
     -- it has reached has to advance HERE: an insecure SetAttribute is refused
@@ -7990,8 +7798,8 @@ local pushedClaims = {}
 -- contribute are pushed through here, under the cell index the snippet will
 -- resolve a release to -- which is what lets the snippet fire either without
 -- knowing which of the two it landed on.
-local function PushCell(btn, i, slot, p)
-    local aType, aKey, aVal = ResolveAction(slot, p)
+local function PushCell(btn, i, slot)
+    local aType, aKey, aVal = ResolveAction(slot)
     btn:SetAttribute("eqdT" .. i, aType)
     btn:SetAttribute("eqdK" .. i, aKey)
     btn:SetAttribute("eqdV" .. i, aVal)
@@ -8000,9 +7808,8 @@ local function PushCell(btn, i, slot, p)
     btn:SetAttribute("eqdPal" .. i, ChildIndex(slot) and true or nil)
 
     -- A cycling entry's whole run, one step per attribute, plus the position it
-    -- is up to. Written out rather than parsed in the snippet: the marker order
-    -- and the engine's numbering already live up in the slot model, and the
-    -- restricted environment is the last place to restate either of them.
+    -- is up to. Written out rather than parsed in the snippet so the restricted
+    -- environment does not need to reconstruct the run.
     --
     -- eqdCycN is what marks the cell as cycling, so a cell that has stopped
     -- being one has to lose it -- and the steps under it, which are read by
@@ -8044,7 +7851,7 @@ local function PushPalette(index)
     -- together between this push and any open that follows it.
     local slotsEff = UsableSlots(palette, p)
     for i = 1, MAX_SLOTS do
-        PushCell(btn, i, slotsEff[i], p)
+        PushCell(btn, i, slotsEff[i])
     end
 
     -- The live palette draws exactly what the palette holds -- the trailing "+"
@@ -8186,7 +7993,7 @@ local function PushPalette(index)
         c.base = total
         for j = 1, c.n do
             total = total + 1
-            PushCell(btn, total, c.slots[j], p)
+            PushCell(btn, total, c.slots[j])
             -- A block layout's nests carry a BOX. Half-extents are what tells
             -- the snippet these cells are tested by containment rather than by
             -- nearness -- the palette's own entries have no half-extents, and
@@ -8205,7 +8012,7 @@ local function PushPalette(index)
     -- palette does not pay a hundred attribute writes on every options tick.
     for i = max(total, MAX_SLOTS) + 1, (pushedCells[index] or 0) do
         -- nil for the slot, which is also how PushCell clears a cycle's steps.
-        PushCell(btn, i, nil, p)
+        PushCell(btn, i, nil)
         btn:SetAttribute("eqdBX" .. i, nil)
         btn:SetAttribute("eqdBY" .. i, nil)
         btn:SetAttribute("eqdHW" .. i, nil)
@@ -8335,6 +8142,7 @@ local function PushAllPalettes()
     pushDirty = false
     -- The one place usability answers are allowed to change -- see usableMemo.
     wipe(usableMemo)
+    ns.InvalidateSpellbookCache()
     for i = 1, PaletteCount() do PushPalette(i) end
 end
 
@@ -8668,32 +8476,18 @@ function SetEventsEnabled(on)
         -- PLAYER_REGEN_ENABLED like every other push.
         EQD:RegisterEvent("SPELLS_CHANGED", RequestPush)
         EQD:RegisterEvent("UPDATE_MACROS", RequestPush)
-        -- Which world markers are down, for a menu that is open while they
-        -- move. That is SOMEBODY ELSE's doing: firing an entry closes the menu,
-        -- so the presser never sees their own pip change. It is worth the one
-        -- registration anyway -- a menu latched open sits there for as long as
-        -- the user leaves it, and marking is something a group does together.
-        --
-        -- Refreshed on the event rather than polled by the live-icon tick: that
-        -- tick costs its API calls every frame, and this cue moves a handful of
-        -- times a pull. RAID_TARGET_UPDATE is what Blizzard's own manager
-        -- refreshes its marker buttons on
-        -- (Mainline/Blizzard_CompactRaidFrameManager.lua:282-283).
-        --
-        -- Inline rather than a named handler, unlike every registration above
-        -- it: the main chunk is at Lua's ceiling of 200 locals.
-        EQD:RegisterEvent("RAID_TARGET_UPDATE", function()
-            if liveView and liveView:GetFrame():IsShown() then
-                liveView:RefreshMarkerPips()
-            end
-        end)
+        EQD:RegisterEvent("COMPANION_LEARNED", RequestPush)
+        EQD:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", RequestPush)
+        EQD:RegisterEvent("PLAYER_TALENT_UPDATE", RequestPush)
     else
         EQD:UnregisterEvent("UPDATE_BINDINGS")
         EQD:UnregisterEvent("PLAYER_REGEN_ENABLED")
         EQD:UnregisterEvent("PLAYER_ENTERING_WORLD")
         EQD:UnregisterEvent("SPELLS_CHANGED")
         EQD:UnregisterEvent("UPDATE_MACROS")
-        EQD:UnregisterEvent("RAID_TARGET_UPDATE")
+        EQD:UnregisterEvent("COMPANION_LEARNED")
+        EQD:UnregisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+        EQD:UnregisterEvent("PLAYER_TALENT_UPDATE")
         EQD:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     end
 end

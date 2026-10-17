@@ -516,6 +516,7 @@ local DEFAULTS = {
                     showItemCount = true, showTooltip = false, showKeybind = false,
                     keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
+                    procLabelSize = 9, procLabelX = 0, procLabelY = 1,
                 },
             },
         },
@@ -5770,6 +5771,8 @@ local function RefreshCDMIconAppearance(barKey)
             end
             kbText:SetTextColor(barData.keybindR or 1, barData.keybindG or 1, barData.keybindB or 1, barData.keybindA or 0.9)
         end
+
+        if ns.UpdateCDMProcLabel then ns.UpdateCDMProcLabel(icon, barData, fd) end
 
         -- Apply custom shape (overrides border/zoom set above). Pass the resolved
         -- per-icon settings so the buff-family Border override (size + color)

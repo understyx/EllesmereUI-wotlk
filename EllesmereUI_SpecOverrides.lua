@@ -76,7 +76,6 @@ local FOLDER_BLACKLIST = {
     EllesmereUIQoL               = true,
     EllesmereUIRaidCooldowns     = true,
     EllesmereUIAuraBuffReminders = true,
-    EllesmereUIDBMSkin           = true,
     -- Minimap + Chat remain override-eligible; their engine-coupled settings
     -- are excluded per-path via SETTING_BLACKLIST below.
 }
@@ -2769,7 +2768,6 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIQoL"]               = true,   -- whole module (supersedes the old page scopes)
     ["EllesmereUIRaidCooldowns"]     = true,   -- owns group visibility by class/spec/role
     ["EllesmereUIAuraBuffReminders"] = true,
-    ["EllesmereUIDBMSkin"]           = true,
     ["EllesmereUICooldownManager"] = {
         ["Bar Glows"] = true,
         ["Tracking Bars"] = true,
