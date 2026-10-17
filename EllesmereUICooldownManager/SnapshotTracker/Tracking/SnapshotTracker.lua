@@ -18,6 +18,7 @@ local playerClass = nil
 local playerGUID = nil
 local snapshots = {}        -- [destGUID][spellName] = { damageMod, critChance }
 local recentDirectDotCasts = {} -- [destGUID][dotSpellId] = expiryTime
+local snapshotDiffText = {}
 local DIRECT_CAST_WINDOW = 2
 
 -- Per-frame cache for expensive calculations
@@ -169,6 +170,14 @@ function SnapshotTracker:ProcessEvent(subEvent, sourceGUID, destGUID, spellId, s
     end
 end
 
+-- Drop every recorded application. Called when tracking turns back on after
+-- a disabled stretch, so DoTs reapplied while CLEU was ignored never show a
+-- diff against a stale baseline.
+function SnapshotTracker:ResetSnapshots()
+    wipe(snapshots)
+    wipe(recentDirectDotCasts)
+end
+
 function SnapshotTracker:HandleCLEU(...)
     -- WotLK 3.3.5 CLEU format: timestamp(1), subEvent(2), sourceGUID(3),
     -- sourceName(4), sourceFlags(5), destGUID(6), destName(7), destFlags(8),
@@ -210,9 +219,19 @@ function SnapshotTracker:GetSnapshotDiff(unit, spellName)
     local diff = Round((expectedTick / currentTick - 1) * 100, 0.1)
 
     if diff > 0 then
-        return "|cff00ff00+" .. string_format("%.1f", diff) .. "%|r"
+        local text = snapshotDiffText[diff]
+        if not text then
+            text = "|cff00ff00+" .. string_format("%.1f", diff) .. "%|r"
+            snapshotDiffText[diff] = text
+        end
+        return text
     elseif diff < 0 then
-        return "|cffff0000" .. string_format("%.1f", diff) .. "%|r"
+        local text = snapshotDiffText[diff]
+        if not text then
+            text = "|cffff0000" .. string_format("%.1f", diff) .. "%|r"
+            snapshotDiffText[diff] = text
+        end
+        return text
     end
     return nil  -- no diff worth showing at exactly 0
 end

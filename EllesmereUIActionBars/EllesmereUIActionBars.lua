@@ -3010,6 +3010,10 @@ end
 -- and the cooldown swipe via the same duration-object API the dispatcher's
 -- ACTIONBAR_UPDATE_COOLDOWN branch uses.
 function EAB_VTABLE.ForceButtonRefresh(btn, action)
+    if not btn then return end
+    -- This path can set or clear the swipe independently of the event walker.
+    -- Force the next cooldown pass to re-apply its current action tuple.
+    btn._eabCdMemoValid = nil
     if not action then return end
     local icon = btn.icon or btn.Icon
     if icon then
@@ -3173,6 +3177,8 @@ do
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_STATE")
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_USABLE")
         dispatcher:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+        dispatcher:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+        dispatcher:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
         dispatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
         dispatcher:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         dispatcher:RegisterEvent("SPELL_UPDATE_CHARGES")
@@ -3181,6 +3187,34 @@ do
         dispatcher:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
         dispatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
         dispatcher:RegisterEvent("CVAR_UPDATE")  -- "Show numbers for cooldowns" toggled -> re-apply charge recharge numbers
+
+        local function ApplyCooldownIfChanged(btn, action)
+            local start, duration, enable = GetActionCooldown(action)
+            local cooldown = btn.cooldown
+            local profile = EAB.db and EAB.db.profile
+            local desatOn = profile and profile.desaturateOnCooldown or false
+            local cdAlpha = (profile and profile.alphaWhenOnCD) or 100
+            if btn._eabCdMemoValid
+               and btn._eabCdMemoAction == action
+               and btn._eabCdMemoStart == start
+               and btn._eabCdMemoDuration == duration
+               and btn._eabCdMemoEnable == enable
+               and btn._eabCdMemoCooldown == cooldown
+               and btn._eabCdMemoDesat == desatOn
+               and btn._eabCdMemoAlpha == cdAlpha then
+                return
+            end
+            if cooldown then CooldownFrame_Set(cooldown, start, duration, enable) end
+            RefreshCooldownVisuals(btn, action, start, duration)
+            btn._eabCdMemoAction = action
+            btn._eabCdMemoStart = start
+            btn._eabCdMemoDuration = duration
+            btn._eabCdMemoEnable = enable
+            btn._eabCdMemoCooldown = cooldown
+            btn._eabCdMemoDesat = desatOn
+            btn._eabCdMemoAlpha = cdAlpha
+            btn._eabCdMemoValid = true
+        end
 
         local function PerformCooldownRefresh()
             for _, info in ipairs(BAR_CONFIG) do
@@ -3191,12 +3225,9 @@ do
                         for _, btn in ipairs(btns) do
                             local action = GetButtonAction(btn)
                             if action and HasAction(action) then
-                                local cd = btn.cooldown
-                                if cd then
-                                    local start, duration, enable = GetActionCooldown(action)
-                                    CooldownFrame_Set(cd, start, duration, enable)
-                                    RefreshCooldownVisuals(btn, action, start, duration)
-                                end
+                                ApplyCooldownIfChanged(btn, action)
+                            else
+                                btn._eabCdMemoValid = nil
                             end
                         end
                     end
@@ -3235,6 +3266,21 @@ do
             -- walk after the event burst settles.
             if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN"
                or event == "BAG_UPDATE_COOLDOWN" or event == "PET_BAR_UPDATE_COOLDOWN" then
+                ScheduleCooldownRefresh()
+                return
+            end
+            if event == "ACTIONBAR_PAGE_CHANGED" or event == "UPDATE_BONUS_ACTIONBAR" then
+                -- Secure page changes can remap button action attributes while
+                -- retaining the same cooldown tuple. Invalidate before the
+                -- coalesced read observes the new page.
+                for _, info in ipairs(BAR_CONFIG) do
+                    if not info.isStance and not info.isPetBar then
+                        local btns = barButtons[info.key]
+                        if btns then
+                            for _, btn in ipairs(btns) do btn._eabCdMemoValid = nil end
+                        end
+                    end
+                end
                 ScheduleCooldownRefresh()
                 return
             end
@@ -3327,6 +3373,24 @@ do
                 end
                 nextAt[arg1] = now + 0.25
             end
+            if event == "ACTIONBAR_SLOT_CHANGED" then
+                -- ForceButtonRefresh handles the immediate content edge; the
+                -- coalesced walk below also applies the legacy cooldown tuple.
+                ScheduleCooldownRefresh()
+            elseif event == "UPDATE_SHAPESHIFT_FORM" or event == "UPDATE_VEHICLE_ACTIONBAR"
+                or event == "UPDATE_OVERRIDE_ACTIONBAR" or event == "PLAYER_ENTERING_WORLD" then
+                -- Page and button-action attributes can change while cooldown
+                -- values happen to match the previous action's values.
+                for _, info in ipairs(BAR_CONFIG) do
+                    if not info.isStance and not info.isPetBar then
+                        local btns = barButtons[info.key]
+                        if btns then
+                            for _, btn in ipairs(btns) do btn._eabCdMemoValid = nil end
+                        end
+                    end
+                end
+                ScheduleCooldownRefresh()
+            end
             -- Assisted shine follows slot contents; coalesced (storm-safe),
             -- and belt-and-braces vs. the OnActionChanged callback -- an
             -- in-combat Update() abort dies before Blizzard's TriggerEvent.
@@ -3354,6 +3418,7 @@ do
                             for _, btn in ipairs(btns) do
                                 local action = GetButtonAction(btn)
                                 if action and (arg1 == 0 or arg1 == action) then
+                                    btn._eabCdMemoValid = nil
                                     -- Assisted-combat slot: its "content changes" are
                                     -- the manager re-stamping the suggestion (idle
                                     -- spam, plus per rotation step in combat), and the
@@ -3410,12 +3475,7 @@ do
                             for _, btn in ipairs(btns) do
                                 local action = GetButtonAction(btn)
                                 if action and HasAction(action) then
-                                    local cd = btn.cooldown
-                                    if cd then
-                                        local start, duration, enable = GetActionCooldown(action)
-                                        CooldownFrame_Set(cd, start, duration, enable)
-                                        RefreshCooldownVisuals(btn, action, start, duration)
-                                    end
+                                    ApplyCooldownIfChanged(btn, action)
                                 end
                             end
                         elseif event == "CVAR_UPDATE" then

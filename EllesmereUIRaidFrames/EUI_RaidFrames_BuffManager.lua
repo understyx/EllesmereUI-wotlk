@@ -31,6 +31,11 @@ local UnitIsUnit    = UnitIsUnit
 local MAX_PER_SPEC = 20
 local IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
 local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local BM_COLOR_BLACK = { r = 0, g = 0, b = 0 }
+local BM_COLOR_WHITE = { r = 1, g = 1, b = 1 }
+local BM_COLOR_GREEN = { r = 0, g = 1, b = 0 }
+local BM_COLOR_THRESHOLD = { r = 1, g = 0.2, b = 0.2 }
+local function BM_Identity(v) return v end
 
 -------------------------------------------------------------------------------
 --  Indicator type definitions
@@ -1250,12 +1255,17 @@ ns.BM_EffectiveMaxDur = BM_EffectiveMaxDur
 
 -- Bar Max-Duration self-drain. Blizzard's GPU-smooth SetTimerDuration takes no
 -- custom max, so an overridden bar is drained here instead: one shared OnUpdate
--- (hidden when idle) sets each registered bar's fill to clamp(remaining / M, 0, 1).
--- Only overridden bars register, so it costs nothing for everyone else.
+-- (hidden when idle) updates registered bars at 20 Hz to clamp(remaining / M,
+-- 0, 1). Only overridden bars register, so it costs nothing for everyone else.
 local barMaxDurActive = setmetatable({}, { __mode = "k" })  -- [bar] = { exp, m }
 local barMaxDurTicker = EllesmereUI.SafeCreateFrame("Frame")
+local barMaxDurElapsed = 0
 barMaxDurTicker:Hide()
-barMaxDurTicker:SetScript("OnUpdate", function()
+barMaxDurTicker:SetScript("OnUpdate", function(_, elapsed)
+    barMaxDurElapsed = barMaxDurElapsed + elapsed
+    if barMaxDurElapsed < 0.05 then return end
+    barMaxDurElapsed = 0
+
     local now = GetTime()
     local anyActive = false
     for bar, st in pairs(barMaxDurActive) do
@@ -1265,15 +1275,18 @@ barMaxDurTicker:SetScript("OnUpdate", function()
             anyActive = true
             local frac = (st.exp - now) / st.m
             if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
-            bar:SetValue(frac)
+            if frac ~= st.lastFrac then
+                st.lastFrac = frac
+                bar:SetValue(frac)
+            end
         end
     end
     if not anyActive then barMaxDurTicker:Hide() end
 end)
-local function RegisterBarMaxDur(bar, exp, m)
+local function RegisterBarMaxDur(bar, exp, m, frac)
     local st = barMaxDurActive[bar]
     if not st then st = {}; barMaxDurActive[bar] = st end
-    st.exp, st.m = exp, m
+    st.exp, st.m, st.lastFrac = exp, m, frac
     barMaxDurTicker:Show()
 end
 local function UnregisterBarMaxDur(bar)
@@ -1290,7 +1303,7 @@ local function ApplyBarDrain(bar, unit, auraInstanceID, duration, expirationTime
         local frac = (expirationTime - GetTime()) / maxDur
         if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
         bar:SetValue(frac)
-        RegisterBarMaxDur(bar, expirationTime, maxDur)
+        RegisterBarMaxDur(bar, expirationTime, maxDur, frac)
         return
     end
     UnregisterBarMaxDur(bar)
@@ -2079,7 +2092,7 @@ local function AnchorSimpleGrid(d, health, bs, iscale, visibleCount)
     local pos    = bs.position or "topright"
     local grow   = bs.growDirection or "LEFT"
     local sz     = (bs.size or 22) * iscale
-    local spc    = (ns.PixelSnap or function(v) return v end)((bs.spacing or 1) * iscale)
+    local spc    = (ns.PixelSnap or BM_Identity)((bs.spacing or 1) * iscale)
     local perRow = bs.iconsPerRow or 4
     if perRow < 1 then perRow = 1 end
     local ox     = (bs.offsetX or 0) * iscale
@@ -2147,7 +2160,7 @@ ns.BM_AnchorSimpleGrid = AnchorSimpleGrid
 -- Scan HELPFUL auras, match against the active spec's full whitelist (secret
 -- auras via fingerprint), and render the matches in the grid. Secret-safe:
 -- icon via SetTexture, duration via DurationObject, never reads raw numbers.
-function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
+function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo, auraScan)
     local GetFFD = ns.GetFFD
     if not GetFFD then return end
     local d = GetFFD(button)
@@ -2157,16 +2170,12 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
 
     local bs = db and db.profile and db.profile.bmSimple
 
-    local function HideAll()
+    if not bs or not bs.showBuffs or not UnitExists(unit) then
         for _, f in ipairs(d.bmSimpleIcons) do
             if f._cooldown then f._cooldown:Hide() end
             f:Hide()
         end
         d.bmSimpleActiveIDs = nil
-    end
-
-    if not bs or not bs.showBuffs or not UnitExists(unit) then
-        HideAll()
         return
     end
 
@@ -2203,7 +2212,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
     local sz = (bs.size or 22) * iscale
     local bdrSz = bs.borderSize or 1
-    local bdrC = bs.borderColor or { r = 0, g = 0, b = 0 }
+    local bdrC = bs.borderColor or BM_COLOR_BLACK
     local wantSwipe = bs.showSwipe ~= false
     local wantDurText = bs.showDurText
     local cap = #d.bmSimpleIcons
@@ -2219,9 +2228,15 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
 
     local shown = 0
     local idx = 1
+    local auraList = auraScan and ns._GetUnitAuraScan(auraScan, "HELPFUL")
     while true do
         if shown >= maxBuffs then break end
-        local auraData = C_UnitAuras.GetAuraDataByIndex(unit, idx, "HELPFUL")
+        local auraData
+        if auraList then
+            auraData = auraList[idx]
+        else
+            auraData = C_UnitAuras.GetAuraDataByIndex(unit, idx, "HELPFUL")
+        end
         if not auraData then break end
         idx = idx + 1
 
@@ -2297,7 +2312,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
                     if applied and wantDurText then
                         local cdText = cd.GetCountdownFontString and cd:GetCountdownFontString()
                         if cdText then
-                            local dtc = bs.durTextColor or { r = 1, g = 1, b = 1 }
+                            local dtc = bs.durTextColor or BM_COLOR_WHITE
                             EllesmereUI.ApplyIconTextFont(cdText, fp, bs.durTextSize or 8, "raidFrames")
                             cdText:SetTextColor(dtc.r, dtc.g, dtc.b)
                             cdText:ClearAllPoints()
@@ -2324,7 +2339,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
                 if bs.showStacks and C_UnitAuras.GetAuraApplicationDisplayCount and iid then
                     local stackText = C_UnitAuras.GetAuraApplicationDisplayCount(unit, iid, 2, 99)
                     if stackText then
-                        local sc = bs.stacksTextColor or { r = 1, g = 1, b = 1 }
+                        local sc = bs.stacksTextColor or BM_COLOR_WHITE
                         EllesmereUI.ApplyIconTextFont(icon._count, fp, bs.stacksTextSize or 8, "raidFrames")
                         icon._count:SetTextColor(sc.r, sc.g, sc.b)
                         icon._count:ClearAllPoints()
@@ -2352,7 +2367,19 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
     AnchorSimpleGrid(d, health, bs, iscale, shown)
 end
 
-function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
+local function GetIndicatorAura(ind, sid)
+    local ownSpells = ind.ownOnlySpells
+    local isOwn
+    if ownSpells and ownSpells[sid] ~= nil then
+        isOwn = ownSpells[sid]
+    else
+        isOwn = ind.ownOnly ~= false
+    end
+    if isOwn then return activePlayerSpells[sid] end
+    return activeSpells[sid]
+end
+
+function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
     local GetFFD = ns.GetFFD
     if not GetFFD then return end
     local d = GetFFD(button)
@@ -2384,7 +2411,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
         -- mode (the range ticker keeps multiplying by _bmSavedAlpha otherwise).
         button._bmSavedAlpha = nil
         if d.rangeAlpha then button:SetAlpha(d.rangeAlpha) end
-        ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
+        ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo, auraScan)
         return
     end
     -- Custom mode: make sure a previously-active simple grid never lingers.
@@ -2481,9 +2508,15 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
     wipe(activePlayerSpells)
     if not d.bmActiveInstanceIDs then d.bmActiveInstanceIDs = {} end
     wipe(d.bmActiveInstanceIDs)
+    local auraList = auraScan and ns._GetUnitAuraScan(auraScan, "HELPFUL")
     local idx = 1
     while true do
-        local auraData = C_UnitAuras.GetAuraDataByIndex(unit, idx, "HELPFUL")
+        local auraData
+        if auraList then
+            auraData = auraList[idx]
+        else
+            auraData = C_UnitAuras.GetAuraDataByIndex(unit, idx, "HELPFUL")
+        end
         if not auraData then break end
         idx = idx + 1
         local sid = auraData.spellId
@@ -2548,33 +2581,12 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
         local typeInfo = INDICATOR_TYPE_MAP[indType]
         if not typeInfo then break end
 
-        -- Per-spell own-only lookup: checks ownOnlySpells table, falls back to ownOnly boolean.
-        -- Uses explicit if/else, NOT the "a and b or c" idiom: both the per-spell value and
-        -- activePlayerSpells[sid] can legitimately be false/nil. With the idiom, an Own Only
-        -- buff cast by someone else (activePlayerSpells[sid] == nil) would fall through to
-        -- activeSpells[sid] and show the other player's buff, defeating the filter entirely.
-        local ownSpells = ind.ownOnlySpells
-        local ownFallback = ind.ownOnly ~= false
-        local function GetAura(sid)
-            local isOwn
-            if ownSpells and ownSpells[sid] ~= nil then
-                isOwn = ownSpells[sid]
-            else
-                isOwn = ownFallback
-            end
-            if isOwn then
-                -- Own Only: return ONLY the player-cast aura (nil if we did not cast it).
-                return activePlayerSpells[sid]
-            end
-            return activeSpells[sid]
-        end
-
         if typeInfo.placed then
             -- Placed indicators: icon, square, bar
             if indType == "bar" then
                 -- Bar: single spell
                 local sid = ind.spells[1]
-                local aura = sid and GetAura(sid)
+                local aura = sid and GetIndicatorAura(ind, sid)
                 if aura then
                     barPoolIdx = barPoolIdx + 1
                     local bar = d.bmBarPool[barPoolIdx]
@@ -2582,11 +2594,11 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                         BM_SetTipTarget(bar, unit, aura.auraInstanceID)
                         BM_ApplyBarLevel(bar, ind, buttonLvl)
                         bar:SetReverseFill(ind.reverseFill or false)
-                        local c = ind.color or { r=0, g=1, b=0 }
+                        local c = ind.color or BM_COLOR_GREEN
                         bar:SetStatusBarColor(c.r, c.g, c.b, (ind.barColorOpacity or 100) / 100)
                         -- Background
                         if bar._bg then
-                            local bgc = ind.barBgColor or { r=0, g=0, b=0 }
+                            local bgc = ind.barBgColor or BM_COLOR_BLACK
                             bar._bg:SetTexture(bgc.r, bgc.g, bgc.b, (ind.barBgOpacity or 50) / 100)
                         end
                         -- Duration fill (smooth drain via native SetTimerDuration,
@@ -2605,7 +2617,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                         -- the normal color above the threshold; the immediate eval in
                         -- RegisterThreshold avoids a one-tick flash of the normal color.
                         if ind.thresholdEnabled and iid and not issecretvalue(iid) then
-                            local tc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
+                            local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
                             local curve = GetThresholdColorCurve(
                                 ind.threshold or 3,
                                 c.r, c.g, c.b, (ind.barColorOpacity or 100) / 100,
@@ -2626,7 +2638,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 -- Icon or Square: multi-spell with growth
                 local growDir = ind.growDirection or "RIGHT"
                 local sz = (ind.size or 12) * iscale
-                local snap = ns.PixelSnap or function(v) return v end
+                local snap = ns.PixelSnap or BM_Identity
                 local gap = snap((ind.spacing or 1) * iscale)
                 -- Running cursor: each icon advances the next by its OWN size, so a
                 -- per-spell size offset reflows its neighbors instead of overlapping.
@@ -2636,7 +2648,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 if growDir == "CENTER" then
                     local totalW, cnt = 0, 0
                     for _, sid2 in ipairs(ind.spells) do
-                        if GetAura(sid2) then
+                        if GetIndicatorAura(ind, sid2) then
                             local so2 = ind.sizeOffsets and ind.sizeOffsets[sid2] or 0
                             local s2 = sz + so2 * iscale
                             if s2 < 1 then s2 = 1 end
@@ -2648,7 +2660,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 end
                 local spellIdx = 0
                 for _, sid in ipairs(ind.spells) do
-                    local aura = GetAura(sid)
+                    local aura = GetIndicatorAura(ind, sid)
                     if aura then
                         iconPoolIdx = iconPoolIdx + 1
                         local f = d.bmIconPool[iconPoolIdx]
@@ -2684,7 +2696,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
 
                             -- Apply stacks font + position once per assignment
                             if f._count and ind.showStacks then
-                                local sc2 = ind.stacksTextColor or { r=1, g=1, b=1 }
+                                local sc2 = ind.stacksTextColor or BM_COLOR_WHITE
                                 local sSz = (ind.stacksTextSize or 8) * iscale
                                 local sOX = (ind.stacksOffsetX or 0) * iscale
                                 local sOY = (ind.stacksOffsetY or 0) * iscale
@@ -2721,7 +2733,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                 -- Per-ability color: this spell's own color, falling
                                 -- back to the legacy single ind.color, then default.
                                 local c = (ind.spellColors and ind.spellColors[sid])
-                                    or ind.color or { r=0, g=1, b=0 }
+                                    or ind.color or BM_COLOR_GREEN
                                 -- White texture + vertex color (not SetColorTexture) so the
                                 -- threshold can recolor via secret-safe SetVertexColor, and a
                                 -- reused icon's tint can't leak through.
@@ -2755,7 +2767,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                         UnregisterThreshold(f)
                                     end
                                 elseif ind.thresholdEnabled and tiid and not issecretvalue(tiid) then
-                                    local tc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
+                                    local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
                                     local curve = GetThresholdColorCurve(
                                         ind.threshold or 3, ncR, ncG, ncB, ncA,
                                         tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
@@ -2827,7 +2839,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                             if f._bdr and PP then
                                 local ibs = hideIcon and 0 or (ind.indBorderSize or 1)
                                 if ibs > 0 then
-                                    local ibc = ind.indBorderColor or { r=0, g=0, b=0 }
+                                    local ibc = ind.indBorderColor or BM_COLOR_BLACK
                                     PP.UpdateBorder(f._bdr, ibs, ibc.r, ibc.g, ibc.b, 1)
                                     f._bdr:Show()
                                 else
@@ -2907,7 +2919,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                     if applied and wantDurText then
                                         local cdText = f._cooldown.GetCountdownFontString and f._cooldown:GetCountdownFontString()
                                         if cdText then
-                                            local tc = ind.durationTextColor or { r=1, g=1, b=1 }
+                                            local tc = ind.durationTextColor or BM_COLOR_WHITE
                                             local fontPath2 = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
                                             EllesmereUI.ApplyIconTextFont(cdText, fontPath2, ind.durationTextSize or 8, "raidFrames")
                                             cdText:SetTextColor(tc.r, tc.g, tc.b)
@@ -2922,7 +2934,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                             if textThresholdMode then
                                                 local tiid = aura.auraInstanceID
                                                 if ind.thresholdEnabled and tiid and not issecretvalue(tiid) then
-                                                    local thc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
+                                                    local thc = ind.thresholdColor or BM_COLOR_THRESHOLD
                                                     local curve = GetThresholdColorCurve(
                                                         ind.threshold or 3, tc.r, tc.g, tc.b, 1,
                                                         thc.r, thc.g, thc.b, (ind.thresholdColorOpacity or 100) / 100)
@@ -2950,7 +2962,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
             local allPresent = #ind.spells > 0
             local presentAura = nil
             for _, sid in ipairs(ind.spells) do
-                local a = GetAura(sid)
+                local a = GetIndicatorAura(ind, sid)
                 if a then anyPresent = true; presentAura = presentAura or a
                 else allPresent = false end
             end
@@ -2970,7 +2982,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
             if shouldShow then
                 if indType == "healthcolor" then
                     if d.bmHCOverlay then
-                        local c = ind.color or { r=0, g=1, b=0 }
+                        local c = ind.color or BM_COLOR_GREEN
                         local op = (ind.opacity or 100) / 100
                         -- White texture + vertex so the threshold can recolor via
                         -- secret-safe SetVertexColor.
@@ -2979,7 +2991,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                         d.bmHCOverlay:Show()
                         local curve
                         if threshOK then
-                            local tc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
+                            local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
                             curve = GetThresholdColorCurve(ind.threshold or 3,
                                 c.r, c.g, c.b, op, tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
                         end
@@ -2988,7 +3000,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                     end
                 elseif indType == "border" then
                     if d.bmEffectBorder and PP then
-                        local c = ind.color or { r=0, g=1, b=0 }
+                        local c = ind.color or BM_COLOR_GREEN
                         local op = (ind.borderOpacity or 100) / 100
                         ApplyEffectBorder(d.bmEffectBorder, ind, c.r, c.g, c.b, op)
                         d.bmEffectBorder:Show()
@@ -3004,7 +3016,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                         end
                         local curve
                         if threshOK then
-                            local tc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
+                            local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
                             curve = GetThresholdColorCurve(ind.threshold or 3,
                                 c.r, c.g, c.b, op, tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
                         end

@@ -30,6 +30,15 @@ ns.EllesmereUI = EllesmereUI
 ns.NICK_ADDON = ADDON_NAME:find("Standalone") and ADDON_NAME or "EllesmereUI"
 ns.IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
 
+-- Stable health-background fallback colors. Stored on ns to respect the main
+-- chunk's Lua 5.1 local cap and avoid per-health-event fallback allocations.
+ns._HEALTH_BG_DEAD_FALLBACK = ns._HEALTH_BG_DEAD_FALLBACK
+    or { r = 0x24/255, g = 0x17/255, b = 0x17/255 }
+ns._HEALTH_BG_OFFLINE_FALLBACK = ns._HEALTH_BG_OFFLINE_FALLBACK
+    or { r = 0x66/255, g = 0x66/255, b = 0x66/255 }
+ns._RF_COLOR_BLACK = ns._RF_COLOR_BLACK or { r = 0, g = 0, b = 0 }
+ns._RF_COLOR_WHITE = ns._RF_COLOR_WHITE or { r = 1, g = 1, b = 1 }
+
 -------------------------------------------------------------------------------
 --  Frame-level layout (offsets above the button / preview-frame level).
 --  All aura VISUALS share one band ABOVE the threat/dispel/base border so the
@@ -1523,46 +1532,62 @@ end
 -- Centralized so the full update and the lightweight UNIT_HEALTH update (which
 -- owns death/resurrect transitions) stay in lockstep -- otherwise a resurrect
 -- arriving only via UNIT_HEALTH would strand the tint. Defaults: offline = dark
--- gray, dead = dark red (overridable via the Status Colors swatch in Extras);
--- the inline fallbacks only allocate if the DB key is missing. On ns (not a
+-- gray, dead = dark red (overridable via the Status Colors swatch in Extras).
+-- The fallback colors are shared constants; resolved settings values are cached
+-- so stable UNIT_HEALTH events avoid anchor and texture writes. On ns (not a
 -- local) to stay under the main-chunk 200-local cap.
 function ns._ApplyHealthBg(d, health, s, unit)
     local EllesmereUI = ns.EllesmereUI  -- upvalue read, not a global read (see taint note at top)
     local bg = d.bg
-    if UnitIsDeadOrGhost(unit) then
-        if bg then
-            local c = s.statusColorDead or { r = 0x24/255, g = 0x17/255, b = 0x17/255 }
-            bg:ClearAllPoints(); bg:SetAllPoints(health)
-            bg:SetTexture(c.r, c.g, c.b, 1)
+    local dead = UnitIsDeadOrGhost(unit)
+    local offline = not dead and not UnitIsConnected(unit)
+    local state = dead and "dead" or (offline and "offline" or "alive")
+    local fillTex = health and health:GetStatusBarTexture()
+
+    if bg then
+        local mode, r, g, b, a
+        if dead then
+            local c = s.statusColorDead or ns._HEALTH_BG_DEAD_FALLBACK
+            mode, r, g, b, a = "status", c.r, c.g, c.b, 1
+        elseif offline then
+            local c = s.statusColorOffline or ns._HEALTH_BG_OFFLINE_FALLBACK
+            mode, r, g, b, a = "status", c.r, c.g, c.b, 1
+        elseif s.healthColorMode == "dark" then
+            mode = "dark"
+            r, g, b, a = EllesmereUI.GetDarkModeBg()
+        else
+            mode = "normal"
+            r, g, b, a = ns.GetBgColor(unit, s)
         end
+
+        local layoutChanged = d._hbgState ~= state or d._hbgObject ~= bg
+            or d._hbgHealth ~= health or d._hbgFillTex ~= fillTex
+        if layoutChanged then
+            bg:ClearAllPoints()
+            if state == "alive" and fillTex then
+                bg:SetPoint("TOPLEFT", fillTex, "TOPRIGHT", 0, 0)
+                bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+            else
+                bg:SetAllPoints(health)
+            end
+        end
+
+        if layoutChanged or d._hbgMode ~= mode or d._hbgR ~= r or d._hbgG ~= g
+            or d._hbgB ~= b or d._hbgA ~= a then
+            bg:SetTexture(r, g, b, a)
+        end
+
+        d._hbgState, d._hbgObject = state, bg
+        d._hbgHealth, d._hbgFillTex = health, fillTex
+        d._hbgMode, d._hbgR, d._hbgG, d._hbgB, d._hbgA = mode, r, g, b, a
+    end
+
+    if dead then
         if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.5) end
         return
-    elseif not UnitIsConnected(unit) then
-        if bg then
-            local c = s.statusColorOffline or { r = 0x66/255, g = 0x66/255, b = 0x66/255 }
-            bg:ClearAllPoints(); bg:SetAllPoints(health)
-            bg:SetTexture(c.r, c.g, c.b, 1)
-        end
+    elseif offline then
         if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.3) end
         return
-    end
-    if not bg then return end
-    bg:ClearAllPoints()
-    local fillTex = health and health:GetStatusBarTexture()
-    if fillTex then
-        bg:SetPoint("TOPLEFT", fillTex, "TOPRIGHT", 0, 0)
-        bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-    else
-        bg:SetAllPoints(health)
-    end
-    if s.healthColorMode == "dark" then
-        bg:SetTexture(EllesmereUI.GetDarkModeBg())
-    else
-        -- Class-colored when bgClassColored is on, else the custom bg color
-        -- (GetBgColor handles the secret-value guard + alpha = bgDarkness). Must
-        -- match the layout-pass and preview paths so the per-unit UNIT_HEALTH
-        -- refresh no longer clobbers the class-colored background back to custom.
-        bg:SetTexture(ns.GetBgColor(unit, s))
     end
 end
 
@@ -4390,6 +4415,9 @@ local function UpdateButton(button)
 
     -- Background (+ dead/offline status tint). Centralized in ns._ApplyHealthBg
     -- so the lightweight UNIT_HEALTH path stays in lockstep on death/resurrect.
+    -- A full per-button refresh is the settings invalidation point for the
+    -- cached background layout/texture state.
+    d._hbgState = nil
     ns._ApplyHealthBg(d, health, s, unit)
 
     -- Power (filtered by role + hide if unit has no power)
@@ -4658,6 +4686,46 @@ end
 local C_UnitAuras_GetAuraDataByAuraInstanceID = C_UnitAuras.GetAuraDataByAuraInstanceID
 local C_UnitAuras_IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
 
+-- Reusable per-event aura lists. Wrath has no UNIT_AURA update payload, so the
+-- debuff, dispel, defensive and BM consumers can share these current-state scans.
+-- Lists are built lazily: disabled indicators still pay no scan cost.
+ns._unitAuraScanScratch = ns._unitAuraScanScratch or {
+    helpful = {}, harmful = {}, harmfulDispel = {},
+}
+ns._BeginUnitAuraScan = function(unit)
+    local scan = ns._unitAuraScanScratch
+    scan.unit = unit
+    scan.helpfulReady, scan.harmfulReady, scan.harmfulDispelReady = nil, nil, nil
+    wipe(scan.helpful)
+    wipe(scan.harmful)
+    wipe(scan.harmfulDispel)
+    return scan
+end
+ns._GetUnitAuraScan = function(scan, filter)
+    if not scan or not scan.unit then return nil end
+    local list, readyKey
+    if filter == "HELPFUL" then
+        list, readyKey = scan.helpful, "helpfulReady"
+    elseif filter == "HARMFUL" then
+        list, readyKey = scan.harmful, "harmfulReady"
+    elseif filter == "HARMFUL|RAID_PLAYER_DISPELLABLE" then
+        list, readyKey = scan.harmfulDispel, "harmfulDispelReady"
+    else
+        return nil
+    end
+    if not scan[readyKey] then
+        scan[readyKey] = true
+        local i = 1
+        while true do
+            local auraData = C_UnitAuras.GetAuraDataByIndex(scan.unit, i, filter)
+            if not auraData then break end
+            list[#list + 1] = auraData
+            i = i + 1
+        end
+    end
+    return list
+end
+
 -- Crowd-control aura filter (Blizzard 11.1+ CROWD_CONTROL filter, the same one
 -- Grid2/Danders use to identify CC). An aura that is NOT filtered out by this
 -- passes = it's a crowd-control debuff. Used by the CC Debuff Glow. Stored on ns
@@ -4759,7 +4827,7 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
             if dc then
                 PP.UpdateBorder(icon._borderFrame, borderSz, dc.r, dc.g, dc.b, 1)
             else
-                local bc = s.debuffBorderColor or { r=0, g=0, b=0 }
+                local bc = s.debuffBorderColor or ns._RF_COLOR_BLACK
                 PP.UpdateBorder(icon._borderFrame, borderSz, bc.r, bc.g, bc.b, 1)
             end
             icon._borderFrame:Show()
@@ -4820,7 +4888,7 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
             if applied and wantDurText then
                 local cdText = icon._cooldown.GetCountdownFontString and icon._cooldown:GetCountdownFontString()
                 if cdText then
-                    local dtc = s.debuffDurTextColor or { r = 1, g = 1, b = 1 }
+                    local dtc = s.debuffDurTextColor or ns._RF_COLOR_WHITE
                     local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
                     EllesmereUI.ApplyIconTextFont(cdText, fp, s.debuffDurTextSize or 8, "raidFrames")
                     cdText:SetTextColor(dtc.r, dtc.g, dtc.b)
@@ -4888,7 +4956,7 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
                 -- SetSwipeColor is assumed to behave the same. Bright ring shows
                 -- the remaining time; the reversed dark ring fills the elapsed
                 -- complement in the same hue at 50% brightness.
-                local c  = dc     or s.debuffBorderColor or { r = 1, g = 1, b = 1 }
+                local c  = dc     or s.debuffBorderColor or ns._RF_COLOR_WHITE
                 local cd = dcDark or c
                 if cb.SetSwipeColor then cb:SetSwipeColor(c.r, c.g, c.b, 1) end
                 if cbd.SetSwipeColor then cbd:SetSwipeColor(cd.r, cd.g, cd.b, 1) end
@@ -5025,7 +5093,7 @@ local function RenderDebuffs(d, s, unit)
     for _, icon in ipairs(d.debuffIcons) do
         -- Stacks font
         if icon._count and s.debuffShowStacks then
-            local stc = s.debuffStacksTextColor or { r=1, g=1, b=1 }
+            local stc = s.debuffStacksTextColor or ns._RF_COLOR_WHITE
             EllesmereUI.ApplyIconTextFont(icon._count, fontPath, s.debuffStacksTextSize or 8, "raidFrames")
             icon._count:SetTextColor(stc.r, stc.g, stc.b)
             icon._count:ClearAllPoints()
@@ -5065,7 +5133,7 @@ local function RenderDebuffs(d, s, unit)
 end
 
 -- Full scan: rebuild debuff cache from scratch
-local function FullScanDebuffs(d, unit, s)
+local function FullScanDebuffs(d, unit, s, auraList)
     if not d.debuffCache then d.debuffCache = {} end
     wipe(d.debuffCache)
     d.debuffInstanceMap = d.debuffInstanceMap or {}
@@ -5076,7 +5144,12 @@ local function FullScanDebuffs(d, unit, s)
     wipe(d.debuffNormalCache)
     local i = 1
     while true do
-        local auraData = C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")
+        local auraData
+        if auraList then
+            auraData = auraList[i]
+        else
+            auraData = C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")
+        end
         if not auraData then break end
         i = i + 1
         local show, priority = IsDisplayDebuff(unit, auraData, s)
@@ -5119,7 +5192,7 @@ ns._UpdateRDHealthColor = function(d, s, unit)
     end
 end
 
-local function UpdateDebuffs(button, unit, updateInfo)
+local function UpdateDebuffs(button, unit, updateInfo, auraScan)
     local d = GetFFD(button)
     if not d.debuffIcons then return end
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
@@ -5136,7 +5209,8 @@ local function UpdateDebuffs(button, unit, updateInfo)
         or (updateInfo.isFullUpdate)
 
     if needFullScan then
-        FullScanDebuffs(d, unit, s)
+        local auraList = auraScan and ns._GetUnitAuraScan(auraScan, "HARMFUL")
+        FullScanDebuffs(d, unit, s, auraList)
     else
         -- Incremental update
         local cache = d.debuffCache
@@ -5220,7 +5294,7 @@ function ns.IsDefCustomMode(s)
     return s.showDefCustom == true and not s.showDefensives and not s.showExternals
 end
 
-local function UpdateDefensives(button, unit, updateInfo)
+local function UpdateDefensives(button, unit, updateInfo, auraScan)
     local d = GetFFD(button)
     if not d.defIcons then return end
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
@@ -5268,7 +5342,7 @@ local function UpdateDefensives(button, unit, updateInfo)
     local shown = 0
     local defSz = s.defSize or 22
     local defBdrSz = s.defBorderSize or 1
-    local defBdrC = s.defBorderColor or { r = 0, g = 0, b = 0 }
+    local defBdrC = s.defBorderColor or ns._RF_COLOR_BLACK
     local PP2 = PP
     local getAuraTags = (showDef or showExt) and C_CooldownViewer
         and C_CooldownViewer.GetAuraSpellTags or nil
@@ -5287,9 +5361,15 @@ local function UpdateDefensives(button, unit, updateInfo)
         return
     end
 
+    local auraList = auraScan and ns._GetUnitAuraScan(auraScan, "HELPFUL")
     local idx = 1
     while true do
-        local auraData = C_UnitAuras.GetAuraDataByIndex(unit, idx, "HELPFUL")
+        local auraData
+        if auraList then
+            auraData = auraList[idx]
+        else
+            auraData = C_UnitAuras.GetAuraDataByIndex(unit, idx, "HELPFUL")
+        end
         if not auraData then break end
         idx = idx + 1
         if shown >= #d.defIcons then break end
@@ -5375,7 +5455,7 @@ local function UpdateDefensives(button, unit, updateInfo)
                         if applied and wantDurText then
                             local cdText = cd.GetCountdownFontString and cd:GetCountdownFontString()
                             if cdText then
-                                local dtc = s.defDurTextColor or { r = 1, g = 1, b = 1 }
+                                local dtc = s.defDurTextColor or ns._RF_COLOR_WHITE
                                 local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
                                 EllesmereUI.ApplyIconTextFont(cdText, fp, s.defDurTextSize or 8, "raidFrames")
                                 cdText:SetTextColor(dtc.r, dtc.g, dtc.b)
@@ -5544,6 +5624,33 @@ end
 ns._dispelScratch = ns._dispelScratch or {}
 ns._dispelScratchDark = ns._dispelScratchDark or {}
 
+-- Apply selected dispel visuals without creating a closure on each aura event.
+ns._ShowDispelFor = function(d, unit, auraData, dc, olA, s, borderSize,
+    wantBorder, wantOverlay, wantIcon)
+    d.dispelInstanceID = auraData.auraInstanceID
+    -- Per-type alpha (0 = user opted this type out). May be a SECRET
+    -- value from the curve path: only nil-heal when it is clean, then feed
+    -- it straight into setters.
+    local dcA = dc.a
+    if not issecretvalue(dcA) and dcA == nil then dcA = 1 end
+    if wantBorder and d.dispelFrame and PP then
+        PP.UpdateBorder(d.dispelFrame, borderSize, dc.r, dc.g, dc.b, dcA)
+        d.dispelFrame:Show()
+    elseif d.dispelFrame then
+        d.dispelFrame:Hide()
+    end
+    if wantOverlay then
+        ApplyDispelOverlay(d, dc, s, olA)
+    elseif d.dispelOLTex then
+        d.dispelOLTex:Hide()
+    end
+    if wantIcon then
+        ApplyDispelIcon(d, unit, auraData.auraInstanceID)
+    elseif d.dispelIcon then
+        d.dispelIcon:Hide()
+    end
+end
+
 -- Build the dispel-type -> color curves from the user's custom colors. Blizzard's
 -- GetAuraDispelTypeColor evaluates this curve against an aura's (secret) dispel
 -- type internally and hands back the matching color, so we never need to read
@@ -5608,7 +5715,7 @@ function ns._GetDispelIconCurve(targetIdx)
     return c
 end
 
-local function UpdateDispelBorder(button, unit, updateInfo)
+local function UpdateDispelBorder(button, unit, updateInfo, auraScan)
     local d = GetFFD(button)
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
     local borderSize  = s.dispelBorderSize or 2
@@ -5648,34 +5755,6 @@ local function UpdateDispelBorder(button, unit, updateInfo)
         if not hasHarmfulChange then return end
     end
 
-    -- Apply the dispel visuals (border/overlay/icon) for a chosen aura.
-    -- olA: overlay alpha from the opacity-premultiplied curve (may be SECRET;
-    -- nil on the plain fallback path, where ApplyDispelOverlay combines).
-    local function ShowDispelFor(auraData, dc, olA)
-        d.dispelInstanceID = auraData.auraInstanceID
-        -- Per-type alpha (0 = user opted this type out). May be a SECRET
-        -- value from the curve path: only nil-heal when readably nil, and
-        -- feed it straight into setters otherwise.
-        local dcA = dc.a
-        if not issecretvalue(dcA) and dcA == nil then dcA = 1 end
-        if wantBorder and d.dispelFrame and PP then
-            PP.UpdateBorder(d.dispelFrame, borderSize, dc.r, dc.g, dc.b, dcA)
-            d.dispelFrame:Show()
-        elseif d.dispelFrame then
-            d.dispelFrame:Hide()
-        end
-        if wantOverlay then
-            ApplyDispelOverlay(d, dc, s, olA)
-        elseif d.dispelOLTex then
-            d.dispelOLTex:Hide()
-        end
-        if wantIcon then
-            ApplyDispelIcon(d, unit, auraData.auraInstanceID)
-        elseif d.dispelIcon then
-            d.dispelIcon:Hide()
-        end
-    end
-
     -- Scan HARMFUL auras for the dispel highlight/icon.
     -- "Show All" matches any typed dispellable debuff via the secret-safe
     -- dispelName check. "By Me" asks Blizzard to apply the RAID_PLAYER_DISPELLABLE
@@ -5683,9 +5762,15 @@ local function UpdateDispelBorder(button, unit, updateInfo)
     -- feed a (possibly secret) auraInstanceID into a per-aura filter decision.
     local showAll = s.dispelShowAll ~= false
     local scanFilter = showAll and "HARMFUL" or "HARMFUL|RAID_PLAYER_DISPELLABLE"
+    local auraList = auraScan and ns._GetUnitAuraScan(auraScan, scanFilter)
     local i = 1
     while true do
-        local auraData = C_UnitAuras.GetAuraDataByIndex(unit, i, scanFilter)
+        local auraData
+        if auraList then
+            auraData = auraList[i]
+        else
+            auraData = C_UnitAuras.GetAuraDataByIndex(unit, i, scanFilter)
+        end
         if not auraData then break end
         i = i + 1
 
@@ -5729,7 +5814,8 @@ local function UpdateDispelBorder(button, unit, updateInfo)
                 end
             end
             if not dc then dc = GetDispelColor("Magic", s) end
-            ShowDispelFor(auraData, dc, olA)
+            ns._ShowDispelFor(d, unit, auraData, dc, olA, s,
+                borderSize, wantBorder, wantOverlay, wantIcon)
             return
         end
     end
@@ -5938,17 +6024,22 @@ ns._UpdateRaidMarkers = function()
     for unit, btn in pairs(ns._xfUnitToButton) do updateMarker(unit, btn) end
 end
 
--- Lightweight: only toggle target border on each button (for PLAYER_TARGET_CHANGED)
-ns._UpdateTargetBorders = function()
-    local function updateTarget(unit, btn)
-        local d = GetFFD(btn)
-        local isTarget = UnitIsUnit(unit, "target")
-        d._isTarget = (isTarget and not issecretvalue(isTarget)) and true or false
+-- Shared target-state updater; kept on ns to stay under the main-chunk local cap.
+ns._UpdateTargetBorderForButton = function(unit, btn)
+    local d = GetFFD(btn)
+    local isTarget = UnitIsUnit(unit, "target")
+    local newTarget = (isTarget and not issecretvalue(isTarget)) and true or false
+    if newTarget ~= d._isTarget then
+        d._isTarget = newTarget
         if d.ApplyBorderColor then d.ApplyBorderColor() end
     end
-    for unit, btn in pairs(unitToButton) do updateTarget(unit, btn) end
-    for unit, btn in pairs(ns._partyUnitToButton) do updateTarget(unit, btn) end
-    for unit, btn in pairs(ns._xfUnitToButton) do updateTarget(unit, btn) end
+end
+
+-- Lightweight: only toggle target border on each button (for PLAYER_TARGET_CHANGED)
+ns._UpdateTargetBorders = function()
+    for unit, btn in pairs(unitToButton) do ns._UpdateTargetBorderForButton(unit, btn) end
+    for unit, btn in pairs(ns._partyUnitToButton) do ns._UpdateTargetBorderForButton(unit, btn) end
+    for unit, btn in pairs(ns._xfUnitToButton) do ns._UpdateTargetBorderForButton(unit, btn) end
 end
 
 -- Lightweight: only refresh role icons on each button. Driven by combat
@@ -7351,12 +7442,13 @@ XF.EnsureBuilt = function(count)
                 else
                     -- Mirror of the hub's UNIT_AURA branch without the budget
                     -- spill: work stays bounded to the duplicated units.
-                    UpdateDispelBorder(b, unit, updateInfo)
-                    UpdateDebuffs(b, unit, updateInfo)
-                    UpdateDefensives(b, unit, updateInfo)
+                    local auraScan = ns.IS_WRATH and not updateInfo and ns._BeginUnitAuraScan(unit) or nil
+                    UpdateDispelBorder(b, unit, updateInfo, auraScan)
+                    UpdateDebuffs(b, unit, updateInfo, auraScan)
+                    UpdateDefensives(b, unit, updateInfo, auraScan)
                     UpdateAbsorb(b, unit)
                     if ns.BM_UpdateIndicators then
-                        ns.BM_UpdateIndicators(b, unit, db, updateInfo)
+                        ns.BM_UpdateIndicators(b, unit, db, updateInfo, auraScan)
                     end
                 end
             elseif event == "UNIT_POWER_UPDATE" then
@@ -8451,6 +8543,7 @@ local function ReloadFrames()
         -- Background
         if d.bg then
             d.bg:SetTexture(ns.GetBgColor(btn:GetAttribute("unit"), s))
+            d._hbgState = nil
         end
 
         -- Health bar height/anchor + Top Name Bar. The helper reserves the top
@@ -9158,7 +9251,13 @@ local function ApplyRangeAlpha(btn, rangeAlpha)
     local d = GetFFD(btn)
     d.rangeAlpha = rangeAlpha
     local bmA = btn._bmSavedAlpha or 1
-    btn:SetAlpha(bmA * rangeAlpha)
+    local alpha = bmA * rangeAlpha
+    -- Other paths (BM frame alpha, UpdateButton, secret range, visibility and
+    -- preview fades) also write button alpha. Compare the live value so none of
+    -- those writes can leave a stale range cache suppressing a needed update.
+    -- GetAlpha reads back a quantized float, so compare with a tolerance.
+    local currentAlpha = btn:GetAlpha()
+    if issecretvalue(currentAlpha) or math.abs(currentAlpha - alpha) > 0.001 then btn:SetAlpha(alpha) end
 end
 
 -- Secret-safe range alpha via SetAlphaFromBoolean (UnitInRange can return a
@@ -9463,10 +9562,11 @@ ns._auraDirtyN = 0
 ns._FlushUnitAuras = function(unit)
     local btn = unitToButton[unit] or ns._partyUnitToButton[unit]
     if not btn then return end
-    UpdateDebuffs(btn, unit)
-    UpdateDefensives(btn, unit)
+    local auraScan = ns.IS_WRATH and ns._BeginUnitAuraScan(unit) or nil
+    UpdateDebuffs(btn, unit, nil, auraScan)
+    UpdateDefensives(btn, unit, nil, auraScan)
     UpdateAbsorb(btn, unit)
-    if ns.BM_UpdateIndicators then ns.BM_UpdateIndicators(btn, unit, db) end
+    if ns.BM_UpdateIndicators then ns.BM_UpdateIndicators(btn, unit, db, nil, auraScan) end
 end
 
 ns._auraDrainFrame = CreateFrame("Frame")
@@ -9757,8 +9857,9 @@ local function OnEvent(self, event, arg1, ...)
                 local t0 = ns.ProfBegin("UpdateAbsorb:AURA"); UpdateAbsorb(btn, arg1); ns.ProfEnd("UpdateAbsorb:AURA", t0)
             else
             local updateInfo = ...
+            local auraScan = ns.IS_WRATH and not updateInfo and ns._BeginUnitAuraScan(arg1) or nil
             -- Dispel border is the dispel signal: never throttled, always now.
-            local t0 = ns.ProfBegin("UpdateDispelBorder"); UpdateDispelBorder(btn, arg1, updateInfo); ns.ProfEnd("UpdateDispelBorder", t0)
+            local t0 = ns.ProfBegin("UpdateDispelBorder"); UpdateDispelBorder(btn, arg1, updateInfo, auraScan); ns.ProfEnd("UpdateDispelBorder", t0)
             -- Informational aura icons: immediate under the per-frame budget; a
             -- single-frame flood spills the overflow to the drain ticker, which
             -- full-rescans current state a few frames later (lossless).
@@ -9767,11 +9868,11 @@ local function OnEvent(self, event, arg1, ...)
             if ns._auraFrameN < ns._auraBudget then
                 ns._auraFrameN = ns._auraFrameN + 1
                 if ns._auraDirty[arg1] then ns._auraDirty[arg1] = nil; ns._auraDirtyN = ns._auraDirtyN - 1 end
-                t0 = ns.ProfBegin("UpdateDebuffs"); UpdateDebuffs(btn, arg1, updateInfo); ns.ProfEnd("UpdateDebuffs", t0)
-                t0 = ns.ProfBegin("UpdateDefensives"); UpdateDefensives(btn, arg1, updateInfo); ns.ProfEnd("UpdateDefensives", t0)
+                t0 = ns.ProfBegin("UpdateDebuffs"); UpdateDebuffs(btn, arg1, updateInfo, auraScan); ns.ProfEnd("UpdateDebuffs", t0)
+                t0 = ns.ProfBegin("UpdateDefensives"); UpdateDefensives(btn, arg1, updateInfo, auraScan); ns.ProfEnd("UpdateDefensives", t0)
                 t0 = ns.ProfBegin("UpdateAbsorb:AURA"); UpdateAbsorb(btn, arg1); ns.ProfEnd("UpdateAbsorb:AURA", t0)
                 if ns.BM_UpdateIndicators then
-                    t0 = ns.ProfBegin("BM_UpdateIndicators"); ns.BM_UpdateIndicators(btn, arg1, db, updateInfo); ns.ProfEnd("BM_UpdateIndicators", t0)
+                    t0 = ns.ProfBegin("BM_UpdateIndicators"); ns.BM_UpdateIndicators(btn, arg1, db, updateInfo, auraScan); ns.ProfEnd("BM_UpdateIndicators", t0)
                 end
             elseif not ns._auraDirty[arg1] then
                 ns._auraDirty[arg1] = true
@@ -10791,6 +10892,7 @@ ns.ReloadPartyFrames = function()
         -- Background
         if d.bg then
             d.bg:SetTexture(ns.GetBgColor(btn:GetAttribute("unit"), raw))
+            d._hbgState = nil
         end
 
         -- Health bar height/anchor + Top Name Bar (reads party-resolved `raw`)

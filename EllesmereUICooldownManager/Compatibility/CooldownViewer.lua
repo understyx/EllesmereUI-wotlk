@@ -311,11 +311,11 @@ end
 local playerDebuffsByGUID = {}
 local learnedPlayerDebuffDurations = {}
 local PLAYER_DEBUFF_EXPIRY_SLOP = 0.5
+local cachedPlayerGUID = UnitGUID and UnitGUID("player")
 
 local function IsPlayerOrPetGUID(guid)
     if not guid then return false end
-    local playerGUID = UnitGUID and UnitGUID("player")
-    if playerGUID and guid == playerGUID then return true end
+    if cachedPlayerGUID and guid == cachedPlayerGUID then return true end
     local petGUID = UnitGUID and UnitGUID("pet")
     return petGUID and guid == petGUID or false
 end
@@ -1942,6 +1942,9 @@ end
 -- Event Handling. Register first so shared-event callback order remains
 -- compatibility -> main CDM -> Snapshot Tracker, matching TOC initialization.
 local function CooldownViewerCompatibilityOnEvent(self, event, ...)
+    if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+        cachedPlayerGUID = UnitGUID and UnitGUID("player")
+    end
     if event == "PLAYER_LOGIN" or event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "PLAYER_EQUIPMENT_CHANGED" then
         ns.RefreshCooldownViewerCompatibility()
     elseif event == "PLAYER_ENTERING_WORLD" then
@@ -1974,38 +1977,42 @@ local function CooldownViewerCompatibilityOnEvent(self, event, ...)
         -- event as well for clients that expose the newer notification.
         QueueExecuteRefresh()
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        local _, subEvent, sourceGUID, _, _, destinationGUID, _, _, spellID, spellName = ...
-        local auraType = select(subEvent == "SPELL_AURA_BROKEN_SPELL" and 15 or 12, ...)
+        local _, subEvent = ...
+        local isAuraEvent = IsAuraCombatLogEvent(subEvent)
+        if subEvent ~= "UNIT_DIED" and not isAuraEvent then return end
+
+        local _, _, sourceGUID, _, _, destinationGUID, _, _, spellID, spellName = ...
         if subEvent == "UNIT_DIED" then
             if destinationGUID then playerDebuffsByGUID[destinationGUID] = nil end
-        elseif auraType == "DEBUFF" and IsPlayerOrPetGUID(sourceGUID) then
-            if subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH" then
-                RememberPlayerDebuff(destinationGUID, spellID, spellName, true)
-            elseif subEvent == "SPELL_AURA_APPLIED_DOSE" or subEvent == "SPELL_AURA_REMOVED_DOSE" then
-                RememberPlayerDebuff(destinationGUID, spellID, spellName, false)
-            elseif subEvent == "SPELL_AURA_REMOVED" or subEvent == "SPELL_AURA_BROKEN"
-                or subEvent == "SPELL_AURA_BROKEN_SPELL" then
-                ForgetPlayerDebuff(destinationGUID, spellID)
+        else
+            local auraType = select(subEvent == "SPELL_AURA_BROKEN_SPELL" and 15 or 12, ...)
+            if auraType == "DEBUFF" and IsPlayerOrPetGUID(sourceGUID) then
+                if subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH" then
+                    RememberPlayerDebuff(destinationGUID, spellID, spellName, true)
+                elseif subEvent == "SPELL_AURA_APPLIED_DOSE" or subEvent == "SPELL_AURA_REMOVED_DOSE" then
+                    RememberPlayerDebuff(destinationGUID, spellID, spellName, false)
+                elseif subEvent == "SPELL_AURA_REMOVED" or subEvent == "SPELL_AURA_BROKEN"
+                    or subEvent == "SPELL_AURA_BROKEN_SPELL" then
+                    ForgetPlayerDebuff(destinationGUID, spellID)
+                end
             end
-        end
-        if IsAuraCombatLogEvent(subEvent) then
             local targetGUID = UnitGUID("target")
             if targetGUID and destinationGUID == targetGUID then
                 QueueAuraRefresh("target")
             end
-        end
-        if destinationGUID == UnitGUID("player")
-            and (subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH") then
-            local cooldownIDs = internalCooldownIDsByAura[spellID]
-            if cooldownIDs then
-                local now = GetTime()
-                for _, cooldownID in ipairs(cooldownIDs) do
-                    local avail = availability[cooldownID]
-                    if avail and avail.isKnown then
-                        StartInternalCooldown(cooldownID, now)
+            if destinationGUID == cachedPlayerGUID
+               and (subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH") then
+                local cooldownIDs = internalCooldownIDsByAura[spellID]
+                if cooldownIDs then
+                    local now = GetTime()
+                    for _, cooldownID in ipairs(cooldownIDs) do
+                        local avail = availability[cooldownID]
+                        if avail and avail.isKnown then
+                            StartInternalCooldown(cooldownID, now)
+                        end
                     end
+                    QueueAuraRefresh("player")
                 end
-                QueueAuraRefresh("player")
             end
         end
     end

@@ -1545,7 +1545,7 @@ _chatFadeFrame:SetScript("OnUpdate", function(self, dt)
     -- frame but we only push it to widgets every 33ms. Fade is still
     -- smooth; saves 75% of SetAlpha calls at 120fps.
     _fadeApplyAccum = _fadeApplyAccum + dt
-    if _fadeApplyAccum < 0.016 then return end
+    if _fadeApplyAccum < 0.033 then return end
     _fadeApplyAccum = 0
     _ApplyAlpha(_chatAlphaCurrent)
     if _chatAlphaCurrent == _chatAlphaTarget then

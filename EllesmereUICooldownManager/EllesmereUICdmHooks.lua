@@ -7741,9 +7741,10 @@ function ns.SetupViewerHooks()
             ns._btLastFull = _btNow
             MemSnap("BuffTicker")
             local p = ECME and ECME.db and ECME.db.profile
-            if not p or not ns.GetActiveCDMConfig(true) or not ns.GetActiveCDMConfig(true).bars then return true end
+            local activeConfig = ns.GetActiveCDMConfig(true)
+            if not p or not activeConfig or not activeConfig.bars then return true end
             local needsReanchor = CustomHostedAuraStateChanged()
-            for _, bd in ipairs(ns.GetActiveCDMConfig(true).bars) do
+            for _, bd in ipairs(activeConfig.bars) do
                 if bd.enabled then
                     local isBuff = (bd.barType == "buffs" or bd.key == "buffs" or bd.barType == "custom_buff")
                     local buffGlowType = isBuff and (bd.buffGlowType or 0) or 0
@@ -7800,16 +7801,17 @@ function ns.SetupViewerHooks()
                                     local desatOn = (bd.desaturateInactiveBuffs ~= false)
                                     if fd._desatOverride == "on" then desatOn = true
                                     elseif fd._desatOverride == "off" then desatOn = false end
+                                    local alreadyDesaturated = fd.tex:IsDesaturated()
                                     if frame._hostedActiveDesat and isActiveBuff then
-                                        fd.tex:SetDesaturated(true)
+                                        if not alreadyDesaturated then fd.tex:SetDesaturated(true) end
                                     elseif frame._forceInactiveDesaturated and not isActiveBuff then
-                                        fd.tex:SetDesaturated(true)
+                                        if not alreadyDesaturated then fd.tex:SetDesaturated(true) end
                                     elseif frame._hostedMissingSaturated and not isActiveBuff then
                                         fd.tex:SetDesaturated(false)
                                     elseif (bd.showInactiveBuffIcons or frame._isPlaceholderFrame)
                                        and desatOn and not isActiveBuff then
-                                        fd.tex:SetDesaturated(true)
-                                    elseif fd.tex:IsDesaturated() then
+                                        if not alreadyDesaturated then fd.tex:SetDesaturated(true) end
+                                    elseif alreadyDesaturated then
                                         fd.tex:SetDesaturated(false)
                                     end
                                 end
@@ -8034,6 +8036,30 @@ function ns.SetupViewerHooks()
         -- regression). The first event on this CDM-born frame is a
         -- CooldownManager context, so the group is born correctly billed.
         local _btTicker
+        local playerAuraSets = { previous = {}, current = {}, initialized = false }
+        cdmBuffTickFrame._UpdateLegacyPlayerAuraSnapshot = function()
+            local previous, current = playerAuraSets.previous, playerAuraSets.current
+            wipe(current)
+            for auraIndex = 1, 40 do
+                local name, _, _, _, _, _, _, _, _, _, spellID = UnitBuff("player", auraIndex)
+                if not name then break end
+                local key = spellID or name
+                current[key] = (current[key] or 0) + 1
+            end
+            local removed = false
+            if playerAuraSets.initialized then
+                for key, count in pairs(previous) do
+                    if (current[key] or 0) < count then
+                        removed = true
+                        break
+                    end
+                end
+            end
+            playerAuraSets.previous, playerAuraSets.current = current, previous
+            playerAuraSets.initialized = true
+            return removed
+        end
+        cdmBuffTickFrame._UpdateLegacyPlayerAuraSnapshot()
         cdmBuffTickFrame:RegisterUnitEvent("UNIT_AURA", "player")
         cdmBuffTickFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
         cdmBuffTickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -8068,6 +8094,12 @@ function ns.SetupViewerHooks()
                         ns._acGen = (ns._acGen or 0) + 1
                     end
                 end
+            elseif cdmBuffTickFrame._UpdateLegacyPlayerAuraSnapshot() then
+                -- Wrath UNIT_AURA has no updateInfo. A generation bump forces
+                -- the four viewer pools to be re-enumerated, so compare aura
+                -- identities and only bump when something was removed.
+                -- PERF NOTE: this gen gates the _activeCache rebuild across all viewers.
+                ns._acGen = (ns._acGen or 0) + 1
             end
             if not _btTicker then
                 _btTicker = EllesmereUI.Tick.NewAnimTicker(cdmBuffTickFrame, _btBody, 0.1)

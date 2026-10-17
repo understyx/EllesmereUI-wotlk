@@ -1959,6 +1959,7 @@ end
 
 do
   local tagName = "curhpshort"
+  local lastHPByUnit = {}
   local function AbbrevHP(unit)
     if not unit or not UnitExists(unit) then return "" end
     if not UnitIsConnected(unit) then return "OFFLINE" end
@@ -1969,7 +1970,12 @@ do
     if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
       cfg = _G._EUI_AbbrevDecimalCfg2
     end
-    return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
+    local cached = lastHPByUnit[unit]
+    if cached and cached.hp == hp and cached.cfg == cfg then return cached.text end
+    local text = cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
+    if not cached then cached = {}; lastHPByUnit[unit] = cached end
+    cached.hp, cached.cfg, cached.text = hp, cfg, text
+    return text
   end
 
   oUF.Tags.Methods[tagName] = AbbrevHP
@@ -1977,18 +1983,41 @@ do
 end
 
 do
+  local lastPercentByUnit = {}
+  local function FormatHealthPercent(unit, pct, fmt)
+    local cached = lastPercentByUnit[unit]
+    if cached and cached.pct == pct and cached.format == fmt then return cached.text end
+    local text = string_format(fmt, pct)
+    if not cached then cached = {}; lastPercentByUnit[unit] = cached end
+    cached.pct, cached.format, cached.text = pct, fmt, text
+    return text
+  end
+
   oUF.Tags.Methods["perhpnosign"] = function(unit)
     if not unit or not UnitExists(unit) then return "" end
     if not UnitIsConnected(unit) then return "OFFLINE" end
     if UnitIsDeadOrGhost(unit) then return "DEAD" end
     local pct = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
     if not pct then return "0" end
+    local fmt
     if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
-      return string_format("%.2f", pct)
+      fmt = "%.2f"
+    else
+      fmt = _G._EUI_TextDecimals and "%.1f" or "%d"
     end
-    return string_format(_G._EUI_TextDecimals and "%.1f" or "%d", pct)
+    return FormatHealthPercent(unit, pct, fmt)
   end
   oUF.Tags.Events["perhpnosign"] = "UNIT_HEALTH UNIT_MAXHEALTH"
+
+  -- eui-perhp: health percent, EUI-owned so "Show Decimal on Text" can
+  -- switch %d / %.1f without editing the vendored oUF [perhp].
+  oUF.Tags.Methods["eui-perhp"] = function(unit)
+    local fmt = _G._EUI_TextDecimals and "%.1f" or "%d"
+    if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then fmt = "%.2f" end
+    local pct = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
+    return FormatHealthPercent(unit, pct, fmt)
+  end
+  oUF.Tags.Events["eui-perhp"] = "UNIT_HEALTH UNIT_MAXHEALTH"
 end
 
 -- Resolved power type per unit. Updated by GetDisplayPower override so
@@ -2004,15 +2033,6 @@ oUF.Tags.Methods["eui-perpp"] = [[function(u)
     return string.format('%d', UnitPowerPercent(u, pType, true, CurveConstants.ScaleTo100))
 end]]
 oUF.Tags.Events["eui-perpp"] = "UNIT_POWER_UPDATE UNIT_MAXPOWER UNIT_DISPLAYPOWER"
-
--- eui-perhp: health percent, EUI-owned so "Show Decimal on Text" can switch
--- %d / %.1f without editing the vendored oUF [perhp]. Mirrors [perhp] otherwise.
-oUF.Tags.Methods["eui-perhp"] = [[function(u)
-    local fmt = _EUI_TextDecimals and '%.1f' or '%d'
-    if _EUI_BossExtraDecimal and string.sub(u, 1, 4) == 'boss' then fmt = '%.2f' end
-    return string.format(fmt, UnitHealthPercent(u, true, CurveConstants.ScaleTo100))
-end]]
-oUF.Tags.Events["eui-perhp"] = "UNIT_HEALTH UNIT_MAXHEALTH"
 
 -- eui-curpp: current power as abbreviated number
 -- Power value is intentionally NOT decimal-gated (health-only feature).

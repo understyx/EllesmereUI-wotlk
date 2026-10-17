@@ -32,9 +32,22 @@ end
 
 local auraDefs = {}
 local auraByName = {}
+local validAuraOrder = {}
+for _, spellID in ipairs(AURA_IDS) do validAuraOrder[tostring(spellID)] = true end
+local seenAuraOrder = {}
+local normalizedAuraOrder = {}
 local frame
 local rows = {}
 local paladinUnits = {}
+local groupUnitList = {}
+local auraState = {}
+local auraStateBuckets = {}
+local displayList = {}
+local raidUnitTokens, partyUnitTokens = {}, {}
+for i = 1, 40 do
+    raidUnitTokens[i] = "raid" .. i
+    partyUnitTokens[i] = "party" .. i
+end
 
 local function GrowthDirection(p)
     return p and p.growDirection == "DOWN" and "DOWN" or "UP"
@@ -68,21 +81,33 @@ local function NormalizeOrder(p)
         p.order = order
     end
 
-    local valid, seen, normalized = {}, {}, {}
-    for _, spellID in ipairs(AURA_IDS) do valid[tostring(spellID)] = true end
+    wipe(seenAuraOrder)
+    wipe(normalizedAuraOrder)
     for _, key in ipairs(order) do
         key = tostring(key)
-        if valid[key] and not seen[key] then
-            seen[key] = true
-            normalized[#normalized + 1] = key
+        if validAuraOrder[key] and not seenAuraOrder[key] then
+            seenAuraOrder[key] = true
+            normalizedAuraOrder[#normalizedAuraOrder + 1] = key
         end
     end
     for _, spellID in ipairs(AURA_IDS) do
         local key = tostring(spellID)
-        if not seen[key] then normalized[#normalized + 1] = key end
+        if not seenAuraOrder[key] then normalizedAuraOrder[#normalizedAuraOrder + 1] = key end
     end
-    p.order = normalized
-    return normalized
+    local same = #order == #normalizedAuraOrder
+    if same then
+        for i = 1, #order do
+            if tostring(order[i]) ~= normalizedAuraOrder[i] then
+                same = false
+                break
+            end
+        end
+    end
+    if not same then
+        wipe(order)
+        for i = 1, #normalizedAuraOrder do order[i] = normalizedAuraOrder[i] end
+    end
+    return order
 end
 
 local function CacheAuraInfo()
@@ -176,16 +201,17 @@ local function EnsureFrame()
 end
 
 local function GroupUnits()
-    local units = {}
+    local units = groupUnitList
+    wipe(units)
     local raidCount = GetNumRaidMembers and GetNumRaidMembers() or 0
     if raidCount > 0 then
-        for i = 1, raidCount do units[#units + 1] = "raid" .. i end
+        for i = 1, raidCount do units[#units + 1] = raidUnitTokens[i] end
         return units
     end
 
     units[#units + 1] = "player"
     local partyCount = GetNumPartyMembers and GetNumPartyMembers() or 0
-    for i = 1, partyCount do units[#units + 1] = "party" .. i end
+    for i = 1, partyCount do units[#units + 1] = partyUnitTokens[i] end
     return units
 end
 
@@ -210,7 +236,12 @@ local function PaladinAuraForUnit(unit)
 end
 
 local function CollectAuras()
-    local state = {}
+    local state = auraState
+    wipe(state)
+    for _, bucket in pairs(auraStateBuckets) do
+        wipe(bucket.names)
+        bucket.player = false
+    end
     wipe(paladinUnits)
     for _, unit in ipairs(GroupUnits()) do
         local _, class = UnitClass(unit)
@@ -220,7 +251,11 @@ local function CollectAuras()
             if spellID then
                 local bucket = state[spellID]
                 if not bucket then
-                    bucket = { names = {}, player = false }
+                    bucket = auraStateBuckets[spellID]
+                    if not bucket then
+                        bucket = { names = {}, player = false }
+                        auraStateBuckets[spellID] = bucket
+                    end
                     state[spellID] = bucket
                 end
                 local name = UnitName(unit)
@@ -250,7 +285,8 @@ local function Refresh()
     end
 
     local state = CollectAuras()
-    local display = {}
+    local display = displayList
+    wipe(display)
     for _, key in ipairs(NormalizeOrder(p)) do
         local spellID = tonumber(key)
         if p.showEmpty or state[spellID] then display[#display + 1] = spellID end
@@ -270,27 +306,48 @@ local function Refresh()
         local def = auraDefs[spellID]
         local bucket = state[spellID]
         local nameText = bucket and table.concat(bucket.names, ", ") or ""
-
-        row:SetSize(iconSize, iconSize)
-        row:ClearAllPoints()
-        if grow == "DOWN" then
-            row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(i - 1) * (iconSize + spacing))
-        else
-            row:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, (i - 1) * (iconSize + spacing))
+        local texture = def and def.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+        local yOffset = (i - 1) * (iconSize + spacing)
+        if not row._layoutValid or row._layoutIconSize ~= iconSize
+           or row._layoutGrow ~= grow or row._layoutYOffset ~= yOffset
+           or row._layoutTexture ~= texture or row._layoutZoom ~= zoom
+           or row._layoutFont ~= font or row._layoutTextSize ~= textSize
+           or row._layoutOutline ~= outline then
+            row:SetSize(iconSize, iconSize)
+            row:ClearAllPoints()
+            if grow == "DOWN" then
+                row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -yOffset)
+            else
+                row:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, yOffset)
+            end
+            row.iconFrame:SetSize(iconSize, iconSize)
+            row.icon:SetTexture(texture)
+            row.icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
+            row.names:SetFont(font, textSize, outline)
+            row._layoutValid = true
+            row._layoutIconSize, row._layoutGrow = iconSize, grow
+            row._layoutYOffset, row._layoutTexture = yOffset, texture
+            row._layoutZoom, row._layoutFont = zoom, font
+            row._layoutTextSize, row._layoutOutline = textSize, outline
         end
-        row.iconFrame:SetSize(iconSize, iconSize)
-        row.icon:SetTexture(def and def.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-        row.icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
-        row.names:SetFont(font, textSize, outline)
-        row.names:SetText(PaladinNameColor(nameText, p.classColor))
+        local displayName = PaladinNameColor(nameText, p.classColor)
+        if row._lastNameText ~= displayName then
+            row._lastNameText = displayName
+            row.names:SetText(displayName)
+        end
 
-        if bucket then
-            row.icon:SetVertexColor(1, 1, 1, 1)
-            if bucket.player then SetBorderColor(row.border, 1, 1, 0, 1)
+        local isActive = bucket and true or false
+        local isPlayerAura = bucket and bucket.player or false
+        local activeChanged = row._lastActive ~= isActive
+        if activeChanged then
+            row._lastActive = isActive
+            if isActive then row.icon:SetVertexColor(1, 1, 1, 1)
+            else row.icon:SetVertexColor(0.4, 0.4, 0.4, 1) end
+        end
+        if row._lastPlayerAura ~= isPlayerAura or activeChanged then
+            row._lastPlayerAura = isPlayerAura
+            if isPlayerAura then SetBorderColor(row.border, 1, 1, 0, 1)
             else SetBorderColor(row.border, 0, 0, 0, 1) end
-        else
-            row.icon:SetVertexColor(0.4, 0.4, 0.4, 1)
-            SetBorderColor(row.border, 0, 0, 0, 1)
         end
 
         row:Show()
@@ -299,14 +356,18 @@ local function Refresh()
     for i = #display + 1, #rows do rows[i]:Hide() end
 
     if #display == 0 then
-        frame:SetSize(math.max(180, iconSize + 5), iconSize)
+        local emptyWidth = math.max(180, iconSize + 5)
+        if frame:GetWidth() ~= emptyWidth or frame:GetHeight() ~= iconSize then
+            frame:SetSize(emptyWidth, iconSize)
+        end
         frame:Hide()
         return
     end
 
     local oldW, oldH = frame:GetWidth(), frame:GetHeight()
-    frame:SetSize(math.max(iconSize, math.ceil(maxWidth)),
-        #display * iconSize + (#display - 1) * spacing)
+    local width = math.max(iconSize, math.ceil(maxWidth))
+    local height = #display * iconSize + (#display - 1) * spacing
+    if oldW ~= width or oldH ~= height then frame:SetSize(width, height) end
     frame:Show()
     if (oldW ~= frame:GetWidth() or oldH ~= frame:GetHeight())
         and EllesmereUI.NotifyElementResized then
@@ -315,15 +376,28 @@ local function Refresh()
 end
 
 local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
+local refreshPending = false
+local function InvalidateRowLayouts()
+    for i = 1, #rows do rows[i]._layoutValid = nil end
+end
+local function FlushAuraRefresh(self)
+    self:SetScript("OnUpdate", nil)
+    refreshPending = false
+    Refresh()
+end
+
 local function Apply()
     local p = P()
     eventFrame:UnregisterAllEvents()
+    refreshPending = false
+    eventFrame:SetScript("OnUpdate", nil)
     if p and p.enabled then
         eventFrame:RegisterEvent("UNIT_AURA")
         eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
         eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
         eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     end
+    InvalidateRowLayouts()
     Refresh()
     ApplyPosition()
 end
@@ -372,7 +446,11 @@ local function RegisterUnlock()
 end
 
 eventFrame:SetScript("OnEvent", function(_, event, unit)
-    if event ~= "UNIT_AURA" or paladinUnits[unit] then Refresh() end
+    if event ~= "UNIT_AURA" or paladinUnits[unit] then
+        if refreshPending then return end
+        refreshPending = true
+        eventFrame:SetScript("OnUpdate", FlushAuraRefresh)
+    end
 end)
 
 _G._EUI_PaladinAuras_DB = function() return addon.db end
@@ -392,6 +470,7 @@ _G._EUI_PaladinAuras_SetGrowth = function(value)
     if cx and cy then
         p.pos = { point = "CENTER", relPoint = "CENTER", x = cx, y = cy }
     end
+    InvalidateRowLayouts()
     Refresh()
     if p.pos then SetGrowEdge(p.pos, value) end
     ApplyPosition()

@@ -14,7 +14,8 @@ local elapsedSinceUpdate = 0
 local elapsedSinceRescan = 0
 local UPDATE_INTERVAL = 0.10
 local RESCAN_INTERVAL = 1
-local trackingConfigured = false
+local trackingConfigured
+local seenFrames = {}
 
 local SNAPSHOT_POINTS = {
     center      = { "CENTER",      "CENTER",       0,  0 },
@@ -190,7 +191,14 @@ local function UpdateIcon(frame)
         local barData = fc and fc.barKey and ns.barDataByKey
             and ns.barDataByKey[fc.barKey] or nil
         local text = EnsureText(frame, fd, barData)
-        text:SetText(value)
+        if fd._snapshotTextObject ~= text then
+            fd._snapshotTextObject = text
+            fd._snapshotTextValue = nil
+        end
+        if fd._snapshotTextValue ~= value then
+            fd._snapshotTextValue = value
+            text:SetText(value)
+        end
         text:Show()
         UpdateBackground(frame, fd, text, barData)
     elseif fd.snapshotText then
@@ -207,31 +215,37 @@ local function HideAllSnapshotText()
 end
 
 function ns.RescanSnapshotTracking()
-    trackingConfigured = false
+    local configured = false
     local store = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("debuffs")
     for _, settings in pairs(store or {}) do
         if type(settings) == "table" and rawget(settings, "snapshotTracking") == true then
-            trackingConfigured = true
+            configured = true
             break
         end
     end
-    if not trackingConfigured then HideAllSnapshotText() end
+    if configured ~= trackingConfigured then
+        -- CLEU is ignored while unconfigured, so anything recorded before the
+        -- off stretch is stale once tracking comes back.
+        if configured and trackingConfigured == false then Snapshot:ResetSnapshots() end
+        trackingConfigured = configured
+        if not configured then HideAllSnapshotText() end
+    end
     return trackingConfigured
 end
 
 function ns.RefreshSnapshotTracking()
     Initialize()
+    if trackingConfigured == nil then ns.RescanSnapshotTracking() end
     if not trackingConfigured then
-        HideAllSnapshotText()
         return
     end
 
-    local seen = {}
+    wipe(seenFrames)
     for _, icons in pairs(ns.cdmBarIcons or {}) do
         for i = 1, #icons do
             local frame = icons[i]
-            if frame and not seen[frame] then
-                seen[frame] = true
+            if frame and not seenFrames[frame] then
+                seenFrames[frame] = true
                 UpdateIcon(frame)
             end
         end
@@ -239,7 +253,7 @@ function ns.RefreshSnapshotTracking()
     -- A frame removed from cdmBarIcons can retain its pooled text object. Hide
     -- those too so a later pool reassignment never flashes the old percentage.
     for frame, fd in pairs(ns._hookFrameData or {}) do
-        if not seen[frame] then
+        if not seenFrames[frame] then
             if fd.snapshotText then fd.snapshotText:Hide() end
             if fd.snapshotBg then fd.snapshotBg:Hide() end
         end
@@ -249,7 +263,9 @@ end
 local function SnapshotTrackerOnEvent(_, event, ...)
     Initialize()
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        Snapshot:HandleCLEU(...)
+        -- snapshotTracking only changes from the options panel, which cannot
+        -- be open in combat, so nothing needs recording while it is off.
+        if trackingConfigured then Snapshot:HandleCLEU(...) end
     elseif event == "UNIT_AURA" then
         local unit = ...
         if unit == "player" or unit == "target" then

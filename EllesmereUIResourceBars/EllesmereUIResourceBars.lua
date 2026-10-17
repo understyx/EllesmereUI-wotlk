@@ -3167,6 +3167,11 @@ local function BuildBars()
     -- unchanged would let UpdateSecondaryResource early-out and leave the new
     -- pips unpopulated.
     ns.CfgGen = (ns.CfgGen or 0) + 1
+    if healthBar then
+        healthBar._lastHealthText = nil
+        healthBar._lastHealthTextFormat = nil
+        healthBar._lastHealthTextObject = nil
+    end
     local p = ERB.db.profile
 
     -- If the profile is missing critical sub-tables, reset to defaults
@@ -4093,16 +4098,22 @@ local function UpdateHealthBar()
     healthBar:SetMinMaxValues(0, mx)
 
     local curTainted = issecretvalue and issecretvalue(cur)
-    -- Percent for text display. UnitHealthPercent returns a value that may be
-    -- secret, but string.format handles secret values natively (C function).
-    -- We store it as-is and only pass it to format/SetFormattedText, never arithmetic.
+    local fmt = hp.textFormat
+    local textVisible = fmt ~= "none" and not _G._ERB_TextHiddenByForm(hp)
+    local needsPercent = textVisible and fmt ~= "curhpshort"
+    local needsCurrent = textVisible
+        and (fmt == "both" or fmt == "curhpshort" or fmt == "perhpnum")
+    -- Percent is only fetched for a text format that displays it. Threshold
+    -- coloring below uses its own curve query and does not need pctRaw.
     local pctRaw
-    if UnitHealthPercent then
-        pctRaw = UnitHealthPercent("player", true, CurveConstants and CurveConstants.ScaleTo100)
-    elseif not curTainted and mx > 0 then
-        pctRaw = cur / mx * 100
-    else
-        pctRaw = 0
+    if needsPercent then
+        if UnitHealthPercent then
+            pctRaw = UnitHealthPercent("player", true, CurveConstants and CurveConstants.ScaleTo100)
+        elseif not curTainted and mx > 0 then
+            pctRaw = cur / mx * 100
+        else
+            pctRaw = 0
+        end
     end
 
     -- Color: threshold via ColorCurve, matching the power bar implementation.
@@ -4193,10 +4204,15 @@ local function UpdateHealthBar()
     end
 
     -- Text
-    if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
-        local fmt = hp.textFormat
-        local pctStr = format("%d", pctRaw)
-        local curStr = AbbreviateNumbers(cur)
+    if textVisible then
+        if healthBar._lastHealthTextFormat ~= fmt
+           or healthBar._lastHealthTextObject ~= healthBar._text then
+            healthBar._lastHealthText = nil
+            healthBar._lastHealthTextFormat = fmt
+            healthBar._lastHealthTextObject = healthBar._text
+        end
+        local pctStr = needsPercent and format("%d", pctRaw) or nil
+        local curStr = needsCurrent and AbbreviateNumbers(cur) or nil
         local txt
         if fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
@@ -4211,9 +4227,15 @@ local function UpdateHealthBar()
         else
             txt = pctStr .. "%"
         end
-        healthBar._text:SetText(txt)
+        if healthBar._lastHealthText ~= txt then
+            healthBar._lastHealthText = txt
+            healthBar._text:SetText(txt)
+        end
         healthBar._text:Show()
     else
+        healthBar._lastHealthText = nil
+        healthBar._lastHealthTextFormat = nil
+        healthBar._lastHealthTextObject = nil
         healthBar._text:Hide()
     end
 end
