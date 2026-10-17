@@ -11,33 +11,54 @@ local CreateFrame = CreateFrame
 local blankTex = "Interface\\Buttons\\WHITE8X8"
 local closeTex = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga"
 
-local backdropr, backdropg, backdropb, backdropa, borderr, borderg, borderb = 0, 0, 0, 1, 0, 0, 0
-local mult = 1
+local function Scale(x, relativeTo)
+	if type(x) ~= "number" then return x end
+	local pixel = EllesmereUI and EllesmereUI.PP
+	if pixel and pixel.SnapForES and relativeTo and relativeTo.GetEffectiveScale then
+		local ok, effectiveScale = pcall(relativeTo.GetEffectiveScale, relativeTo)
+		if ok and effectiveScale and effectiveScale > 0 and pixel.perfect then
+			return pixel.SnapForES(x, effectiveScale)
+		end
+	end
+	if pixel and pixel.Scale then return pixel.Scale(x) end
+	pixel = EllesmereUI and EllesmereUI.PanelPP
+	if pixel and pixel.Scale then return pixel.Scale(x) end
+	return x
+end
 
-local function Scale(x) return x end
+local function PixelSize(frame, pixels)
+	local pixel = EllesmereUI and EllesmereUI.PP
+	if pixel and pixel.perfect and frame and frame.GetEffectiveScale then
+		local ok, effectiveScale = pcall(frame.GetEffectiveScale, frame)
+		if ok and effectiveScale and effectiveScale > 0 then
+			return pixel.SnapForES(pixels * pixel.perfect / effectiveScale, effectiveScale)
+		end
+	end
+	return Scale(pixels, frame)
+end
 
 local function Size(frame, width, height)
-	frame:SetSize(Scale(width), Scale(height or width))
+	frame:SetSize(Scale(width, frame), Scale(height or width, frame))
 end
 
 local function Width(frame, width)
-	frame:SetWidth(Scale(width))
+	frame:SetWidth(Scale(width, frame))
 end
 
 local function Height(frame, height)
-	frame:SetHeight(Scale(height))
+	frame:SetHeight(Scale(height, frame))
 end
 
 local function Point(obj, arg1, arg2, arg3, arg4, arg5)
 	if type(arg5) == "number" then
-		arg5 = Scale(arg5)
-		arg4 = Scale(arg4)
+		arg5 = Scale(arg5, obj)
+		arg4 = Scale(arg4, obj)
 	elseif type(arg4) == "number" then
-		arg4 = Scale(arg4)
-		arg3 = Scale(arg3)
+		arg4 = Scale(arg4, obj)
+		arg3 = Scale(arg3, obj)
 	elseif type(arg3) == "number" then
-		arg3 = Scale(arg3)
-		arg2 = Scale(arg2)
+		arg3 = Scale(arg3, obj)
+		arg2 = Scale(arg2, obj)
 	end
 	obj:SetPoint(arg1, arg2 or obj:GetParent(), arg3, arg4, arg5)
 end
@@ -50,8 +71,8 @@ local function SetOutside(obj, anchor, xOffset, yOffset, anchor2)
 		anchor = nil
 	end
 	anchor = (type(anchor) == "table" or type(anchor) == "userdata") and anchor or (obj.GetParent and obj:GetParent())
-	xOffset = type(xOffset) == "number" and xOffset or 1
-	yOffset = type(yOffset) == "number" and yOffset or 1
+	xOffset = type(xOffset) == "number" and xOffset or PixelSize(obj, 1)
+	yOffset = type(yOffset) == "number" and yOffset or PixelSize(obj, 1)
 	anchor2 = (type(anchor2) == "table" or type(anchor2) == "userdata") and anchor2 or nil
 
 	if obj:GetPoint() then obj:ClearAllPoints() end
@@ -67,8 +88,8 @@ local function SetInside(obj, anchor, xOffset, yOffset, anchor2)
 		anchor = nil
 	end
 	anchor = (type(anchor) == "table" or type(anchor) == "userdata") and anchor or (obj.GetParent and obj:GetParent())
-	xOffset = type(xOffset) == "number" and xOffset or 1
-	yOffset = type(yOffset) == "number" and yOffset or 1
+	xOffset = type(xOffset) == "number" and xOffset or PixelSize(obj, 1)
+	yOffset = type(yOffset) == "number" and yOffset or PixelSize(obj, 1)
 	anchor2 = (type(anchor2) == "table" or type(anchor2) == "userdata") and anchor2 or nil
 
 	if obj:GetPoint() then obj:ClearAllPoints() end
@@ -83,21 +104,20 @@ local function SetTemplate(frame, template, glossTex, ignoreUpdates, forcePixelM
 		return
 	end
 
-	borderr, borderg, borderb = 0.2, 0.2, 0.2
-	if template == "Transparent" then
-		backdropr, backdropg, backdropb, backdropa = 0, 0, 0, 0.8
-	else
-		backdropr, backdropg, backdropb, backdropa = 0.1, 0.1, 0.1, 1
-	end
+	local tokens = WSkin.Retail
+	-- Legacy backdrops back buttons, edit boxes and status bars, so they stay
+	-- opaque; "Transparent" ones back whole windows.
+	local surface = template == "Transparent" and tokens.colors.panel or tokens.colors.input
+	local border = tokens.colors.border
 
 	frame:SetBackdrop({
 		bgFile = blankTex,
 		edgeFile = blankTex,
-		tile = false, tileSize = 0, edgeSize = mult,
+		tile = false, tileSize = 0, edgeSize = PixelSize(frame, tokens.border.width),
 		insets = {left = 0, right = 0, top = 0, bottom = 0}
 	})
-	frame:SetBackdropColor(backdropr, backdropg, backdropb, backdropa)
-	frame:SetBackdropBorderColor(borderr, borderg, borderb)
+	frame:SetBackdropColor(unpack(surface))
+	frame:SetBackdropBorderColor(unpack(border))
 end
 
 local function CreateBackdrop(frame, template, glossTex, ignoreUpdates, forcePixelMode, isUnitFrameElement)
@@ -210,8 +230,8 @@ do
 		Point(CloseButton, "TOPRIGHT", offset or -6, offset or -6)
 		if backdrop then CreateBackdrop(CloseButton, nil, true) end
 		CloseButton.Texture = CloseButton:CreateTexture(nil, "OVERLAY")
-		CloseButton.Texture:SetPoint("CENTER", 0, 0)
-		CloseButton.Texture:SetSize(14, 14)
+		Point(CloseButton.Texture, "CENTER", 0, 0)
+		Size(CloseButton.Texture, WSkin.Retail.geometry.closeIcon, WSkin.Retail.geometry.closeIcon)
 		CloseButton.Texture:SetTexture(texture or closeTex)
 		CloseButton.Texture:SetVertexColor(1, 1, 1, 0.75)
 		CloseButton:SetScript("OnClick", CloseButtonOnClick)
@@ -260,58 +280,15 @@ WSkin.FontTemplate = function(self, frame, ...)
 end
 
 -------------------------------------------------------------------------------
--- Retail visual primitives
+-- Shared visual tokens and 3.3.5 visual primitives
 --
 -- These helpers deliberately use only APIs available on the 3.3.5 client.
 -- Keep their state outside Blizzard-owned frames so applying a visual style
 -- does not add fields to protected UI objects.
 -------------------------------------------------------------------------------
-WSkin.Retail = {
-	colors = {
-		-- Large surfaces sit on top of the textured window shell.  Keep them
-		-- translucent so Social, PvP, Dungeon Finder, and similar windows do
-		-- not turn into stacks of opaque black rectangles.  This follows the
-		-- CharacterFrame treatment, where the shell remains the visual canvas
-		-- and local surfaces only provide enough contrast to group content.
-		body      = { 0.015, 0.020, 0.025, 0.20 },
-		card      = { 0.030, 0.043, 0.048, 0.28 },
-		row       = { 0.030, 0.043, 0.048, 0.12 },
-		rowAlt    = { 0.030, 0.043, 0.048, 0.20 },
-		header    = { 0.055, 0.075, 0.080, 0.52 },
-		input     = { 0.025, 0.035, 0.040, 1.00 },
-		button    = { 0.070, 0.105, 0.115, 1.00 },
-		tab       = { 0.055, 0.043, 0.039, 1.00 },
-		border    = { 1.000, 1.000, 1.000, 0.10 },
-		track     = { 1.000, 1.000, 1.000, 0.04 },
-		thumb     = { 1.000, 1.000, 1.000, 0.42 },
-	},
-	geometry = {
-		headerHeight = 48,
-		bodyInset = 14,
-		footerHeight = 45,
-		tabHeight = 26,
-		-- Bottom tab rows follow retail: label-sized tabs, left-aligned and
-		-- hanging under the window, separated by a one-pixel seam.
-		tabMinWidth = 76,
-		tabPadding = 24,
-		tabGap = 1,
-		tabInset = 10,
-		-- Window shade: a slightly lifted header band over a near-black body.
-		headerBand = 30,
-		headerShade = 0.62,
-		bodyShade = 0.82,
-		rowHeight = 28,
-	},
-	type = {
-		title     = { size = 14, alpha = 1.00 },
-		section   = { size = 11, alpha = 0.95 },
-		row       = { size = 10, alpha = 0.84 },
-		value     = { size = 10, alpha = 1.00 },
-		secondary = { size = 9,  alpha = 0.58 },
-		tab       = { size = 9,  alpha = 0.50 },
-		button    = { size = 10, alpha = 0.92 },
-	},
-}
+local style = EllesmereUI and EllesmereUI.Style
+local tokens = style and style.Tokens
+WSkin.Retail = tokens
 
 local retailState = setmetatable({}, { __mode = "k" })
 local function RetailState(object)
@@ -324,6 +301,7 @@ local function RetailState(object)
 end
 
 local function RetailAccent()
+	if style and style.GetAccent then return style.GetAccent() end
 	local accent = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
 	return (accent and accent.r) or 0.05,
 		(accent and accent.g) or 0.82,
@@ -366,16 +344,16 @@ end
 function WSkin:ApplyRetailSurface(frame, kind, r, g, b, a)
 	if not frame or not frame.SetBackdrop then return end
 	local color = RetailColor(kind or "card")
+	local border = WSkin.Retail.colors.border
 	frame:SetBackdrop({
 		bgFile = blankTex,
 		edgeFile = blankTex,
 		tile = false,
 		tileSize = 0,
-		edgeSize = mult,
+		edgeSize = PixelSize(frame, WSkin.Retail.border.width),
 		insets = { left = 0, right = 0, top = 0, bottom = 0 },
 	})
 	frame:SetBackdropColor(r or color[1], g or color[2], b or color[3], a or color[4])
-	local border = WSkin.Retail.colors.border
 	frame:SetBackdropBorderColor(unpack(border))
 	RetailState(frame).surface = true
 	return frame
@@ -391,31 +369,35 @@ function WSkin:CreateRetailPageSurface(pane, top, bottom, inset)
 		state.pageBorders = {}
 		for i = 1, 4 do
 			state.pageBorders[i] = pane:CreateTexture(nil, "BACKGROUND", nil, -5)
-			state.pageBorders[i]:SetTexture(1, 1, 1, 0.10)
+			SetTextureColor(state.pageBorders[i], WSkin.Retail.colors.border)
+			if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.DisablePixelSnap then
+				EllesmereUI.PP.DisablePixelSnap(state.pageBorders[i])
+			end
 		end
 	end
 	local geometry = WSkin.Retail.geometry
 	inset = inset or geometry.bodyInset
 	surface:ClearAllPoints()
-	surface:SetPoint("TOPLEFT", pane, "TOPLEFT", inset, -(top or geometry.headerHeight))
-	surface:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -inset, bottom or geometry.footerHeight)
+	Point(surface, "TOPLEFT", pane, "TOPLEFT", inset, -(top or geometry.headerHeight))
+	Point(surface, "BOTTOMRIGHT", pane, "BOTTOMRIGHT", -inset, bottom or geometry.footerHeight)
 	SetTextureColor(surface, WSkin.Retail.colors.body)
 	surface:Show()
 	local borders = state.pageBorders
 	if borders then
 		for i = 1, 4 do borders[i]:ClearAllPoints() end
-		borders[1]:SetHeight(1)
-		borders[1]:SetPoint("TOPLEFT", surface, "TOPLEFT", 0, 0)
-		borders[1]:SetPoint("TOPRIGHT", surface, "TOPRIGHT", 0, 0)
-		borders[2]:SetHeight(1)
-		borders[2]:SetPoint("BOTTOMLEFT", surface, "BOTTOMLEFT", 0, 0)
-		borders[2]:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", 0, 0)
-		borders[3]:SetWidth(1)
-		borders[3]:SetPoint("TOPLEFT", surface, "TOPLEFT", 0, 0)
-		borders[3]:SetPoint("BOTTOMLEFT", surface, "BOTTOMLEFT", 0, 0)
-		borders[4]:SetWidth(1)
-		borders[4]:SetPoint("TOPRIGHT", surface, "TOPRIGHT", 0, 0)
-		borders[4]:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", 0, 0)
+		local edge = PixelSize(pane, WSkin.Retail.border.width)
+		Height(borders[1], edge)
+		Point(borders[1], "TOPLEFT", surface, "TOPLEFT", 0, 0)
+		Point(borders[1], "TOPRIGHT", surface, "TOPRIGHT", 0, 0)
+		Height(borders[2], edge)
+		Point(borders[2], "BOTTOMLEFT", surface, "BOTTOMLEFT", 0, 0)
+		Point(borders[2], "BOTTOMRIGHT", surface, "BOTTOMRIGHT", 0, 0)
+		Width(borders[3], edge)
+		Point(borders[3], "TOPLEFT", surface, "TOPLEFT", 0, 0)
+		Point(borders[3], "BOTTOMLEFT", surface, "BOTTOMLEFT", 0, 0)
+		Width(borders[4], edge)
+		Point(borders[4], "TOPRIGHT", surface, "TOPRIGHT", 0, 0)
+		Point(borders[4], "BOTTOMRIGHT", surface, "BOTTOMRIGHT", 0, 0)
 		for i = 1, 4 do borders[i]:Show() end
 	end
 	return surface
@@ -430,16 +412,16 @@ function WSkin:ApplyRetailShellShade(frame, overlay, headerHeight)
 	headerHeight = headerHeight or geometry.headerBand
 	local state = RetailState(frame)
 	overlay:ClearAllPoints()
-	overlay:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -headerHeight)
-	overlay:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+	Point(overlay, "TOPLEFT", frame, "TOPLEFT", 0, -headerHeight)
+	Point(overlay, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
 	overlay:SetTexture(0, 0, 0, geometry.bodyShade)
 	if not state.headerShade then
 		state.headerShade = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
 	end
 	local header = state.headerShade
 	header:ClearAllPoints()
-	header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-	header:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 0, -headerHeight)
+	Point(header, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+	Point(header, "BOTTOMRIGHT", frame, "TOPRIGHT", 0, -headerHeight)
 	header:SetTexture(0, 0, 0, geometry.headerShade)
 	header:Show()
 	return header
@@ -498,7 +480,8 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 
 		local pixel = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
 		if pixel and pixel.CreateBorder then
-			pixel.CreateBorder(frame, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
+			local color = WSkin.Retail.colors.border
+			pixel.CreateBorder(frame, color[1], color[2], color[3], color[4], WSkin.Retail.border.width, "OVERLAY", 7)
 		end
 	end
 
@@ -521,8 +504,9 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 	if (closeType == "table" or closeType == "userdata") and closeButton.ClearAllPoints and closeButton.SetSize then
 		self:HandleCloseButton(closeButton)
 		closeButton:ClearAllPoints()
-		closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -3)
-		closeButton:SetSize(24, 24)
+		local geometry = WSkin.Retail.geometry
+		Point(closeButton, "TOPRIGHT", frame, "TOPRIGHT", -geometry.closeOffset, -geometry.closeOffset)
+		Size(closeButton, geometry.closeTarget, geometry.closeTarget)
 	end
 	state.windowShell = true
 	return state
@@ -536,7 +520,7 @@ function WSkin:SetRetailPageTitle(frame, title, titleRegion)
 	if not titleRegion or type(titleRegion) == "string" or not titleRegion.SetText or not titleRegion.ClearAllPoints then return end
 	if title ~= nil then titleRegion:SetText(title) end
 	titleRegion:ClearAllPoints()
-	titleRegion:SetPoint("TOP", frame, "TOP", 0, -6)
+	Point(titleRegion, "TOP", frame, "TOP", 0, -WSkin.Retail.geometry.titleOffset)
 	titleRegion:SetJustifyH("CENTER")
 	self:ApplyRetailTypography(titleRegion, "title")
 	return titleRegion
@@ -549,9 +533,9 @@ function WSkin:UpdateRetailRow(frame, selected, isHeader, alternate)
 	local state = RetailState(frame)
 	if not state.selectionEdge and frame.CreateTexture then
 		state.selectionEdge = frame:CreateTexture(nil, "OVERLAY")
-		state.selectionEdge:SetWidth(2)
-		state.selectionEdge:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-		state.selectionEdge:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+		Width(state.selectionEdge, PixelSize(frame, WSkin.Retail.geometry.selectionEdgeWidth))
+		Point(state.selectionEdge, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+		Point(state.selectionEdge, "BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
 		if EllesmereUI and EllesmereUI.RegAccent then
 			EllesmereUI.RegAccent({ type = "solid", obj = state.selectionEdge, a = 1 })
 		end
@@ -584,17 +568,17 @@ end
 
 function WSkin:ApplyRetailIcon(icon, parent, size)
 	if not icon then return end
-	if size and icon.SetSize then icon:SetSize(size, size) end
+	if size and icon.SetSize then Size(icon, size, size) end
 	if icon.SetTexCoord then icon:SetTexCoord(unpack(WSkin.TexCoords)) end
 	parent = parent or (icon.GetParent and icon:GetParent())
 	if not parent or not parent.CreateTexture then return end
 	local state = RetailState(icon)
 	if not state.border then
 		state.border = parent:CreateTexture(nil, "BACKGROUND", nil, 2)
-		state.border:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
-		state.border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
+		Point(state.border, "TOPLEFT", icon, "TOPLEFT", -PixelSize(parent, WSkin.Retail.border.width), PixelSize(parent, WSkin.Retail.border.width))
+		Point(state.border, "BOTTOMRIGHT", icon, "BOTTOMRIGHT", PixelSize(parent, WSkin.Retail.border.width), -PixelSize(parent, WSkin.Retail.border.width))
 	end
-	state.border:SetTexture(1, 1, 1, 0.12)
+	SetTextureColor(state.border, WSkin.Retail.colors.border)
 	state.border:Show()
 	return state.border
 end
@@ -616,18 +600,19 @@ function WSkin:HandleRetailScrollBar(frame, horizontal)
 		or (frameName and _G[frameName .. "ThumbTexture"])
 
 	StripTextures(frame)
-	if horizontal then Height(frame, 8) else Width(frame, 8) end
+	if horizontal then Height(frame, WSkin.Retail.geometry.scrollbarWidth)
+	else Width(frame, WSkin.Retail.geometry.scrollbarWidth) end
 
 	if not state.track then
 		state.track = frame:CreateTexture(nil, "BACKGROUND")
 		if horizontal then
-			state.track:SetHeight(2)
-			state.track:SetPoint("LEFT", frame, "LEFT", 0, 0)
-			state.track:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+			Height(state.track, WSkin.Retail.geometry.scrollbarTrackWidth)
+			Point(state.track, "LEFT", frame, "LEFT", 0, 0)
+			Point(state.track, "RIGHT", frame, "RIGHT", 0, 0)
 		else
-			state.track:SetWidth(2)
-			state.track:SetPoint("TOP", frame, "TOP", 0, 0)
-			state.track:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)
+			Width(state.track, WSkin.Retail.geometry.scrollbarTrackWidth)
+			Point(state.track, "TOP", frame, "TOP", 0, 0)
+			Point(state.track, "BOTTOM", frame, "BOTTOM", 0, 0)
 		end
 	end
 	SetTextureColor(state.track, WSkin.Retail.colors.track)
@@ -635,9 +620,9 @@ function WSkin:HandleRetailScrollBar(frame, horizontal)
 
 	if thumb then
 		if horizontal then
-			thumb:SetSize(22, 4)
+			Size(thumb, WSkin.Retail.geometry.scrollbarThumbLength, WSkin.Retail.geometry.scrollbarThumbThickness)
 		else
-			thumb:SetSize(4, 22)
+			Size(thumb, WSkin.Retail.geometry.scrollbarThumbThickness, WSkin.Retail.geometry.scrollbarThumbLength)
 		end
 		SetTextureColor(thumb, WSkin.Retail.colors.thumb)
 		thumb:Show()
@@ -757,7 +742,7 @@ function WSkin:StyleRetailTab(tab)
 	if tab.SetPushedTextOffset then tab:SetPushedTextOffset(0, 0) end
 	if not state.label then
 		state.label = tab:CreateFontString(nil, "OVERLAY")
-		state.label:SetPoint("CENTER", tab, "CENTER", 0, 0)
+		Point(state.label, "CENTER", tab, "CENTER", 0, 0)
 		state.label:SetJustifyH("CENTER")
 		-- Unlike newer clients, 3.3.5 raises "Font not set" when SetText is
 		-- called on an untemplated FontString before its first SetFont call.
@@ -773,14 +758,12 @@ function WSkin:StyleRetailTab(tab)
 
 	if not state.underline then
 		state.underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
-		state.underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
-		state.underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
-		if EllesmereUI and EllesmereUI.PanelPP and EllesmereUI.PanelPP.DisablePixelSnap then
-			EllesmereUI.PanelPP.DisablePixelSnap(state.underline)
-			state.underline:SetHeight(EllesmereUI.PanelPP.mult or 1)
-		else
-			state.underline:SetHeight(1)
+		Point(state.underline, "BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
+		Point(state.underline, "BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+		if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.DisablePixelSnap then
+			EllesmereUI.PP.DisablePixelSnap(state.underline)
 		end
+		Height(state.underline, PixelSize(tab, WSkin.Retail.border.width))
 		if EllesmereUI and EllesmereUI.RegAccent then
 			EllesmereUI.RegAccent({ type = "solid", obj = state.underline, a = 1 })
 		end
@@ -803,11 +786,11 @@ function WSkin:LayoutRetailTabRow(tabs, owner)
 			local label = RetailState(tab).label or (tab.GetFontString and tab:GetFontString())
 			local textWidth = label and label.GetStringWidth and label:GetStringWidth() or 0
 			tab:ClearAllPoints()
-			tab:SetSize(math.max(geometry.tabMinWidth, textWidth + geometry.tabPadding), geometry.tabHeight)
+			Size(tab, math.max(geometry.tabMinWidth, textWidth + geometry.tabPadding), geometry.tabHeight)
 			if previous then
-				tab:SetPoint("LEFT", previous, "RIGHT", geometry.tabGap, 0)
+				Point(tab, "LEFT", previous, "RIGHT", geometry.tabGap, 0)
 			else
-				tab:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", geometry.tabInset, 0)
+				Point(tab, "TOPLEFT", owner, "BOTTOMLEFT", geometry.tabInset, 0)
 			end
 			previous = tab
 			count = count + 1
@@ -840,7 +823,7 @@ end
 
 function WSkin:SetOriginalBackdrop()
 	if self.backdrop then self = self.backdrop end
-	self:SetBackdropBorderColor(0.2, 0.2, 0.2)
+	self:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 end
 
 function WSkin:HandleButton(button, strip, isDeclineButton, useCreateBackdrop, noSetTemplate)

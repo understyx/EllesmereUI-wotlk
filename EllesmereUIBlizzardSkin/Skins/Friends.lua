@@ -126,11 +126,11 @@ local function StyleSocialTabs()
 		local width = (frame:GetWidth() - 28) / #headerTabs
 		for i, tab in ipairs(headerTabs) do
 			tab:ClearAllPoints()
-			tab:SetSize(width, WSkin.Retail.geometry.tabHeight)
+			WSkin:Size(tab, width, WSkin.Retail.geometry.tabHeight)
 			if i == 1 then
-				tab:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -60)
+				WSkin:Point(tab, "TOPLEFT", frame, "TOPLEFT", 14, -60)
 			else
-				tab:SetPoint("LEFT", headerTabs[i - 1], "RIGHT", 0, 0)
+				WSkin:Point(tab, "LEFT", headerTabs[i - 1], "RIGHT", 0, 0)
 			end
 			WSkin:UpdateRetailTab(tab, tab:GetID() == headerSelected)
 		end

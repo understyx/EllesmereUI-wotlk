@@ -68,7 +68,7 @@ local function SkinTabs(prefix, count, owner)
 		local tab = _G[prefix .. i]
 		if tab then
 			WSkin:StyleRetailTab(tab)
-			tab:SetHeight(WSkin.Retail.geometry.tabHeight)
+			WSkin:Height(tab, WSkin.Retail.geometry.tabHeight)
 			tab:SetHitRectInsets(0, 0, 0, 0)
 			tabs[#tabs + 1] = tab
 		end

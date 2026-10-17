@@ -1485,6 +1485,81 @@ end
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI or {}
 _G.EllesmereUI = EllesmereUI
+-- Shared visual namespace. EUI-owned frames and the dependent Blizzard skin
+-- addon read the same core-owned token table from here.
+EllesmereUI.Style = EllesmereUI.Style or {}
+if not EllesmereUI.Style.Tokens then
+    local borderColor = { 1.000, 1.000, 1.000, 0.10 }
+    EllesmereUI.Style.Tokens = {
+        colors = {
+            -- Shared surface palette from the Blizzard skin toolkit.
+            body      = { 0.015, 0.020, 0.025, 0.20 },
+            card      = { 0.030, 0.043, 0.048, 0.28 },
+            row       = { 0.030, 0.043, 0.048, 0.12 },
+            rowAlt    = { 0.030, 0.043, 0.048, 0.20 },
+            header    = { 0.055, 0.075, 0.080, 0.52 },
+            -- Opaque-ish panel for legacy "Transparent" backdrops that act as
+            -- a window's whole background (Quest log, Loot).
+            panel     = { 0.015, 0.020, 0.025, 0.80 },
+            input     = { 0.025, 0.035, 0.040, 1.00 },
+            button    = { 0.070, 0.105, 0.115, 1.00 },
+            tab       = { 0.055, 0.043, 0.039, 1.00 },
+            border    = borderColor,
+            track     = { 1.000, 1.000, 1.000, 0.04 },
+            thumb     = { 1.000, 1.000, 1.000, 0.42 },
+        },
+        border = {
+            color = borderColor,
+            width = 1,
+        },
+        spacing = {
+            xs = 4,
+            sm = 8,
+            md = 12,
+            lg = 16,
+            xl = 24,
+        },
+        geometry = {
+            headerHeight = 48,
+            twoLineHeaderHeight = 64,
+            bodyInset = 14,
+            footerHeight = 48,
+            tabHeight = 30,
+            rowHeight = 32,
+            closeTarget = 24,
+            closeIcon = 14,
+            closeOffset = 3,
+            titleOffset = 6,
+            selectionEdgeWidth = 2,
+            scrollbarWidth = 8,
+            scrollbarTrackWidth = 2,
+            scrollbarThumbLength = 22,
+            scrollbarThumbThickness = 4,
+            tabMinWidth = 76,
+            tabPadding = 24,
+            tabGap = 1,
+            tabInset = 10,
+            headerBand = 30,
+            headerShade = 0.62,
+            bodyShade = 0.82,
+        },
+        type = {
+            title     = { size = 16, alpha = 1.00 },
+            section   = { size = 12, alpha = 0.95 },
+            row       = { size = 11, alpha = 0.84 },
+            value     = { size = 12, alpha = 1.00 },
+            secondary = { size = 10, alpha = 0.58 },
+            tab       = { size = 10, alpha = 0.50 },
+            button    = { size = 11, alpha = 0.92 },
+        },
+    }
+end
+function EllesmereUI.Style.GetAccent()
+    local accent = EllesmereUI.ELLESMERE_GREEN
+    return (accent and accent.r) or 0.05,
+        (accent and accent.g) or 0.82,
+        (accent and accent.b) or 0.62
+end
 EllesmereUI.GLOBAL_KEY = "_EUIGlobal"
 EllesmereUI.ADDON_ROSTER = ADDON_ROSTER
 EllesmereUI.LOCALE_FONT_FALLBACK = LOCALE_FONT_FALLBACK
