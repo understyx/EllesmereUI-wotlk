@@ -4773,7 +4773,8 @@ function PaletteView:Layout(paletteIndex)
         -- physical size guarantees off-grid sampling that turns the thin
         -- ring jagged. The other half of the fix is authoring the art near
         -- its display size rather than huge.
-        local es = hub.logo:GetEffectiveScale()
+        -- Textures have no GetEffectiveScale on 3.3.5; the logo inherits hub's.
+        local es = hub:GetEffectiveScale()
         if es and es > 0 then
             sz = floor(sz * es + 0.5) / es
             if sz < 1 then sz = 1 end
