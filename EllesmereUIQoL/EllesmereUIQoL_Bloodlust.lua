@@ -105,7 +105,6 @@ local _buffZoneGuard = 0        -- suppress rising edges until this time (set on
 -- expirationTime whenever it is readable, and armed as now+600 on a fresh
 -- rising edge (every lust lockout is 10 minutes). While 12.1 aura
 -- restrictions hide the real value in combat, this carries the countdown.
-local _satedExpiryGuess = 0
 local UpdateVisibility  -- forward declaration (referenced by PollSated below)
 local FormatTime        -- forward declaration (shared by the debuff text and the buff overlay)
 
@@ -341,46 +340,19 @@ end
 _G._EUI_Bloodlust_SeedPos = SeedDefaultPos
 
 -------------------------------------------------------------------------------
---  Detection (player-only, secret-value safe)
+--  Detection (player-only)
 -------------------------------------------------------------------------------
 local function _findSated()
     if not (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) then return nil end
     for i = 1, #SATED_DEBUFFS do
         local sid = SATED_DEBUFFS[i]
-        -- Querying a KNOWN spellId returns the aura even when its fields would
-        -- be secret in combat, so detection works mid-fight. We never read the
-        -- (possibly secret) spellId back off the aura -- we already know it.
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(sid)
         if aura then return aura, sid end
     end
     return nil
 end
 
--- 12.1: duration APIs (GetAuraDuration included) hard-error while aura
--- restrictions are active, even with a clean auraInstanceID. Hard false on
--- a 12.0 client so every restricted branch below is provably dead there.
-local function AurasRestricted()
-    if not (EllesmereUI and EllesmereUI.IS_121) then return false end
-    local AK = EllesmereUI.AuraKit
-    if AK and AK.AurasRestricted then return AK.AurasRestricted() end
-    return false
-end
-
--- Sync the expiry cache from the aura whenever the real value is readable
--- (out of combat / unrestricted content). 12.1-only machinery: the cache is
--- only ever displayed under aura restrictions, which do not exist on 12.0.
-local function _syncSatedGuess(aura)
-    if not (EllesmereUI and EllesmereUI.IS_121) then return end
-    local exp = aura and aura.expirationTime
-    if exp and not issecretvalue(exp) and exp > 0 then
-        _satedExpiryGuess = exp
-    end
-end
-
--- Drive the icon texture + cooldown swipe from the active debuff. Secret-safe:
--- the swipe is set from a DurationObject (no value is read by us); under 12.1
--- restrictions it falls back to the cached/self-timed expiry. The numeric
--- countdown text is filled in by the ticker with the same fallback.
+-- Drive the icon texture + cooldown swipe from the active debuff.
 local function _applyActiveAura(aura, sid)
     if not frame then return end
 
@@ -392,13 +364,7 @@ local function _applyActiveAura(aura, sid)
 
     if cooldownFrame then
         local iid = aura.auraInstanceID
-        if AurasRestricted() then
-            -- Swipe from the cached expiry; SetCooldown with the same start
-            -- and duration every pass is idempotent (no animation reset).
-            if _satedExpiryGuess > GetTime() then
-                cooldownFrame:SetCooldown(_satedExpiryGuess - 600, 600)
-            end
-        elseif iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
+        if iid and C_UnitAuras and C_UnitAuras.GetAuraDuration then
             local durObj = C_UnitAuras.GetAuraDuration("player", iid)
             if durObj then
                 if cooldownFrame.SetCooldownFromDurationObject then
@@ -410,7 +376,7 @@ local function _applyActiveAura(aura, sid)
         else
             local dur = aura.duration
             local exp = aura.expirationTime
-            if dur and exp and not issecretvalue(dur) and not issecretvalue(exp) and dur > 0 then
+            if dur and exp and dur > 0 then
                 cooldownFrame:SetCooldown(exp - dur, dur)
             end
         end
@@ -532,26 +498,19 @@ local function _setDur(s)
 end
 
 -- Text ticker: updates the countdown number and re-confirms the debuff is still
--- present (a safety net in case a UNIT_AURA removal event is ever missed). When
--- the remaining time is secret (in combat) the swipe still animates but the
--- number is left blank.
+-- present (a safety net in case a UNIT_AURA removal event is ever missed).
 local function PollSated()
     if not frame then return end
     local aura = _findSated()
     if not aura then
         _satedActive = false
-        _satedExpiryGuess = 0
         _setDur("")
         return UpdateVisibility()
     end
     local exp = aura.expirationTime
-    if exp and not issecretvalue(exp) then
-        _syncSatedGuess(aura)
+    if exp then
         local rem = exp - GetTime()
         _setDur(rem > 0 and FormatTime(rem) or "")
-    elseif EllesmereUI.IS_121 and _satedExpiryGuess > GetTime() then
-        -- Real value secret (12.1 combat): count down on the cached expiry.
-        _setDur(FormatTime(_satedExpiryGuess - GetTime()))
     else
         _setDur("")
     end
@@ -575,10 +534,7 @@ local function _refreshSated()
     local aura, sid = _findSated()
     _satedActive = (aura ~= nil)
     if aura then
-        _syncSatedGuess(aura)
         _applyActiveAura(aura, sid)
-    else
-        _satedExpiryGuess = 0
     end
     return _satedActive
 end
@@ -600,23 +556,12 @@ local function _onEvent(_, event, _, updateInfo)
         -- (zone/login resends every aura) and never inside the post-zone grace
         -- window, so a Sated debuff we already carry when zoning out of a dungeon
         -- can't re-pop the overlay.
-        -- 12.1: the UNIT_AURA payload (and its fields) can be SECRET in combat;
-        -- a secret payload is treated as incremental (full refreshes come from
-        -- zone/login, which the zone guard covers; boolean use of a secret errors).
         local isFull = false
-        if not issecretvalue(updateInfo) and updateInfo then
+        if updateInfo then
             local v = updateInfo.isFullUpdate
-            if not issecretvalue(v) and v then isFull = true end
+            if v then isFull = true end
         end
         if present and not was and not isFull and GetTime() >= _buffZoneGuard then
-            if EllesmereUI.IS_121 then
-                -- Fresh application: the lockout is a known 10 minutes, so
-                -- the cache is exact even while the real expiry is secret.
-                -- Re-apply so the swipe picks it up now, not on the next event.
-                _satedExpiryGuess = GetTime() + 600
-                local aura, sid = _findSated()
-                if aura then _applyActiveAura(aura, sid) end
-            end
             _showBuffOverlay()
         end
     elseif event == "PLAYER_DEAD" then

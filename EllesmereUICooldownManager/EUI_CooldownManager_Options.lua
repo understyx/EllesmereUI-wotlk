@@ -943,7 +943,6 @@ initFrame:SetScript("OnEvent", function(self)
                         sbt:SetTexture(SHAPE_BORDERS[btnShape])
                         -- Direct ref for the accent/hover tint sites below. Never
                         -- locate this texture by scanning GetRegions: a freshly
-                        -- tracked CD's icon region carries secret values, and
                         -- GetDrawLayer comparisons on it error out mid page-build.
                         bf._sbt = sbt
                         if brdSize > 0 then
@@ -4846,31 +4845,6 @@ initFrame:SetScript("OnEvent", function(self)
                           bd.timerY = v; RefreshTBB()
                       end },
             }
-            -- 12.1 only: engine-rendered tenths below the threshold (see
-            -- EllesmereUICdmTbbDecimals.lua). No 12.0 equivalent exists --
-            -- the rows are absent there rather than permanently disabled.
-            if EllesmereUI.IS_121 then
-                table.insert(durationRows, 2,
-                    { type = "toggle", label = "Decimals",
-                      tooltip = "Cannot work for pet/totem summon bars (Call Dreadstalkers, etc.) -- they expose no readable timer.",
-                      get = function() local bd = SelectedTBB(); return bd and bd.timerDecimals == true end,
-                      set = function(v)
-                          local bd = SelectedTBB(); if not bd then return end
-                          bd.timerDecimals = v or nil; RefreshTBB()
-                      end })
-                table.insert(durationRows, 3,
-                    { type = "slider", label = "Decimal Threshold", min = 3, max = 120, step = 1,
-                      disabled = function()
-                          local bd = SelectedTBB()
-                          return not (bd and bd.timerDecimals)
-                      end,
-                      disabledTooltip = "Decimals enabled",
-                      get = function() local bd = SelectedTBB(); return bd and bd.timerDecimalThreshold or 5 end,
-                      set = function(v)
-                          local bd = SelectedTBB(); if not bd then return end
-                          bd.timerDecimalThreshold = v; RefreshTBB()
-                      end })
-            end
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Duration Text Settings",
                 rows = durationRows,
@@ -6030,7 +6004,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- complete, authoritative list and nothing legitimately spills onto them.
         -- Skipping the live-icon append below is what fixes the duplicate-slot bug:
         -- a buff's resolved spellID drifts between its ACTIVE state (GetSpellID/
-        -- GetAuraSpellID return secret -> resolution falls back) and its INACTIVE
         -- state (clean GetAuraSpellID), so right after combat when buffs expire the
         -- live icon can resolve to a different ID than the stored one and the
         -- append re-adds the same buff a second time. CD/utility bars still need
@@ -11224,7 +11197,6 @@ initFrame:SetScript("OnEvent", function(self)
                         -- Threshold Text (every buff type): decimals / color change
                         -- on the aura countdown below the spell's Threshold Seconds.
                         -- Same per-spell store (ss) + engine countdown formatter as
-                        -- cd/utility spells; the engine evaluates it, so secret aura
                         -- durations format fine.
                         do
                             local acc = {}
@@ -15128,7 +15100,6 @@ initFrame:SetScript("OnEvent", function(self)
             -- Parallel to `tracked` for the default buffs bar: the stable viewer
             -- cooldownID for each Blizzard-tracked buff (nil for custom/injected
             -- entries). Per-icon buff settings MUST key off the cooldownID-derived
-            -- stable spellID, never the live aura GetSpellID (secret/variant-drift).
             local trackedCd
             pf._buffDispGroups = nil
             pf._buffSlotKeys = nil
@@ -15186,17 +15157,14 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- Clean cache not primed yet (fresh login, buff
                                 -- active since): fall back to cooldownInfo. Each
                                 -- field is vetted on its own -- never `or`-chain
-                                -- possibly-secret values (truthiness taints).
                                 local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
                                 local info = gci and gci(cdID)
                                 local raw2 = info and info.overrideSpellID
                                 if not (type(raw2) == "number"
-                                        and not (issecretvalue and issecretvalue(raw2))
                                         and raw2 > 0) then
                                     raw2 = info and info.spellID
                                 end
                                 if type(raw2) == "number"
-                                   and not (issecretvalue and issecretvalue(raw2))
                                    and raw2 > 0 then
                                     csid = raw2
                                 end
@@ -15421,12 +15389,10 @@ initFrame:SetScript("OnEvent", function(self)
                                 local info = gci and gci(cdClaim)
                                 local raw2 = info and info.overrideSpellID
                                 if not (type(raw2) == "number"
-                                        and not (issecretvalue and issecretvalue(raw2))
                                         and raw2 > 0) then
                                     raw2 = info and info.spellID
                                 end
                                 if type(raw2) == "number"
-                                   and not (issecretvalue and issecretvalue(raw2))
                                    and raw2 > 0 then
                                     csid = raw2
                                 end
@@ -19164,7 +19130,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         end -- if isAnyBuffBar (tooltip only) / else (tooltip + keybind)
 
-        -- Show Non-On Use Trinkets | Hide Rotation Helper
+        -- Show Non-On Use Trinkets
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Non-On Use Trinkets",
               tooltip = "Show equipped trinkets even if they don't have an on-use effect.",
@@ -19172,19 +19138,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   BD().showPassiveTrinkets = v
                   if ns.FullCDMRebuild then ns.FullCDMRebuild("trinket_toggle") end
-              end },
-            { type="toggle", text="Hide Rotation Helper",
-              tooltip = "Force-hide Blizzard's Assisted Combat Highlight (rotation helper glow) on all CDM bars, even if enabled in Blizzard's Combat settings.",
-              getValue=function()
-                  local p = DB(); return p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).hideRotationHelper == true
-              end,
-              setValue=function(v)
-                  local p = DB()
-                  if p and ns.GetActiveCDMConfig(true) then
-                      ns.GetActiveCDMConfig(true).hideRotationHelper = v
-                      if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-                  end
-              end });  y = y - h
+              end }, nil);  y = y - h
 
         -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
         -- Buff bars host Hide Items if Missing in the tooltip row above (their

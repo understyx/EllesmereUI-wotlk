@@ -9,17 +9,6 @@
 --  toggle is on.
 -------------------------------------------------------------------------------
 
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
-
--- Secret values throw on any comparison (==, <, ...) once execution is
--- tainted, so route a payload field through this before comparing it.
-local function PlainValue(value)
-    if IsSecret(value) then return nil end
-    return value
-end
-
 local inCombat = false
 
 -------------------------------------------------------------------------------
@@ -32,12 +21,9 @@ local inCombat = false
 -------------------------------------------------------------------------------
 local MOVEMENT_ABILITIES = {
     DEATHKNIGHT = {[250] = {48265, 212552}, [251] = {48265, 212552}, [252] = {48265, 444010, 444347, 212552}},
-    DEMONHUNTER = {[577] = {195072}, [581] = {189110}, [1480] = {1234796}},
     DRUID = {[102] = {102401, 252216, 1850, 102417}, [103] = {102401, 252216, 1850, 102417}, [104] = {102401, 252216, 106898, 1850, 102417}, [105] = {102401, 252216, 1850, 102417}},
-    EVOKER = {[1467] = {358267}, [1468] = {358267}, [1473] = {358267}},
     HUNTER = {[253] = {186257, 781}, [254] = {186257, 781}, [255] = {186257, 781}},
     MAGE = {[62] = {212653, 1953}, [63] = {212653, 1953}, [64] = {212653, 1953}},
-    MONK = {[268] = {115008, 109132, 119085, 361138}, [269] = {109132, 119085, 361138, 101545}, [270] = {109132, 119085, 361138}},
     PALADIN = {[65] = {190784}, [66] = {190784}, [70] = {190784}},
     PRIEST = {[256] = {121536, 73325}, [257] = {121536, 73325}, [258] = {121536, 73325}},
     ROGUE = {[259] = {36554, 2983}, [260] = {195457, 2983}, [261] = {36554, 2983}},
@@ -463,11 +449,6 @@ local function SafeGetChargeInfo(spellId)
     end
     local m = chargeInfo.maxCharges or 1
     local r = chargeInfo.cooldownDuration or 0
-    if IsSecret(m) or IsSecret(r) then
-        local cached = knownChargeSpells[spellId]
-        if cached then return true, cached.maxCh, cached.rechDur end
-        return false, 1, 0
-    end
     if m > 1 then
         knownChargeSpells[spellId] = { maxCh = m, rechDur = r }
         return true, m, r
@@ -482,17 +463,17 @@ local function SafeGetBaseDuration(spellId)
         local dur = C_Spell.GetSpellCooldownDuration(spellId)
         if dur then
             local total = dur:GetTotalDuration()
-            if not IsSecret(total) and total and total > 1.5 then return total end
+            if total and total > 1.5 then return total end
         end
     end
     if C_Spell.GetSpellBaseCooldown then
         local ms = C_Spell.GetSpellBaseCooldown(spellId)
-        if not IsSecret(ms) and ms and ms > 1500 then return ms / 1000 end
+        if ms and ms > 1500 then return ms / 1000 end
     end
     local cdInfo = C_Spell.GetSpellCooldown(spellId)
     if cdInfo and cdInfo.duration then
         local d = cdInfo.duration
-        if not IsSecret(d) and d > 1.5 then return d end
+        if d > 1.5 then return d end
     end
     return 0
 end
@@ -650,12 +631,12 @@ local function UpdateCachedCharges()
         elseif entry.isChargeSpell then
             local chargeId = entry.baseSpellId or entry.spellId
             local chargeInfo = C_Spell.GetSpellCharges(chargeId)
-            if chargeInfo and chargeInfo.currentCharges and not IsSecret(chargeInfo.currentCharges) then
+            if chargeInfo and chargeInfo.currentCharges then
                 cachedChargeCount[entry.spellId] = chargeInfo.currentCharges
             end
         else
             local cdInfo = C_Spell.GetSpellCooldown(entry.spellId)
-            if cdInfo and cdInfo.duration and not IsSecret(cdInfo.duration) and cdInfo.duration > 0 then
+            if cdInfo and cdInfo.duration and cdInfo.duration > 0 then
                 entry.baseDuration = cdInfo.duration
             end
         end
@@ -712,7 +693,7 @@ local function OnPlayerBuffActiveAuraUpdate(updateInfo)
                 local state = buffActiveState[key]
                 if state and state.instanceID then
                     for _, instanceID in ipairs(updateInfo.removedAuraInstanceIDs) do
-                        if PlainValue(instanceID) == state.instanceID then
+                        if instanceID == state.instanceID then
                             SetBuffActiveState(key, false, nil)
                             expectingBuffAura[key] = nil
                             break
@@ -727,29 +708,17 @@ local function OnPlayerBuffActiveAuraUpdate(updateInfo)
             if entry.checkType == "buffActive" then
                 local key = BuffActiveKey(entry)
                 if expectingBuffAura[key] then
-                    -- Prefer an exact spellId match, but in combat the field is
-                    -- a secret value we can't read at all. Fall back to the
-                    -- batch's only unreadable aura -- with more than one there
-                    -- is no way to tell which is ours, so leave the expectation
-                    -- standing rather than latch onto an unrelated aura.
-                    local match, unreadable, unreadableCount = nil, nil, 0
+                    local match
                     for _, aura in ipairs(updateInfo.addedAuras) do
-                        local sid = PlainValue(aura.spellId)
-                        if sid then
-                            if sid == key then match = aura; break end
-                        else
-                            unreadable = aura
-                            unreadableCount = unreadableCount + 1
-                        end
+                        if aura.spellId == key then match = aura; break end
                     end
-                    if not match and unreadableCount == 1 then match = unreadable end
                     if match and match.auraInstanceID then
                         SetBuffActiveState(key, true, match.auraInstanceID)
                         expectingBuffAura[key] = nil
                     end
                 end
                 for _, aura in ipairs(updateInfo.addedAuras) do
-                    local sid = PlainValue(aura.spellId)
+                    local sid = aura.spellId
                     if sid and sid == key and aura.auraInstanceID then
                         SetBuffActiveState(key, true, aura.auraInstanceID)
                     end
@@ -959,14 +928,9 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     end
 
     local cdRemaining, cdStart, cdDuration, cdModRate
-    local hasSecretDuration = false
     if duration then
         local rem, total = duration:GetRemainingDuration(), duration:GetTotalDuration()
-        if IsSecret(rem) or IsSecret(total) then
-            hasSecretDuration = true
-            cdRemaining, cdDuration = rem, total
-            cdStart, cdModRate = duration:GetStartTime(), duration:GetModRate()
-        elseif total and total > 1.5 and rem and rem > 0 then
+        if total and total > 1.5 and rem and rem > 0 then
             cdRemaining, cdDuration = rem, total
             cdStart, cdModRate = duration:GetStartTime(), duration:GetModRate()
         end
@@ -974,17 +938,14 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
 
     if not cdRemaining and cdInfo then
         local s, d, m = cdInfo.startTime or 0, cdInfo.duration or 0, cdInfo.modRate or 1
-        if IsSecret(s) or IsSecret(d) then
-            hasSecretDuration = true
-            cdStart, cdDuration, cdModRate, cdRemaining = s, d, m, true
-        elseif d > 0 then
+        if d > 0 then
             cdStart, cdDuration, cdModRate = s, d, m
             cdRemaining = math.max(0, (s + d) - GetTime())
         end
     end
 
     if not cdRemaining then return false end
-    if not hasSecretDuration and cdRemaining <= 0 then return false end
+    if cdRemaining <= 0 then return false end
 
     if displayMode == "icon" then
         if spellIcon then
@@ -1402,8 +1363,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
         for spellId in pairs(spellWasCast) do
             local cdInfo = C_Spell.GetSpellCooldown(spellId)
             local cdRemain = 0
-            if cdInfo and cdInfo.startTime and cdInfo.duration
-               and not IsSecret(cdInfo.startTime) and not IsSecret(cdInfo.duration) and cdInfo.duration > 0 then
+            if cdInfo and cdInfo.startTime and cdInfo.duration and cdInfo.duration > 0 then
                 cdRemain = math.max(0, (cdInfo.startTime + cdInfo.duration) - GetTime())
             end
             if cdRemain <= 0 then spellWasCast[spellId] = nil; spellCastTime[spellId] = nil end

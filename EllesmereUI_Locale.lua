@@ -28,7 +28,6 @@ local EllesmereUI = EllesmereUI
 
 local type, tonumber, pairs, select = type, tonumber, pairs, select
 local GetLocale = GetLocale
-local issecretvalue = issecretvalue
 local CreateFrame = EllesmereUI.SafeCreateFrame
 
 local SUPPORTED = {
@@ -52,13 +51,11 @@ local reverse = {}
 
 -- The translator. Identity when no catalog is active (English, or before the
 -- catalog is resolved). Otherwise looks up the English key; guards short-circuit
--- anything that must never be translated (non-strings, empty, secret combat
--- values, pure numbers, letterless strings like hex/coords) before the lookup.
+-- non-strings, empty, pure numbers, and letterless strings like hex/coords.
 local function L(s)
     local cat = activeCatalog
     if not cat then return s end
     if type(s) ~= "string" or s == "" then return s end
-    if issecretvalue and issecretvalue(s) then return s end
     if tonumber(s) ~= nil then return s end
     if not s:find("%a") then return s end
     local v = cat[s]

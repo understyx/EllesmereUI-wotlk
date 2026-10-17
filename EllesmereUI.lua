@@ -229,12 +229,9 @@ local _, playerClass = UnitClass("player")
 
 local CLASS_ART_MAP = {
     DEATHKNIGHT  = "dk.tga",
-    DEMONHUNTER  = "dh.tga",
     DRUID        = "druid.tga",
-    EVOKER       = "evoker.tga",
     HUNTER       = "hunter.tga",
     MAGE         = "mage.tga",
-    MONK         = "monk.tga",
     PALADIN      = "paladin.tga",
     PRIEST       = "priest.tga",
     ROGUE        = "rogue.tga",
@@ -246,12 +243,9 @@ local CLASS_ART_MAP = {
 -- Official WoW class colors (from RAID_CLASS_COLORS)
 local CLASS_COLOR_MAP = {
     DEATHKNIGHT  = { r = 0.77, g = 0.12, b = 0.23 },  -- #C41E3A
-    DEMONHUNTER  = { r = 0.64, g = 0.19, b = 0.79 },  -- #A330C9
     DRUID        = { r = 1.00, g = 0.49, b = 0.04 },  -- #FF7C0A
-    EVOKER       = { r = 0.20, g = 0.58, b = 0.50 },  -- #33937F
     HUNTER       = { r = 0.67, g = 0.83, b = 0.45 },  -- #AAD372
     MAGE         = { r = 0.25, g = 0.78, b = 0.92 },  -- #3FC7EB
-    MONK         = { r = 0.00, g = 1.00, b = 0.60 },  -- #00FF98
     PALADIN      = { r = 0.96, g = 0.55, b = 0.73 },  -- #F48CBA
     PRIEST       = { r = 1.00, g = 1.00, b = 1.00 },  -- #FFFFFF
     ROGUE        = { r = 1.00, g = 0.96, b = 0.41 },  -- #FFF468
@@ -1513,9 +1507,6 @@ function EllesmereUI.Print(...)
     if not f then return end
     local _, instanceType = IsInInstance()
     if instanceType == "raid" and InCombatLockdown() then return end
-    if instanceType == "party" and C_ChallengeMode
-       and C_ChallengeMode.IsChallengeModeActive
-       and C_ChallengeMode.IsChallengeModeActive() then return end
     if (instanceType == "pvp" or instanceType == "arena") and InCombatLockdown() then return end
     f:AddMessage(strjoin(" ", tostringall(...)))
 end
@@ -2256,14 +2247,11 @@ do
     --  sub-pixel-sized elements.
     ---------------------------------------------------------------------------
     -- External weak-keyed set for pixel-snap tracking.
-    -- Avoids writing custom keys onto Blizzard's secure widget tables
-    -- (which taints them and causes "secret value" errors).
+    -- Avoids writing custom keys onto Blizzard's widget tables.
     local _pixelSnapDisabled = setmetatable({}, { __mode = "k" })
 
     function PP.DisablePixelSnap(obj)
         if not obj then return end
-        if issecretvalue and issecretvalue(obj) then return end
-        if issecrettable and issecrettable(obj) then return end
         if _pixelSnapDisabled[obj] then return end
         if obj.IsForbidden and obj:IsForbidden() then return end
 
@@ -2310,7 +2298,6 @@ do
     --  GetStatusBarTexture() itself (see the cast overlay and unit-frame bars).
     ---------------------------------------------------------------------------
     local function WatchPixelSnap(frame, snap)
-        if issecrettable and issecrettable(frame) then return end
         if (frame and (not frame.IsForbidden or not frame:IsForbidden())) and _pixelSnapDisabled[frame] and snap then
             _pixelSnapDisabled[frame] = nil
         end
@@ -2555,15 +2542,8 @@ do
                 local bd = _ppBorderData[f]
                 local ok = pcall(SnapBorderTextures, c, f, bd and bd.borderSize or 1)
                 if not ok then
-                    -- Only evict when the failure is real (dead frame). While
-                    -- auras are secret (12.1), rect reads inside engine aura
-                    -- button subtrees are denied -- a transient state that
-                    -- must not permanently drop a live border.
-                    local AKR = EllesmereUI and EllesmereUI.AuraKit
-                    if not (AKR and AKR.AurasRestricted and AKR.AurasRestricted()) then
-                        entry.container = nil
-                        entry.frame = nil
-                    end
+                    entry.container = nil
+                    entry.frame = nil
                 end
             end
         end
@@ -2575,12 +2555,7 @@ do
     function PP.ResnapBordersUnder(root)
         if not root then return PP.ResnapAllBorders() end
         local count = 0
-        -- Shared method ref for the climb: 12.1 engine aura buttons deny
-        -- access from addon code while auras are secret, and border hosts
-        -- living inside aura button subtrees climb through one. Calling via
-        -- the shared ref under pcall treats a denied step as a chain
-        -- dead-end = not under root (aura button subtrees are never inside
-        -- the options panel, so skipping them is correct, not just safe).
+        -- Shared method ref for the parent-chain climb.
         local GetParentFn = root.GetParent
         for i = 1, allBordersN do
             local entry = allBorders[i]
@@ -2600,12 +2575,8 @@ do
                     local bd = _ppBorderData[f]
                     local ok = pcall(SnapBorderTextures, entry.container, f, bd and bd.borderSize or 1)
                     if not ok then
-                        -- Same transient-vs-dead distinction as ResnapAllBorders.
-                        local AKR = EllesmereUI and EllesmereUI.AuraKit
-                        if not (AKR and AKR.AurasRestricted and AKR.AurasRestricted()) then
-                            entry.container = nil
-                            entry.frame = nil
-                        end
+                        entry.container = nil
+                        entry.frame = nil
                     end
                 end
             end
@@ -2729,24 +2700,11 @@ do
         -- container._bdColor aliases this same table, so writing through it
         -- keeps both views in sync exactly as the old reassignment did.
         --
-        -- SECRET color components (RaidFrames dispel colors in combat) can be
-        -- WRITTEN to textures but never compared or cached: the change-guard
-        -- compare errors on a secret, and a secret stored in the cache would
-        -- make the NEXT clean call's compare error too. Secrets skip the guard
-        -- and leave the cache holding the last CLEAN color (so style
-        -- re-appliers reading _bdColor stay error-free), marked dirty so the
-        -- next clean color always repaints.
         local col = bd.borderColor
-        local secret = issecretvalue
-            and (issecretvalue(r) or issecretvalue(g) or issecretvalue(b) or issecretvalue(a))
-        if secret then
-            bd.colDirty = true
-        elseif col then
-            if not bd.colDirty
-               and col[1] == r and col[2] == g and col[3] == b and col[4] == a then
+        if col then
+            if col[1] == r and col[2] == g and col[3] == b and col[4] == a then
                 return   -- unchanged; the four texture writes below are redundant
             end
-            bd.colDirty = nil
             col[1], col[2], col[3], col[4] = r, g, b, a
         else
             col = { r, g, b, a }
@@ -3251,73 +3209,6 @@ do
         end
     end
 
-    -- BackdropTemplate performs arithmetic on its owner's width/height and is
-    -- therefore unusable for frames anchored to secret aura geometry. This
-    -- variant renders textured borders as the same eight edge-file slices,
-    -- while retaining the normal PP path for Solid. `state` is any caller-owned
-    -- table used to cache the eight textures (FFD, AuraKit button data, etc.).
-    local SECRET_BORDER_UV = {
-        topLeft     = { 0.5078125, 0.0625, 0.5078125, 0.9375, 0.6171875, 0.0625, 0.6171875, 0.9375 },
-        topRight    = { 0.6328125, 0.0625, 0.6328125, 0.9375, 0.7421875, 0.0625, 0.7421875, 0.9375 },
-        bottomLeft  = { 0.7578125, 0.0625, 0.7578125, 0.9375, 0.8671875, 0.0625, 0.8671875, 0.9375 },
-        bottomRight = { 0.8828125, 0.0625, 0.8828125, 0.9375, 0.9921875, 0.0625, 0.9921875, 0.9375 },
-        top         = { 0.2578125, 0.9375, 0.3671875, 0.9375, 0.2578125, 0.0625, 0.3671875, 0.0625 },
-        bottom      = { 0.3828125, 0.9375, 0.4921875, 0.9375, 0.3828125, 0.0625, 0.4921875, 0.0625 },
-        left        = { 0.0078125, 0.0625, 0.0078125, 0.9375, 0.1171875, 0.0625, 0.1171875, 0.9375 },
-        right       = { 0.1328125, 0.0625, 0.1328125, 0.9375, 0.2421875, 0.0625, 0.2421875, 0.9375 },
-    }
-
-    function EllesmereUI.ApplySecretSafeBorderStyle(borderFrame, state, size, r, g, b, a,
-        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey)
-        if not borderFrame or not state then return end
-        size, textureKey = size or 0, textureKey or "solid"
-        local edges = state._secretBorderEdges
-        -- Inlined rather than a local closure. This runs per aura per refresh,
-        -- and the closure was being built on entry -- before either early-out
-        -- below could return -- making it pure garbage on the common path.
-        if textureKey == "" or textureKey == "solid" or size <= 0 then
-            if edges then for _, tex in pairs(edges) do tex:Hide() end end
-            EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, "solid")
-            return
-        end
-        local path = EllesmereUI.ResolveBorderTexture(textureKey)
-        if not path then
-            if edges then for _, tex in pairs(edges) do tex:Hide() end end
-            EllesmereUI.ApplyBorderStyle(borderFrame, 0, 0, 0, 0, 0, "solid")
-            return
-        end
-        -- Also hides any BackdropTemplate child left by an older live version.
-        EllesmereUI.ApplyBorderStyle(borderFrame, 0, 0, 0, 0, 0, "solid")
-        borderFrame:Show()
-        if not edges then
-            edges = {}
-            for key, uv in pairs(SECRET_BORDER_UV) do
-                local tex = borderFrame:CreateTexture(nil, "OVERLAY", nil, 7)
-                tex:SetTexCoord(unpack(uv)); edges[key] = tex
-            end
-            state._secretBorderEdges = edges
-        end
-        local edgeSize = EDGE_MAP[size] or EDGE_MAP[1]
-        local ox, oy, sx, sy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
-        ox = offsetX ~= nil and offsetX or ox; oy = offsetY ~= nil and offsetY or oy
-        sx = shiftX ~= nil and shiftX or sx; sy = shiftY ~= nil and shiftY or sy
-        if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
-            ox, oy = edgeSize / 2 + ox, edgeSize / 2 + oy
-        end
-        for _, tex in pairs(edges) do
-            tex:SetTexture(path, true, true); tex:SetVertexColor(r, g, b, a or 1)
-            tex:ClearAllPoints(); tex:Show()
-        end
-        edges.topLeft:SetSize(edgeSize, edgeSize); edges.topLeft:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -ox + sx, oy + sy)
-        edges.topRight:SetSize(edgeSize, edgeSize); edges.topRight:SetPoint("TOPRIGHT", borderFrame, "TOPRIGHT", ox + sx, oy + sy)
-        edges.bottomLeft:SetSize(edgeSize, edgeSize); edges.bottomLeft:SetPoint("BOTTOMLEFT", borderFrame, "BOTTOMLEFT", -ox + sx, -oy + sy)
-        edges.bottomRight:SetSize(edgeSize, edgeSize); edges.bottomRight:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", ox + sx, -oy + sy)
-        edges.top:SetHeight(edgeSize); edges.top:SetPoint("TOPLEFT", edges.topLeft, "TOPRIGHT"); edges.top:SetPoint("TOPRIGHT", edges.topRight, "TOPLEFT")
-        edges.bottom:SetHeight(edgeSize); edges.bottom:SetPoint("BOTTOMLEFT", edges.bottomLeft, "BOTTOMRIGHT"); edges.bottom:SetPoint("BOTTOMRIGHT", edges.bottomRight, "BOTTOMLEFT")
-        edges.left:SetWidth(edgeSize); edges.left:SetPoint("TOPLEFT", edges.topLeft, "BOTTOMLEFT"); edges.left:SetPoint("BOTTOMLEFT", edges.bottomLeft, "TOPLEFT")
-        edges.right:SetWidth(edgeSize); edges.right:SetPoint("TOPRIGHT", edges.topRight, "BOTTOMRIGHT"); edges.right:SetPoint("BOTTOMRIGHT", edges.bottomRight, "TOPRIGHT")
-    end
-
     --- Set border color on whichever system is currently active (PP or backdrop).
     --- Used for hover highlights and other dynamic color changes.
     function EllesmereUI.SetBorderStyleColor(borderFrame, r, g, b, a)
@@ -3367,9 +3258,6 @@ EllesmereUI.DEFAULT_POWER_COLORS = {
     LUNAR_POWER  = { r = 0xFF/255, g = 0x7D/255, b = 0x0A/255 },
     INSANITY     = { r = 0.400, g = 0.000, b = 0.800 },
     MAELSTROM    = { r = 0x00/255, g = 0x70/255, b = 0xDE/255 },
-    FURY         = { r = 0xA3/255, g = 0x30/255, b = 0xC9/255 },
-    PAIN         = { r = 1.000, g = 0.612, b = 0.000 },
-    EBON_MIGHT   = { r = 0xE6/255, g = 0x8C/255, b = 0x4D/255 },
 }
 
 -- Default resource colors (class-specific resource pips)
@@ -3377,12 +3265,9 @@ EllesmereUI.DEFAULT_RESOURCE_COLORS = {
     ROGUE       = { r = 1.00, g = 0.96, b = 0.41 },
     DRUID       = { r = 1.00, g = 0.49, b = 0.04 },
     PALADIN     = { r = 0.96, g = 0.55, b = 0.73 },
-    MONK        = { r = 0.00, g = 1.00, b = 0.60 },
     WARLOCK     = { r = 0.58, g = 0.51, b = 0.79 },
     MAGE        = { r = 0.25, g = 0.78, b = 0.92 },
-    EVOKER      = { r = 0.20, g = 0.58, b = 0.50 },
     DEATHKNIGHT = { r = 0.77, g = 0.12, b = 0.23 },
-    DEMONHUNTER = { r = 0.34, g = 0.06, b = 0.46 },
 }
 
 -- Default class-resource colors (keyed by the specific resource, NOT the class,
@@ -3397,11 +3282,7 @@ EllesmereUI.DEFAULT_CLASS_RESOURCE_COLORS = {
     ArcaneCharges   = { r = 0.7176, g = 0.4902, b = 0.8118 },
     HotStreak       = { r = 1.0,    g = 0.35,   b = 0.05   },
     Icicles         = { r = 0.7098, g = 1.0,    b = 0.9216 },
-    Chi             = { r = 0.0,    g = 1.0,    b = 0.6    },
-    Essence         = { r = 0.2,    g = 0.58,   b = 0.502  },
-    SoulFragments   = { r = 0.6,    g = 0.8,    b = 0.2    },
     MaelstromWeapon = { r = 0.0,    g = 0.4392, b = 0.8706 },
-    TipOfTheSpear   = { r = 0.6667, g = 0.8275, b = 0.4471 },
     WhirlwindStacks = { r = 0.7765, g = 0.6078, b = 0.4275 },
     SweepingStrikes = { r = 0.8510, g = 0.4157, b = 0.3373 },
 }
@@ -3424,10 +3305,7 @@ EllesmereUI.CLASS_POWER_MAP = {
     SHAMAN       = "MANA",
     MAGE         = "MANA",
     WARLOCK      = "MANA",
-    MONK         = "ENERGY",
     DRUID        = "MANA",
-    DEMONHUNTER  = "FURY",
-    EVOKER       = "MANA",
 }
 
 -- Class -> resource type mapping (nil = no class resource)
@@ -3435,12 +3313,9 @@ EllesmereUI.CLASS_RESOURCE_MAP = {
     ROGUE       = "ComboPoints",
     DRUID       = "ComboPoints",
     PALADIN     = "HolyPower",
-    MONK        = "Chi",
     WARLOCK     = "SoulShards",
     MAGE        = "ArcaneCharges",
-    EVOKER      = "Essence",
     DEATHKNIGHT = "Runes",
-    DEMONHUNTER = "SoulFragments",
 }
 
 -- Darken a color by a fraction (for default gradient secondary)
@@ -4441,71 +4316,7 @@ function EllesmereUI.ApplyColorsToOUF()
     end
 end
 
--------------------------------------------------------------------------------
---  Manual resource trackers (12.0+ secret-value safe)
---  These track stacks via UNIT_SPELLCAST_SUCCEEDED instead of reading aura
---  data, which returns secret values in combat under Midnight restrictions.
---  Maelstrom Weapon (344179) and Devourer soul fragment auras (1225789,
---  1227702) are whitelisted by Blizzard and remain readable.
--------------------------------------------------------------------------------
 
--- Tip of the Spear tracker (Survival Hunter)
--- Kill Command (259489) grants 1 stack (2 with Primal Surge talent 1272154).
--- Takedown (1250646) grants 2 stacks when Twin Fang (1272139) is known.
--- Various spender abilities consume 1 stack each.
--- Buff duration: 10 seconds, max 3 stacks.
--- Talent spell: 260285
-do
-    local stacks, expiresAt = 0, nil
-    local MAX = 3
-    local DURATION = 10
-    local TALENT     = 260285
-    local KILL_CMD   = 259489
-    local PRIMAL     = 1272154
-    local TAKEDOWN   = 1250646
-    local TWIN_FANG  = 1272139
-
-    local SPENDERS = {
-        [186270]  = true,  -- Raptor Strike
-        [265189]  = true,  -- Raptor Strike (ranged)
-        [1262293] = true,  -- Raptor Swipe
-        [1262343] = true,  -- Raptor Swipe (ranged)
-        [259495]  = true,  -- Wildfire Bomb
-        [193265]  = true,  -- Hatchet Toss
-        [1264949] = true,  -- Chakram
-        [1261193] = true,  -- Boomstick
-        [1253859] = true,  -- Takedown (also spends)
-        [1251592] = true,  -- Flamefang Pitch
-    }
-
-    function EllesmereUI.HandleTipOfTheSpear(event, unit, _, spellID)
-        if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
-            stacks, expiresAt = 0, nil
-            return
-        end
-        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or unit ~= "player" then return end
-        if not (C_SpellBook and C_SpellBook.IsSpellKnown(TALENT)) then return end
-
-        if spellID == KILL_CMD then
-            local gain = (C_SpellBook.IsSpellKnown(PRIMAL) and 2 or 1)
-            stacks = min(MAX, stacks + gain)
-            expiresAt = GetTime() + DURATION
-        elseif spellID == TAKEDOWN and C_SpellBook.IsSpellKnown(TWIN_FANG) then
-            stacks = min(MAX, stacks + 2)
-            expiresAt = GetTime() + DURATION
-        elseif SPENDERS[spellID] and stacks > 0 then
-            stacks = stacks - 1
-            if stacks == 0 then expiresAt = nil end
-        end
-    end
-
-    function EllesmereUI.GetTipOfTheSpear()
-        if expiresAt and GetTime() >= expiresAt then
-            stacks, expiresAt = 0, nil
-        end
-        return stacks, MAX
-    end
-end
 
 -- Improved Whirlwind tracker (Fury Warrior)
 -- Whirlwind (190411) sets stacks to max (4).
@@ -4541,10 +4352,6 @@ do
         [335097] = true,  -- Crushing Blow
     }
 
-    -- Bloodthirst / Bloodbath don't consume stacks during Bladestorm
-    -- when Unhinged (386628) is talented.  We track Bladestorm activation
-    -- via UNIT_SPELLCAST_SUCCEEDED so we never call C_Spell.IsSpellUsable
-    -- (which may return secret values in 12.0+).
     local UNHINGED_EXEMPT = { [23881] = true, [335096] = true }
     local bladestormEndsAt = 0
 
@@ -4709,8 +4516,7 @@ do
     -- the resource bar, unit frame and nameplate readouts, and
     -- HandleSweepingStrikes runs on every player cast for every class;
     -- C_SpellBook.IsSpellKnown is a C call and talents cannot change in
-    -- combat, so resolve once per login/spec/talent event instead (same
-    -- rationale as the cached spec ID above GetSoulFragments). Non-warriors
+    -- combat, so resolve once per login/spec/talent event instead. Non-warriors
     -- never register the watcher: the flags stay false and both entry
     -- points early-out on a plain upvalue read.
     local sweepKnown, improvedKnown, broadKnown, fervorKnown = false, false, false, false
@@ -4807,8 +4613,8 @@ do
     -- the probe reads false) is an UNDER-count -- the safe direction: the bar
     -- reads slightly full, never empty, and self-heals via CdmSweepSync at the
     -- next combat lull. Fall back to the interact probe only when
-    -- IsSpellInRange can't answer (nil, or a secret value inside instanced
-    -- content) so the bar never regresses to "never depletes". idx defaults to
+    -- IsSpellInRange can't answer (nil) so the bar never regresses to
+    -- "never depletes". idx defaults to
     -- the index-2 trade probe.
     local function InReach(u, idx)
         if not (UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)) then
@@ -4821,7 +4627,7 @@ do
             local ms = (C_SpellBook and C_SpellBook.FindSpellOverrideByID
                 and C_SpellBook.FindSpellOverrideByID(12294)) or 12294
             local r = isr(ms, u)
-            if not (issecretvalue and issecretvalue(r)) and r ~= nil then
+            if r ~= nil then
                 return r == true
             end
         end
@@ -4951,23 +4757,6 @@ do
         end
     end
 
-    -- Blizzard's CooldownViewer tracked-buff child for 260708 caches aura
-    -- state in plain frame fields even though the C_UnitAuras surface
-    -- refuses this aura (see the no-validation note below): presence via
-    -- wasSetFromAura/auraInstanceID/IsShown, count via
-    -- auraDataCached.applications -- plain out of restricted combat, secret
-    -- inside it (both observations from the CDM module's TBB stack reader,
-    -- ReadStackApplications). Here it feeds two fail-open corrections the
-    -- cast prediction can't make: zero on a confirmed early drop
-    -- (/cancelaura), and drift resync whenever the count reads plain. CDM
-    -- disabled or the buff untracked -> no child is ever found and
-    -- prediction behaves exactly as before.
-    --
-    -- Provenance: this sync came in through community PR #861 and was later
-    -- reviewed by curseforge in a full originality audit, prompted by an
-    -- earlier revision of the PR's comment naming a third-party addon. The
-    -- review confirmed the technique is original, expanding on the CDM module's
-    -- own ReadStackApplications (cited above) which reads Blizzard's widget data.
 
     local function CdmInfoMatches(info)
         if not info then return false end
@@ -5041,19 +4830,18 @@ do
                 local state
                 if not ad then state = "no-cache"
                 elseif apps == nil then state = "no-apps"
-                elseif issecretvalue(apps) then state = "secret"
                 else state = tostring(apps) end
                 if state ~= cdmAppsDbg then
                     cdmAppsDbg = state
                     dbg("apps:", state, "(predicted " .. stacks .. ")")
                 end
             end
-            if apps and not issecretvalue(apps) and type(apps) == "number"
+            if apps and type(apps) == "number"
                and apps ~= stacks then
                 dbg("snap:", stacks, "->", apps)
                 stacks = apps
                 local exp = ad.expirationTime
-                if exp and not issecretvalue(exp) and type(exp) == "number"
+                if exp and type(exp) == "number"
                    and exp > now then
                     expiresAt = exp
                 elseif not expiresAt then
@@ -5084,8 +4872,7 @@ do
     -- enumerated zero auras. So any validation on this buff reads it as
     -- absent and zeroes the bar (the v8.4.9 bug: stacks wiped in combat,
     -- pinned at 0 in M+). Whitelisted buffs ARE readable -- see
-    -- GetMaelstromWeapon / GetSoulFragments below and the
-    -- NON_SECRET_SPELL_IDS catalogue + C_Secrets.ShouldSpellAuraBeSecret
+    -- GetMaelstromWeapon below and the
     -- probe in EllesmereUIAuraBuffReminders. If Blizzard ever whitelists
     -- 260708, validation becomes possible again; until then the
     -- cast-event prediction plus the duration timer IS the tracker.
@@ -5107,14 +4894,6 @@ do
     end
 end
 
--- Get DH Soul Fragment count (current, max)
--- Vengeance: C_Spell.GetSpellCastCount(228477) -- returns a SECRET value
--- in 12.0+.  The caller must handle it via StatusBar or similar.
--- Devourer (hero spec 1480): aura 1225789/1227702 -- WHITELISTED, safe to read.
--- Cached player spec ID. GetSoulFragments is polled EVERY FRAME by the soul
--- fragment resource bar, unit frame, and nameplate readouts, and
--- Spec detection reads the talent tabs on WotLK, so cache the id and refresh
--- only on the spec-change events instead of polling it from resource bars.
 EllesmereUI._RefreshSpecID = function()
     EllesmereUI._specID = (EUI.Spec and EUI.Spec:GetCurrentID()) or 0
 end
@@ -5125,40 +4904,6 @@ EllesmereUI._specWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 EllesmereUI._specWatcher:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 EllesmereUI._specWatcher:RegisterEvent("PLAYER_TALENT_UPDATE")
 EllesmereUI._specWatcher:SetScript("OnEvent", EllesmereUI._RefreshSpecID)
-
-function EllesmereUI.GetSoulFragments()
-    local specID = EllesmereUI._specID
-    if not specID then           -- pre-login / not resolved yet: resolve once
-        EllesmereUI._RefreshSpecID()
-        specID = EllesmereUI._specID
-    end
-    if specID == 581 then -- Vengeance
-        local cur = C_Spell and C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(228477) or 0
-        return cur, 6
-    elseif specID == 1480 then -- Devourer (hero spec)
-        -- In Void Metamorphosis (1217607): stacks come from Silence the
-        -- Whispers (1227702) and max is 40. Outside meta: stacks come
-        -- from Dark Heart (1225789) and max is 50 (or 35 with Soul
-        -- Glutton talent 1247534). Surrender to the Void (PvP talent
-        -- 1261423) requires 50 additional souls to enter Metamorphosis,
-        -- on top of whichever base/Soul-Glutton value applies.
-        local inMeta = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID(1217607)
-        local aura, max
-        if inMeta then
-            aura = C_UnitAuras.GetPlayerAuraBySpellID(1227702)
-            max = 40
-        else
-            aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID(1225789)
-            max = (C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(1247534)) and 35 or 50
-            if C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(1261423) then
-                max = max + 50
-            end
-        end
-        return (aura and aura.applications or 0), max
-    end
-    -- Havoc or unknown spec: no soul fragments
-    return 0, 0
-end
 
 -- Get Enhancement Shaman Maelstrom Weapon stacks (current, max)
 -- Buff spell 344179 -- WHITELISTED by Blizzard, safe to read in combat.
@@ -5292,9 +5037,8 @@ function EllesmereUI.FindPlayerUnitFrame()
 end
 end
 
--- Tip of the Spear and Whirlwind Stacks are now tracked manually via
--- HandleTipOfTheSpear / HandleWhirlwindStacks + UNIT_SPELLCAST_SUCCEEDED.
--- See the manual tracker section above.
+-- Whirlwind Stacks are tracked manually via HandleWhirlwindStacks and
+-- UNIT_SPELLCAST_SUCCEEDED. See the manual tracker section above.
 
 EllesmereUI.THEME_PRESETS   = THEME_PRESETS
 EllesmereUI.THEME_ORDER     = THEME_ORDER
@@ -5308,16 +5052,10 @@ EllesmereUI.MEDIA_PATH = MEDIA_PATH
 EllesmereUI.ICONS_PATH = ICONS_PATH
 
 
--- Safe scroll range helper (avoids tainted secret number values)
+-- Safe scroll range helper
 function EllesmereUI.SafeScrollRange(sf)
-    local ok, val = pcall(sf.GetVerticalScrollRange, sf)
-    if ok and val then
-        local ok2, n = pcall(tonumber, val)
-        if ok2 and n then
-            local ok3, gt = pcall(function() return n > 0 end)
-            if ok3 and gt then return n end
-        end
-    end
+    local val = sf:GetVerticalScrollRange()
+    if val and val > 0 then return val end
     return 0
 end
 
@@ -11407,10 +11145,9 @@ C_Timer.After(2, function()
     if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown then
         -- Defer while any intro popup is still pending/open; each runs the
         -- conflict check itself when dismissed (RaidFrames / PatchNotes /
-        -- WindowSkins / SpecOverrides / PTRManagers popup files).
+        -- WindowSkins / SpecOverrides popup files).
         if EllesmereUI._raidFramesIntroPending or EllesmereUI._patchNotesIntroPending
-           or EllesmereUI._windowSkinsIntroPending or EllesmereUI._specOvIntroPending
-           or EllesmereUI._ptrManagersIntroPending then return end
+           or EllesmereUI._windowSkinsIntroPending or EllesmereUI._specOvIntroPending then return end
         if EllesmereUI._RunConflictCheck then EllesmereUI._RunConflictCheck() end
     end
 end)
@@ -11418,9 +11155,6 @@ end)
 SLASH_EUIOPTIONS1 = "/eui"
 SLASH_EUIOPTIONS2 = "/ellesmere"
 SLASH_EUIOPTIONS3 = "/ellesmereui"
--- Defer slash command actions by one frame to avoid tainting
--- Blizzard's ParseText -> ClearChat -> UpdateHeader chain when
--- typed in a BN_WHISPER edit box (secret tellTarget value).
 SlashCmdList.EUIOPTIONS = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then
@@ -11598,12 +11332,6 @@ SlashCmdList.EUIDEV = function()
     if EllesmereUI.UpdateDevModeIndicator then EllesmereUI.UpdateDevModeIndicator() end
 end
 
--------------------------------------------------------------------------------
---  Dev Mode badge: a small top-left indicator shown while /euidev is active
---  (the addon-restriction-forced CVars are on, so the restricted / secret-value
---  environment is being forced for testing). Toggled by /euidev and re-checked
---  on login, since the CVars persist across sessions.
--------------------------------------------------------------------------------
 do
     local DEV_CVAR = "addonChallengeModeRestrictionsForced"
 
@@ -12244,7 +11972,6 @@ initFrame:SetScript("OnEvent", function(self, event)
     if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall then
         -- Register per-type callbacks instead of AllTypes to avoid firing on
         -- every unit/currency tooltip in the game (major CPU savings).
-        local _isSecret = issecretvalue  -- cache global once
 
         -- The spell/item/icon ID lines can be gated behind a held modifier (the
         -- "Use Modifier" cog: none | shift | control | alt, default none). "none"
@@ -12281,7 +12008,6 @@ initFrame:SetScript("OnEvent", function(self, event)
                 if fs then
                     local txt = fs:GetText()
                     if txt then
-                        if _isSecret and _isSecret(txt) then return true end
                         if txt:find(tag, 1, true)
                             or (localizedTag ~= tag and txt:find(localizedTag, 1, true)) then
                             return true
@@ -12292,36 +12018,10 @@ initFrame:SetScript("OnEvent", function(self, event)
             return false
         end
 
-        -- 12.1 ONLY: aura spell IDs during combat. The Lua hooks below can
-        -- never render them there -- under aura restrictions the tooltip's
-        -- id is a SECRET value -- but the engine-side tooltipShowAuraSpellIDs
-        -- CVar (68824+) formats the ID itself and works under full secrecy,
-        -- including the forbidden container tooltips. The CVar is
-        -- session-only, so it re-asserts every login and on toggle edits.
-        -- Modifier-gated configs skip it: the engine renders always-on,
-        -- which would override the user's hold-a-modifier preference (their
-        -- combat aura IDs stay unavailable -- inherent trade).
-        function EllesmereUI.SyncAuraSpellIDCVar()
-            if not EllesmereUI.IS_121 then return end
-            local db = EllesmereUIDB
-            local on = db and db.showSpellID
-                and (db.spellIDModifier or "none") == "none"
-            pcall(C_CVar.SetCVar, "tooltipShowAuraSpellIDs", on and "1" or "0")
-        end
-        do
-            local cvarBoot = EllesmereUI.SafeCreateFrame("Frame")
-            cvarBoot:RegisterEvent("PLAYER_LOGIN")
-            cvarBoot:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_LOGIN")
-                EllesmereUI.SyncAuraSpellIDCVar()
-            end)
-        end
-
         local function SpellIDTooltipHook(tooltip, data)
             if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
-            if _isSecret and _isSecret(data.id) then return end
             if not tooltip or not tooltip.GetName then return end
             local ok, name = pcall(tooltip.GetName, tooltip)
             if not ok or not name then return end
@@ -12339,7 +12039,6 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
-            if _isSecret and _isSecret(data.id) then return end
             if not tooltip or not tooltip.GetName then return end
             local ok, name = pcall(tooltip.GetName, tooltip)
             if not ok or not name then return end
@@ -12360,7 +12059,6 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not (EllesmereUIDB and EllesmereUIDB.showItemMaxStacks) then return end
             if not IsItemStackModifierHeld() then return end
             if not data or not data.id then return end
-            if _isSecret and _isSecret(data.id) then return end
             if not tooltip or not tooltip.GetName then return end
             local ok, name = pcall(tooltip.GetName, tooltip)
             if not ok or not name then return end
@@ -12389,7 +12087,6 @@ initFrame:SetScript("OnEvent", function(self, event)
             local line = info.lines[1]
             local spellID = line and line.tooltipID
             if not spellID then return end  -- item-only macro / nothing castable
-            if _isSecret and _isSecret(spellID) then return end
             local okN, name = pcall(tooltip.GetName, tooltip)
             if not okN or not name then return end
             if hasDupLine(tooltip, name, "SpellID") then return end
@@ -12885,9 +12582,9 @@ end
 -- tainted") and takes down whatever called it. Registering the events directly
 -- is what oUF does, is taint-clean, and touches no Blizzard code at all.
 local BLIZZ_CAST_EVENTS = {
-    "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_EMPOWER_START",
-    "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_EMPOWER_STOP",
-    "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_EMPOWER_UPDATE",
+    "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START",
+    "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_CHANNEL_STOP",
+    "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_CHANNEL_UPDATE",
     "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED",
     "UNIT_SPELLCAST_INTERRUPTIBLE", "UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
 }
@@ -13080,12 +12777,6 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
     EllesmereUI.RearmBlizzCastBars()
 end
 
--------------------------------------------------------------------------------
---  Swiftmend Brightness Fix (shared hook utility)
---  Blizzard dims Swiftmend based on Efflorescence state (secret value in
---  Midnight). Child addons call this on icon textures they identify as
---  Swiftmend. The hook prevents vertex-color dimming and desaturation.
--------------------------------------------------------------------------------
 do
     local hooked = {}
     local function isEnabled()

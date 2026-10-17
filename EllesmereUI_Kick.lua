@@ -12,12 +12,9 @@ local kickSpellsByClass = {
     ROGUE = { 1766 },
     PRIEST = { 15487 },
     PALADIN = { 31935, 96231 },
-    MONK = { 116705 },
     MAGE = { 2139 },
     HUNTER = { 187707, 147362 },
-    EVOKER = { 351338 },
     DRUID = { 38675, 78675, 106839 },
-    DEMONHUNTER = { 183752 },
 }
 
 local activeKickSpell
@@ -42,25 +39,8 @@ local function RefreshKickAbility()
     end
 end
 
-local function ComputeCastBarTint(readyTint, baseTint)
-    if not activeKickSpell then
-        return baseTint.r, baseTint.g, baseTint.b
-    end
-    if not (C_Spell and C_Spell.GetSpellCooldownDuration) then
-        return baseTint.r, baseTint.g, baseTint.b
-    end
-    if not (C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean) then
-        return baseTint.r, baseTint.g, baseTint.b
-    end
-    local cdTime = C_Spell.GetSpellCooldownDuration(activeKickSpell)
-    if not (cdTime and cdTime.IsZero) then
-        return baseTint.r, baseTint.g, baseTint.b
-    end
-    local offCooldown = cdTime:IsZero()
-    local rVal = C_CurveUtil.EvaluateColorValueFromBoolean(offCooldown, baseTint.r, readyTint.r)
-    local gVal = C_CurveUtil.EvaluateColorValueFromBoolean(offCooldown, baseTint.g, readyTint.g)
-    local bVal = C_CurveUtil.EvaluateColorValueFromBoolean(offCooldown, baseTint.b, readyTint.b)
-    return rVal, gVal, bVal
+local function ComputeCastBarTint(_, baseTint)
+    return baseTint.r, baseTint.g, baseTint.b
 end
 
 EllesmereUI = EllesmereUI or {}
@@ -164,8 +144,6 @@ end
 -- mouse-button STRING instead of the delegate); /click hits
 -- SecureActionButton_OnClick directly and is unaffected. On 12.0 the click
 -- transport works and proxies stay anonymous.
-local proxyCounter = 0
-
 -- Create (once) and return the hidden SecureActionButton proxy for a unit button.
 -- Use this when wiring a SPECIFIC click/key binding to the menu -- it does NOT
 -- touch the frame's own type attributes (so it won't clobber other bindings).
@@ -173,12 +151,7 @@ function EllesmereUI.GetSecureMenuProxy(frame)
     if not frame then return end
     local proxy = menuProxies[frame]
     if not proxy then
-        local proxyName
-        if EllesmereUI.IS_121 then
-            proxyCounter = proxyCounter + 1
-            proxyName = "EUISecureMenuProxy" .. proxyCounter
-        end
-        proxy = EllesmereUI.SafeCreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
+        proxy = EllesmereUI.SafeCreateFrame("Button", nil, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
@@ -208,12 +181,7 @@ function EllesmereUI.GetSecureTargetProxy(frame)
     if not frame then return end
     local proxy = targetProxies[frame]
     if not proxy then
-        local proxyName
-        if EllesmereUI.IS_121 then
-            proxyCounter = proxyCounter + 1
-            proxyName = "EUISecureTargetProxy" .. proxyCounter
-        end
-        proxy = EllesmereUI.SafeCreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
+        proxy = EllesmereUI.SafeCreateFrame("Button", nil, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
@@ -247,16 +215,8 @@ function EllesmereUI.AttachSecureUnitMenu(frame)
     end
     local proxy = EllesmereUI.GetSecureMenuProxy(frame)
     frame:SetAttribute("type2", nil)
-    if EllesmereUI.IS_121 then
-        -- Macro transport ("/click <proxy>") instead of the "click" action:
-        -- the 12.1 click action crashes on a Blizzard typo (see above).
-        frame:SetAttribute("*type2", "macro")
-        frame:SetAttribute("*macrotext2", "/click " .. proxy:GetName())
-        frame:SetAttribute("*clickbutton2", nil)
-    else
-        frame:SetAttribute("*type2", "click")
-        frame:SetAttribute("*clickbutton2", proxy)
-    end
+    frame:SetAttribute("*type2", "click")
+    frame:SetAttribute("*clickbutton2", proxy)
     return proxy
 end
 

@@ -6,15 +6,9 @@
 --  the dungeon, leaves the group, or enters combat. A "Disable Feature" text
 --  below the button turns the whole feature off (re-enable in QoL options).
 --
---  Taint / secret-value safety (this is critical, read before editing):
---   - The teleport spellID fed to SetAttribute("spell", id) is ALWAYS a static
+--  Taint safety (read before editing):
+--   - The teleport spellID fed to SetAttribute("spell", id) is a static
 --     integer resolved from our own name->spell table, never an LFG field.
---   - The dungeon is resolved on LFG_LIST_JOINED_GROUP, where the search result
---     is readable. While browsing/applying, GetSearchResultInfo returns secret
---     values (activityIDs is a secret table -> indexing throws); joining lifts
---     that. We still guard every field with issecretvalue() and wrap the whole
---     lookup in pcall, so a secret value can only make us skip the prompt, never
---     error. The dungeon name is only ever SetText'd (which accepts secrets).
 --   - The secure button is created ONCE at login (out of combat); only the
 --     "spell" attribute is rewritten later, and only out of combat (deferred to
 --     PLAYER_REGEN_ENABLED when an accept lands mid-combat).
@@ -23,7 +17,6 @@
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
 local PP  = EUI and EUI.PP
-local issecretvalue = issecretvalue or function() return false end
 
 -- Settings live on the shared EllesmereUIDB (lazy-init, never re-init at scope).
 local function TeleCfg()
@@ -50,9 +43,6 @@ local DISABLE_TOP = BTN_TOP + BTN_H + 8  -- "Disable Feature" text below the but
 local DISABLE_H   = 16
 local POPUP_H     = DISABLE_TOP + DISABLE_H + 10
 
--------------------------------------------------------------------------------
---  State (plain upvalues; never keyed by a possibly-secret resultID)
--------------------------------------------------------------------------------
 local popup, secureBtn
 local pendingSpellID       -- resolved teleport spell (static integer) to use
 local pendingName          -- dungeon display name for the title (guaranteed clean)
@@ -63,7 +53,7 @@ local pendingHide          -- hide requested in combat; hide on PLAYER_REGEN_ENA
 -- Forward declarations (closures reference each other)
 local BuildPopup, ShowPrompt, HidePrompt, ClearPending
 local ApplyTeleportPrompt  -- live enable/disable entry point (defined in the events section)
-local UpdateButtonVisuals, ResolveDungeon
+local UpdateButtonVisuals
 local SavePosition, ApplySavedPosition, ApplyDisableVisibility
 
 -------------------------------------------------------------------------------
@@ -150,8 +140,6 @@ BuildPopup = function()
     title:SetWordWrap(false)
     title:SetText(EllesmereUI.L("LFG Reminder"))
 
-    -- Joined dungeon's full name, centered above the teleport button. Set in
-    -- ShowPrompt; the name may be a secret string and SetText accepts secrets.
     local nameFS = MakeLabel(popup, 13, 1, 1, 1, 1)
     nameFS:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -NAME_TOP)
     nameFS:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -PAD, -NAME_TOP)
@@ -287,45 +275,12 @@ UpdateButtonVisuals = function()
 end
 
 -------------------------------------------------------------------------------
---  Resolve the accepted dungeon -> teleport spell via a CLEAN string chain.
---  resultID is only ever passed as a function argument (safe even if secret).
--------------------------------------------------------------------------------
-ResolveDungeon = function(resultID)
-    if not (C_LFGList and C_LFGList.GetSearchResultInfo) then return end
-    -- Called from LFG_LIST_JOINED_GROUP, where the search result is readable (the
-    -- secrecy that applies while browsing/applying is lifted once you have joined).
-    -- Still wrapped in pcall and guarded with issecretvalue as defense in depth:
-    -- if any needed field is secret, it bails gracefully (no prompt) rather than
-    -- erroring. Capture is synchronous because the result can expire after joining.
-    pcall(function()
-        local info = C_LFGList.GetSearchResultInfo(resultID)
-        if type(info) ~= "table" then return end
-        local activityID = info.activityID
-        if activityID == nil and info.activityIDs and not issecretvalue(info.activityIDs) then
-            activityID = info.activityIDs[1]
-        end
-        if issecretvalue(activityID) or activityID == nil then return end
-        local act = C_LFGList.GetActivityInfoTable(activityID)
-        if type(act) ~= "table" then return end
-        local fullName = act.fullName
-        if type(fullName) ~= "string" or issecretvalue(fullName) then return end
-        local spellID = EUI and EUI.ResolveTeleportSpellByName and EUI.ResolveTeleportSpellByName(fullName)
-        if spellID then
-            pendingSpellID = spellID
-            -- Display only the dungeon name, not the trailing difficulty suffix
-            -- (e.g. "Skyreach (Mythic Keystone)" -> "Skyreach").
-            pendingName    = (fullName:gsub("%s*%b()%s*$", ""))
-        end
-    end)
-end
-
--------------------------------------------------------------------------------
 --  Show / Hide / Clear
 -------------------------------------------------------------------------------
 ShowPrompt = function()
     if not IsEnabled() or not pendingSpellID then return end
     BuildPopup()
-    popup._name:SetText(pendingName or "")  -- SetText accepts secret strings natively
+    popup._name:SetText(pendingName or "")
     if InCombatLockdown() then
         -- Cannot write the secure attribute or surface the protected teleport
         -- button in combat (and teleports cannot be cast in combat anyway).
@@ -386,14 +341,12 @@ local ev = EllesmereUI.SafeCreateFrame("Frame")
 -- hide or secure attribute write is pending; its handler re-syncs afterwards.
 local function SyncEvents()
     if IsEnabled() then
-        ev:RegisterEvent("LFG_LIST_JOINED_GROUP")
         ev:RegisterEvent("GROUP_ROSTER_UPDATE")
         ev:RegisterEvent("PLAYER_ENTERING_WORLD")
         ev:RegisterEvent("ZONE_CHANGED_NEW_AREA")
         ev:RegisterEvent("PLAYER_REGEN_DISABLED")
         ev:RegisterEvent("PLAYER_REGEN_ENABLED")
     else
-        ev:UnregisterEvent("LFG_LIST_JOINED_GROUP")
         ev:UnregisterEvent("GROUP_ROSTER_UPDATE")
         ev:UnregisterEvent("PLAYER_ENTERING_WORLD")
         ev:UnregisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -428,7 +381,7 @@ end
 _G._EUI_ApplyTeleportPrompt = ApplyTeleportPrompt
 
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:SetScript("OnEvent", function(self, event, arg1, arg2)
+ev:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         -- Login is always out of combat: safe to create the secure button now.
         if IsEnabled() then
@@ -472,15 +425,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2)
         ClearPending(); HidePrompt(); return
     end
 
-    if event == "LFG_LIST_JOINED_GROUP" then
-        -- arg1 = searchResultID. This fires the moment the player joins a Group
-        -- Finder group (i.e. accepted the invite). Unlike the browse/apply phase,
-        -- the search result info is readable here, so the dungeon can be resolved.
-        -- Capture immediately; the search result can expire shortly after joining.
-        ClearPending()
-        ResolveDungeon(arg1)
-        if pendingSpellID then ShowPrompt() end
-    elseif event == "GROUP_ROSTER_UPDATE" then
+    if event == "GROUP_ROSTER_UPDATE" then
         if not IsInGroup() then
             ClearPending(); HidePrompt()
         end

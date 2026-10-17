@@ -1975,9 +1975,6 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                     if not EllesmereUIDB then EllesmereUIDB = {} end
                     EllesmereUIDB.showSpellID = v
-                    -- Engine-side combat aura-ID CVar rides this (12.1;
-                    -- no-op on retail).
-                    if EllesmereUI.SyncAuraSpellIDCVar then EllesmereUI.SyncAuraSpellIDCVar() end
                   end });  y = y - h
 
             _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -2045,11 +2042,11 @@ initFrame:SetScript("OnEvent", function(self)
                         -- Preserve QoL settings (stored on EllesmereUIDB root)
                         local qolKeys = {
                             "autoOpenContainers", "autoSellJunk", "autoRepair",
-                            "autoRepairGuild", "hideScreenshotStatus", "autoUnwrapCollections",
+                            "autoRepairGuild", "hideScreenshotStatus",
                             "trainAllButton", "quickLoot",
                             "autoFillDelete", "skipCinematics", "skipCinematicsAuto",
                             "autoInsertKeystone", "quickSignup",
-                            "persistSignupNote", "hideBlizzardPartyFrame",
+                            "hideBlizzardPartyFrame",
                             "instanceResetAnnounce", "instanceResetAnnounceMsg",
                             "healthMacroEnabled", "healthMacroPrio1", "healthMacroPrio2",
                             "healthMacroPrio3", "foodMacroEnabled", "macroFactory",
@@ -2225,28 +2222,24 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local CLASS_ORDER = {
         "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-        "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK",
-        "DRUID", "DEMONHUNTER", "EVOKER",
+        "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID",
     }
     local CLASS_LABELS = {
         WARRIOR = "Warrior", PALADIN = "Paladin", HUNTER = "Hunter",
         ROGUE = "Rogue", PRIEST = "Priest", DEATHKNIGHT = "Death Knight",
         SHAMAN = "Shaman", MAGE = "Mage", WARLOCK = "Warlock",
-        MONK = "Monk", DRUID = "Druid", DEMONHUNTER = "Demon Hunter",
-        EVOKER = "Evoker",
+        DRUID = "Druid",
     }
     local POWER_LABELS = {
         MANA = "Mana", RAGE = "Rage", FOCUS = "Focus", ENERGY = "Energy",
         RUNIC_POWER = "Runic Power", LUNAR_POWER = "Astral Power",
-        INSANITY = "Insanity", MAELSTROM = "Maelstrom", FURY = "Fury",
-        PAIN = "Pain", EBON_MIGHT = "Ebon Might",
+        INSANITY = "Insanity", MAELSTROM = "Maelstrom",
     }
     local RESOURCE_LABELS = {
         ComboPoints = "Combo Points", HolyPower = "Holy Power",
-        Chi = "Chi", SoulShards = "Soul Shards",
-        ArcaneCharges = "Arcane Charges", Essence = "Essence",
+        SoulShards = "Soul Shards",
+        ArcaneCharges = "Arcane Charges",
         Runes = "Runes",
-        SoulFragments = "Soul Fragments",
     }
     local GRADIENT_DIR_VALUES = {
         ["HORIZONTAL"] = "Left to Right",
@@ -3339,8 +3332,8 @@ initFrame:SetScript("OnEvent", function(self)
         _colorGates[2] = { top = y }
 
         local POWER_ORDER = {
-            "MANA", "RAGE", "FOCUS", "ENERGY", "RUNIC_POWER", "FURY",
-            "LUNAR_POWER", "INSANITY", "MAELSTROM", "EBON_MIGHT",
+            "MANA", "RAGE", "FOCUS", "ENERGY", "RUNIC_POWER",
+            "LUNAR_POWER", "INSANITY", "MAELSTROM",
         }
         local powerItems = {}
         for _, pk in ipairs(POWER_ORDER) do
@@ -3391,11 +3384,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { key = "ArcaneCharges",   label = "Arcane Charges"   },
                 { key = "HotStreak",       label = "Hot Streak"       },
                 { key = "Icicles",         label = "Icicles"          },
-                { key = "Chi",             label = "Chi"              },
-                { key = "Essence",         label = "Essence"          },
-                { key = "SoulFragments",   label = "Soul Fragments"   },
                 { key = "MaelstromWeapon", label = "Maelstrom Weapon" },
-                { key = "TipOfTheSpear",   label = "Tip of the Spear" },
                 { key = "WhirlwindStacks", label = "Whirlwind Stacks" },
                 { key = "SweepingStrikes", label = "Sweeping Strikes" },
             }
@@ -7225,14 +7214,12 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.QoLExtrasSet("showFPS", false)
                     EllesmereUI.QoLExtrasSet("showSecondaryStats", false)
                 end
-                EllesmereUIDB.guildChatPrivacy = false
                 EllesmereUIDB.repairWarning = nil
                 -- Reset UI scale so next reload re-snapshots from Blizzard default
                 EllesmereUIDB.ppUIScale = nil
                 EllesmereUIDB.ppUIScaleAuto = nil
                 -- Developer settings defaults
                 EllesmereUIDB.showSpellID = false
-                if EllesmereUI.SyncAuraSpellIDCVar then EllesmereUI.SyncAuraSpellIDCVar() end
                 EllesmereUIDB.suppressErrors = false
                 -- Crosshair: the root is the inherited global default, so reset it
                 -- here (per-profile overrides are cleared by the profile's own
@@ -7260,9 +7247,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if EllesmereUI._applyCrosshair then
                 EllesmereUI._applyCrosshair()
-            end
-            if EllesmereUI._applyGuildChatPrivacy then
-                EllesmereUI._applyGuildChatPrivacy()
             end
             -- Apply suppress errors default (on)
             SetCVarSafe("scriptErrors", "0")

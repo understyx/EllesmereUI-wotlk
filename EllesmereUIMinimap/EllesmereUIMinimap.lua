@@ -1624,28 +1624,11 @@ local function ScheduleFTTHide()
     end)
 end
 
--- THE RULE: "protected content" = anywhere the chat / whisper system carries
--- secret values and a whisper action can taint Blizzard's chat code -- i.e.
--- protected instances, raid combat, and rated / instanced PvP combat.
--- This is exactly EllesmereUI.InProtectedInstance() (defined in EllesmereUI.lua),
--- the canonical EUI guard for taint-sensitive operations. Whispering is suppressed
--- entirely in this state; invites are still allowed (they touch no chat code).
 local function FTTInProtectedContent()
     return EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() or false
 end
 
--- Open a whisper. BNet friends are whispered via their Battle.net account
--- (reaches them on any character / faction / realm); everyone else by character
--- name. Passing an explicit chat frame skips ChatFrame_SendTell's
--- FCF_OpenTemporaryWindow path -- that path drives the now-secret window list in
--- 12.0 and tainted all of chat (the SetTellTarget / windowList /
--- MessageEventHandler cascade). A "/w" macro can't open the editbox, only send.
 local function FTTOpenWhisper(charName, bnetName)
-    -- Suppress whispers wherever chat is taint-sensitive: (1) protected content,
-    -- and (2) while /euidev is on -- it forces addonChallengeModeRestrictionsForced,
-    -- i.e. a secret-value restricted environment, so chat
-    -- would taint there too. InProtectedInstance() does NOT see the forced CVar, so
-    -- the dev-mode check is separate.
     local blocked
     if EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
         blocked = "This action is protected while dev mode (/euidev) is on."
@@ -2469,9 +2452,7 @@ local function SyncIndicatorVisibility()
         local hasMail = false
         if HasNewMail then
             local raw = HasNewMail()
-            if not issecretvalue or not issecretvalue(raw) then
-                hasMail = raw or false
-            end
+            hasMail = raw or false
         end
         if hasMail then _customIndicators.mail:Show() else _customIndicators.mail:Hide() end
     end
@@ -4374,17 +4355,9 @@ do
                 btn:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, y)
                 btn:SetHeight(BUTTON_H)
 
-                -- 12.1: "/click <name>" macro transport (the 12.1 "click"
-                -- secure action crashes on a Blizzard typo, SecureTemplates
-                -- :564; MicroButtons are globally named so the macro reaches
-                -- them directly). 12.0 keeps the proven click transport.
-                local secureType = EllesmereUI.IS_121 and "macro" or "click"
+                local secureType = "click"
                 if microRef then
-                    if EllesmereUI.IS_121 then
-                        btn:SetAttribute("*macrotext1", "/click " .. item.microButton)
-                    else
-                        btn:SetAttribute("*clickbutton1", microRef)
-                    end
+                    btn:SetAttribute("*clickbutton1", microRef)
                 end
                 btn:SetAttribute("useOnKeyDown", false)
                 btn:SetAttribute("*type1", secureType)
@@ -4393,9 +4366,6 @@ do
 
                 -- Activate secure click from the restricted secure environment.
                 -- Without this, addon-set attributes are not trusted.
-                -- The restore branch MUST match the transport set above --
-                -- restoring a mismatched type silently reverts the 12.1
-                -- macro transport on the first combat exit.
                 -- EnableMouse is not exposed to restricted state snippets;
                 -- clearing the action type is sufficient to suppress clicks.
                 RegisterStateDriver(btn, "combatlock", "[combat] combat; nocombat")
@@ -4453,9 +4423,7 @@ end
 SLASH_EUIBLOCK1 = "/euiblock"
 SlashCmdList.EUIBLOCK = function()
     print("|cff0cd29fEllesmereUI:|r hover the blocked spot -- scanning in 3 seconds...")
-    -- Frame state on protected frames comes back as secret booleans in
-    -- Midnight and boolean-testing those throws, so each frame's probe runs
-    -- under pcall and secret/forbidden frames are simply skipped.
+    -- Skip forbidden frames before inspecting their visible state.
     local function Probe(fr)
         if fr:IsForbidden() or not fr:IsVisible() or not fr:IsMouseOver() then return end
         if not (fr.IsMouseClickEnabled and fr:IsMouseClickEnabled()) then return end
@@ -4466,8 +4434,8 @@ SlashCmdList.EUIBLOCK = function()
         local f = EnumerateFrames()
         local n = 0
         while f do
-            local okc, name, motion = pcall(Probe, f)
-            if okc and name then
+            local name, motion = Probe(f)
+            if name then
                 n = n + 1
                 print(format("  %s  (motion: %s)", name, motion))
             end

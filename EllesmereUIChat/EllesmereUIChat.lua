@@ -28,50 +28,11 @@ local ECHAT = ns.ECHAT
 local BISECT_TAB_GEOMETRY_OFF = false   -- 1: CLEARED (this cycle)
 local BISECT_TAB_PADDING_OFF = false    -- 3: CLEARED (this cycle)
 local BISECT_TAB_BORDERS_OFF = false    -- 4: EXONERATED 2026-07-25 (field-
-                                        --    dirty with the engine off, so
-                                        --    the border engine is not the
-                                        --    injector; see ladder below)
--- 2026-07-25 ladder (whisper secret-taint, FCFManager_GetChatTarget /
--- GetDecoratedSenderName secret errors, always via the temp-window
--- open+refire stack): CONVICTED = init-time ECHAT.ApplyBorders() --
--- TIMING, not content. Run synchronously inside PLAYER_LOGIN it plants the
--- panel-border anchors while Blizzard's login dock pass still resolves
--- layout; that pass reads the insecure anchors, runs tainted, and its
--- persistent dock state poisons every later temp-whisper open. Fix = defer
--- to PEW + C_Timer (the deferred passes' field-proven cadence). Exonerated
--- en route: gate-4 border engine, gdm anchor ties, sfc pin, BNToast block,
--- FCFDock_SelectWindow hook, frame HookScripts, temp Skin*, eb anchors,
--- whisper URL filter.
 local BISECT_EXT_BG_OFF = false         -- 5: CLEARED (this cycle)
 local BISECT_DEFERRED_PASSES_OFF = false -- 6: CLEARED (this cycle)
 local BISECT_EB_ANCHORS_OFF = false     -- 7: CLEARED (this cycle)
 local BISECT_TEX_SHIFT_OFF = false      -- 8: CLEARED (this cycle) -- textures
-                                        --    re-anchored to their OWN parent
-                                        --    add no dependency edge; anchor +
-                                        --    unsnap both have clean alibis
--- FINAL HOST DESIGN (gate 9 confirmed CLEAN in field): an insecure frame
--- ANCHORED to a Blizzard chat tab is the taint injector -- parenting,
--- existence, and strata were all exonerated; the anchor dependency alone
--- poisons the secure dock pass into UpdateHeader's secret whisper math.
--- Hosts therefore carry ZERO tab anchors: clip-parented and positioned
--- NUMERICALLY (PositionTabHosts) from coordinates resolved in our own
--- deferred passes. Geometry READS of tabs from our execution are safe;
--- anchor TIES are not.
 
--- WHISPER-CREATION TAINT: ROOT CAUSE (field-bisected 2026-07-22 over a
--- 7-gate ladder against the clean 8.5.2 baseline). Creating child FRAMES
--- on Blizzard chat tabs (841's panelBorder/separatorHost/underlineHost)
--- taints the temp-whisper creation chain: FCF_OpenTemporaryWindow ->
--- FCF_DockUpdate walks the tabs with our frames in their child lists, and
--- the chain then runs UpdateHeader's SECRET whisper-name width math
--- tainted ("arithmetic on a secret value blocked... EllesmereUIChat",
--- ChatFrameEditBox.lua:677) and the whisper fails to route. The pre-841
--- module avoided exactly this ("zero writes to Blizzard frames" -- its
--- underline lived on a UIParent clip frame). FIX: all per-tab host frames
--- are parented to the shared UIParent clip container below and only
--- ANCHORED to their tab. NEVER EllesmereUI.SafeCreateFrame with a Blizzard chat tab (or
--- chat frame) as parent. Textures created directly on tabs (bg/hover)
--- are fine -- they existed in 8.5.2, field-clean.
 local _tabHostClip
 local function GetTabHostClip()
     if _tabHostClip then return _tabHostClip end
@@ -330,7 +291,6 @@ local function IsCursorOverCached(frame)
     if not frame or not frame:IsVisible() then return false end
     local ok, left, bottom, width, height = pcall(frame.GetRect, frame)
     if not ok or not left then return false end
-    if issecretvalue and issecretvalue(left) then return false end
     local scale = frame:GetEffectiveScale()
     local cx, cy = _rawCX / scale, _rawCY / scale
     return cx >= left and cx <= left + width and cy >= bottom and cy <= bottom + height
@@ -1489,7 +1449,6 @@ local function _ApplyAlpha(alpha)
             local eb = af.eb
             if eb then
                 local focused = eb:HasFocus()
-                if issecretvalue and issecretvalue(focused) then focused = false end
                 if cf.isTemporary or not focused then
                     eb:SetAlpha(alpha)
                 end
@@ -1598,7 +1557,7 @@ local function StripUIEscapes(text)
     text = text:gsub("|H.-|h(.-)|h", "%1")   -- hyperlinks -> display text
     text = text:gsub("|T.-|t", "")            -- textures
     text = text:gsub("|A.-|a", "")            -- atlas
-    text = text:gsub("|K.-|k", "")            -- secret value placeholders
+    text = text:gsub("|K.-|k", "")
     text = text:gsub("|n", "\n")              -- newlines
     text = text:gsub("||", "|")               -- escaped pipes
     -- Keep |cXXXXXXXX and |r color codes so the copy popup preserves colors
@@ -1618,7 +1577,7 @@ local function ReadActiveChatText()
     local lines = {}
     for i = 1, n do
         local ok, text = pcall(cf.GetMessageInfo, cf, i)
-        if ok and text and not (issecretvalue and issecretvalue(text)) then
+        if ok and text then
             local sok, stripped = pcall(StripUIEscapes, text)
             if sok and stripped then
                 lines[#lines + 1] = stripped
@@ -2084,13 +2043,6 @@ end)
 -------------------------------------------------------------------------------
 local _skinned = {}
 
--- Chat events that count as real PLAYER chat activity (used ONLY to reset the
--- idle-fade timer). MONSTER_SAY / MONSTER_YELL are deliberately EXCLUDED: in a
--- party their sender (chanSender) is a SECRET value, and registering this
--- insecure frame for those events taints Blizzard's HistoryKeeper when it
--- string-converts the secret sender -> "tainted by EllesmereUIChat" spam on every
--- monster line. Ambient NPC chat is not user activity, so excluding it is also
--- correct for the feature. All sender names below are plain visible player names.
 local CHAT_MSG_EVENTS = {
     CHAT_MSG_SAY = true, CHAT_MSG_YELL = true,
     CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
@@ -2102,16 +2054,6 @@ local CHAT_MSG_EVENTS = {
     CHAT_MSG_CHANNEL = true,
 }
 
--------------------------------------------------------------------------------
---  Tab reskin: in-place reskin of Blizzard tabs.
---  We work WITH Blizzard's tab system instead of replacing it.
---  Blizzard tabs are stripped of textures and restyled with our visuals.
---  ALL styling re-assert is DEFERRED (QueueTabPass + the deferred
---  FCFDock_SelectWindow/FCF_Close hooks). No synchronous hooks on
---  FCFTab_UpdateColors, FCFDock_UpdateTabs, or tab methods -- their bodies
---  executed inside the secure temp-whisper creation chain and blocked
---  UpdateHeader's secret width math (2026-07-21 taintlog).
--------------------------------------------------------------------------------
 
 -- Texture name suffixes to strip from each tab
 local TAB_TEX_SUFFIXES = {
@@ -2194,10 +2136,6 @@ local function UpdateTabStyle(tab)
         local tc = isActive
             and (cfg.tabFontColorActive or { r=1, g=1, b=1, a=1 })
             or (cfg.tabFontColor or { r=1, g=1, b=1, a=.65 })
-        -- PERMANENT (user decision 2026-07-22): temp whisper tabs keep
-        -- Blizzard's own text color -- zero writes to the secret-name
-        -- fontstring, and the whisper color doubles as a visual marker for
-        -- conversation tabs. Same gate the pre-841 module shipped.
         if not chatFrame.isTemporary then
             fs:SetTextColor(tc.r or 1, tc.g or 1, tc.b or 1, tc.a == nil and 1 or tc.a)
         end
@@ -2269,18 +2207,6 @@ function ECHAT.ApplyTabAppearance()
     end
 end
 
--- Numeric host placement with ZERO getter calls into the chat/dock chain.
--- Two field-proven taint injectors rule this design: (1) anchoring an
--- insecure frame to a Blizzard tab, and (2) geometry resolves (GetLeft
--- etc.) on tab/dock regions from insecure code -- both poison the secure
--- dock pass into UpdateHeader's secret whisper math. Positions therefore
--- accumulate purely from OUR OWN layout numbers: the widths ApplyTabLayout
--- stamps (CFD hostW), the configured spacing, and the clip's fixed slack
--- constants (clip TOPLEFT = gdm TOPLEFT -4,+8; first static tab sits at
--- gdm BOTTOMLEFT, i.e. clip-local x=4, y=8). STATIC docked tabs only --
--- dynamic whisper tabs get no host visuals (their bg/hover textures
--- remain); until the tab-geometry gate clears, no hostW exists and hosts
--- simply stay hidden.
 function ECHAT.PositionTabHosts()
     local clip = ns._tabHostClip
     if not clip then return end
@@ -2579,14 +2505,6 @@ local function SkinTab(cf)
         tab.conversationIcon:SetParent(_hiddenParent)
     end
 
-    -- NO hooksecurefunc(tab, "SetPoint") -- removed 2026-07-21 with the
-    -- other synchronous tab hooks: its body executed inside the secure
-    -- temp-whisper creation chain (FCF_DockUpdate re-anchors the tabs
-    -- mid-creation), the same injection that blocked UpdateHeader's secret
-    -- width math. The y=-1 seat normalize now lives in ApplyTabLayout
-    -- (deferred passes only), which is safe again precisely because the
-    -- synchronous FCFDock_UpdateTabs hook is gone -- the deferred-once
-    -- rewrite was stable for months pre-841 under these same conditions.
 
     UpdateTabStyle(tab)
     ECHAT.ApplyTabBorders()
@@ -2654,13 +2572,10 @@ function ECHAT.ApplyTabLayout()
             -- Text-derived widths apply to STATIC docked tabs only. Dynamic
             -- temp whisper tabs are scroll-managed: FCFDock_CalculateTabSize
             -- caps their width and the scroll/jump math depends on it, so
-            -- Blizzard owns their sizing. Their labels are also SECRET target
-            -- names on Midnight (rendered width of secret text is a secret
-            -- number; arithmetic on it is a hard error -- field report:
-            -- ChatFrame11Tab), so the issecretvalue guard stays as the belt.
+            -- Blizzard owns their sizing.
             if fs and fs.GetStringWidth and cfOwner and IsStaticDocked(cfOwner) then
                 local w = fs:GetStringWidth()
-                if w and not (issecretvalue and issecretvalue(w)) then
+                if w then
                     local tabW = max(40, ceil(w + paddingX * 2))
                     tab:SetWidth(tabW)
                     -- Width record for PositionTabHosts (numeric host
@@ -2668,24 +2583,9 @@ function ECHAT.ApplyTabLayout()
                     CFD(tab).hostW = tabW
                 end
             end
-            -- Dynamic (docked, non-static) whisper tab seat normalize:
-            -- Blizzard anchors the first dynamic tab LEFT/LEFT y=-1 on the
-            -- scroll child; rewrite once to (+1physpx, 0). Idempotent (the
-            -- rewritten anchor has y=0, so repeat passes skip), DEFERRED
-            -- passes only -- this replaced the per-tab SetPoint hook, whose
-            -- body ran inside the secure temp-window creation chain and
-            -- tainted UpdateHeader's secret width math (2026-07-21).
             if cfOwner and cfOwner.isDocked and not IsStaticDocked(cfOwner) then
                 local pt, rel, relPt, x, y = tab:GetPoint(1)
-                -- A docked temp WHISPER tab whose target is secret (in
-                -- instances / M+) has SECRET geometry: comparing pt/relPt or
-                -- doing arithmetic on x/y under our taint errors, and this pass
-                -- runs on the whisper path. Skip such tabs entirely -- the seat
-                -- normalize is cosmetic. Same issecretvalue belt as the width
-                -- record above (2893).
-                if not (issecretvalue and (issecretvalue(pt) or issecretvalue(relPt)
-                        or issecretvalue(x) or issecretvalue(y)))
-                    and pt == "LEFT" and relPt == "LEFT" and y and y ~= 0 then
+                if pt == "LEFT" and relPt == "LEFT" and y and y ~= 0 then
                     local es = tab:GetEffectiveScale()
                     local onePhys = PP and PP.SnapForES and PP.SnapForES(1, es) or 1
                     tab:SetPoint(pt, rel, relPt, (x or 0) + onePhys, 0)
@@ -2825,14 +2725,6 @@ local function SkinEditBox(cf)
         ApplyEditBoxHeaderFont(eb)
     end
 
-    -- Edit box HOOKS (not the plain setters above) taint a temp whisper
-    -- window's execution context. When that conversation's secure code later
-    -- touches its secret tellTarget (e.g. a BN_WHISPER presence ID) it poisons
-    -- the shared ChatHistory access tables, after which EVERY chat message
-    -- errors in HistoryKeeper for the rest of the session. Only the permanent
-    -- docked frames (1-10) are safe to hook; temp windows (11+) get visual
-    -- skinning only. (This matches the function header's stated intent and the
-    -- 1-10 header-font gate in ECHAT.ApplyFonts.)
     if idx <= 10 then
         eb:HookScript("OnEditFocusGained", function(self) ApplyEditBoxHeaderFont(self) end)
 
@@ -2855,7 +2747,6 @@ local function SkinEditBox(cf)
             CFD(eb).history = {}
             CFD(eb).histIdx = 0
             hooksecurefunc(eb, "AddHistoryLine", function(self, text)
-                if issecretvalue and issecretvalue(text) then return end
                 local cmd = text and text:match("^%s*(/%S+)")
                 if cmd and IsSecureCmd and IsSecureCmd(cmd) then return end
                 local h = CFD(self).history
@@ -2958,7 +2849,6 @@ local function SkinChatFrame(cf)
             if cfg.sidebarVisibility == "mouseover" then
                 C_Timer.After(0, function()
                     local over = sidebar:IsMouseOver()
-                    if issecretvalue and issecretvalue(over) then over = false end
                     if not over then
                         _sidebarFadeTarget = 0
                         if _sidebarFadeFrame then _sidebarFadeFrame:Show() end
@@ -3687,23 +3577,6 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end)
     end
-    -- NO synchronous hooks on FCFTab_UpdateColors or FCFDock_UpdateTabs.
-    -- Both shipped briefly post-841 (recolor funnel + static-layout
-    -- re-assert) and both were removed 2026-07-21: FCF_OpenTemporaryWindow
-    -- -> FCF_SetTemporaryWindowType calls FCFTab_UpdateColors directly and
-    -- ends with FCF_DockUpdate (a synchronous FCFDock_UpdateTabs call), so
-    -- BOTH hook bodies executed inside the temp-whisper creation chain --
-    -- which then Deactivates the new editBox and runs UpdateHeader's width
-    -- math on the SECRET whisper-name geometry. Field taintlog (twice,
-    -- after the FCF_OpenTemporaryWindow hook itself was already removed):
-    -- "arithmetic on a secret value blocked because of taint from
-    -- EllesmereUIChat" at ChatFrameEditBox.lua:677, and the whisper fails
-    -- to route. The absence of any "while reading global" transfer line
-    -- for us (DBM's hook shows one) fingers hook-body EXECUTION mid-chain
-    -- as the injection, so no body shape is safe -- the funnel hooks are
-    -- gone entirely. Recolor + layout now run DEFERRED from our own
-    -- triggers below; the cost is a possible 1-frame Blizzard-styled
-    -- flash on dock passes, accepted over the taint.
     local _tabPassQueued = false
     local function QueueTabPass()
         if BISECT_DEFERRED_PASSES_OFF then return end
@@ -3738,20 +3611,6 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end)
     end
-    -- Temp window creation: re-run SkinPass to catch new frames.
-    -- NEVER hooksecurefunc("FCF_OpenTemporaryWindow") -- field-proven taint
-    -- TWICE (pre-841 module history, and again in the 2026-07-21 tester
-    -- taintlog): the secure whisper router calls it mid-function and then
-    -- continues to DeactivateChat -> UpdateHeader, whose header width math
-    -- runs on the SECRET whisper name geometry; with our hook in the chain
-    -- the remainder of the caller executes tainted and the arithmetic is
-    -- blocked. Instead, listen for the same whisper events on our own frame
-    -- (standalone dispatch, outside Blizzard's) and defer the skin. This
-    -- covers every temp-window trigger: incoming whisper, and outgoing
-    -- /w-in-popout-mode (WHISPER_INFORM). A BACKGROUND open (window not
-    -- selected) anchors the tab during the open itself, before this
-    -- deferred pass installs the per-tab SetPoint hook -- SkinTab's
-    -- one-shot anchor catch-up handles that missed first write.
     do
         local tempWinFrame = EllesmereUI.SafeCreateFrame("Frame")
         tempWinFrame:RegisterEvent("CHAT_MSG_WHISPER")
@@ -4062,9 +3921,6 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        -- Edit box focus tracking -- only ChatFrame1 (permanent, no secret
-        -- values). Hooking temp whisper edit boxes (11+) taints their
-        -- execution context, causing secret value errors on BN_WHISPER tellTarget.
         local eb1 = _G["ChatFrame1EditBox"]
         if eb1 then
             eb1:HookScript("OnEditFocusGained", function()
@@ -4104,15 +3960,6 @@ initFrame:SetScript("OnEvent", function(self)
     --  8. Apply all visual settings from DB
     ---------------------------------------------------------------------------
     ECHAT.ApplySidebarVisibility()
-    -- ApplyBorders is DEFERRED out of the PLAYER_LOGIN execution (field-
-    -- bisected 2026-07-25, ladder B3-B15): running it synchronously here
-    -- chains into ApplyExtendedBackground, which plants the panel border's
-    -- anchors in ChatFrame1's rect web WHILE Blizzard's login dock pass is
-    -- still resolving layout -- that pass then reads our insecure anchors,
-    -- runs tainted, and its persistent dock state poisons every later
-    -- temp-whisper open (FCFManager_GetChatTarget /GetDecoratedSenderName
-    -- secret errors). The deferred tab passes (PEW + C_Timer) are the
-    -- field-proven-clean home for this work -- same cadence, one tick later.
     do
         local bordersDefer = EllesmereUI.SafeCreateFrame("Frame")
         bordersDefer:RegisterEvent("PLAYER_ENTERING_WORLD")

@@ -481,7 +481,6 @@ initFrame:SetScript("OnEvent", function(self)
                         and "target marker, next on each press")
                     or (slot.kind == "cycleworldmarker"
                         and "world marker, next on each press")
-                    or (slot.kind == "randommount" and "mount")
                     or (slot.kind == "spec" and "specialization")
                     -- The name above is already the spell this character would
                     -- cast, so the caption says what picked it rather than

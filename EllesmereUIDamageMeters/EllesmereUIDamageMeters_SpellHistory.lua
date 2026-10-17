@@ -182,12 +182,9 @@ local function BuildRightText(entry)
     local castStr = FormatCastTime(entry)
     local outcomeStr = OUTCOME_TEXT[entry.status]
     -- Outcome (Interrupted/Failed) replaces target; otherwise show target.
-    -- Enemy names in M+ are secret values but FontStrings can display them.
     local target = entry.target
-    local isSecret = target and issecretvalue and issecretvalue(target)
-    local hasTarget = target and (isSecret or target ~= "")
-    -- Strip realm suffix for non-secret names (secret values pass through to FontString as-is)
-    if hasTarget and not isSecret and not outcomeStr and Ambiguate then
+    local hasTarget = target and target ~= ""
+    if hasTarget and not outcomeStr and Ambiguate then
         target = Ambiguate(target, "short")
     end
     local rightPart = outcomeStr or (hasTarget and target) or nil

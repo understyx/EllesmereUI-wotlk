@@ -162,15 +162,11 @@ local function HasEnoughResources(spellID)
         if powerType then
             local cost = c.cost or 0
             if c.costPercent and c.costPercent > 0 then
-                -- Power can be a SECRET number in tainted combat; can't compare it,
-                -- so default to castable rather than throw.
                 local maxP = UnitPowerMax("player", powerType)
-                if issecretvalue and issecretvalue(maxP) then return true end
                 cost = math.max(cost, (c.costPercent / 100) * maxP)
             end
             if cost > 0 then
                 local cur = UnitPower("player", powerType)
-                if issecretvalue and issecretvalue(cur) then return true end
                 if cur < cost then return false end
             end
         end
@@ -287,7 +283,6 @@ ns.ResolveFrameSpellID = ResolveFrameSpellID
 --                      Immolate 348 while the displayed spell is Wither 445468).
 --   * canon         -- GetCanonicalSpellIDForFrame: the displayed/castable id
 --                      the picker keys settings by (GetSpellID-first, clean-read
---                      cached so it survives the active/secret state).
 --   * resolvedSid   -- cached override/display id.
 --   * baseSpellID   -- cached base id.
 -- Match a stored key against the frame's FULL identity set, by direct hit,
@@ -375,7 +370,6 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
                 -- Split-identity buffs (one shared base spellID, per-form aura
                 -- ids -- e.g. Starweaver's Warp/Weft both base Starweaver): the
                 -- ACTIVE frame's identity collapses to the shared base because
-                -- GetSpellID reads secret, so the direct hit below would
                 -- resolve a DIFFERENT entry than the placeholder (which passes
                 -- the per-form id). Prefer the clean per-form id cached per
                 -- cooldownID from unrestricted reads. For normal buffs the
@@ -845,13 +839,9 @@ end
 --- ground truth, not the static category API. It also tells us which
 --- family to consult (buffs -> _divertedSpellsBuff, otherwise CD).
 
--- Plain readable positive number, without ever inspecting a secret (type()
--- and issecretvalue read only the tags). Mirrors _IsUsableSID in
--- EllesmereUICdmSpellPicker.lua; used below to tell a real "no diversion"
--- answer apart from a blind lookup whose every id field was secret.
+-- Plain positive number. Mirrors _IsUsableSID in EllesmereUICdmSpellPicker.lua.
 local function CdidIDReadable(id)
     if type(id) ~= "number" then return false end
-    if issecretvalue and issecretvalue(id) then return false end
     return id > 0
 end
 
@@ -872,7 +862,6 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     if cached then return cached end
 
     -- cooldownID-level claim first (collided buffs tracked by slot). Needs no
-    -- cooldownInfo read, so it also works while every sid field is secret.
     if viewerDefaultBar == "buffs" then
         local cdRoute = _divertedBuffCdIDs[cdID]
         if cdRoute then
@@ -911,9 +900,7 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     local routedBar = nil
     do
         -- No raw `> 0` / `~=` comparisons on info.spellID/overrideSpellID here:
-        -- on an active CDM viewer frame these can be secret numbers (per
         -- EllesmereUICdmSpellPicker.lua's _IsUsableSID comment), and comparing
-        -- a secret value directly taints execution. RVV (ResolveVariantValue)
         -- already gates its input through _IsUsableSID internally, so just
         -- feed it the raw fields and let it reject anything unusable.
         routedBar = RVV(divertMap, info.spellID)
@@ -930,7 +917,6 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
 
     if not routedBar then
         -- No diversion found. Only trust (and cache) that answer if at least
-        -- one id field was actually readable: with every id secret (active
         -- viewer frame in combat) the lookup above was blind, and caching the
         -- fallback would pin the wrong bar until the next RebuildSpellRouteMap
         -- -- the same reasoning as the uncached info-not-ready return above.
@@ -1079,13 +1065,12 @@ end
 
 -- Live active-state read from Blizzard's swipe color (mirrors the SetSwipeColor
 -- hook; fd._wasActive is stale on falloffs). Returns true while the spell is in
--- its active (buff-up) state. Secret-safe: a secret red channel reads as not
 -- active. Used so charge "Hide Swipe" never hides the active-state colored swipe.
 local function CdmFrameIsActive(frame)
     local swipeColor = frame and frame.cooldownSwipeColor
     if swipeColor and type(swipeColor) ~= "number" and swipeColor.GetRGBA then
         local r = swipeColor:GetRGBA()
-        if r and type(r) == "number" and not issecretvalue(r) then
+        if r and type(r) == "number" then
             return r ~= 0
         end
     end
@@ -1097,7 +1082,6 @@ end
 -- swipe is hidden only when the per-spell Hide Swipe toggle is set (resolved
 -- only while ns._cdmAnyChargeStyle is on). Caller MUST guard with
 -- fd._isProcessingOverride so the SetDrawSwipe sibling hook does not recurse.
--- Secret-safe: HasVisualDataSource_Charges is a clean bool, the ss flag is ours.
 local function ApplyCdmChargeStyle(frame, cd)
     if type(frame.HasVisualDataSource_Charges) ~= "function"
        or not frame:HasVisualDataSource_Charges() then
@@ -1110,8 +1094,6 @@ local function ApplyCdmChargeStyle(frame, cd)
         local ss2 = ns._ResolveCdmSS(frame)
         if ss2 then
             -- Hide Recharge Edge (per-spell): drop the recharge edge line that
-            -- ApplyCdmEdge just drew. Secret-safe: ss flag is ours, SetDrawEdge
-            -- takes no secret.
             if ss2.hideRechargeEdge and cd.SetDrawEdge then
                 cd:SetDrawEdge(false)
             end
@@ -1150,7 +1132,6 @@ end
 -- driven by charge state instead of the active swipe. ss2.maxStacksGlow is the
 -- glow STYLE; the color is the unified ss.glowColor (same as every other glow).
 -- atMax is a CLEAN bool the caller derives from C_Spell.GetSpellCharges().isActive
--- (recharge-active flag, false only at max) -- never the secret currentCharges.
 local function ApplyMaxStacksGlow(frame, fd, ss2, atMax)
     if not fd then return end
     local has = ss2 and ss2.maxStacksGlow and ss2.maxStacksGlow > 0
@@ -1287,7 +1268,6 @@ end
 --  Ayije drives its ready glow. Charge readiness = GetSpellCharges().isActive == false
 --  (at max, the clean signal Max Stacks Glow uses); non-charge readiness =
 --  not (GetSpellCooldown().isActive and not isOnGCD). No duration/magnitude math
---  (those values are secret in protected instances) -- only the clean bool flags.
 -------------------------------------------------------------------------------
 ns._cdReadySoundWatch = ns._cdReadySoundWatch or setmetatable({}, { __mode = "k" })
 
@@ -1488,7 +1468,6 @@ end
 -- against the real endTime instead. Riding SPELL_UPDATE_COOLDOWN alone therefore never
 -- sees the expiry: the sound waited for the next unrelated cooldown event, which for a
 -- spell the player sits on is their next cast. Post-hooking the alert is the same
--- taint-safe idiom as EnsureBuffSoundHook on TriggerAuraAppliedAlert, needs no secret
 -- duration read, and lands on the exact frame the cooldown ends.
 --
 -- Charge spells are left to the SPELL_UPDATE_CHARGES watcher: this alert fires when the
@@ -1573,7 +1552,6 @@ end
 --  global cooldown right after a cast even though a charge remains. The charge-spell
 --  test uses GetSpellCharges().maxCharges > 1 (stable through the GCD) -- never
 --  HasVisualDataSource_Charges, which flips false during a GCD swipe. Neither reads
---  the secret currentCharges.
 --
 --  Driven by SPELL_UPDATE_CHARGES, same as Max Stacks Glow: that event fires on
 --  every charge transition (spend AND refill) and nothing else, so re-evaluation
@@ -1607,7 +1585,6 @@ function ns.CdmShouldHideCountdown(frame, baseHide)
     -- isOnGCD during the global cooldown right after a cast (still have a charge);
     -- 0 charges == isActive true AND not on GCD. So gating on isActive alone wrongly
     -- shows the duration through every GCD -- the isOnGCD term is required. Both
-    -- flags are clean; the secret currentCharges is never read.
     local cdInfo = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(liveSid)
     if not cdInfo then return baseHide end
     local onRealCd = cdInfo.isActive and not cdInfo.isOnGCD
@@ -1701,7 +1678,6 @@ end
 --  the last one refills -- the clean signal Max Stacks Glow uses). maxCharges > 1
 --  is the charge-spell test, stable through the GCD unlike
 --  HasVisualDataSource_Charges; non-charge spells keep the caller's cooldown
---  read. The secret currentCharges is never read.
 --
 --  Per-spell "+ Stay Hidden While Charges Remain" (ss.chargeHideUntilSpent) opts
 --  a spell back into the legacy reading, for players who only want the icon once
@@ -1863,7 +1839,6 @@ end
 -------------------------------------------------------------------------------
 --  Swiftmend brightness: Blizzard dims the icon via SetVertexColor when
 --  Efflorescence / HoTs drop. Hook the icon texture once to force bright.
---  Recursion guard only -- never compare incoming args (secret values).
 --  Retried on EVERY DecorateFrame call (not just the first decoration):
 --  spell-ID resolution can miss on the frame's very first pass (cooldownID
 --  not yet assigned), and the decorated-flag early return used to make that
@@ -1880,8 +1855,6 @@ local function TryHookSwiftmend(frame, fd)
     local iconWidget = fd.tex
     if not iconWidget then return end
     local dispSID, baseSID = ResolveFrameSpellID(frame)
-    if dispSID and issecretvalue(dispSID) then dispSID = nil end
-    if baseSID and issecretvalue(baseSID) then baseSID = nil end
     if baseSID ~= SWIFTMEND_SID and dispSID ~= SWIFTMEND_SID then return end
     fd._smVCHooked = true
     _smHookedIcons[#_smHookedIcons + 1] = iconWidget
@@ -1903,16 +1876,14 @@ SlashCmdList.CDMSMDBG = function()
     local n, hookedN = 0, 0
     for frame, fd in pairs(hookFrameData) do
         local dispSID, baseSID = ResolveFrameSpellID(frame)
-        if dispSID and issecretvalue(dispSID) then dispSID = nil end
-        if baseSID and issecretvalue(baseSID) then baseSID = nil end
-        if dispSID == SWIFTMEND_SID or baseSID == SWIFTMEND_SID then
+                if dispSID == SWIFTMEND_SID or baseSID == SWIFTMEND_SID then
             n = n + 1
             if fd._smVCHooked then hookedN = hookedN + 1 end
             local col = "?"
             local tex = fd.tex
             if tex and tex.GetVertexColor then
                 local r, g, b = tex:GetVertexColor()
-                if r and not issecretvalue(r) then
+                if r then
                     col = string.format("%.2f %.2f %.2f", r, g, b)
                 end
             end
@@ -1980,8 +1951,7 @@ local function ApplyCustomIcon(frame, fd)
         -- of disarming until the next aura event.
         local fc = _ecmeFC[frame]
         local sid = fc and (fc.resolvedSid or fc.spellID)
-        if type(sid) == "number" and not (issecretvalue and issecretvalue(sid))
-           and sid > 0 and C_Spell and C_Spell.GetSpellTexture then
+        if type(sid) == "number" and sid > 0 and C_Spell and C_Spell.GetSpellTexture then
             fd._customIconOn = nil
             local real = C_Spell.GetSpellTexture(sid)
             if real then tex:SetTexture(real) end
@@ -2372,7 +2342,6 @@ local function DecorateFrame(frame, barData)
                     -- a GCD swipe is layered on top -- the exact moment this hook runs --
                     -- so the old gate let a 0-charge recharge fall through and get
                     -- suppressed. Both fields are clean (maxCharges int, isActive bool;
-                    -- the secret currentCharges is never read). Override ID resolved for
                     -- transform spells, mirroring the re-arm paths below.
                     local effID2 = sid2
                     if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
@@ -2407,7 +2376,7 @@ local function DecorateFrame(frame, barData)
                 local isActive = false
                 if swipeColor and type(swipeColor) ~= "number" and swipeColor.GetRGBA then
                     local r = swipeColor:GetRGBA()
-                    if r and type(r) == "number" and not issecretvalue(r) then
+                    if r and type(r) == "number" then
                         isActive = (r ~= 0)
                     end
                 end
@@ -2547,7 +2516,6 @@ local function DecorateFrame(frame, barData)
 
                 -- Max Stacks Glow (per-spell): glow a multi-charge spell at max charges.
                 -- "At max" = no recharge running, read from GetSpellCharges().isActive
-                -- The secret currentCharges is never read. Consuming a charge fires this
                 -- swipe hook; refilling to max fires Cooldown:Clear (handled below).
                 if ns._cdmAnyMaxStacksGlow and ss2 and ss2.maxStacksGlow and ss2.maxStacksGlow > 0 then
                     -- Register for charge/cooldown events (the only thing that catches
@@ -2579,7 +2547,6 @@ local function DecorateFrame(frame, barData)
                 if handled then return end
                 -- Per-spell Hide CD Swipe (non-charge): keep the swipe suppressed even
                 -- when Blizzard re-pushes the cooldown. Gated so it costs nothing until
-                -- someone enables it. Resolved from our own flags (secret-safe) in both
                 -- stores -- per-bar spellSettings and preset customActiveStates.
                 if ns._cdmAnyHideCDSwipe then
                     local ssH = ns._ResolveCdmSS(frame)
@@ -2663,15 +2630,10 @@ local function DecorateFrame(frame, barData)
                 local cdInfo = C_Spell.GetSpellCooldown(effID) or C_Spell.GetSpellCooldown(sid2)
                 if not (cdInfo and cdInfo.isActive and not cdInfo.isOnGCD) then return end
                 -- Don't fight a widget that already shows a real cooldown, a GCD, or
-                -- aura-display time -- act only when it is cleared to ~0. The secret
-                -- check MUST run before any truthiness/comparison on the value (a
-                -- secret errors on either); when the widget's duration is secret we
-                -- cannot prove it was cleared, so fail closed and leave it alone
-                -- (the sigil failure moment reads a clean 0, so the fix still runs).
+                -- aura-display time -- act only when it is cleared to ~0.
                 if cd.GetCooldownDuration then
                     local ok, curDur = pcall(cd.GetCooldownDuration, cd)
                     if not ok then return end
-                    if issecretvalue and issecretvalue(curDur) then return end
                     if curDur and curDur > 100 then return end
                 end
                 local durObj = C_Spell.GetSpellCooldownDuration(effID)
@@ -2748,14 +2710,12 @@ local function DecorateFrame(frame, barData)
                 -- re-arms the recharge, and Blizzard's per-aura-refresh wipe leaves
                 -- the swipe blank. Re-arm off the clean recharge flag instead, but
                 -- ONLY inside our Hide-Active override so non-override charge spells
-                -- keep Blizzard's native display untouched. Secret-safe: GetSpellCharges
                 -- .isActive is a clean bool; currentCharges is never read.
                 local chargeActive = fd._hideActiveOverriding and C_Spell.GetSpellCharges
                     and (C_Spell.GetSpellCharges(effID) or C_Spell.GetSpellCharges(sid2) or {}).isActive == true
                 if not (cdActive or chargeActive) then return end
                 -- Re-derive the charge recharge duration. The duration object is
                 -- opaque and fed straight to the widget, never inspected, so it is
-                -- secret-safe.
                 local durObj = C_Spell.GetSpellChargeDuration(effID)
                 if not durObj and effID ~= sid2 then
                     durObj = C_Spell.GetSpellChargeDuration(sid2)
@@ -2798,7 +2758,6 @@ local function DecorateFrame(frame, barData)
                     if ovr and ovr > 0 and ovr ~= sid2 then effID = ovr end
                 end
                 -- Only while a recharge is genuinely running. isActive is a clean
-                -- bool; currentCharges (secret) is never read.
                 local ci = C_Spell.GetSpellCharges(effID) or C_Spell.GetSpellCharges(sid2)
                 if not (ci and ci.isActive == true) then return end
                 local durObj = C_Spell.GetSpellChargeDuration(effID)
@@ -2925,14 +2884,13 @@ local function DecorateFrame(frame, barData)
                 local onRealCD = cdInfo2 and cdInfo2.isActive and not cdInfo2.isOnGCD
                 -- Charge spells report cooldown isActive while a recharge is in
                 -- progress even when a castable charge remains, which would wrongly
-                -- desaturate a still-usable icon. currentCharges is a SECRET value
-                -- in this tainted hook (can't be compared), so use Blizzard's clean
-                -- isOnActualCooldown flag instead -- false means at least one charge
+                -- desaturate a still-usable icon. Use Blizzard's isOnActualCooldown
+                -- flag instead -- false means at least one charge
                 -- is usable, so stay saturated until the spell is genuinely out.
                 if onRealCD and type(frame.HasVisualDataSource_Charges) == "function"
                    and frame:HasVisualDataSource_Charges() then
                     local actualCD = frame.isOnActualCooldown
-                    if (not issecretvalue or not issecretvalue(actualCD)) and actualCD == false then
+                    if actualCD == false then
                         onRealCD = false
                     end
                 end
@@ -3205,7 +3163,6 @@ local function DecorateFrame(frame, barData)
         -- and ticks). Re-applies our desaturation whenever the spell is NOT in its
         -- active state, read LIVE from the swipe color (fd._wasActive is stale --
         -- the swipe block doesn't re-run on some falloffs, e.g. DoT expiry). The
-        -- secret arg is never read; the _isProcessingOverride guard bounds
         -- recursion and keeps it from fighting the swipe block's own SetDesaturated.
         --
         -- ZERO-COST WHEN UNUSED: the very first line is a single flag check, so
@@ -3238,7 +3195,7 @@ local function DecorateFrame(frame, barData)
                 local sc = frame.cooldownSwipeColor
                 if sc and type(sc) ~= "number" and sc.GetRGBA then
                     local r = sc:GetRGBA()
-                    if type(r) == "number" and not issecretvalue(r) then isAct = (r ~= 0) end
+                    if type(r) == "number" then isAct = (r ~= 0) end
                 end
                 if isAct then return end
                 fd._isProcessingOverride = true
@@ -3913,38 +3870,16 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Desaturation curve for custom frames (taint-safe).
---  Step curve: 0 when no cooldown, 1 immediately when cooldown active.
---  EvaluateRemainingDuration on a DurationObject handles secret values
---  internally so we never compare secret numbers ourselves.
+--  Flat desaturation fallback for custom frames.
 -------------------------------------------------------------------------------
-local _desatCurve
-if C_CurveUtil and C_CurveUtil.CreateCurve then
-    _desatCurve = C_CurveUtil.CreateCurve()
-    _desatCurve:SetType(Enum.LuaCurveType.Step)
-    _desatCurve:AddPoint(0, 0)
-    _desatCurve:AddPoint(0.001, 1)
-end
-
 local function SetTextureDesaturation(tex, amount)
     if not tex then return end
     if tex.SetDesaturation then
         tex:SetDesaturation(amount or 0)
     elseif tex.SetDesaturated then
         -- Legacy clients expose only the boolean Texture:SetDesaturated API.
-        -- This fallback cannot receive a secret curve value because those
-        -- clients do not provide C_CurveUtil/EvaluateRemainingDuration.
+        -- Legacy clients do not provide curve-based duration evaluation.
         tex:SetDesaturated((amount or 0) ~= 0)
-    end
-end
-
-local function ApplySpellDesaturation(f, durObj)
-    if not f._tex then return end
-    if durObj and _desatCurve and durObj.EvaluateRemainingDuration then
-        local val = durObj:EvaluateRemainingDuration(_desatCurve, 0)
-        SetTextureDesaturation(f._tex, val or 0)
-    else
-        SetTextureDesaturation(f._tex, 0)
     end
 end
 
@@ -4135,14 +4070,11 @@ ns.GetOrCreateCustomBuffFrame = GetOrCreateCustomBuffFrame
 -- Resolve a manually-entered player buff without requiring a Blizzard CDM
 -- catalog/viewer entry. Retail can answer by spell ID directly; the UnitAura
 -- fallback keeps the same path working on the WotLK compatibility client.
--- Returns auraData, readable. A secret direct result is deliberately treated
--- as unreadable rather than boolean-tested (which would error in restricted
--- content); the caller keeps its previous edge state until a clean read.
+-- Returns auraData and whether the direct API or legacy scan was available.
 local function GetCustomHostedPlayerAura(spellID)
     local getByID = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
     if getByID then
         local aura = getByID(spellID)
-        if issecretvalue and issecretvalue(aura) then return nil, false end
         return aura, true
     end
     if not UnitAura then return nil, false end
@@ -4165,16 +4097,13 @@ local function GetCustomHostedPlayerAura(spellID)
     return nil, true
 end
 
--- Apply an aura's duration to an own-frame cooldown without comparing secret
--- duration fields. Clean numeric data uses the normal start/duration pair;
--- timeless or restricted auras simply show the active icon without a swipe.
+-- Apply an aura's duration to an own-frame cooldown. Numeric timing uses the
+-- normal start/duration pair; timeless auras show the active icon without a swipe.
 local function ApplyCustomHostedAuraCooldown(frame, aura)
     local duration = aura and aura.duration
     local expirationTime = aura and aura.expirationTime
     local durationReadable = type(duration) == "number"
-        and not (issecretvalue and issecretvalue(duration))
     local expirationReadable = type(expirationTime) == "number"
-        and not (issecretvalue and issecretvalue(expirationTime))
     if durationReadable and expirationReadable and duration > 0 and expirationTime > 0 then
         frame._cooldown:SetCooldown(expirationTime - duration, duration)
     else
@@ -4499,7 +4428,7 @@ local function ProcessPresetCooldowns()
                     if cdInfo and cdInfo.isOnGCD and not onRealCD then
                         SetTextureDesaturation(f._tex, 0)
                     else
-                        ApplySpellDesaturation(f, durObj)
+                        SetTextureDesaturation(f._tex, 0)
                     end
                     -- Resource check: dim vertex color when not enough resources
                     -- Only for custom spells (not racials -- racials don't cost resources)
@@ -4543,11 +4472,9 @@ local function ProcessPresetCooldowns()
                             local chargeInfo = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
                             local n = (chargeInfo and C_Spell.GetSpellDisplayCount and C_Spell.GetSpellDisplayCount(sid))
                                 or (C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(sid))
-                            -- The count is a SECRET value in Midnight (cannot be read or
-                            -- compared -- issecretvalue was making the old code bail), so
-                            -- render it Blizzard's way: TruncateWhenZero turns it into a
-                            -- display-safe string and drops it at zero, without reading
-                            -- the value. pcall because it can throw; failure -> hide.
+                            -- Render through Blizzard's count formatter, which drops
+                            -- zero values. pcall because the formatter can throw; failure
+                            -- hides this optional text.
                             local ok, str
                             if C_StringUtil and C_StringUtil.TruncateWhenZero then
                                 ok, str = pcall(C_StringUtil.TruncateWhenZero, n)
@@ -4673,10 +4600,7 @@ ns._MarkPresetCdDirty = function() _presetCdDirty = true end
 SLASH_EUICDMCC1 = "/cdmcc"
 SlashCmdList["EUICDMCC"] = function()
     local function p(...) print("|cff66ccff[EUICC]|r", ...) end
-    local function safe(v)
-        if issecretvalue and issecretvalue(v) then return "<secret>" end
-        return tostring(v)
-    end
+    local function safe(v) return tostring(v) end
     p("gate _cdmAnyCustomForceCount =", tostring(ns._cdmAnyCustomForceCount),
       "| dirty =", tostring(_presetCdDirty))
     p("APIs: GetSpellCharges=", tostring(C_Spell and C_Spell.GetSpellCharges ~= nil),
@@ -5250,18 +5174,12 @@ local function CollectAndReanchor()
                                     -- cooldownInfo's override can point at a base spec spell with
                                     -- a generic icon (e.g. 137029 Holy Paladin) while GetSpellID is
                                     -- the real talent form the viewer shows (e.g. 432496 Holy
-                                    -- Bulwark). GetSpellID can return a SECRET number on a live
-                                    -- frame; type() reports "number" for a secret, so guard with
-                                    -- issecretvalue BEFORE the <= 0 compare (an order the
-                                    -- short-circuit relies on) and fall back to the clean
-                                    -- cooldownInfo-resolved displaySID.
+                                    -- Bulwark). If GetSpellID is unavailable, fall back to
+                                    -- the cooldownInfo-resolved displaySID.
                                     local realSID = frame.GetSpellID and frame:GetSpellID()
-                                    if type(realSID) ~= "number"
-                                       or (issecretvalue and issecretvalue(realSID))
-                                       or realSID <= 0 then
-                                        -- Secret/unavailable read (instanced combat):
-                                        -- prefer the clean per-form id cached from
-                                        -- earlier unrestricted reads. Falling straight
+                                    if type(realSID) ~= "number" or realSID <= 0 then
+                                        -- Prefer the per-form id cached from earlier
+                                        -- reads. Falling straight
                                         -- to displaySID collapses split-identity twins
                                         -- (Starweaver) onto the shared base spell: both
                                         -- placeholders get one icon AND one pooled
@@ -5270,10 +5188,9 @@ local function CollectAndReanchor()
                                             and ns._cdmCleanSidByCDID[dedupKey])
                                             or displaySID
                                     elseif ns._cdmCleanSidByCDID and dedupKey then
-                                        -- Inactive frame -> CLEAN GetSpellID. Prime the shared cache
+                                        -- Inactive frame -> GetSpellID. Prime the shared cache
                                         -- (keyed by cooldownID) so the custom-buff picker/preview
-                                        -- can resolve this spell to its live form even later while
-                                        -- the aura is ACTIVE (GetSpellID secret then). Done for ALL
+                                        -- can resolve this spell to its live form. Done for ALL
                                         -- inactive buff frames, not just opted-in bars.
                                         ns._cdmCleanSidByCDID[dedupKey] = realSID
                                     end
@@ -5472,11 +5389,9 @@ local function CollectAndReanchor()
                                 auraActive = _customHostedAuraState[auraStateKey] == true
                             end
                             local icon = aura and aura.icon
-                            if issecretvalue and issecretvalue(icon) then icon = nil end
                             if not icon and C_Spell and C_Spell.GetSpellTexture then
                                 icon = C_Spell.GetSpellTexture(sid)
                             end
-                            if issecretvalue and issecretvalue(icon) then icon = nil end
 
                             -- Resolve the buff-family per-icon setting through a
                             -- placeholder identity, just like native hosted auras.
@@ -6376,7 +6291,7 @@ local function CollectAndReanchor()
                                         if durObj and f._cooldown.SetCooldownFromDurationObject then
                                             f._cooldown:SetCooldownFromDurationObject(durObj, true)
                                         end
-                                        ApplySpellDesaturation(f, durObj)
+                                        SetTextureDesaturation(f._tex, 0)
                                         f._cdSet = true; f._racialCdDirty = false
                                     end
                                     frames[#frames + 1] = f
@@ -7152,9 +7067,7 @@ ns.CollectAndReanchor = CollectAndReanchor
 -- fire Blizzard's TriggerAuraAppliedAlert -- they appear on a cast/edge for a
 -- fixed window -- so the regular-buff apply-edge hook can't reach them. We play
 -- the SAME stored key (ss.buffActiveSoundKey) here, off the cast edge that
--- (re)starts the icon's timer. No loss sound: the real aura is secret/other-cast,
 -- so only the gain edge is knowable. The id comes straight from the bar's
--- assignedSpells (clean, never secret), so the lookup is a direct spellSettings
 -- hit -- no GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound
 -- (the same flag RescanBuffSoundFlag sets from these very spellSettings) and
 -- throttled so a refresh-cast a few frames apart can't double-fire.
@@ -7715,7 +7628,6 @@ function ns.SetupViewerHooks()
             -- when something CAN have changed -- player aura/totem flip,
             -- viewer pool churn, aura edge, preset-cooldown dirt -- or on
             -- a 0.5s staleness net (the poll's original no-event mandate,
-            -- e.g. secret procs; in practice those arrive as pool churn, so
             -- the net is insurance). A clean fire costs three reads.
             local _btNow = GetTime()
             -- Park integrity for Blizzard's tracked-bar viewer. Runs ahead of
@@ -7897,9 +7809,7 @@ function ns.SetupViewerHooks()
                                     local r
                                     if swipeColor and type(swipeColor) ~= "number" and swipeColor.GetRGBA then
                                         r = swipeColor:GetRGBA()
-                                        -- Secret or unavailable reads as "no
-                                        -- data" -- neither edge acts on it.
-                                        if type(r) ~= "number" or issecretvalue(r) then r = nil end
+                                        if type(r) ~= "number" then r = nil end
                                     end
                                     if r == 0 then
                                         -- Clean 0: not active. Clear a glow we own.
@@ -8063,42 +7973,13 @@ function ns.SetupViewerHooks()
         cdmBuffTickFrame:RegisterUnitEvent("UNIT_AURA", "player")
         cdmBuffTickFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
         cdmBuffTickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        cdmBuffTickFrame:SetScript("OnEvent", function(_, event, _, updateInfo)
+        cdmBuffTickFrame:SetScript("OnEvent", function(_, event)
             ns._btDirty = true
-            -- Gen bump on anything that can RELEASE a pool frame: aura
-            -- removals/full updates, totem drops/despawns, and world entry.
-            -- Only UNIT_AURA carries an updateInfo table in this slot --
-            -- PLAYER_ENTERING_WORLD's second arg is the isReconnect BOOLEAN
-            -- (true on /reload), so the payload must never be indexed for
-            -- the other events.
+            -- Re-enumerate the viewer pools after events that can release
+            -- frames; on this client UNIT_AURA requires an aura snapshot diff.
             if event ~= "UNIT_AURA" then
                 ns._acGen = (ns._acGen or 0) + 1
-            elseif updateInfo then
-                -- SECRET-SAFE (12.1): the payload TABLE and each of its fields
-                -- can all arrive secret in instanced content, and a secret can
-                -- never be boolean-tested in Lua -- that is a hard error, not a
-                -- falsy read. So: guard the table before indexing it, bind the
-                -- fields to locals (reading a secret is always legal), then
-                -- issecretvalue-gate every test. When the payload cannot be
-                -- read, assume churn -- one extra pool rebuild costs far less
-                -- than a cache still holding released frames. On 12.0 the
-                -- fields are plain and this is the original fast path.
-                -- Same guard shape as the lust listener in CdmBuffBars.
-                if issecretvalue(updateInfo) then
-                    ns._acGen = (ns._acGen or 0) + 1
-                else
-                    local full    = updateInfo.isFullUpdate
-                    local removed = updateInfo.removedAuraInstanceIDs
-                    if issecretvalue(full) or issecretvalue(removed)
-                       or full or removed then
-                        ns._acGen = (ns._acGen or 0) + 1
-                    end
-                end
             elseif cdmBuffTickFrame._UpdateLegacyPlayerAuraSnapshot() then
-                -- Wrath UNIT_AURA has no updateInfo. A generation bump forces
-                -- the four viewer pools to be re-enumerated, so compare aura
-                -- identities and only bump when something was removed.
-                -- PERF NOTE: this gen gates the _activeCache rebuild across all viewers.
                 ns._acGen = (ns._acGen or 0) + 1
             end
             if not _btTicker then
@@ -8496,7 +8377,6 @@ do
         if HasAction and not HasAction(slot) then return nil end
         -- NOTE (Midnight): GetActionInfo is documented as usable only in the
         -- secure restricted environment. This runs from an insecure post-hook,
-        -- so a future build could hand back nil/secret here and silently no-op
         -- the press mirror. Revisit via a secure route if that ever regresses.
         local actionType, id, subType = GetActionInfo(slot)
         if actionType == "spell" then

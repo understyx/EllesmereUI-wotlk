@@ -41,7 +41,6 @@ local type          = type
 local wipe          = wipe
 local lower         = string.lower
 local random        = math.random
-local issecret      = issecretvalue or function() return false end
 
 -- Roster token lists per context. Units() picks the active one so the roster
 -- cache and classifier iterate raid1-40 in a raid and the party list otherwise.
@@ -97,23 +96,23 @@ local function RebuildRoster()
     wipe(rosterSex)
     for _, u in ipairs(Units()) do
         local ex = UnitExists(u)
-        if not issecret(ex) and ex == true then
+        if ex == true then
             local _, token = UnitClass(u)
-            if not issecret(token) and type(token) == "string" then
+            if type(token) == "string" then
                 local list = rosterByClass[token]
                 if not list then list = {}; rosterByClass[token] = list end
                 list[#list + 1] = u
             end
             local role = AssignedRole(u)
-            if not issecret(role) and type(role) == "string" and role ~= "NONE" then
+            if type(role) == "string" and role ~= "NONE" then
                 rosterRole[u] = role
             end
             local _, raceToken = UnitRace(u)
-            if not issecret(raceToken) and type(raceToken) == "string" then
+            if type(raceToken) == "string" then
                 rosterRace[u] = raceToken
             end
             local sex = UnitSex(u)
-            if not issecret(sex) and type(sex) == "number" then
+            if type(sex) == "number" then
                 rosterSex[u] = sex
             end
         end
@@ -148,7 +147,7 @@ end
 local function Classify(caster)
     local tgt = caster .. "target"
     local _, cls = UnitClass(tgt)
-    if issecret(cls) or type(cls) ~= "string" then return nil end
+    if type(cls) ~= "string" then return nil end
 
     wipe(matchBuf)
     local cands = rosterByClass[cls]
@@ -177,18 +176,18 @@ local function Classify(caster)
     -- = TANK) would show that member without ever checking its race/sex matched
     -- -- which is how same-class twins started false-flagging onto the tank.
     local role = AssignedRole(tgt)
-    if issecret(role) or role == "NONE" then role = nil end
+    if role == "NONE" then role = nil end
     Narrow(role, rosterRole)
 
     -- Race/sex on a COMPOUND token are pcall-guarded: some APIs reject compound
     -- tokens outright (UnitGUID does) and that rejection must degrade to
     -- "filter skipped", not an error per cast.
     local okR, _, raceToken = pcall(UnitRace, tgt)
-    if not okR or issecret(raceToken) or type(raceToken) ~= "string" then raceToken = nil end
+    if not okR or type(raceToken) ~= "string" then raceToken = nil end
     Narrow(raceToken, rosterRace)
 
     local okS, sex = pcall(UnitSex, tgt)
-    if not okS or issecret(sex) or type(sex) ~= "number" then sex = nil end
+    if not okS or type(sex) ~= "number" then sex = nil end
     Narrow(sex, rosterSex)
 
     -- Ambiguity rule: a single confirmed target or nothing at all
@@ -408,7 +407,6 @@ local function ShowFor(caster, matches, texture, durObj)
             if icon then
                 icon._tsCaster = caster
                 StyleIcon(icon)
-                -- texture may be SECRET: SetTexture accepts it natively
                 if type(texture) == "nil" then
                     icon._tex:SetTexture(FALLBACK_ICON)
                 else
@@ -459,7 +457,7 @@ local function Resolve(caster, myGen)
     -- Re-check the clean gate now that the target link has settled
     if UnitShouldDisplaySpellTargetName then
         local sd = UnitShouldDisplaySpellTargetName(caster)
-        if not issecret(sd) and sd == false then return end
+        if sd == false then return end
     end
 
     local matches = Classify(caster)
@@ -503,15 +501,15 @@ end
 local function OnCastStart(caster)
     ClearCaster(caster)  -- bumps gen; previous cast's icons die
     -- Enemy casters only: friendly nameplates (followers, NPC allies) also hard
-    -- cast at group members and pass the displayable-target gate. Plainly-false
-    -- attackability = ally; secret = assume hostile.
+    -- cast at group members and pass the displayable-target gate. False
+    -- attackability means the caster is friendly.
     local hostile = UnitCanAttack("player", caster)
-    if not issecret(hostile) and hostile ~= true then return end
+    if hostile ~= true then return end
     -- Clean pre-filter: gate=false at event time means no displayable player
     -- target (AoE channels, self-casts) AND a stale target link.
     if UnitShouldDisplaySpellTargetName then
         local sd = UnitShouldDisplaySpellTargetName(caster)
-        if not issecret(sd) and sd == false then return end
+        if sd == false then return end
     end
     tracked[caster] = true
     local myGen = gen[caster]

@@ -27,18 +27,6 @@ local function Recheck()
     if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
 end
 
-local function KeysCfg()
-    if not EllesmereUIDB then return {} end
-    EllesmereUIDB.keystonePopup = EllesmereUIDB.keystonePopup or {}
-    return EllesmereUIDB.keystonePopup
-end
-
-local function TeleCfg()
-    if not EllesmereUIDB then return {} end
-    EllesmereUIDB.teleportPrompt = EllesmereUIDB.teleportPrompt or {}
-    return EllesmereUIDB.teleportPrompt
-end
-
 -- Built as the tail of the Quality of Life page (chained from BuildQoLPage),
 -- not as its own tab. Lays out from yOffset and returns the height used,
 -- like every other section builder.
@@ -50,57 +38,6 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
 
     parent._showRowDivider = true
 
-
-    ---------------------------------------------------------------------------
-    --  LFG REMINDER
-    ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "LFG REMINDER", y); y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type    = "toggle",
-          text    = "Enable LFG Reminder",
-          tooltip = "When you join a Group Finder group for a dungeon that has a teleport, shows a small movable popup with the dungeon name and a one-click teleport button. It hides when you enter the dungeon, leave the group, or enter combat.",
-          getValue = function() return TeleCfg().enabled ~= false end,
-          -- DependentSetValue: the Show 'Disable Feature' Text row below is
-          -- hidden while the reminder is off; the flip forces the rebuild.
-          setValue = EllesmereUI.DependentSetValue(
-              function() return TeleCfg().enabled ~= false end,
-              function(v)
-                  TeleCfg().enabled = v
-                  EllesmereUI:RefreshPage()
-                  -- Applies live in both directions: enable builds the popup and
-                  -- registers events, disable hides and unregisters.
-                  if _G._EUI_ApplyTeleportPrompt then _G._EUI_ApplyTeleportPrompt() end
-              end) },
-        { type    = "slider",
-          text    = "Window Scale",
-          min     = 50, max = 150, step = 5,
-          disabled = function() return TeleCfg().enabled == false end,
-          disabledTooltip = "LFG Reminder",
-          tooltip = "Scale of the LFG Reminder popup window.",
-          getValue = function() return math.floor((TeleCfg().scale or 1.05) * 100 + 0.5) end,
-          setValue = function(v)
-              TeleCfg().scale = v / 100
-              if _G._EUI_RefreshTeleportPrompt then _G._EUI_RefreshTeleportPrompt() end
-          end }
-    ); y = y - h
-
-    -- Show 'Disable Feature' Text row: HIDDEN while the reminder is off.
-    if TeleCfg().enabled ~= false then
-    _, h = W:DualRow(parent, y,
-        { type    = "toggle",
-          text    = "Show 'Disable Feature' Text",
-          tooltip = "Shows the 'Disable Feature' text below the teleport button. When off, the text is hidden and the window is 20px shorter.",
-          getValue = function() return TeleCfg().showDisable ~= false end,
-          setValue = function(v)
-              TeleCfg().showDisable = v
-              if _G._EUI_RefreshTeleportPrompt then _G._EUI_RefreshTeleportPrompt() end
-          end },
-        { type = "label", text = "" }
-    ); y = y - h
-    end   -- close LFG Reminder hidden-while-disabled gate
-
-    _, h = W:Spacer(parent, y, 20); y = y - h
 
     ---------------------------------------------------------------------------
     --  AUTO COMBAT LOGGING

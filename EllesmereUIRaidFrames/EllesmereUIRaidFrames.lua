@@ -1,9 +1,3 @@
--------------------------------------------------------------------------------
---  EllesmereUIRaidFrames.lua
---  Custom raid frames built on SecureGroupHeaderTemplate.
---  8 per-group headers (separated mode) + 1 combined header (flat mode).
---  Secret-value-safe absorb shields matching UnitFrames visuals.
--------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -250,7 +244,6 @@ local IsInGroup             = IsInGroup
 local InCombatLockdown      = InCombatLockdown
 local GetNumGroupMembers    = GetNumGroupMembers
 local C_Timer               = C_Timer
-local issecretvalue         = issecretvalue
 local CreateFrame           = CreateFrame
 local RAID_CLASS_COLORS     = RAID_CLASS_COLORS
 
@@ -356,15 +349,6 @@ local DISPEL_COLORS = {
     [""]    = { r = 0.75,  g = 0.15,  b = 0.15 },  -- Bleed / physical (no dispelName)
 }
 
--- Dispel type icon atlases
-local DISPEL_ICON_ATLAS = {
-    Magic   = "RaidFrame-Icon-DebuffMagic",
-    Curse   = "RaidFrame-Icon-DebuffCurse",
-    Disease = "RaidFrame-Icon-DebuffDisease",
-    Poison  = "RaidFrame-Icon-DebuffPoison",
-    [""]    = "RaidFrame-Icon-DebuffBleed",
-}
-
 -- Wrath has no RaidFrame-Icon-Debuff* atlases. Use real 3.3.5 aura spell
 -- textures so both the live type indicator and its options preview render on
 -- the legacy client instead of showing the red missing-texture square.
@@ -381,13 +365,9 @@ local function GetSpellIcon(spellID)
 end
 
 local function SetDispelTypeTexture(texture, dispelType)
-    if ns.IS_WRATH then
-        texture:SetTexture(GetSpellIcon(DISPEL_ICON_SPELL[dispelType])
-            or "Interface\\Icons\\INV_Misc_QuestionMark")
-        texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    else
-        texture:SetAtlas(DISPEL_ICON_ATLAS[dispelType])
-    end
+    texture:SetTexture(GetSpellIcon(DISPEL_ICON_SPELL[dispelType])
+        or "Interface\\Icons\\INV_Misc_QuestionMark")
+    texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 end
 
 local _, playerClassToken = UnitClass("player")
@@ -395,7 +375,6 @@ local _, playerClassToken = UnitClass("player")
 -- Classes that use IsSpellInRange instead of UnitInRange for living units.
 -- These classes have shorter effective ranges that 43yd UnitInRange misrepresents.
 local FRIENDLY_SPELL_BY_CLASS = {
-    EVOKER = 361469,  -- Living Flame (baseline all specs, unit-targeted friendly -> IsSpellInRange returns a real boolean; ~25yd, 30 talented). Emerald Blossom (355913) is a location/smart-heal whose IsSpellInRange can stay nil, which stranded Evoker frames at full alpha.
     ROGUE  = 36554,   -- Shadowstep (25yd)
 }
 local playerFriendlySpell = FRIENDLY_SPELL_BY_CLASS[playerClassToken]
@@ -412,15 +391,12 @@ ns._COMBAT_CLASS_COORDS = {
     MAGE        = { 0.125, 0.25,  0,     0.125 },
     ROGUE       = { 0.25,  0.375, 0,     0.125 },
     DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
     HUNTER      = { 0,     0.125, 0.125, 0.25  },
     SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
     PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
     WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
     PALADIN     = { 0,     0.125, 0.25,  0.375 },
     DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
 }
 
 -------------------------------------------------------------------------------
@@ -1433,73 +1409,16 @@ end
 -- Track current active tier so we know when to re-layout
 ns._currentSizeTier = 20
 
--------------------------------------------------------------------------------
---  Color helpers
--------------------------------------------------------------------------------
--- Safe health percent: returns 0-100, no secret value arithmetic
 local function GetSafeHealthPercent(unit)
     return UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
 end
 
--- Classic health color curve: red (dead) -> yellow (mid) -> green (full)
--- Built once via C_CurveUtil, passed to UnitHealthPercent which handles
--- secret values internally and returns a clean ColorMixin.
-local classicHealthCurve
-local function GetClassicHealthCurve()
-    if classicHealthCurve then return classicHealthCurve end
-    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve
-        and Enum and Enum.LuaCurveType) then
-        return nil
-    end
-    local curve = C_CurveUtil.CreateColorCurve()
-    curve:SetType(Enum.LuaCurveType.Linear)
-    curve:AddPoint(0, CreateColor(1, 0, 0, 1))     -- red at 0%
-    curve:AddPoint(0.5, CreateColor(1, 1, 0, 1))   -- yellow at 50%
-    curve:AddPoint(1, CreateColor(0, 1, 0, 1))     -- green at 100%
-    classicHealthCurve = curve
-    return curve
-end
-
--- Custom Dynamic Colors: like Classic, but the three gradient stops (full / half /
--- empty health) are user-chosen. Live frames feed a C_CurveUtil curve to
--- UnitHealthPercent (secret-value safe, identical to the Classic path); the curve
--- is cached and rebuilt only when one of the three colors changes. Wrapped in a
--- do-block so the cache state does not consume main-chunk local slots (this file
--- is at the Lua 5.1 200-local cap).
 do
     local DEF100 = { r = 0, g = 1, b = 0 }
     local DEF50  = { r = 1, g = 1, b = 0 }
     local DEF0   = { r = 1, g = 0, b = 0 }
-    local dynCurve
-    local r0, g0, b0, r50, g50, b50, r100, g100, b100
-    function ns.GetCustomDynamicCurve(s)
-        if not (C_CurveUtil and C_CurveUtil.CreateColorCurve
-            and Enum and Enum.LuaCurveType) then
-            return nil
-        end
-        s = s or db.profile
-        local c0   = s.dynamicColor0   or DEF0
-        local c50  = s.dynamicColor50  or DEF50
-        local c100 = s.dynamicColor100 or DEF100
-        if not (dynCurve
-            and r0   == c0.r   and g0   == c0.g   and b0   == c0.b
-            and r50  == c50.r  and g50  == c50.g  and b50  == c50.b
-            and r100 == c100.r and g100 == c100.g and b100 == c100.b) then
-            dynCurve = C_CurveUtil.CreateColorCurve()
-            dynCurve:SetType(Enum.LuaCurveType.Linear)
-            dynCurve:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
-            dynCurve:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
-            dynCurve:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
-            r0, g0, b0       = c0.r, c0.g, c0.b
-            r50, g50, b50    = c50.r, c50.g, c50.b
-            r100, g100, b100 = c100.r, c100.g, c100.b
-        end
-        return dynCurve
-    end
-
-    -- Clean-number interpolation matching the curve above, for preview surfaces
-    -- where the health percent is a known fake value (0-1). Linear between the
-    -- 0%/50% stops below half, and the 50%/100% stops at or above half.
+    -- Clean-number interpolation for preview surfaces where the health percent
+    -- is a known fake value (0-1), with a midpoint at 50%.
     function ns.ResolveDynamicColor(s, pct01)
         s = s or db.profile
         local c0   = s.dynamicColor0   or DEF0
@@ -1600,36 +1519,17 @@ local function GetHealthColor(unit, s)
         local dfr, dfg, dfb = EllesmereUI.GetDarkModeFill()
         return dfr, dfg, dfb
     elseif mode == "classic" then
-        -- Native WoW health gradient via Blizzard's curve system (secret-value safe)
-        local curve = GetClassicHealthCurve()
-        if not curve then
-            local pct = GetSafeHealthPercent(unit) / 100
-            if pct >= 0.5 then return 2 - pct * 2, 1, 0 end
-            return 1, pct * 2, 0
-        end
-        local color = UnitHealthPercent(unit, true, curve)
-        if color and color.GetRGB then
-            return color:GetRGB()
-        end
-        return 0, 1, 0
+        local pct = GetSafeHealthPercent(unit) / 100
+        if pct >= 0.5 then return 2 - pct * 2, 1, 0 end
+        return 1, pct * 2, 0
     elseif mode == "customDynamic" then
-        -- User-customizable gradient via the same secret-safe curve path as Classic
-        local curve = ns.GetCustomDynamicCurve(s)
-        if not curve then
-            return ns.ResolveDynamicColor(s, GetSafeHealthPercent(unit) / 100)
-        end
-        local color = UnitHealthPercent(unit, true, curve)
-        if color and color.GetRGB then
-            return color:GetRGB()
-        end
-        return 0, 1, 0
+        return ns.ResolveDynamicColor(s, GetSafeHealthPercent(unit) / 100)
     elseif mode == "custom" then
         local c = s.customFillColor
         return c.r, c.g, c.b
     else -- "class"
         local _, classToken = UnitClass(unit)
-        -- Secret-safe: a secret classToken would throw on GetClassColor's table index.
-        if classToken and not issecretvalue(classToken) then
+        if classToken then
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then return cc.r, cc.g, cc.b end
         end
@@ -1662,15 +1562,8 @@ ns._ApplyHealthFill = function(d, unit, s)
     end
 end
 
--- UTF-8 aware character-count cap for an in-frame display name. Shared by the
--- live frames (via ResolveDisplayName) and every preview surface so they stay in
--- sync. Skips secret strings entirely (#, string.byte and string.sub all throw
--- on a secret value), so a secret name is shown verbatim and uncapped. The cap
--- reads db.profile.nameMaxLength (0 = off). On ns (not a file-scope local) to
--- stay clear of the main-chunk 200-local cap.
 function ns.CapName(display)
     if type(display) ~= "string" then return display end
-    if issecretvalue and issecretvalue(display) then return display end
     if display == "" then return display end
     local maxLen = db and db.profile and db.profile.nameMaxLength or 15
     if not maxLen or maxLen <= 0 then return display end
@@ -1712,7 +1605,7 @@ local function ResolveDisplayName(unit, applyCap)
     if NSAPI and NSAPI.GetName then
         local ok, dn = pcall(NSAPI.GetName, NSAPI, name, "EUI")
         if ok and type(dn) == "string"
-           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+           and dn ~= "" and dn ~= name then
             display = dn
         end
     end
@@ -1721,7 +1614,7 @@ local function ResolveDisplayName(unit, applyCap)
     if not display and EasyNicknameAPI and EasyNicknameAPI.GetNicknameForUnit then
         local ok, dn = pcall(EasyNicknameAPI.GetNicknameForUnit, unit)
         if ok and type(dn) == "string"
-           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+           and dn ~= "" and dn ~= name then
             display = dn
         end
     end
@@ -1739,7 +1632,7 @@ local function ResolveDisplayName(unit, applyCap)
                 if okHas and has then
                     local ok, dn = pcall(TR.GetNickname, TR, unit)
                     if ok and type(dn) == "string"
-                       and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
+                       and dn ~= "" then
                         display = dn
                     end
                 end
@@ -1748,14 +1641,12 @@ local function ResolveDisplayName(unit, applyCap)
     end
     -- Liquid addon nicknames (consulted when NSRT and TR did not produce one).
     -- LiquidAPI.GetNicknameForEllesmereUI takes the raw UnitName string and returns
-    -- a nickname string, or nil for: no nickname set, nicknames disabled in the
-    -- Liquid addon, a secret name, or an empty name. It does all of that gating
-    -- itself, so we just pcall-wrap it (dot call, single arg -- not a method) and
-    -- re-check the result is a clean, non-empty string as defense in depth.
+    -- a nickname string, or nil when no nickname is available. It handles its own
+    -- settings, so we pcall-wrap the dot call and require a non-empty result.
     if not display and LiquidAPI and LiquidAPI.GetNicknameForEllesmereUI then
         local ok, dn = pcall(LiquidAPI.GetNicknameForEllesmereUI, name)
         if ok and type(dn) == "string"
-           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
+           and dn ~= "" then
             display = dn
         end
     end
@@ -1768,7 +1659,7 @@ local function ResolveDisplayName(unit, applyCap)
     if not display and ns._rgaNick then
         local ok, dn = pcall(RG_UnitName, unit)
         if ok and type(dn) == "string"
-           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+           and dn ~= "" and dn ~= name then
             display = dn
         end
     end
@@ -1788,10 +1679,7 @@ function ns.GetBgColor(unit, s)
     local a = (s.bgDarkness or 50) / 100
     if s.bgClassColored and unit and UnitExists(unit) then
         local _, classToken = UnitClass(unit)
-        -- classToken can be a secret value (out-of-range/uninspectable units);
-        -- indexing GetClassColor's tables with a secret throws "table index is
-        -- secret". Guard it and fall back to the custom bg color when secret/nil.
-        if classToken and not issecretvalue(classToken) then
+        if classToken then
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then return cc.r, cc.g, cc.b, a end
         end
@@ -1993,13 +1881,6 @@ function ns.AnchorRFText(fs, health, pos, ox, oy, width)
     fs:SetText(""); fs:SetText(txt or "")
 end
 
--- Format a heal-absorb amount into a FontString. mode: "amount" (full number),
--- "short" (abbreviated like 240k), "none"/nil (blank). Hidden at zero:
--- C_StringUtil.TruncateWhenZero blanks the value at zero. The amount it returns
--- (and thus GetText afterwards) is a SECRET string for a secret absorb, so we
--- may ONLY feed it to SetText or test its truthiness -- never compare it (== ""
--- taints). For "short" we read GetText back and gate on truthiness alone: it is
--- non-nil exactly when the absorb is non-zero, so we abbreviate only then.
 function ns.FormatHealAbsorbInto(fs, amt, mode)
     if not fs then return end
     if not mode or mode == "none" then fs:SetText(""); return end
@@ -2078,13 +1959,6 @@ end
 --  RF diverges from the UnitFrames module (which still offers only "Blizzard").
 -------------------------------------------------------------------------------
 
--- Configure ONE absorb StatusBar for the compound "Blizzard (Modern)" style:
--- a tiled 9196ff striped fill over an opaque c6c8ff solid base. The base is our
--- own texture (._modernBase, colored once at creation); here we re-establish the
--- striped fill (the bar's fill is shared with the other styles, so it must be
--- restored when switching back to modern) and anchor the base to the fill rect
--- so it rides the same clip/mask geometry the secret SetValue drives -- no Lua
--- math on the secret. Colors are hardcoded; this style ignores user color/opacity.
 ns.ApplyModernAbsorbBar = function(bar, mask)
     if not bar then return end
     bar:SetStatusBarTexture(ABSORB_STYLE_TEX.striped)
@@ -2208,12 +2082,6 @@ ns.ApplyMaxHealthStyle = function(bar, style, settings)
     end
 end
 
--------------------------------------------------------------------------------
---  Create absorb bar (dual clip-frame, secret-value safe)
---  Matches UnitFrames implementation exactly.
---  Clip frames do "min(absorb, curHealth)" and "max(0, absorb - curHealth)"
---  visually so we never need Lua arithmetic on secret values.
--------------------------------------------------------------------------------
 local function CreateAbsorbBar(button, healthBar)
     if not healthBar then return end
     local d = GetFFD(button)
@@ -2285,20 +2153,10 @@ local function CreateAbsorbBar(button, healthBar)
     forwardBar:SetFrameLevel(healthBar:GetFrameLevel() + 3)
     forwardBar:Hide()
 
-    -- "Default Blizz Frames" spark: a fixed 16px soft glow (cast_spark.tga, ADD blend)
-    -- centered on the shield's left edge (the current-HP seam) -- half over health, half
-    -- over the shield. It lives on its own non-clipping host above the shield so the
-    -- health-side half isn't clipped by missClip; its CENTER is pinned to the forward
-    -- bar's LEFT edge so it tracks the seam. It is itself a StatusBar fed the absorb with
-    -- a tiny max, so ANY shield fills it 100% and no shield collapses it to nothing --
-    -- self-gating off the secret absorb just like the shield bars, no boolean/mask.
     local sparkHost = CreateFrame("Frame", nil, healthBar)
     sparkHost:SetAllPoints(healthBar)
     sparkHost:SetClipsChildren(true)
     sparkHost:SetFrameLevel(healthBar:GetFrameLevel() + 4)
-    -- Invisible gate bar (16px, centered on the seam): fed the absorb with a tiny max so
-    -- its fill is binary -- a full 16px when ANY shield exists, zero when none. Only its
-    -- fill GEOMETRY is used; it self-gates off the secret absorb like the shield bars.
     local gateBar = CreateFrame("StatusBar", nil, sparkHost)
     gateBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     gateBar:SetStatusBarColor(1, 1, 1, 0)
@@ -2439,7 +2297,6 @@ local function CreateAbsorbBar(button, healthBar)
     end
     ReanchorAbsorbToFill()
 
-    -- Per-button calculator for reading absorb value (secret-safe)
     local hpCalc
     if CreateUnitHealPredictionCalculator then
         hpCalc = CreateUnitHealPredictionCalculator()
@@ -2480,10 +2337,6 @@ local function CreateAbsorbBar(button, healthBar)
     healAbsorbBar._lastOverDispel = false  -- "Show Over Dispels" applied state; off = created level
     healAbsorbBar:Hide()
 
-    -- Black backing behind the heal-absorb texture (all styles; opacity user-set via
-    -- healAbsorbBgOpacity). Drawn UNDER the fill (ARTWORK sublevel 1 < the fill's 2),
-    -- masked + SetAllPoints'd to the fill rect each update so it tracks the secret
-    -- heal-absorb amount and collapses to nothing when there is none.
     local haBg = healAbsorbBar:CreateTexture(nil, "ARTWORK", nil, 1)
     haBg:SetTexture(0, 0, 0, 0.25)
     if absorbMask and haBg.AddMaskTexture then haBg:AddMaskTexture(absorbMask) end
@@ -2680,7 +2533,6 @@ local function UpdateAbsorb(button, unit)
         UnitGetDetailedHealPrediction(unit, nil, calc)
         calc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
         maxHealth = calc:GetMaximumHealth()
-        -- 2nd return (Missing Health clamp) = secret-safe overshield boolean.
         local _, clampedBool = calc:GetDamageAbsorbs()
         isClamped = clampedBool
         -- Bars get the FULL absorb so the overflow/backfill renders correctly.
@@ -2690,8 +2542,6 @@ local function UpdateAbsorb(button, unit)
         absorbAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
     end
 
-    -- Absorb Bar: solid bar above the frame, fills from the right edge.
-    -- Fed raw values (secret-safe); a zero absorb renders as an empty bar.
     if topBar then
         if barOn then
             local bc = s.absorbBarColor or { r = 1, g = 1, b = 1 }
@@ -2770,11 +2620,6 @@ local function UpdateAbsorb(button, unit)
             local healAbsorbAmt = UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit) or 0
             ha:SetHeight(hp:GetHeight())
             EUI.API.SetBarSegment(ha, math.min(healAbsorbAmt, curHealth), maxHealth, hp:GetWidth())
-            -- Reverse-filled status bars can retain a one-pixel sliver at zero.
-            -- The backing follows that fill, turning the sliver into a permanent
-            -- dark/doubled bar on the right edge of live frames. Alpha-gate the
-            -- complete overlay from the same value. SetAlphaFromBoolean also
-            -- accepts the restricted boolean produced by secret absorb values.
             if ha.SetAlphaFromBoolean then
                 ha:SetAlphaFromBoolean(healAbsorbAmt ~= 0, 1, 0)
             else
@@ -3302,9 +3147,6 @@ local function StyleButton(button)
     dispelIcon:SetSize(16, 16)
     dispelIcon:Hide()
     d.dispelIcon = dispelIcon
-    -- One overlapping atlas texture per dispellable type. We can't read the
-    -- (secret) dispel type to pick one, so we show them all and let a per-type
-    -- alpha curve make only the matching one visible (secret alpha passthrough).
     d.dispelIconTextures = {}
     -- Keyed by Blizzard dispel-type index. 9 (Enrage) and 11 (Bleed) share the
     -- physical/bleed atlas, matching how the color curve treats them.
@@ -4128,42 +3970,30 @@ local function StyleButton(button)
         local u = self:GetAttribute("unit")
         if u and UnitExists(u) then
             GameTooltip_SetDefaultAnchor(GameTooltip, self)
-            -- Populate with a freshly-built clean literal token (matched by GUID)
-            -- rather than the secure unit attribute. A literal "raidN"/"partyN"/
-            -- "player" string we construct here does not carry the secure-frame
-            -- origin that makes GameTooltip:GetUnit() return a secret value, so
-            -- external tooltip addons (which read GetUnit) can resolve the unit
-            -- and add their lines. GUID-matched, so never the wrong person; falls
-            -- back to the attribute when no clean token can be derived.
             local tip, g = u, UnitGUID(u)
-            if g and not (issecretvalue and issecretvalue(g)) then
+            if g then
                 if UnitGUID("player") == g then
                     tip = "player"
                 elseif IsInRaid() then
                     for i = 1, GetNumGroupMembers() do
                         local tk = "raid" .. i
                         local tg = UnitGUID(tk)
-                        if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
+                        if tg and tg == g then tip = tk; break end
                     end
                 else
                     for i = 1, GetNumSubgroupMembers() do
                         local tk = "party" .. i
                         local tg = UnitGUID(tk)
-                        if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
+                        if tg and tg == g then tip = tk; break end
                     end
                 end
             end
             GameTooltip:SetUnit(tip)
-            -- RaiderIO (and similar) resolve the tooltip unit via
-            -- UnitTokenFromGUID(data.guid), which returns a SECRET token on our
-            -- secure header frames, so their own handler bails before drawing.
-            -- When the tooltip unit is still secret, hand RaiderIO our clean
-            -- GUID-matched token through its public API so the score lines show.
-            -- Gated on a secret/absent GetUnit() so we never double-draw when
-            -- its normal path already succeeded (e.g. for the player's target).
+            -- RaiderIO can resolve the unit from its public API. Pass the clean
+            -- GUID-matched token when the tooltip did not expose a unit.
             if _G.RaiderIO and _G.RaiderIO.ShowProfile then
                 local _, ttUnit = GameTooltip:GetUnit()
-                if not ttUnit or (issecretvalue and issecretvalue(ttUnit)) then
+                if not ttUnit then
                     _G.RaiderIO.ShowProfile(GameTooltip, tip)
                 end
             end
@@ -4217,19 +4047,6 @@ local function StyleButton(button)
     -- like Set Focus) work without taint. (Sets *type2 = "click" -> proxy.)
     ns.AttachRaidUnitMenu(button)
 
-    -- Hover ping support. Without this, a mouseover ping over our frame falls
-    -- through to the 3D world behind it, because the ping system only targets a
-    -- unit when the moused-over frame is flagged as a ping receiver. The recipe
-    -- is: mix in the pingable-unit type, set the secure "ping-receiver"
-    -- attribute, and resolve the target GUID live from our own "unit" attribute
-    -- (the same source every update path reads), so it always tracks the current
-    -- occupant after sorts and roster changes. Returning nil when there is no
-    -- unit lets the ping correctly fall through. The GUID can be a secret value
-    -- in Midnight: it is handed to the ping system raw and must never be guarded
-    -- or stringified. button is a frame we spawned (our own secure template), so
-    -- mixing in and adding the resolver method is safe here. Runs once per button
-    -- via the d.styled guard, at creation out of combat, beside the type1/type2
-    -- secure attributes above.
     if PingableType_UnitFrameMixin then
         Mixin(button, PingableType_UnitFrameMixin)
         button:SetAttribute("ping-receiver", true)
@@ -4279,7 +4096,7 @@ ns._UpdateRoleIcon = function(d, s, unit)
     if s.roleIconHideInCombat and inCombat then roleIcon:Hide(); return end
     local role = EllesmereUI.RoleDetector and EllesmereUI.RoleDetector:GetRole(unit)
         or UnitGroupRolesAssigned(unit)
-    if role and not issecretvalue(role) then
+    if role then
         local showForRole = (role == "TANK" and s.showRoleForTank)
             or (role == "HEALER" and s.showRoleForHealer)
             or (role == "DAMAGER" and s.showRoleForDPS)
@@ -4308,11 +4125,11 @@ ns._UpdateLeaderIcon = function(d, s, unit)
     if s.showLeaderIconInCombat == false and inCombat then leaderIcon:Hide(); return end
     local isLeader = UnitIsGroupLeader(unit)
     local isAssist = UnitIsGroupAssistant(unit)
-    if isLeader and not issecretvalue(isLeader) then
+    if isLeader then
         leaderIcon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
         leaderIcon:SetTexCoord(0, 1, 0, 1)
         leaderIcon:Show()
-    elseif isAssist and not issecretvalue(isAssist) then
+    elseif isAssist then
         leaderIcon:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
         leaderIcon:SetTexCoord(0, 1, 0, 1)
         leaderIcon:Show()
@@ -4333,7 +4150,7 @@ ns._UpdateCombatIcon = function(d, s, unit)
     if not icon then return end
     if not s.showCombatIndicator then icon:Hide(); return end
     local c = UnitAffectingCombat(unit)
-    if issecretvalue(c) or not c then icon:Hide(); return end
+    if not c then icon:Hide(); return end
 
     local EllesmereUI = ns.EllesmereUI
     local style = s.combatIndicatorStyle or "standard"
@@ -4346,7 +4163,6 @@ ns._UpdateCombatIcon = function(d, s, unit)
     else
         local classToken = d.classToken
         if not classToken then local _, ct = UnitClass(unit); classToken = ct end
-        if classToken and issecretvalue(classToken) then classToken = nil end
         if style == "class" then
             icon:SetTexture(MEDIA .. "combat-indicator-class-custom.tga")
             local coords = classToken and ns._COMBAT_CLASS_COORDS[classToken]
@@ -4386,17 +4202,11 @@ local function UpdateButton(button)
     if not d.styled then return end
 
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-    -- Restore alpha respecting BM frame alpha + range alpha.
-    -- If rangeAlpha is nil, it's managed by the secret-safe SetAlphaFromBoolean
-    -- path -- don't override it here or we'd flash full alpha until the next
-    -- range ticker run (0.2s).
     if d.rangeAlpha then
         local baseA = button._bmSavedAlpha or 1
         button:SetAlpha(baseA * d.rangeAlpha)
     end
 
-    -- Health (percent-based, secret-value safe)
-    -- Smooth bar interpolation
     local smooth = s.smoothBars and Enum and Enum.StatusBarInterpolation
         and Enum.StatusBarInterpolation.ExponentialEaseOut
 
@@ -4429,10 +4239,8 @@ local function UpdateButton(button)
             or (role == "DAMAGER" and s.powerShowForDPS)
             or (role == "NONE" and s.powerShowForDPS)
         local pType = UnitPowerType(unit) or 0
-        -- maxPower can be a secret number in group context (12.0.7+); never compare
-        -- it in Lua. Only treat the unit as powerless on a CLEAN zero max.
         local pmx = UnitPowerMax(unit, pType)
-        local cleanNoPower = (not issecretvalue(pmx)) and (not pmx or pmx == 0)
+        local cleanNoPower = not pmx or pmx == 0
         local hidePower = not showForRole or cleanNoPower
 
         -- The Top Name Bar always reserves its height from the top (its anchor is
@@ -4469,10 +4277,6 @@ local function UpdateButton(button)
             local smoothPower = wasShown and s.smoothPowerBars and Enum
                 and Enum.StatusBarInterpolation
                 and Enum.StatusBarInterpolation.ExponentialEaseOut
-            -- Percent-based, secret-safe (mirrors the health bar). UnitPower/
-            -- UnitPowerMax can be secret numbers in group context (12.0.7+) and
-            -- cannot be fed to SetMinMaxValues; UnitPowerPercent evaluates the
-            -- secret on the C side against ScaleTo100 and returns a clean 0-100.
             power:SetMinMaxValues(0, 100)
             local ppct = UnitPowerPercent(unit, pType, true, CurveConstants.ScaleTo100)
             if smoothPower then
@@ -4517,8 +4321,7 @@ local function UpdateButton(button)
         local mode = s.healthTextMode or "none"
         -- Hide the health %/value while the unit is dead or offline -- the status
         -- text shows DEAD/OFFLINE there instead. UnitIsDeadOrGhost/UnitIsConnected
-        -- return clean booleans for group units in Midnight (only UnitIsAFK can be secret),
-        -- so they're safe in a conditional with no issecretvalue guard.
+        -- return clean booleans for group units.
         if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
             d.healthText:SetText("")
         elseif mode == "percent" then
@@ -4597,7 +4400,7 @@ local function UpdateButton(button)
             d.statusText:SetText(EllesmereUI.L("OFFLINE"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
-        elseif s.statusShowAFK and UnitIsAFK and not issecretvalue(UnitIsAFK(unit)) and UnitIsAFK(unit) then
+        elseif s.statusShowAFK and UnitIsAFK and UnitIsAFK(unit) then
             d.statusText:SetText(EllesmereUI.L("AFK"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
@@ -4620,14 +4423,7 @@ local function UpdateButton(button)
         if s.showRaidMarker then
             local idx = GetRaidTargetIndex(unit)
             if idx then
-                if issecretvalue(idx) then
-                    -- Secret-safe path: use SetSpriteSheetCell for secret marker index
-                    d.raidMarker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-                    if d.raidMarker.SetSpriteSheetCell then
-                        pcall(d.raidMarker.SetSpriteSheetCell, d.raidMarker, idx, 4, 4, 64, 64)
-                    end
-                    d.raidMarker:Show()
-                elseif RAID_MARKER_TEXCOORDS[idx] then
+                if RAID_MARKER_TEXCOORDS[idx] then
                     local tc = RAID_MARKER_TEXCOORDS[idx]
                     d.raidMarker:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
                     d.raidMarker:Show()
@@ -4642,14 +4438,9 @@ local function UpdateButton(button)
         end
     end
 
-    -- Target state: recolor the single border ONLY when the target actually
-    -- changes for this button (hover takes priority in ApplyBorderColor). Firing
-    -- only on a real transition keeps the recolor + level work off the per-update
-    -- hot path -- no work on a plain UNIT_HEALTH/UNIT_AURA tick. Both operands are
-    -- clean booleans, so the compare never touches a secret value.
     do
         local isTarget = UnitIsUnit(unit, "target")
-        local newTarget = (isTarget and not issecretvalue(isTarget)) and true or false
+        local newTarget = isTarget and true or false
         if newTarget ~= d._isTarget then
             d._isTarget = newTarget
             if d.ApplyBorderColor then d.ApplyBorderColor() end
@@ -4673,16 +4464,6 @@ local function UpdateButton(button)
     end
 end
 
--------------------------------------------------------------------------------
---  Aura scanning (secret-value safe, incremental via UNIT_AURA payload)
---  Uses C_UnitAuras.IsAuraFilteredOutByInstanceID() with Blizzard-defined
---  filter strings instead of reading isBossAura / isFromPlayerOrPlayerPet
---  (which are secret booleans on other players in Midnight).
---
---  Performance: on incremental UNIT_AURA updates, only processes the delta
---  (added/updated/removed auras) instead of rescanning all HARMFUL auras.
---  Full scan only on isFullUpdate or first call for a button.
--------------------------------------------------------------------------------
 local C_UnitAuras_GetAuraDataByAuraInstanceID = C_UnitAuras.GetAuraDataByAuraInstanceID
 local C_UnitAuras_IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
 
@@ -4767,7 +4548,6 @@ local function IsDisplayDebuff(unit, auraData, s)
         if tracked and (tracked[sid] or (aname and tracked[aname])) then return true, true end
     end
 
-    -- Sated blacklist (secret-safe: skip check if spellId is secret)
     if s and s.hideLustDebuff then
         if sid and SATED_DEBUFFS[sid] then
             return false
@@ -4787,7 +4567,6 @@ end
 
 -- Apply a single debuff's visual data to an icon frame
 local function ApplyDebuffIcon(icon, auraData, unit, s)
-    -- SetTexture accepts secret values natively (GPU renders correctly)
     local tex = auraData.icon
     if tex then
         icon._tex:SetTexture(tex)
@@ -4836,23 +4615,15 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
         end
     end
 
-    -- Duration swipe + text (secret-safe via DurationObject + GetCountdownFontString)
     if icon._cooldown then
         -- Border-only clock: suppress the face pie swipe when active so ONLY
         -- the perimeter ring animates for this dispellable debuff.
         local wantSwipe = s.debuffShowSwipe and not wantClockBorder
         local wantDurText = s.debuffShowDurText
         if wantSwipe or wantDurText then
-            -- Permanent auras return a degenerate 0,0 duration object; a
-            -- cooldown armed from one strobes -- the CLIENT shows the full
-            -- reversed swipe then self-hides, an internal cycle that Lua-side
-            -- show/hide gating cannot stop. Mask with ALPHA instead:
-            -- durObj:IsZero() -> alpha 0. Secret-safe (works on other
-            -- players' debuffs in instances) and orthogonal to the client's
-            -- internal show/hide. Clear()+Hide() wipes stale reused frames.
             local applied = false
             local iid = auraData.auraInstanceID
-            if iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
+            if iid and C_UnitAuras.GetAuraDuration then
                 local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
                 if durObj then
                     if icon._cooldown.SetCooldownFromDurationObject then
@@ -4870,7 +4641,7 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
             else
                 local dur = auraData.duration
                 local exp = auraData.expirationTime
-                if dur and exp and not issecretvalue(dur) and not issecretvalue(exp) and dur > 0 then
+                if dur and exp and dur > 0 then
                     icon._cooldown:SetCooldown(exp - dur, dur)
                     icon._cooldown:SetAlpha(1)
                     applied = true
@@ -4901,13 +4672,6 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
         end
     end
 
-    -- Animated dispel clock border: a fixed-thickness colored ring that starts
-    -- fully drawn and erases clockwise as the debuff expires. The cooldown rings
-    -- are full icon size BEHIND the texture; insetting the texture by the border
-    -- thickness leaves only the inner margin (the ring) visible -- an INSET border
-    -- that stays within the icon's footprint (no layout shift). Engine-driven
-    -- (SetCooldownFromDurationObject), so it stays correct on secret-duration
-    -- debuffs where a Lua timer cannot read the remaining time.
     if icon._clockBorder then
         if wantClockBorder then
             local cb, cbd = icon._clockBorder, icon._clockBorderDark
@@ -4921,7 +4685,7 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
             local ring = ringPx * onePixel
             local applied = false
             local iid = auraData.auraInstanceID
-            if iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
+            if iid and C_UnitAuras.GetAuraDuration then
                 local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
                 if durObj then
                     if cb.SetCooldownFromDurationObject then
@@ -4944,7 +4708,7 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
                 end
             else
                 local dur, exp = auraData.duration, auraData.expirationTime
-                if dur and exp and not issecretvalue(dur) and not issecretvalue(exp) and dur > 0 then
+                if dur and exp and dur > 0 then
                     cb:SetCooldown(exp - dur, dur)
                     cbd:SetCooldown(exp - dur, dur)
                     cb:SetAlpha(1); cbd:SetAlpha(1)
@@ -4952,10 +4716,6 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
                 end
             end
             if applied then
-                -- Tint each swipe; SetVertexColor accepts secret values and
-                -- SetSwipeColor is assumed to behave the same. Bright ring shows
-                -- the remaining time; the reversed dark ring fills the elapsed
-                -- complement in the same hue at 50% brightness.
                 local c  = dc     or s.debuffBorderColor or ns._RF_COLOR_WHITE
                 local cd = dcDark or c
                 if cb.SetSwipeColor then cb:SetSwipeColor(c.r, c.g, c.b, 1) end
@@ -4979,7 +4739,6 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
         end
     end
 
-    -- Stacks (secret-safe via Blizzard API)
     if icon._count then
         if s.debuffShowStacks and C_UnitAuras.GetAuraApplicationDisplayCount then
             local stackText = C_UnitAuras.GetAuraApplicationDisplayCount(
@@ -5014,17 +4773,11 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
     icon:Show()
 end
 
--- CC Debuff Glow: glow a displayed debuff icon when its aura is crowd control.
--- Mirrors CDM's Buff Glow (per-icon overlay + EllesmereUI.Glows.StartGlow). The
--- glow is restarted only when style/size/colour/pixel-params change so a steady
--- glow never resets on a plain aura tick. Secret-safe: the CC test uses the
--- Blizzard filter API, and we never read a secret aura field. Defined on ns (not
--- a file local) to stay under the Lua 200-local cap.
 function ns.ApplyDebuffCCGlow(icon, auraData, unit, s)
     local Glows = EllesmereUI.Glows
     local gType = s.debuffCCGlowType or 0
     local iid = auraData and auraData.auraInstanceID
-    local isCC = gType > 0 and iid and not issecretvalue(iid)
+    local isCC = gType > 0 and iid
         and C_UnitAuras_IsAuraFilteredOutByInstanceID
         and not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, ns._ccDebuffFilter)
     if isCC and Glows and Glows.StartGlow then
@@ -5234,8 +4987,6 @@ local function UpdateDebuffs(button, unit, updateInfo, auraScan)
         -- Added auras (payload contains full auraData)
         if updateInfo.addedAuras then
             for _, auraData in ipairs(updateInfo.addedAuras) do
-                -- addedAuras contains both helpful and harmful; verify harmful
-                -- via filter API (isHarmful is secret on other players)
                 local iid = auraData.auraInstanceID
                 if iid and C_UnitAuras_IsAuraFilteredOutByInstanceID
                     and not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HARMFUL")
@@ -5409,7 +5160,6 @@ local function UpdateDefensives(button, unit, updateInfo, auraScan)
                 local icon = d.defIcons[shown]
                 icon:SetSize(defSz, defSz)
 
-                -- Icon texture (SetTexture accepts secret values natively)
                 local tex = auraData.icon
                 if tex then
                     icon._tex:SetTexture(tex)
@@ -5419,16 +5169,11 @@ local function UpdateDefensives(button, unit, updateInfo, auraScan)
                 local _z = s.defIconZoom or 0.08
                 icon._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
 
-                -- Duration swipe + text (secret-safe via DurationObject + GetCountdownFontString)
                 local cd = icon._cooldown
                 if cd then
                     local wantSwipe = s.defShowSwipe ~= false
                     local wantDurText = s.defShowDurText
                     if wantSwipe or wantDurText then
-                        -- Permanent auras return a degenerate 0,0 duration object
-                        -- whose armed cooldown strobes via an internal client
-                        -- show/self-hide cycle; mask with alpha via durObj:IsZero()
-                        -- (secret-safe, see ApplyDebuffIcon).
                         local applied = false
                         if C_UnitAuras_GetAuraDuration and cd.SetCooldownFromDurationObject then
                             local durObj = C_UnitAuras_GetAuraDuration(unit, iid)
@@ -5499,35 +5244,20 @@ local function UpdateDefensives(button, unit, updateInfo, auraScan)
     end
 end
 
--------------------------------------------------------------------------------
---  Dispel detection (secret-value safe)
---  Handles border, overlay (fill/full/gradient), and type icon.
--------------------------------------------------------------------------------
 local function HideDispelVisuals(d)
     if d.dispelFrame then d.dispelFrame:Hide() end
     if d.dispelOLTex then d.dispelOLTex:Hide() end
     if d.dispelIcon then d.dispelIcon:Hide() end
 end
 
-local function ApplyDispelOverlay(d, dc, s, olA)
+local function ApplyDispelOverlay(d, dc, s)
     local olTex = d.dispelOLTex
     if not olTex then return end
     local mode = s.dispelOverlay or "fill"
     if mode == "none" then olTex:Hide(); return end
 
-    -- Combined overlay alpha (user opacity x per-type opt-out alpha). The
-    -- curve path hands in olA already combined at curve-build time -- it may
-    -- be SECRET, which setters accept but arithmetic and boolean tests do
-    -- not, so it is never touched here. Only the plain fallback combines.
-    local alpha = olA
-    if type(alpha) == "nil" then
-        local dcA = dc.a
-        if issecretvalue and issecretvalue(dcA) then
-            alpha = dcA
-        else
-            alpha = ((s.dispelOverlayOpacity or 100) / 100) * (dcA or 1)
-        end
-    end
+    local dcA = dc.a
+    local alpha = ((s.dispelOverlayOpacity or 100) / 100) * (dcA or 1)
     local health = d.dispelOLHealth or d.health
 
     olTex:ClearAllPoints()
@@ -5554,12 +5284,6 @@ local function ApplyDispelOverlay(d, dc, s, olA)
         end
         olTex:SetTexture(dc.r, dc.g, dc.b, alpha)
     elseif mode == "gradient" or mode == "gradient_sharp" then
-        -- Pre-baked vertical gradient texture (solid at the top, fading to
-        -- transparent at the bottom; the sharp variant falls off faster) tinted
-        -- with the dispel color. SetVertexColor passes the (secret) dispel-type
-        -- color through natively; the texture's own alpha supplies the fade.
-        -- WHITE8X8 + SetGradient + CreateColor errors here because CreateColor
-        -- cannot wrap a secret color value.
         if health then
             olTex:SetAllPoints(health)
         end
@@ -5571,68 +5295,34 @@ local function ApplyDispelOverlay(d, dc, s, olA)
     olTex:Show()
 end
 
-local function ApplyDispelIcon(d, unit, iid)
+local function ApplyDispelIcon(d)
     local icon = d.dispelIcon
     if not icon or not d.dispelIconTextures then return end
-    -- Drive each per-type icon by its alpha curve; only the matching dispel type
-    -- ends up with alpha 1. Secret-safe: the (secret) color/alpha is passed
-    -- straight to SetVertexColor and never read.
-    local getColor = C_UnitAuras.GetAuraDispelTypeColor
-    local shownAny = false
-    for idx, tex in pairs(d.dispelIconTextures) do
-        local curve = iid and ns._GetDispelIconCurve(idx)
-        local col = curve and getColor and getColor(unit, iid, curve)
-        if col then
-            tex:SetVertexColor(col:GetRGBA())
-            tex:Show()
-            shownAny = true
-        else
-            tex:Hide()
-        end
+    for _, tex in pairs(d.dispelIconTextures) do
+        tex:Hide()
     end
-    -- Fallback: the dispel type could not be resolved (e.g. a secret/hidden boss
-    -- debuff where GetAuraDispelTypeColor returns nil). Mirror the highlight's
-    -- Magic fallback (UpdateDispelBorder uses GetDispelColor("Magic") in the same
-    -- case) so the type icon never vanishes while the border/overlay still show.
-    -- `col` existence is a clean (non-secret) check, so shownAny is clean.
-    if not shownAny and d.dispelIconTextures[1] then
-        d.dispelIconTextures[1]:SetVertexColor(1, 1, 1, 1)
-        d.dispelIconTextures[1]:Show()
+    local fallback = d.dispelIconTextures[1]
+    if fallback then
+        fallback:SetVertexColor(1, 1, 1, 1)
+        fallback:Show()
     end
     icon:Show()
 end
 
--- "By Me" dispel selection no longer uses a per-aura predicate: the scan in
--- UpdateDispelBorder queries auras with the "HARMFUL|RAID_PLAYER_DISPELLABLE"
--- filter directly, so Blizzard returns only player-dispellable auras and we
--- never branch on a (possibly secret) auraInstanceID -- the old approach
--- negated IsAuraFilteredOutByInstanceID on that id, which made selection
--- nondeterministic for secret boss debuffs (the intermittent-highlight bug).
--- (Removing this file-local also frees one main-chunk local slot.)
 
--- Check if a HARMFUL aura is dispellable by SOMEONE (any class), regardless of
--- whether this player can remove it. Used by the "Show All Dispellable" mode.
--- A typed (dispellable) debuff has a non-nil dispelName even when that name is a
--- secret value; physical/bleed debuffs have nil dispelName. This is a
--- secret-safe nil check (it never reads the secret), so it works on boss debuffs
--- where both the dispel-school string and the numeric dispelType are hidden.
 local function IsAnyDispellable(unit, auraData)
     return auraData.dispelName ~= nil
 end
 
--- Scratch color reused for dispel overlays (avoids a per-call table alloc).
-ns._dispelScratch = ns._dispelScratch or {}
+-- Scratch color reused for dark-mode dispel borders and overlays.
 ns._dispelScratchDark = ns._dispelScratchDark or {}
 
 -- Apply selected dispel visuals without creating a closure on each aura event.
-ns._ShowDispelFor = function(d, unit, auraData, dc, olA, s, borderSize,
+ns._ShowDispelFor = function(d, auraData, dc, s, borderSize,
     wantBorder, wantOverlay, wantIcon)
     d.dispelInstanceID = auraData.auraInstanceID
-    -- Per-type alpha (0 = user opted this type out). May be a SECRET
-    -- value from the curve path: only nil-heal when it is clean, then feed
-    -- it straight into setters.
     local dcA = dc.a
-    if not issecretvalue(dcA) and dcA == nil then dcA = 1 end
+    if dcA == nil then dcA = 1 end
     if wantBorder and d.dispelFrame and PP then
         PP.UpdateBorder(d.dispelFrame, borderSize, dc.r, dc.g, dc.b, dcA)
         d.dispelFrame:Show()
@@ -5640,86 +5330,21 @@ ns._ShowDispelFor = function(d, unit, auraData, dc, olA, s, borderSize,
         d.dispelFrame:Hide()
     end
     if wantOverlay then
-        ApplyDispelOverlay(d, dc, s, olA)
+        ApplyDispelOverlay(d, dc, s)
     elseif d.dispelOLTex then
         d.dispelOLTex:Hide()
     end
     if wantIcon then
-        ApplyDispelIcon(d, unit, auraData.auraInstanceID)
+        ApplyDispelIcon(d)
     elseif d.dispelIcon then
         d.dispelIcon:Hide()
     end
-end
-
--- Build the dispel-type -> color curves from the user's custom colors. Blizzard's
--- GetAuraDispelTypeColor evaluates this curve against an aura's (secret) dispel
--- type internally and hands back the matching color, so we never need to read
--- the secret dispelName/dispelType ourselves. Indices are Blizzard's dispel-type
--- enum: 1 Magic, 2 Curse, 3 Disease, 4 Poison, 9 Enrage, 11 Bleed (0 = none).
--- Rebuilt on every ReloadFrames so custom-color edits take effect. Stored on ns
--- (not file locals) to respect the 200-local main-chunk cap.
-function ns._RebuildDispelCurves()
-    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return end
-    local function build(profile, mult, alphaMult)
-        local c = C_CurveUtil.CreateColorCurve()
-        c:SetType(Enum.LuaCurveType.Step)
-        local function add(idx, key, dr, dg, db)
-            local col = profile and profile[key]
-            -- Per-type alpha rides the curve too (0 = user opted this type
-            -- out of the dispel border/overlay). Never darkened by mult.
-            c:AddPoint(idx, CreateColor((col and col.r or dr) * mult, (col and col.g or dg) * mult,
-                (col and col.b or db) * mult, ((col and col.a) or 1) * (alphaMult or 1)))
-        end
-        add(0,  "dispelColorMagic",   0.349, 0.475, 1.0)   -- none: harmless default
-        add(1,  "dispelColorMagic",   0.349, 0.475, 1.0)
-        add(2,  "dispelColorCurse",   0.636, 0.0,   0.64)
-        add(3,  "dispelColorDisease", 0.671, 0.384, 0.098)
-        add(4,  "dispelColorPoison",  0.0,   0.706, 0.286)
-        add(9,  "dispelColorBleed",   0.75,  0.15,  0.15)
-        add(11, "dispelColorBleed",   0.75,  0.15,  0.15)
-        return c
-    end
-    -- Bright (full) curves + parallel 50%-darkened curves for the clock border's
-    -- already-elapsed arc. Darkening is applied here to the user's CLEAN color
-    -- values at build time, never to a secret per-frame color.
-    ns._dispelCurve          = build(ns._scaledProfile,    1)
-    ns._dispelCurveParty     = build(ns._scaledPartyProxy, 1)
-    ns._dispelCurveDark      = build(ns._scaledProfile,    0.5)
-    ns._dispelCurveDarkParty = build(ns._scaledPartyProxy, 0.5)
-    -- Overlay curves: per-type alpha premultiplied by the user's overlay
-    -- opacity HERE, on plain saved numbers. The evaluated per-frame alpha is
-    -- SECRET, and arithmetic on it is a hard error -- it may only ever flow
-    -- straight into setters.
-    local rOp = ((ns._scaledProfile    and ns._scaledProfile.dispelOverlayOpacity)    or 100) / 100
-    local pOp = ((ns._scaledPartyProxy and ns._scaledPartyProxy.dispelOverlayOpacity) or 100) / 100
-    ns._dispelCurveOL      = build(ns._scaledProfile,    1, rOp)
-    ns._dispelCurveOLParty = build(ns._scaledPartyProxy, 1, pOp)
-end
-
--- Per-type visibility curves for the dispel-type icons. Each curve is white at
--- full alpha for its own dispel index and alpha 0 at every other index, so
--- GetAuraDispelTypeColor returns a (secret) alpha of 1 only when the aura is
--- that type. Feeding that straight through SetVertexColor reveals exactly the
--- matching type's icon without ever reading the secret type. Cached on ns.
-ns._dispelIconCurves = ns._dispelIconCurves or {}
-function ns._GetDispelIconCurve(targetIdx)
-    local c = ns._dispelIconCurves[targetIdx]
-    if c then return c end
-    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return nil end
-    c = C_CurveUtil.CreateColorCurve()
-    c:SetType(Enum.LuaCurveType.Step)
-    for _, idx in ipairs({ 0, 1, 2, 3, 4, 9, 11 }) do
-        c:AddPoint(idx, CreateColor(1, 1, 1, idx == targetIdx and 1 or 0))
-    end
-    ns._dispelIconCurves[targetIdx] = c
-    return c
 end
 
 local function UpdateDispelBorder(button, unit, updateInfo, auraScan)
     local d = GetFFD(button)
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
     local borderSize  = s.dispelBorderSize or 2
-    if not ns._dispelCurve then ns._RebuildDispelCurves() end
     local wantBorder  = borderSize > 0
     local wantOverlay = s.dispelOverlay and s.dispelOverlay ~= "none"
     local wantIcon    = s.showDispelIcons
@@ -5755,11 +5380,6 @@ local function UpdateDispelBorder(button, unit, updateInfo, auraScan)
         if not hasHarmfulChange then return end
     end
 
-    -- Scan HARMFUL auras for the dispel highlight/icon.
-    -- "Show All" matches any typed dispellable debuff via the secret-safe
-    -- dispelName check. "By Me" asks Blizzard to apply the RAID_PLAYER_DISPELLABLE
-    -- filter directly -- any aura it returns is player-dispellable -- so we never
-    -- feed a (possibly secret) auraInstanceID into a per-aura filter decision.
     local showAll = s.dispelShowAll ~= false
     local scanFilter = showAll and "HARMFUL" or "HARMFUL|RAID_PLAYER_DISPELLABLE"
     local auraList = auraScan and ns._GetUnitAuraScan(auraScan, scanFilter)
@@ -5774,47 +5394,9 @@ local function UpdateDispelBorder(button, unit, updateInfo, auraScan)
         if not auraData then break end
         i = i + 1
 
-        -- Secret-safe match. Show-all: this nil check IS the dispellable test.
-        -- By-me: the filter already restricted the list to player-dispellable
-        -- auras (all of which carry a dispelName), so this is a harmless backstop
-        -- that still never highlights a non-dispellable harmful aura even if the
-        -- RAID_PLAYER_DISPELLABLE filter token were ever ignored.
         if IsAnyDispellable(unit, auraData) then
-            -- Color via Blizzard's secret-safe curve: it resolves the dispel type
-            -- internally (even when dispelName/dispelType are secret or nil) and
-            -- returns the matching color from our custom-seeded curve. Falls back
-            -- to the Magic color only if the curve API is unavailable. The icon is
-            -- handled the same way (per-type alpha curves) inside ShowDispelFor.
-            local iid = auraData.auraInstanceID
-            local curve = d._isParty and ns._dispelCurveParty or ns._dispelCurve
-            local dc, olA
-            if curve and C_UnitAuras.GetAuraDispelTypeColor then
-                local col = C_UnitAuras.GetAuraDispelTypeColor(unit, iid, curve)
-                if col then
-                    local sc = ns._dispelScratch
-                    -- Alpha carries the per-type opt-out (may be SECRET --
-                    -- it flows only into setters, never boolean tests).
-                    if col.GetRGBA then
-                        sc.r, sc.g, sc.b, sc.a = col:GetRGBA()
-                    else
-                        sc.r, sc.g, sc.b = col:GetRGB()
-                        sc.a = 1
-                    end
-                    dc = sc
-                    -- Overlay alpha via the opacity-premultiplied curve, so
-                    -- the (secret) result needs no arithmetic downstream.
-                    if wantOverlay then
-                        local olCurve = d._isParty and ns._dispelCurveOLParty or ns._dispelCurveOL
-                        local ocol = olCurve and C_UnitAuras.GetAuraDispelTypeColor(unit, iid, olCurve)
-                        if ocol and ocol.GetRGBA then
-                            local _, _, _, oa = ocol:GetRGBA()
-                            olA = oa
-                        end
-                    end
-                end
-            end
-            if not dc then dc = GetDispelColor("Magic", s) end
-            ns._ShowDispelFor(d, unit, auraData, dc, olA, s,
+            local dc = GetDispelColor("Magic", s)
+            ns._ShowDispelFor(d, auraData, dc, s,
                 borderSize, wantBorder, wantOverlay, wantIcon)
             return
         end
@@ -6001,13 +5583,7 @@ ns._UpdateRaidMarkers = function()
         if d.raidMarker then
             local idx = GetRaidTargetIndex(unit)
             if idx then
-                if issecretvalue(idx) then
-                    d.raidMarker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-                    if d.raidMarker.SetSpriteSheetCell then
-                        pcall(d.raidMarker.SetSpriteSheetCell, d.raidMarker, idx, 4, 4, 64, 64)
-                    end
-                    d.raidMarker:Show()
-                elseif RAID_MARKER_TEXCOORDS[idx] then
+                if RAID_MARKER_TEXCOORDS[idx] then
                     local tc = RAID_MARKER_TEXCOORDS[idx]
                     d.raidMarker:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
                     d.raidMarker:Show()
@@ -6028,7 +5604,7 @@ end
 ns._UpdateTargetBorderForButton = function(unit, btn)
     local d = GetFFD(btn)
     local isTarget = UnitIsUnit(unit, "target")
-    local newTarget = (isTarget and not issecretvalue(isTarget)) and true or false
+    local newTarget = isTarget and true or false
     if newTarget ~= d._isTarget then
         d._isTarget = newTarget
         if d.ApplyBorderColor then d.ApplyBorderColor() end
@@ -6255,7 +5831,7 @@ ns._UpdateButtonHealth = function(button)
             d.statusText:SetText(EllesmereUI.L("OFFLINE"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
-        elseif s.statusShowAFK and UnitIsAFK and not issecretvalue(UnitIsAFK(unit)) and UnitIsAFK(unit) then
+        elseif s.statusShowAFK and UnitIsAFK and UnitIsAFK(unit) then
             d.statusText:SetText(EllesmereUI.L("AFK"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
@@ -6296,27 +5872,18 @@ FB.RANGE_HEAL = {
     PALADIN = 19750,  -- Flash of Light
     SHAMAN  = 8004,   -- Healing Surge
     DRUID   = 8936,   -- Regrowth
-    MONK    = 116670, -- Vivify
-    EVOKER  = 361469, -- Living Flame (25yd: native Evoker range)
 }
 
--- Secret-safe alpha application (result may be secret in instances, which
--- SetAlphaFromBoolean accepts natively). The result can also be NIL (unit not
--- range-checkable right now / spell momentarily not evaluable), which it
--- rejects -- treat that as in range. issecretvalue runs first so the nil
--- check never touches a secret.
+-- Treat an unavailable range result as in range so a transient API miss does
+-- not fade a friendly boss frame.
 FB.ApplyRange = function(b)
     if not FB.rangeSpell then return end
     local s = ns._scaledProfile or db.profile
     local inRange = C_Spell.IsSpellInRange(FB.rangeSpell, FB.UnitOf(b))
-    if issecretvalue(inRange) or inRange ~= nil then
-        if b.SetAlphaFromBoolean then
-            b:SetAlphaFromBoolean(inRange, 1, s.oorAlpha or 0.4)
-        else
-            b:SetAlpha(inRange and 1 or (s.oorAlpha or 0.4))
-        end
-    else
+    if inRange == nil or inRange then
         b:SetAlpha(1)
+    else
+        b:SetAlpha(s.oorAlpha or 0.4)
     end
 end
 
@@ -7435,21 +7002,15 @@ XF.EnsureBuilt = function(count)
             if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
                 ns._UpdateButtonHealth(b)
             elseif event == "UNIT_AURA" then
-                if EllesmereUI.IS_121 then
-                    -- 12.1: aura displays are engine containers; only the
-                    -- absorb overlay remains event-driven here.
-                    UpdateAbsorb(b, unit)
-                else
-                    -- Mirror of the hub's UNIT_AURA branch without the budget
-                    -- spill: work stays bounded to the duplicated units.
-                    local auraScan = ns.IS_WRATH and not updateInfo and ns._BeginUnitAuraScan(unit) or nil
-                    UpdateDispelBorder(b, unit, updateInfo, auraScan)
-                    UpdateDebuffs(b, unit, updateInfo, auraScan)
-                    UpdateDefensives(b, unit, updateInfo, auraScan)
-                    UpdateAbsorb(b, unit)
-                    if ns.BM_UpdateIndicators then
-                        ns.BM_UpdateIndicators(b, unit, db, updateInfo, auraScan)
-                    end
+                -- Mirror the hub's UNIT_AURA branch without the budget spill:
+                -- work stays bounded to the duplicated units.
+                local auraScan = ns.IS_WRATH and not updateInfo and ns._BeginUnitAuraScan(unit) or nil
+                UpdateDispelBorder(b, unit, updateInfo, auraScan)
+                UpdateDebuffs(b, unit, updateInfo, auraScan)
+                UpdateDefensives(b, unit, updateInfo, auraScan)
+                UpdateAbsorb(b, unit)
+                if ns.BM_UpdateIndicators then
+                    ns.BM_UpdateIndicators(b, unit, db, updateInfo, auraScan)
                 end
             elseif event == "UNIT_POWER_UPDATE" then
                 local d = GetFFD(b)
@@ -8496,8 +8057,6 @@ local function ReloadFrames()
     -- Keep UNIT_FLAGS registration in lockstep with the combat-icon toggle so a
     -- disabled option listens for nothing (runs no event code).
     if ns.UpdateCombatEventRegistration then ns.UpdateCombatEventRegistration() end
-    -- Rebuild dispel-color curves so custom-color edits take effect immediately.
-    if ns._RebuildDispelCurves then ns._RebuildDispelCurves() end
     -- Recalculate active tier from current group size + overrides
     local numMembers = ns._GetEffectiveRaidSize()
     local prevW, prevH = ns._activeSizeW, ns._activeSizeH
@@ -9252,31 +8811,13 @@ local function ApplyRangeAlpha(btn, rangeAlpha)
     d.rangeAlpha = rangeAlpha
     local bmA = btn._bmSavedAlpha or 1
     local alpha = bmA * rangeAlpha
-    -- Other paths (BM frame alpha, UpdateButton, secret range, visibility and
-    -- preview fades) also write button alpha. Compare the live value so none of
-    -- those writes can leave a stale range cache suppressing a needed update.
-    -- GetAlpha reads back a quantized float, so compare with a tolerance.
     local currentAlpha = btn:GetAlpha()
-    if issecretvalue(currentAlpha) or math.abs(currentAlpha - alpha) > 0.001 then btn:SetAlpha(alpha) end
-end
-
--- Secret-safe range alpha via SetAlphaFromBoolean (UnitInRange can return a
--- secret boolean in Midnight). Marks rangeAlpha nil so UpdateButton/BM leave
--- the secret-set alpha alone.
-local function ApplyRangeAlphaSecret(btn, inRange, inAlpha, outAlpha)
-    local bmA = btn._bmSavedAlpha or 1
-    if btn.SetAlphaFromBoolean then
-        btn:SetAlphaFromBoolean(inRange, bmA * inAlpha, bmA * outAlpha)
-    else
-        ApplyRangeAlpha(btn, inAlpha)
-        return
-    end
-    GetFFD(btn).rangeAlpha = nil
+    if math.abs(currentAlpha - alpha) > 0.001 then btn:SetAlpha(alpha) end
 end
 
 -- Evaluate + apply range alpha for ONE unit. Shared by the
 -- UNIT_IN_RANGE_UPDATE event, the refiner poll, the seed pass, and roster
--- assignment. Standard living units take the secret-safe UnitInRange path.
+-- assignment.
 local function UpdateButtonRange(unit, btn)
     -- Read oorAlpha through the party-aware proxy so a custom party_oorAlpha
     -- actually applies to party frames (was reading the raid value directly).
@@ -9293,12 +8834,7 @@ local function UpdateButtonRange(unit, btn)
     elseif UnitPhaseReason and UnitPhaseReason(unit) then
         ApplyRangeAlpha(btn, oorAlpha)
     elseif UnitIsDeadOrGhost(unit) then
-        -- Dead units use the standard ~40yd interact range (UnitInRange), the same
-        -- secret-safe path living non-spell-range units take, so corpses fade once
-        -- the player moves out of range. The old rez-spell-only check forced full
-        -- alpha whenever the player had no rez (most DPS) or the rez range came back
-        -- indeterminate, which left dead players stuck at full alpha regardless of range.
-        ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
+        ApplyRangeAlpha(btn, 1)
     elseif usesSpellRange then
         local r = C_Spell_IsSpellInRange(playerFriendlySpell, unit)
         if r == true then
@@ -9306,21 +8842,11 @@ local function UpdateButtonRange(unit, btn)
         elseif r == false then
             ApplyRangeAlpha(btn, oorAlpha)
         else
-            -- r == nil: the friendly spell has NO range relationship to this unit.
-            -- Because this spell is unit-targeted, a same-zone out-of-range target
-            -- still returns false (handled above), so nil means the unit is
-            -- genuinely unreachable -- almost always a DIFFERENT ZONE (or a brief
-            -- untargetable / LOS blip). Resolve it via the secret-safe ~40yd
-            -- UnitInRange (false for a different-zone unit -> faded) instead of
-            -- holding the last alpha: holding left a unit that moved to another
-            -- zone stuck at the in-range alpha it had before leaving. This cannot
-            -- reintroduce the 25-vs-40yd boundary flicker -- that needed the spell
-            -- check to return nil AT the boundary, which it does not for a valid
-            -- same-zone target (UnitInRange here is stable because the unit is far).
-            ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
+            -- An unavailable spell-range result is treated as in range.
+            ApplyRangeAlpha(btn, 1)
         end
     else
-        ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
+        ApplyRangeAlpha(btn, 1)
     end
 end
 ns._UpdateButtonRange = UpdateButtonRange
@@ -9830,7 +9356,6 @@ local function OnEvent(self, event, arg1, ...)
             local t0 = ns.ProfBegin("PowerUpdate")
             local d = GetFFD(btn)
             local pType = UnitPowerType(arg1) or 0
-            -- Percent-based, secret-safe (see UpdateButton power block).
             d.power:SetMinMaxValues(0, 100)
             d.power:SetValue(UnitPowerPercent(arg1, pType, true, CurveConstants.ScaleTo100))
             local pr, pg, pb = GetPowerColor(arg1)
@@ -9851,11 +9376,6 @@ local function OnEvent(self, event, arg1, ...)
     elseif event == "UNIT_AURA" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
-            if EllesmereUI.IS_121 then
-                -- 12.1: aura displays are engine-driven containers; the absorb
-                -- overlay (aura-granted shields) is the only consumer left here.
-                local t0 = ns.ProfBegin("UpdateAbsorb:AURA"); UpdateAbsorb(btn, arg1); ns.ProfEnd("UpdateAbsorb:AURA", t0)
-            else
             local updateInfo = ...
             local auraScan = ns.IS_WRATH and not updateInfo and ns._BeginUnitAuraScan(arg1) or nil
             -- Dispel border is the dispel signal: never throttled, always now.
@@ -9878,7 +9398,6 @@ local function OnEvent(self, event, arg1, ...)
                 ns._auraDirty[arg1] = true
                 ns._auraDirtyN = ns._auraDirtyN + 1
                 ns._auraDrainFrame:Show()
-            end
             end
         end
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
@@ -11156,11 +10675,10 @@ end
 local previewActive = false
 ns._PV_CLASS_TOKENS = {
     "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-    "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK",
-    "DRUID", "DEMONHUNTER", "EVOKER",
+    "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID",
 }
-ns._PV_TANK_CLASSES   = { "WARRIOR", "PALADIN", "DEATHKNIGHT", "MONK", "DRUID", "DEMONHUNTER" }
-ns._PV_HEALER_CLASSES = { "PRIEST", "PALADIN", "SHAMAN", "MONK", "DRUID", "EVOKER" }
+ns._PV_TANK_CLASSES   = { "WARRIOR", "PALADIN", "DEATHKNIGHT", "DRUID" }
+ns._PV_HEALER_CLASSES = { "PRIEST", "PALADIN", "SHAMAN", "DRUID" }
 ns._PV_DPS_CLASSES    = ns._PV_CLASS_TOKENS
 ns._PV_EXT_SPELLS = {
     33206, 47788, 6940, 10278, 3411,
@@ -11183,7 +10701,7 @@ ns._PV_DISPEL_DB_SPELLS = DISPEL_ICON_SPELL
 ns._PV_CLASS_POWER = {
     WARRIOR = "RAGE", PALADIN = "MANA", HUNTER = "FOCUS", ROGUE = "ENERGY",
     PRIEST = "MANA", DEATHKNIGHT = "RUNIC_POWER", SHAMAN = "MANA", MAGE = "MANA",
-    WARLOCK = "MANA", MONK = "ENERGY", DRUID = "MANA", DEMONHUNTER = "FURY", EVOKER = "MANA",
+    WARLOCK = "MANA", DRUID = "MANA",
 }
 ns._PV_DEBUFF_SPELLS = { 70337, 74562, 74792 }
 ns._pvActiveAuras = {}
@@ -15986,16 +15504,12 @@ function ERF:OnEnable()
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PARTY_MEMBER_ENABLE")
     eventFrame:RegisterEvent("PARTY_MEMBER_DISABLE")
-    if ns.IS_WRATH then
-        -- Wrath never fires PLAYER_SPECIALIZATION_CHANGED. Dual-spec swaps and
-        -- talent edits must rebuild the active healer-spell lookup themselves,
-        -- otherwise the old lookup eventually clears live buffs with no event
-        -- capable of restoring them.
-        eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
-        eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-    else
-        eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    end
+    -- Wrath never fires PLAYER_SPECIALIZATION_CHANGED. Dual-spec swaps and
+    -- talent edits must rebuild the active healer-spell lookup themselves,
+    -- otherwise the old lookup eventually clears live buffs with no event
+    -- capable of restoring them.
+    eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+    eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     eventFrame:RegisterEvent("UNIT_PHASE")
     eventFrame:RegisterEvent("ENCOUNTER_START")
     eventFrame:RegisterEvent("ENCOUNTER_END")
@@ -16183,11 +15697,6 @@ end
 --  value-zero. Remove after the resize investigation.
 -------------------------------------------------------------------------------
 do
-    local function SafeStr(v)
-        if v == nil then return "nil" end
-        if issecretvalue and issecretvalue(v) then return "SECRET" end
-        return tostring(v)
-    end
     SLASH_EUIPARTY1 = "/euiparty"
     SlashCmdList["EUIPARTY"] = function()
         print("|cff0cd29fEUI party debug|r pvActive=" .. tostring(ns._partyPvActive and true or false)
@@ -16214,7 +15723,7 @@ do
                 :format(tag, tostring(btn:IsShown()), btn:GetAlpha(),
                     btn:GetWidth() or 0, btn:GetHeight() or 0,
                     tostring(h and h:IsShown()), h and h:GetHeight() or -1,
-                    SafeStr(h and h:GetValue()), SafeStr(fill and fill:GetTexture()),
+                    tostring(h and h:GetValue()), tostring(fill and fill:GetTexture()),
                     tostring(d and d.power and d.power:IsShown())))
         end
         dump("self", ns._partySelfButton)

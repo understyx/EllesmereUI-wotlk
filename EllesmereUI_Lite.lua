@@ -8,11 +8,6 @@ local ADDON_NAME, ns = ...
 
 local EUILite = {}
 EllesmereUI = EllesmereUI or {}
--- TEMPORARY 12.1 compatibility flag. At 12.1 launch the live build reports
--- 120100+, this flips true automatically, and a post-launch cleanup pass
--- deletes the legacy branches and this flag. Documented exception to the
--- CLAUDE.md "no version branches" rule for the dual-client window.
-EllesmereUI.IS_121 = (select(4, GetBuildInfo()) or 0) >= 120100
 EllesmereUI.Lite = EUILite
 
 -- Lua APIs
@@ -491,30 +486,6 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
         tinsert(enableQueue, addon)
     end
 
-    -- Process the enable (OnEnable) queue once logged in. WHEN we run it
-    -- depends on which event delivered us here, and both cases matter:
-    --
-    --   * PLAYER_LOGIN -> run SYNCHRONOUSLY, right now. PLAYER_LOGIN is a
-    --     top-level game event, never dispatched from inside a secure chain,
-    --     so the mid-secure-chain taint hazard below does not apply. Running
-    --     here also keeps every OnEnable (and the secure setup each performs:
-    --     RegisterStateDriver, WrapScript, protected SetCVar, EditMode Hide)
-    --     inside the login/reload LOADING-SCREEN window -- the only window in
-    --     which those secure operations are permitted while the player is in
-    --     combat. C_Timer callbacks do NOT run during the loading screen, so
-    --     deferring here would always miss the window on a /reload in combat
-    --     and every child addon's secure setup would be blocked
-    --     (ADDON_ACTION_BLOCKED storm).
-    --
-    --   * ADDON_LOADED (post-login demand-loads) -> DEFER one tick. These can
-    --     be dispatched from inside Blizzard's own SECURE executions (e.g.
-    --     UIParent demand-loading Blizzard_CombatLog), and running OnEnable
-    --     bodies synchronously there stamps every value they write with addon
-    --     taint born mid-secure-chain -- fields Edit Mode's enter/exit passes
-    --     later read, erroring on 12.x secret values. A timer callback is a
-    --     fresh, purely addon-owned execution. Such loads happen after the
-    --     loading screen anyway, so there is no in-combat secure window to
-    --     preserve for them.
     if IsLoggedIn() and #enableQueue > 0 then
         if event == "PLAYER_LOGIN" then
             FlushEnableQueue()

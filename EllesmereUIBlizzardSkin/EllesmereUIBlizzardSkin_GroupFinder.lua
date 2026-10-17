@@ -10,7 +10,7 @@
 --  dialog, the premade invite/application dialogs, the role-check popup) are
 --  owned by the separate "Reskin Queue Popup" feature and are NOT touched here.
 --
---  Taint / secret-value safety (read before editing):
+--  Taint safety (read before editing):
 --   - All per-frame skin state lives in an EXTERNAL weak-keyed table (FFD), never
 --     as custom keys on Blizzard frame tables. (CLAUDE.md hard rule.)
 --   - Native content is visual-only: we SetAlpha(0) on textures and lay our own
@@ -18,15 +18,12 @@
 --     recurse EnableMouse over the frame tree.
 --   - Post-hooks only (hooksecurefunc) on globals/methods; HookScript (never
 --     SetScript) on secure frames. The original secure handler always runs first.
---   - We NEVER read per-result/per-member search data. In Midnight the browse/
---     apply phase makes GetSearchResultInfo (and member/leader info) SECRET, and
---     reading it throws. We only restyle row regions, never inspect their data.
+--   - We only restyle search-row regions, never inspect row data.
 --   - The whole skin is gated on EllesmereUIDB.reskinLFGMenu; when off, no hooks
 --     are installed and the file costs nothing.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EUI = EllesmereUI
-local issecretvalue = issecretvalue or function() return false end
 
 -- Advertise this before the toolkit and legacy skin callbacks load. The
 -- Group Finder module also owns the modern Wrath PvP presentation.
@@ -352,18 +349,6 @@ local function SkinCheckbox(cb)
     local hovering = false
     local function updState()
         local checked = cb:GetChecked()
-        if issecretvalue(checked) then
-            -- LFGList apply-phase data can make the checked state SECRET, and
-            -- boolean-testing it throws. Bind the tick straight off the secret
-            -- via the boolean-accepting alpha setter; the wash tracks hover
-            -- only while the state is unreadable.
-            if tick.SetAlphaFromBoolean then
-                tick:Show()
-                tick:SetAlphaFromBoolean(checked, 1, 0)
-            end
-            if hovering then wash:Show() else wash:Hide() end
-            return
-        end
         checked = checked and true or false
         tick:SetAlpha(1)
         if checked then tick:Show() else tick:Hide() end
@@ -729,9 +714,7 @@ local function ResolveRailSelection(getBtn, captured, holder)
         local b = getBtn(i)
         if b and b.GetChecked then
             local c = b:GetChecked()
-            -- Secret checked state is unreadable; fall through to the next
-            -- signal in the cascade instead of boolean-testing it.
-            if not issecretvalue(c) and c then return i end
+            if c then return i end
         end
     end
     local glowSel, glowCount = nil, 0
@@ -1375,7 +1358,7 @@ local function Skin_LFGList()
     -- Search result rows are left FULLY stock. We used to skin the per-row
     -- CancelButton (shown while you're applied/queued to that group), but that
     -- made the queued-state button read wrong, so it stays Blizzard's. We never
-    -- read row data (secret in Midnight) or blanket-strip the row either.
+    -- read row data or blanket-strip the row either.
 end
 
 -- PvP tab (PVPUIFrame, Blizzard_PVPUI -- separate LoD addon): the D&R
@@ -1907,7 +1890,7 @@ local function InstallHooks()
     -- fade it again when the rewards panel refreshes.
     if LFGRewardsFrame_UpdateFrame then
         hooksecurefunc("LFGRewardsFrame_UpdateFrame", function(_, _, background)
-            if background and not issecretvalue(background) and background.SetAlpha then
+            if background and background.SetAlpha then
                 background:SetAlpha(0)
             end
         end)
@@ -1936,13 +1919,9 @@ local function SaveAppRoles(dialog)
     if not (RememberRolesOn() and dialog and EllesmereUIDB) then return end
     local function chk(btn)
         local c = btn and btn.CheckButton and btn.CheckButton:GetChecked()
-        if issecretvalue(c) then return nil end
         return c and true or false
     end
     local tank, healer, damager = chk(dialog.TankButton), chk(dialog.HealerButton), chk(dialog.DamagerButton)
-    -- Any secret checked state means we cannot read what the user picked;
-    -- keep the previous save rather than writing wrong roles.
-    if tank == nil or healer == nil or damager == nil then return end
     EllesmereUIDB.lfgSavedRoles = {
         tank    = tank,
         healer  = healer,
@@ -2001,9 +1980,8 @@ end
 -- position, so opening one while the other is open overlaps them. Any addon
 -- that docks its own panel to PVEFrame's edge (e.g. a third-party profile panel)
 -- is unaware of CharacterFrame, so it gets partially covered by CharacterFrame
--- in turn. PVEFrame is PROTECTED (it parents the LFGList applicant viewer,
--- which throws on tainted secret-value comparisons -- see
--- EllesmereUIQoL_Shifter.lua's SecureSetPoint), so it is never repositioned
+-- in turn. PVEFrame is PROTECTED (it parents the LFGList applicant viewer),
+-- so it is never repositioned
 -- here; CharacterFrame is not protected, so it docks beside PVEFrame instead.
 -- Reading PVEFrame's position does not taint it -- only writing to it would.
 -- Independent of reskinLFGMenu: a positioning fix, not part of the skin.

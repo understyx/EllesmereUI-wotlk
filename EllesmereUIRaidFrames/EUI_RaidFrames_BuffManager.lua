@@ -22,11 +22,9 @@ local tostring = tostring
 local tonumber = tonumber
 local type     = type
 local CreateFrame = EllesmereUI.SafeCreateFrame
-local issecretvalue = issecretvalue
 local C_UnitAuras   = C_UnitAuras
 local C_Spell       = C_Spell
 local UnitExists    = UnitExists
-local UnitIsUnit    = UnitIsUnit
 
 local MAX_PER_SPEC = 20
 local IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
@@ -121,176 +119,43 @@ local FRAMELVL_BASE = {
 local FRAMELVL_TEXT = 18  -- fixed count/duration text-carrier offset (icon/square)
 
 -------------------------------------------------------------------------------
---  Healer spell database
---  Spells marked secret = true are identified
---  via filter fingerprinting (future support), not direct spellId reading.
---  hide = true means alternate spell ID that maps to same aura (skip in UI).
+--  Healer spell database (max-rank Wrath spell IDs).
 -------------------------------------------------------------------------------
 local HEALER_SPECS = {
-    {
-        key = "DRUID_RESTORATION",
-        specID = 105,
-        name = "Restoration Druid",
-        classToken = "DRUID",
-        spells = {
-            { id = 774,    name = "Rejuvenation" },
-            { id = 8936,   name = "Regrowth" },
-            { id = 33763,  name = "Lifebloom" },
-            { id = 155777, name = "Germination" },
-            { id = 48438,  name = "Wild Growth" },
-            { id = 439530, name = "Symbiotic Blooms" },
-            { id = 102342, name = "Ironbark", secret = true, sig = "1:1:1:0" },
-        },
-    },
-    {
-        key = "PRIEST_DISCIPLINE",
-        specID = 256,
-        name = "Discipline Priest",
-        classToken = "PRIEST",
-        spells = {
-            { id = 17,      name = "Power Word: Shield" },
-            { id = 194384,  name = "Atonement" },
-            { id = 1253593, name = "Void Shield" },
-            { id = 41635,   name = "Prayer of Mending" },
-            { id = 33206,   name = "Pain Suppression", secret = true, sig = "1:1:1:0" },
-            { id = 10060,   name = "Power Infusion", secret = true, sig = "1:0:0:1" },
-        },
-    },
-    {
-        key = "PRIEST_HOLY",
-        specID = 257,
-        name = "Holy Priest",
-        classToken = "PRIEST",
-        spells = {
-            { id = 139,   name = "Renew" },
-            { id = 77489, name = "Echo of Light" },
-            { id = 41635, name = "Prayer of Mending" },
-            { id = 47788, name = "Guardian Spirit", secret = true, sig = "1:1:1:0" },
-            { id = 10060, name = "Power Infusion", secret = true, sig = "1:0:0:1" },
-        },
-    },
-    {
-        key = "MONK_MISTWEAVER",
-        specID = 270,
-        name = "Mistweaver Monk",
-        classToken = "MONK",
-        spells = {
-            { id = 119611, name = "Renewing Mist" },
-            { id = 124682, name = "Enveloping Mist" },
-            { id = 115175, name = "Soothing Mist" },
-            { id = 450769, name = "Aspect of Harmony" },
-            { id = 116849, name = "Life Cocoon", secret = true, sig = "1:1:1:0" },
-            { id = 443113, name = "Strength of the Black Ox", secret = true, sig = "0:1:0:1" },
-        },
-    },
-    {
-        key = "SHAMAN_RESTORATION",
-        specID = 264,
-        name = "Restoration Shaman",
-        classToken = "SHAMAN",
-        spells = {
-            { id = 61295,  name = "Riptide" },
-            { id = 974,    name = "Earth Shield" },
-            { id = 383648, name = "Earth Shield", hide = true },
-            { id = 382024, name = "Earthliving Weapon" },
-            { id = 207400, name = "Ancestral Vigor" },
-            { id = 444490, name = "Hydrobubble" },
-        },
-    },
-    {
-        key = "PALADIN_HOLY",
-        specID = 65,
-        name = "Holy Paladin",
-        classToken = "PALADIN",
-        spells = {
-            { id = 156910,  name = "Beacon of Faith" },
-            { id = 156322,  name = "Eternal Flame" },
-            { id = 53563,   name = "Beacon of Light" },
-            { id = 1244893, name = "Beacon of the Savior" },
-            { id = 200025,  name = "Beacon of Virtue" },
-            { id = 1022,    name = "Blessing of Protection", secret = true, sig = "1:1:1:1" },
-            { id = 432502,  name = "Holy Armaments", secret = true, sig = "0:1:0:0" },
-            { id = 6940,    name = "Blessing of Sacrifice", secret = true, sig = "1:1:1:0" },
-            { id = 1044,    name = "Blessing of Freedom", secret = true, sig = "1:0:0:1" },
-            { id = 431381,  name = "Dawnlight", secret = true, sig = "0:1:0:0" },
-        },
-    },
-    {
-        key = "EVOKER_PRESERVATION",
-        specID = 1468,
-        name = "Preservation Evoker",
-        classToken = "EVOKER",
-        spells = {
-            { id = 364343, name = "Echo" },
-            { id = 366155, name = "Reversion" },
-            { id = 367364, name = "Echo Reversion" },
-            { id = 355941, name = "Dream Breath" },
-            { id = 376788, name = "Echo Dream Breath" },
-            { id = 363502, name = "Dream Flight" },
-            { id = 373267, name = "Lifebind" },
-            { id = 357170, name = "Time Dilation", secret = true, sig = "1:1:1:0" },
-            { id = 363534, name = "Rewind", secret = true, sig = "1:1:0:0" },
-        },
-    },
-    {
-        key = "EVOKER_AUGMENTATION",
-        specID = 1473,
-        name = "Augmentation Evoker",
-        classToken = "EVOKER",
-        spells = {
-            { id = 410089, name = "Prescience" },
-            { id = 413984, name = "Shifting Sands" },
-            { id = 360827, name = "Blistering Scales" },
-            { id = 410263, name = "Infernos Blessing" },
-            { id = 410686, name = "Symbiotic Bloom" },
-            { id = 395152, name = "Ebon Might" },
-            { id = 369459, name = "Source of Magic" },
-            { id = 361022, name = "Sense Power", secret = true, sig = "0:1:0:0" },
-        },
-    },
+    { key = "DRUID_RESTORATION", specID = 105, name = "Restoration Druid", classToken = "DRUID", spells = {
+        { id = 48441, name = "Rejuvenation" },
+        { id = 48443, name = "Regrowth" },
+        { id = 48451, name = "Lifebloom" },
+        { id = 53251, name = "Wild Growth" },
+        { id = 29166, name = "Innervate" },
+    } },
+    { key = "PRIEST_DISCIPLINE", specID = 256, name = "Discipline Priest", classToken = "PRIEST", spells = {
+        { id = 48066, name = "Power Word: Shield" },
+        { id = 47753, name = "Divine Aegis" },
+        { id = 48113, name = "Prayer of Mending" },
+        { id = 33206, name = "Pain Suppression" },
+        { id = 10060, name = "Power Infusion" },
+    } },
+    { key = "PRIEST_HOLY", specID = 257, name = "Holy Priest", classToken = "PRIEST", spells = {
+        { id = 48068, name = "Renew" },
+        { id = 48113, name = "Prayer of Mending" },
+        { id = 47788, name = "Guardian Spirit" },
+        { id = 48066, name = "Power Word: Shield" },
+    } },
+    { key = "SHAMAN_RESTORATION", specID = 264, name = "Restoration Shaman", classToken = "SHAMAN", spells = {
+        { id = 61301, name = "Riptide" },
+        { id = 49284, name = "Earth Shield" },
+        { id = 51945, name = "Earthliving" },
+        { id = 16237, name = "Ancestral Fortitude" },
+    } },
+    { key = "PALADIN_HOLY", specID = 65, name = "Holy Paladin", classToken = "PALADIN", spells = {
+        { id = 53563, name = "Beacon of Light" },
+        { id = 53601, name = "Sacred Shield" },
+        { id = 10278, name = "Hand of Protection" },
+        { id = 6940, name = "Hand of Sacrifice" },
+        { id = 1044, name = "Hand of Freedom" },
+    } },
 }
-
--- The legacy client has no Midnight-era healer spells, and aura IDs are the
--- actual max-rank Wrath IDs rather than the rank-one IDs used by retail.  Keep
--- the shared editor, but feed it a native 3.3.5 whitelist so names, icons and
--- live aura matching all resolve through the legacy spell API.
-if IS_WRATH then
-    HEALER_SPECS = {
-        { key = "DRUID_RESTORATION", specID = 105, name = "Restoration Druid", classToken = "DRUID", spells = {
-            { id = 48441, name = "Rejuvenation" },
-            { id = 48443, name = "Regrowth" },
-            { id = 48451, name = "Lifebloom" },
-            { id = 53251, name = "Wild Growth" },
-            { id = 29166, name = "Innervate" },
-        } },
-        { key = "PRIEST_DISCIPLINE", specID = 256, name = "Discipline Priest", classToken = "PRIEST", spells = {
-            { id = 48066, name = "Power Word: Shield" },
-            { id = 47753, name = "Divine Aegis" },
-            { id = 48113, name = "Prayer of Mending" },
-            { id = 33206, name = "Pain Suppression" },
-            { id = 10060, name = "Power Infusion" },
-        } },
-        { key = "PRIEST_HOLY", specID = 257, name = "Holy Priest", classToken = "PRIEST", spells = {
-            { id = 48068, name = "Renew" },
-            { id = 48113, name = "Prayer of Mending" },
-            { id = 47788, name = "Guardian Spirit" },
-            { id = 48066, name = "Power Word: Shield" },
-        } },
-        { key = "SHAMAN_RESTORATION", specID = 264, name = "Restoration Shaman", classToken = "SHAMAN", spells = {
-            { id = 61301, name = "Riptide" },
-            { id = 49284, name = "Earth Shield" },
-            { id = 51945, name = "Earthliving" },
-            { id = 16237, name = "Ancestral Fortitude" },
-        } },
-        { key = "PALADIN_HOLY", specID = 65, name = "Holy Paladin", classToken = "PALADIN", spells = {
-            { id = 53563, name = "Beacon of Light" },
-            { id = 53601, name = "Sacred Shield" },
-            { id = 10278, name = "Hand of Protection" },
-            { id = 6940, name = "Hand of Sacrifice" },
-            { id = 1044, name = "Hand of Freedom" },
-        } },
-    }
-end
 
 ns.BM_HEALER_SPECS = HEALER_SPECS
 
@@ -308,28 +173,19 @@ end
 -- Restoration's setup and show only Earth Shield -- exactly where the player
 -- positioned Restoration's Earth Shield indicator. Blessing of Freedom works
 -- the same way for Protection/Retribution Paladins (this also lets the
--- defensives display's externals fingerprint resolve Freedom on every Paladin
--- spec, since BM_IdentifySecretAura keys off the resolved spec). Keyed by spec
--- ID; spells is a set keyed by the primary spell ID indicators reference.
+    -- defensives display tracks Freedom on every Paladin spec. Keyed by spec ID;
+    -- spells is a set keyed by the primary spell ID indicators reference.
 local BORROW_SPECS = {
     [262] = { source = "SHAMAN_RESTORATION", spells = { [974] = true } },  -- Elemental
     [263] = { source = "SHAMAN_RESTORATION", spells = { [974] = true } },  -- Enhancement
-    -- sigs: fingerprints can differ from the source spec because the
-    -- RAID_PLAYER_DISPELLABLE probe reflects the PLAYER's dispel capability.
-    -- Freedom reads 1:0:0:1 on Holy (magic dispel) but 1:0:0:0 on Prot/Ret
-    -- (no magic dispel), so the borrow entries register their own variant.
-    [66]  = { source = "PALADIN_HOLY", spells = { [1044] = true },
-              sigs = { ["1:0:0:0"] = 1044 } }, -- Protection
-    [70]  = { source = "PALADIN_HOLY", spells = { [1044] = true },
-              sigs = { ["1:0:0:0"] = 1044 } }, -- Retribution
+    [66]  = { source = "PALADIN_HOLY", spells = { [1044] = true } }, -- Protection
+    [70]  = { source = "PALADIN_HOLY", spells = { [1044] = true } }, -- Retribution
 }
 
 -- Resolve the player's CURRENT spec to a BM spec key. This MUST be done by spec
 -- ID, never by spec name: GetSpecializationInfo() returns the spec ID (a stable,
 -- non-localized number) as its first value and the LOCALIZED display name as its
--- second. Earlier code matched the localized name against the English spec.name,
--- which never matched on non-English clients -- so no spec key resolved and every
--- HoT indicator (and the simple grid, and secret-aura tracking) silently failed.
+    -- second. Resolve by ID so the spec key works on every client locale.
 -- Returns nil when the current spec is not a tracked healer/support spec.
 local function CurrentSpecKey()
     local specIdx = GetSpecialization and GetSpecialization()
@@ -375,9 +231,9 @@ for _, spec in ipairs(HEALER_SPECS) do
     SPEC_DD_ORDER[#SPEC_DD_ORDER + 1] = spec.key
 end
 
--- Forward declarations for tables used by fingerprinting and scanner
+-- Forward declarations for tables used by the scanner
 local spellToIndicators = {}   -- [spellID] = { ind1, ind2, ... }
-local trackedSpellIDs   = {}   -- set of all tracked spell IDs (including secret)
+local trackedSpellIDs   = {}   -- set of tracked spell IDs
 local trackedSpellNames = {}   -- Wrath: localized aura name -> configured spell ID
 local allActiveIndicators = {} -- flat list of all enabled indicators
 
@@ -388,17 +244,6 @@ local allActiveIndicators = {} -- flat list of all enabled indicators
 local simpleTrackedSpellIDs = {}
 local simpleTrackedSpellNames = {} -- Wrath rank/trigger aura fallback
 
--- Alternate aura spell IDs that resolve to a primary tracked ID. Some buffs
--- land under a different spell ID than the one indicators reference:
---   Earth Shield applies 383648 (talented / Midnight) but indicators use 974.
---   Ebon Might's caster self-buff is 395296 while the ally buff is 395152.
--- Resolved at scan time so existing saved indicators (which reference the
--- primary ID) match without a config migration.
-local PRIMARY_BY_ALT = {
-    [383648] = 974,     -- Earth Shield
-    [395296] = 395152,  -- Ebon Might (caster self-buff)
-}
-
 -- A Wrath cast and the buff it applies do not always share a spell ID, and each
 -- rank has another ID again (Prayer of Mending 48113 -> aura 48111,
 -- Earthliving 51945 -> aura 52000, Sacred Shield 53601 -> proc 58597). Resolve
@@ -407,171 +252,30 @@ local PRIMARY_BY_ALT = {
 -- and covers every rank/trigger variant without a brittle list of numeric IDs.
 local function ResolveTrackedSpellID(auraData, spellIDs, spellNames)
     local sid = auraData and auraData.spellId
-    if not sid or issecretvalue(sid) then return nil end
-    local primary = PRIMARY_BY_ALT[sid] or sid
-    if spellIDs[primary] then return primary end
+    if not sid then return nil end
+    if spellIDs[sid] then return sid end
     if IS_WRATH and auraData.name then return spellNames[auraData.name] end
     return nil
 end
 
 -------------------------------------------------------------------------------
---  Secret aura fingerprinting (4-filter signature method)
---  For auras where spellId is secret, we run 4 filter checks and build a
---  "1:1:0:0" signature. If it matches a known secret spell, we identify it.
---
---  Attribution: the four-filter fingerprinting idea and the measured
---  per-spell signature values originate with Harrek (Harrek's Advanced Raid
---  Frames). Harrek granted EllesmereUI permission to use them. Many thanks to
---  him for sharing the research that makes secret-aura tracking possible.
--------------------------------------------------------------------------------
 local C_UnitAuras_IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
 
-local function AuraPassesFilter(unit, instanceID, filter)
-    return not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, instanceID, filter)
-end
-
-local function MakeSignature(unit, instanceID)
-    local r   = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|RAID")
-    local ric = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|RAID_IN_COMBAT")
-    -- Early out: if neither RAID nor RIC passes, not a tracked healer buff
-    if not r and not ric then return nil end
-    local ext  = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|EXTERNAL_DEFENSIVE")
-    local disp = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|RAID_PLAYER_DISPELLABLE")
-    return (r and "1" or "0") .. ":" .. (ric and "1" or "0") .. ":"
-        .. (ext and "1" or "0") .. ":" .. (disp and "1" or "0")
-end
-
--- Per-spec signature -> spellID lookup (built lazily)
-local specSignatures = {}  -- [specKey] = { ["1:1:1:0"] = spellID }
-
--- Try to match a secret aura against the player's own spec signatures.
--- Only track indicators for the player's active spec. Checking all specs of the
--- same class causes cross-spec bleed (e.g. Disc seeing Holy indicators).
--- Also prevents cross-class signature collisions for secret aura fingerprinting.
--- Declared BEFORE GetSpecSignatures so its borrow-variant merge captures these
--- as upvalues (a later declaration would resolve to nil globals inside it).
 local activeSpecKey_BM = nil
--- When the active spec borrows another's indicators (Enh/Ele -> Resto, Prot/Ret
--- -> Holy), this holds that borrow config so tracking can be restricted to the
--- borrowed spells and the borrow's signature variants can merge in.
 local activeBorrow_BM = nil
--- True while the lookup was built before the client had loaded the player's
--- talents (fresh login on 3.3.5: every tree still reads 0 points, so no spec
--- resolves). Distinct from a resolved non-healer spec. While set, the aura
--- path re-probes the spec (throttled) and rebuilds once it resolves -- the
--- talent events are not a reliable signal for this at login.
 local specPending_BM = false
 local specPendingNextCheck_BM = 0
 
-local function GetSpecSignatures(specKey)
-    if specSignatures[specKey] then return specSignatures[specKey] end
-    local sigs = {}
-    local spec = SPEC_BY_KEY[specKey]
-    if spec then
-        for _, spell in ipairs(spec.spells) do
-            if spell.secret and spell.sig then
-                -- Note: signature collisions within a spec are possible
-                -- (e.g. Verdant Embrace and Lifebind share 0:1:0:0 in Preservation)
-                -- First registered wins; disambiguation is a future enhancement
-                if not sigs[spell.sig] then
-                    sigs[spell.sig] = spell.id
-                end
-            end
-        end
-    end
-    -- Borrow specs can fingerprint a spell differently than the source spec
-    -- (the dispellable probe tracks the player's own dispel kit), so merge the
-    -- active borrow entry's signature variants in. Safe with the lazy cache:
-    -- specSignatures is wiped on every RebuildLookup (login + spec change),
-    -- so the merged table always reflects the current spec context.
-    if activeBorrow_BM and activeBorrow_BM.source == specKey and activeBorrow_BM.sigs then
-        for sig, sid in pairs(activeBorrow_BM.sigs) do
-            if not sigs[sig] then sigs[sig] = sid end
-        end
-    end
-    specSignatures[specKey] = sigs
-    return sigs
-end
-
 local function DetectActiveSpecKey()
-    -- Locale-independent: resolve by spec ID. nil for any non-tracked spec, which
-    -- clears tracking so nothing is shown for non-healer/support specs.
     activeSpecKey_BM = CurrentSpecKey()
-    -- Resolve the borrow config (Enh/Ele Shaman) so RebuildLookup can limit the
-    -- borrowed spec's indicators to the spells this spec can actually cast.
     activeBorrow_BM = nil
     local specIdx = GetSpecialization and GetSpecialization()
     specPending_BM = specIdx == nil
-    local specID  = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx)
+    local specID = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx)
     if specID then activeBorrow_BM = BORROW_SPECS[specID] end
 end
 
 DetectActiveSpecKey()
-
-local function MatchSecretAura(unit, instanceID)
-    if not activeSpecKey_BM then return nil end
-    local sig = MakeSignature(unit, instanceID)
-    if not sig then return nil end
-    local sigs = GetSpecSignatures(activeSpecKey_BM)
-    local sid = sigs[sig]
-    if sid and trackedSpellIDs[sid] then
-        -- Sense Power (361022) and the Evoker's own Ebon Might self-buff share
-        -- the 0:1:0:0 fingerprint. Sense Power only lands on allies, never the
-        -- caster, so never report it on the player's own frame.
-        if sid == 361022 and UnitIsUnit(unit, "player") then return nil end
-        return sid
-    end
-    return nil
-end
-
--- Simple Setup variant: identical fingerprint match, but validated against the
--- full-whitelist set instead of the indicator-tracked set.
-local function MatchSecretAuraSimple(unit, instanceID)
-    if not activeSpecKey_BM then return nil end
-    local sig = MakeSignature(unit, instanceID)
-    if not sig then return nil end
-    local sigs = GetSpecSignatures(activeSpecKey_BM)
-    local sid = sigs[sig]
-    if sid and simpleTrackedSpellIDs[sid] then
-        if sid == 361022 and UnitIsUnit(unit, "player") then return nil end
-        return sid
-    end
-    return nil
-end
-
--- Raw spec-scoped identify: returns the matched secret spellID for the player's
--- active spec, WITHOUT the indicator-config gate that MatchSecretAura applies.
--- Lets other modules recognize a specific player-cast secret aura regardless of
--- Buff Manager setup (e.g. the defensives display treating the player's own
--- Blessing of Freedom as an external). Player-cast only and spec-scoped by
--- construction (the four-filter signature uses PLAYER filters and the lookup is
--- keyed to the active spec), so it never reports another player's aura and never
--- collides across classes.
-function ns.BM_IdentifySecretAura(unit, instanceID)
-    if not activeSpecKey_BM then return nil end
-    local sig = MakeSignature(unit, instanceID)
-    if not sig then return nil end
-    return GetSpecSignatures(activeSpecKey_BM)[sig]
-end
-
--- Fallback icon textures for secret auras (icon field is also secret)
-local SECRET_SPELL_ICONS = {
-    [102342] = 572025,   -- Ironbark
-    [33206]  = 135936,   -- Pain Suppression
-    [10060]  = 135939,   -- Power Infusion
-    [47788]  = 237542,   -- Guardian Spirit
-    [116849] = 636288,   -- Life Cocoon
-    [443113] = 615340,   -- Strength of the Black Ox
-    [1022]   = 135964,   -- Blessing of Protection
-    [432502] = 5927636,  -- Holy Armaments (bulwark icon)
-    [6940]   = 135966,   -- Blessing of Sacrifice
-    [1044]   = 135968,   -- Blessing of Freedom
-    [431381] = 5927633,  -- Dawnlight
-    [357170] = 4630500,  -- Time Dilation
-    [363534] = 4630498,  -- Rewind
-    [361022] = 132160,   -- Sense Power
-
-}
 
 -------------------------------------------------------------------------------
 --  Default indicator factory
@@ -685,63 +389,26 @@ end
 -------------------------------------------------------------------------------
 local DEFAULT_INDICATORS = {
     DRUID_RESTORATION = {
-        { pos = "TOPLEFT",  spells = { 33763 } },                              -- Lifebloom
-        { pos = "TOPRIGHT", spells = { 8936, 774, 155777, 48438, 439530 } },   -- Regrowth, Rejuv, Germination, Wild Growth, Symbiotic Blooms
+        { pos = "TOPLEFT", spells = { 48451 } },
+        { pos = "TOPRIGHT", spells = { 48441, 48443, 53251, 29166 } },
     },
     PRIEST_DISCIPLINE = {
-        { pos = "TOPLEFT",  spells = { 194384, 10060 } },                      -- Atonement, Power Infusion
-        { pos = "TOPRIGHT", spells = { 17, 1253593, 41635 } },                 -- PW:S, Void Shield, Prayer of Mending
+        { pos = "TOPLEFT", spells = { 48066, 47753, 10060 } },
+        { pos = "TOPRIGHT", spells = { 48113, 33206 } },
     },
     PRIEST_HOLY = {
-        { pos = "TOPLEFT",  spells = { 139, 10060 } },                         -- Renew, Power Infusion
-        { pos = "TOPRIGHT", spells = { 77489, 41635 } },                       -- Echo of Light, Prayer of Mending
-    },
-    MONK_MISTWEAVER = {
-        { pos = "TOPLEFT",  spells = { 119611, 124682 } },                     -- Renewing Mist, Enveloping Mist
-        { pos = "TOPRIGHT", spells = { 115175, 443113 } },                     -- Soothing Mist, Strength of the Black Ox
+        { pos = "TOPLEFT", spells = { 48068, 47788 } },
+        { pos = "TOPRIGHT", spells = { 48113, 48066 } },
     },
     SHAMAN_RESTORATION = {
-        { pos = "TOPLEFT",  spells = { 974 } },                                -- Earth Shield
-        { pos = "TOPRIGHT", spells = { 61295, 207400, 444490 } },              -- Riptide, Ancestral Vigor, Hydrobubble
+        { pos = "TOPLEFT", spells = { 49284 } },
+        { pos = "TOPRIGHT", spells = { 61301, 51945, 16237 } },
     },
     PALADIN_HOLY = {
-        { pos = "TOPLEFT",  spells = { 53563, 156910, 200025, 1244893 } },      -- Beacon of Light, Beacon of Faith, Beacon of Virtue, Beacon of the Savior
-        { pos = "TOPRIGHT", spells = { 431381, 156322, 432502 } },             -- Dawnlight, Eternal Flame, Holy Armaments
-    },
-    EVOKER_PRESERVATION = {
-        { pos = "TOPLEFT",  spells = { 364343, 373267 } },                     -- Echo, Lifebind
-        { pos = "TOPRIGHT", spells = { 366155, 367364, 355941, 376788, 363502 } }, -- Reversion, Echo Reversion, Dream Breath, Echo Dream Breath, Dream Flight
-    },
-    EVOKER_AUGMENTATION = {
-        { pos = "TOPLEFT",  spells = { 410089, 360827, 369459 } },             -- Prescience, Blistering Scales, Source of Magic
-        { pos = "TOPRIGHT", spells = { 413984, 410263, 410686, 395152, 361022 } }, -- Shifting Sands, Infernos Blessing, Symbiotic Bloom, Ebon Might, Sense Power
+        { pos = "TOPLEFT", spells = { 53563, 53601 } },
+        { pos = "TOPRIGHT", spells = { 10278, 6940, 1044 } },
     },
 }
-
-if IS_WRATH then
-    DEFAULT_INDICATORS = {
-        DRUID_RESTORATION = {
-            { pos = "TOPLEFT", spells = { 48451 } },
-            { pos = "TOPRIGHT", spells = { 48441, 48443, 53251, 29166 } },
-        },
-        PRIEST_DISCIPLINE = {
-            { pos = "TOPLEFT", spells = { 48066, 47753, 10060 } },
-            { pos = "TOPRIGHT", spells = { 48113, 33206 } },
-        },
-        PRIEST_HOLY = {
-            { pos = "TOPLEFT", spells = { 48068, 47788 } },
-            { pos = "TOPRIGHT", spells = { 48113, 48066 } },
-        },
-        SHAMAN_RESTORATION = {
-            { pos = "TOPLEFT", spells = { 49284 } },
-            { pos = "TOPRIGHT", spells = { 61301, 51945, 16237 } },
-        },
-        PALADIN_HOLY = {
-            { pos = "TOPLEFT", spells = { 53563, 53601 } },
-            { pos = "TOPRIGHT", spells = { 10278, 6940, 1044 } },
-        },
-    }
-end
 
 local WRATH_SPELL_REPLACEMENTS = {
     [774] = 48441, [8936] = 48443, [33763] = 48451, [48438] = 53251,
@@ -821,9 +488,6 @@ ns.BM_ClassFallbackSpecKey = ClassFallbackSpecKey
 -- The spec key the SIMPLE grid tracks. Normally the player's resolved spec;
 -- with Show Own on All Specs enabled, untracked specs fall back to the
 -- class's first tracked spec so the player still sees their own class buffs.
--- Secret-aura fingerprints stay gated on the REAL resolved spec
--- (activeSpecKey_BM), so on fallback specs only plain non-secret spells can
--- match -- deliberate scope limit, not a bug.
 local function SimpleSpecKey()
     if activeSpecKey_BM then return activeSpecKey_BM end
     if not SimpleShowOwnAllSpecs() then return nil end
@@ -862,8 +526,7 @@ local function RebuildLookup(db)
     -- Only load indicators for the player's active spec. With no resolved
     -- spec (untracked class spec), indicators flagged Show Own on All Specs
     -- still load from the class-fallback spec so the player's own casts keep
-    -- their indicators (non-secret spells only there: MatchSecretAura stays
-    -- gated on activeSpecKey_BM).
+    -- their indicators.
     DetectActiveSpecKey()
     local loadKey = activeSpecKey_BM
     local flaggedOnly = false
@@ -898,26 +561,17 @@ local function RebuildLookup(db)
         end
     end
 
-    -- Track alternate aura IDs whose primary is tracked, so the incremental
-    -- scanner's early-out sees them (they resolve to the primary in the scan).
-    for alt, primary in pairs(PRIMARY_BY_ALT) do
-        if trackedSpellIDs[primary] then
-            trackedSpellIDs[alt] = true
-        end
-    end
     if IS_WRATH then
         for sid in pairs(trackedSpellIDs) do
-            local primary = PRIMARY_BY_ALT[sid] or sid
             local name = C_Spell.GetSpellName(sid)
             if name and not trackedSpellNames[name] then
-                trackedSpellNames[name] = primary
+                trackedSpellNames[name] = sid
             end
         end
     end
 
     -- Simple Setup whitelist: every non-hidden spell of the active spec,
-    -- regardless of indicators (hidden entries are alternate IDs resolved via
-    -- PRIMARY_BY_ALT during the scan). Borrow specs show only the borrowed
+    -- regardless of indicators. Borrow specs show only the borrowed
     -- spells. Show Own on All Specs lifts both restrictions: borrow specs get
     -- the source spec's full list, untracked specs get the class fallback.
     wipe(simpleTrackedSpellIDs)
@@ -936,17 +590,11 @@ local function RebuildLookup(db)
             end
         end
     end
-    for alt, primary in pairs(PRIMARY_BY_ALT) do
-        if simpleTrackedSpellIDs[primary] then
-            simpleTrackedSpellIDs[alt] = true
-        end
-    end
     if IS_WRATH then
         for sid in pairs(simpleTrackedSpellIDs) do
-            local primary = PRIMARY_BY_ALT[sid] or sid
             local name = C_Spell.GetSpellName(sid)
             if name and not simpleTrackedSpellNames[name] then
-                simpleTrackedSpellNames[name] = primary
+                simpleTrackedSpellNames[name] = sid
             end
         end
     end
@@ -962,11 +610,6 @@ local function RebuildLookup(db)
         end
     end
 
-    -- Pre-build signature table for the player's active spec only
-    wipe(specSignatures)
-    if activeSpecKey_BM then
-        GetSpecSignatures(activeSpecKey_BM)
-    end
 end
 
 ns.BM_RebuildLookup = RebuildLookup
@@ -982,15 +625,9 @@ local DD_SPELL_ICON_SIZE = 17  -- icon size in ability/own-only dropdown menus
 local BAR_POOL_SIZE  = 4
 local BMSIMPLE_CAP   = 10  -- max buffs the Simple Setup grid can show per button
 
--- Hover tooltips for BuffManager aura icons/bars. Mirrors the Debuff Display
--- tooltip pattern (see EllesmereUIRaidFrames StyleButton): OnEnter renders the
--- aura by its instance ID, which is secret-safe -- it works for fingerprinted
--- secret auras too (Blizzard renders the real name we can't read). Mouse is
--- enabled only when the buff "Hide Tooltips" setting is off; motion and clicks
--- propagate to the parent button so click-casting keeps working underneath.
 local function BM_TooltipOnEnter(self)
     local u, iid = self._tipUnit, self._tipIID
-    if not u or not iid or issecretvalue(iid) then return end
+    if not u or not iid then return end
     -- Governed ONLY by the buff "Hide Tooltips" toggle (BM_SetTipTarget leaves
     -- the frame mouse-transparent while that is on). The "Show Raid Frames
     -- Tooltip" mode covers the UNIT tooltip and must not veto an aura tip the
@@ -1019,13 +656,6 @@ local function BM_WireTooltip(f, button)
     f:SetScript("OnLeave", BM_TooltipOnLeave)
 end
 
--- Stash the hover target (unit + aura instance) as a frame is assigned an aura,
--- and toggle mouse interactivity to match the buff "Hide Tooltips" setting. Read
--- live so a combat-time toggle applies on the next aura event. The default is
--- HIDDEN (buffHideTooltips = true in the defaults table), so the frame stays
--- mouse-transparent until the user opts in -- which is what makes the tooltip
--- handler's own gate the only one it needs. The `not prof` fallback only covers
--- a profile-less early call. A missing/secret instance id disables the hover.
 local function BM_SetTipTarget(f, unit, iid)
     f._tipUnit = unit
     f._tipIID  = iid
@@ -1033,7 +663,7 @@ local function BM_SetTipTarget(f, unit, iid)
     -- read the profile off the addon namespace so this file-scope helper is safe.
     local prof = ns.db and ns.db.profile
     local wantMouse = (not prof or prof.buffHideTooltips ~= true)
-        and iid ~= nil and not issecretvalue(iid)
+        and iid ~= nil
     if f._tipMouse ~= wantMouse then
         f:EnableMouse(wantMouse)
         f._tipMouse = wantMouse
@@ -1298,7 +928,7 @@ local function ApplyBarDrain(bar, unit, auraInstanceID, duration, expirationTime
     -- the real expiration). Needs a clean expirationTime; self-drained via the
     -- ticker above. A buff applied at < M starts partly drained; one longer than
     -- M shows full until it drops below M (the clamp).
-    if maxDur and expirationTime and not issecretvalue(expirationTime) and expirationTime > 0 then
+    if maxDur and expirationTime and expirationTime > 0 then
         bar:SetMinMaxValues(0, 1)
         local frac = (expirationTime - GetTime()) / maxDur
         if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
@@ -1308,9 +938,9 @@ local function ApplyBarDrain(bar, unit, auraInstanceID, duration, expirationTime
     end
     UnregisterBarMaxDur(bar)
     -- Preferred: native Duration object from C_UnitAuras (GPU-side smooth drain)
-    if auraInstanceID and not issecretvalue(auraInstanceID) and C_UnitAuras_GetAuraDuration and bar.SetTimerDuration then
+    if auraInstanceID and C_UnitAuras_GetAuraDuration and bar.SetTimerDuration then
         local durObj = C_UnitAuras_GetAuraDuration(unit, auraInstanceID)
-        if durObj and not issecretvalue(durObj) then
+        if durObj then
             bar:SetTimerDuration(durObj,
                 Enum.StatusBarInterpolation.Immediate,
                 Enum.StatusBarTimerDirection.RemainingTime)
@@ -1407,37 +1037,7 @@ local function BM_ApplyBarLevel(bar, ind, baseLvl)
     bar:SetFrameLevel(baseLvl + (FRAMELVL_BASE[ind.frameLevel or "behindBorders"] or FRAMELVL_BASE.behindBorders))
 end
 
--------------------------------------------------------------------------------
---  "Sweep" frame border (Sweep CW / Sweep CCW styles). The border is drawn as
---  4 edge StatusBars whose FILL is driven by the aura's remaining PERCENT via
---  a per-edge Linear window curve, so the lit arc retracts around the frame
---  edge like a cooldown swipe. Between 0.15s Lua ticks the fill animates
---  C-side (ExponentialEaseOut), so motion is smooth at render framerate for
---  ~4 curve evals per border per tick. Fully secret-value-safe: the (possibly
---  secret) evaluated percent only ever flows into SetValue (SecretArguments =
---  AllowedWhenTainted, BarValue aspect); threshold colors only into
---  SetStatusBarColor. Mirrors the Icon-Glow gate below.
--------------------------------------------------------------------------------
 local SWEEP_TEX = "Interface\\Buttons\\WHITE8X8"
-
--- Linear reveal curve for an edge occupying perimeter span [flo,fhi] in [0,1]:
--- (0,0)(flo,0)(fhi,1)(1,1). Evaluated at remaining%, it yields that edge's
--- fill fraction. Cached (shared across frames with the same span).
-local _sweepCurves = {}
-local function GetSweepSegCurve(flo, fhi)
-    if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType) then return nil end
-    local key = string.format("%.4f|%.4f", flo, fhi)
-    local c = _sweepCurves[key]
-    if c then return c end
-    c = C_CurveUtil.CreateCurve()
-    c:SetType(Enum.LuaCurveType.Linear)
-    c:AddPoint(0, 0)
-    if flo > 0 then c:AddPoint(flo, 0) end
-    c:AddPoint(fhi, 1)
-    if fhi < 1 then c:AddPoint(1, 1) end
-    _sweepCurves[key] = c
-    return c
-end
 
 -- Build/reuse the 4 edge StatusBars on borderFrame at width bw. Corners belong
 -- to the top/bottom bars (bars butt edge-to-edge -- no overlap, so corners
@@ -1450,7 +1050,7 @@ local function BM_BuildSweep(borderFrame, bw, ccw)
     if not w or not h or w < 2 or h < 2 then return nil end
     local sd = borderFrame._euiSweep
     if sd and sd.w==w and sd.h==h and sd.bw==bw and sd.ccw==ccw then return sd end
-    if not sd then sd = { bars = {}, curves = {}, flo = {}, fhi = {}, cr = 1, cg = 1, cb = 1, ca = 1 }; borderFrame._euiSweep = sd end
+    if not sd then sd = { bars = {}, flo = {}, fhi = {} }; borderFrame._euiSweep = sd end
 
     local sideH = h - 2 * bw
     if sideH < 1 then sideH = 1 end
@@ -1483,7 +1083,6 @@ local function BM_BuildSweep(borderFrame, bw, ccw)
         local flo, fhi = e.d0 / P, e.d1 / P
         if ccw then flo, fhi = 1 - (e.d1 / P), 1 - (e.d0 / P) end
         sd.flo[i], sd.fhi[i] = flo, fhi
-        sd.curves[i] = GetSweepSegCurve(flo, fhi)
     end
     sd.n = #edges
     sd.w, sd.h, sd.bw, sd.ccw = w, h, bw, ccw
@@ -1494,7 +1093,6 @@ local function BM_SetSweepColor(borderFrame, r, g, b, a)
     local sd = borderFrame._euiSweep
     if not sd then return end
     a = a or 1
-    sd.cr, sd.cg, sd.cb, sd.ca = r, g, b, a
     if sd.bars then
         for i = 1, sd.n do local bar = sd.bars[i]; if bar then bar:SetStatusBarColor(r, g, b, a) end end
     end
@@ -1521,8 +1119,6 @@ local function BM_ResetSweepFill(borderFrame)
     for i = 1, sd.n do if sd.bars[i] then sd.bars[i]:SetValue(1) end end
 end
 
--- Static preview fill: no aura/ticker -- set each bar's fill from a fixed
--- fraction using plain-Lua constant math (non-secret; preview only).
 local function BM_PreviewSweep(borderFrame, frac)
     local sd = borderFrame._euiSweep
     if not sd or not sd.bars then return end
@@ -1539,71 +1135,6 @@ local function BM_PreviewSweep(borderFrame, frac)
     end
 end
 
--- Fill ticker (mirrors glowTicker). Secret-safe: per-edge fill from
--- EvaluateRemainingPercent, gated to 0 when the aura is at zero. Ticks ease
--- toward the target C-side; snap=true (register/rebuild) jumps immediately so
--- a fresh ring never animates up from empty or a stale fill.
-local sweepRegistry = {}   -- [borderFrame] = { unit, iid }
-local sweepTicker = EllesmereUI.SafeCreateFrame("Frame")
-sweepTicker:Hide()
-local sweepElapsed = 0
-local function EvalSweep(borderFrame, e, snap)
-    if not (C_UnitAuras_GetAuraDuration and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean) then return end
-    local sd = borderFrame._euiSweep
-    if not sd or not sd.bars then return end
-    local durObj = C_UnitAuras_GetAuraDuration(e.unit, e.iid)
-    if not (durObj and durObj.EvaluateRemainingPercent and durObj.IsZero) then return end
-    local okz, isZero = pcall(durObj.IsZero, durObj)
-    if not okz then return end
-    local interp = Enum and Enum.StatusBarInterpolation
-        and (snap and Enum.StatusBarInterpolation.Immediate or Enum.StatusBarInterpolation.ExponentialEaseOut)
-    for i = 1, sd.n do
-        local bar = sd.bars[i]
-        local curve = sd.curves[i]
-        if bar and curve then
-            -- method form + pcall: a recycled duration object can throw.
-            local ok, val = pcall(durObj.EvaluateRemainingPercent, durObj, curve)
-            if ok then
-                -- Single writer: color (may be secret, from threshold) + fill, paired.
-                bar:SetStatusBarColor(sd.cr, sd.cg, sd.cb, sd.ca)
-                if interp then
-                    bar:SetValue(C_CurveUtil.EvaluateColorValueFromBoolean(isZero, 0, val), interp)
-                else
-                    bar:SetValue(C_CurveUtil.EvaluateColorValueFromBoolean(isZero, 0, val))
-                end
-            end
-        end
-    end
-end
-sweepTicker:SetScript("OnUpdate", function(_, dt)
-    sweepElapsed = sweepElapsed + dt
-    if sweepElapsed < 0.15 then return end
-    sweepElapsed = 0
-    local any = false
-    for borderFrame, e in pairs(sweepRegistry) do
-        if borderFrame.IsShown and not borderFrame:IsShown() then
-            sweepRegistry[borderFrame] = nil   -- self-prune hidden / recycled frames
-        else
-            any = true
-            EvalSweep(borderFrame, e)
-        end
-    end
-    if not any then sweepTicker:Hide() end
-end)
-local function RegisterSweep(borderFrame, unit, iid)
-    local e = sweepRegistry[borderFrame]
-    if not e then e = {}; sweepRegistry[borderFrame] = e end
-    e.unit, e.iid = unit, iid
-    sweepTicker:Show()
-    EvalSweep(borderFrame, e, true)   -- immediate snap so we never flash a full border for a tick
-end
-local function UnregisterSweep(borderFrame)
-    sweepRegistry[borderFrame] = nil
-end
-
--- Options-page preview: no real aura, so loop a fake fraction 1->0 and drive
--- the same edge fill. Plain-Lua constant math (non-secret). Mirrors how the
--- duration-swipe preview animates a fake cooldown.
 local previewSweepReg = {}
 local previewSweepTicker = EllesmereUI.SafeCreateFrame("Frame")
 previewSweepTicker:Hide()
@@ -1626,52 +1157,6 @@ end)
 local function RegisterPreviewSweep(bf) previewSweepReg[bf] = true; previewSweepTicker:Show() end
 local function UnregisterPreviewSweep(bf) previewSweepReg[bf] = nil end
 
--------------------------------------------------------------------------------
---  Threshold "expiring soon" recolor -- secret-value-safe via C_CurveUtil.
---  A Step color curve maps remaining-seconds -> { threshold color below the set
---  seconds, normal color at/above }. WoW evaluates it C-side against the aura's
---  opaque DurationObject and hands back a Color object whose channels may be
---  SECRET -- we never read them, only pass GetRGBA() straight into a secret-safe
---  setter. Works on fingerprinted private auras (the instance ID is readable;
---  only the spell ID is secret). A shared ~4 FPS ticker re-applies as time
---  crosses the threshold; zero cost when nothing is registered.
--------------------------------------------------------------------------------
-local _thresholdCurves = {}  -- [configHash] = color curve (rebuilt only on config change)
-local function GetThresholdColorCurve(thresholdSec, ncR, ncG, ncB, ncA, tcR, tcG, tcB, tcA)
-    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and Enum and Enum.LuaCurveType) then return nil end
-    local hash = string.format("%d|%.3f,%.3f,%.3f,%.3f|%.3f,%.3f,%.3f,%.3f",
-        thresholdSec, ncR, ncG, ncB, ncA, tcR, tcG, tcB, tcA)
-    local curve = _thresholdCurves[hash]
-    if curve then return curve end
-    curve = C_CurveUtil.CreateColorCurve()
-    curve:SetType(Enum.LuaCurveType.Step)
-    curve:AddPoint(0, CreateColor(tcR, tcG, tcB, tcA))            -- remaining < threshold
-    curve:AddPoint(thresholdSec, CreateColor(ncR, ncG, ncB, ncA)) -- remaining >= threshold
-    curve:AddPoint(600, CreateColor(ncR, ncG, ncB, ncA))          -- 10-min cap
-    _thresholdCurves[hash] = curve
-    return curve
-end
-
--- Scalar step curve for the Icon Glow gate: 1 below the threshold, 0 at/above,
--- evaluated against the aura's DurationObject (seconds remaining). Cached per
--- threshold value. Secret-safe -- the result only ever flows into widget APIs.
-local _thresholdAlphaCurves = {}
-local function GetThresholdAlphaCurve(thresholdSec)
-    if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType) then return nil end
-    local curve = _thresholdAlphaCurves[thresholdSec]
-    if curve then return curve end
-    curve = C_CurveUtil.CreateCurve()
-    curve:SetType(Enum.LuaCurveType.Step)
-    curve:AddPoint(0, 1)              -- remaining below threshold -> glow on
-    curve:AddPoint(thresholdSec, 0)   -- remaining at/above threshold -> glow off
-    _thresholdAlphaCurves[thresholdSec] = curve
-    return curve
-end
-
--- Threshold sound cue -- rides the same ticker as the recolor, but unlike the
--- visual path it needs a plain Lua comparison, so it reads the aura timing
--- directly and skips silently whenever that timing is secret (private auras).
--- The cue therefore only fires for auras with readable timing.
 local THRESHOLD_SOUND_DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
 local _thresholdSoundPaths, _thresholdSoundNames, _thresholdSoundOrder
 -- Built lazily so SharedMedia sounds registered by other addons at login are
@@ -1743,34 +1228,19 @@ local function PlayThresholdSound(key)
     end
 end
 
--- [element] = { unit, iid, curve, apply, ind }; apply(element, colorResult)
+-- [element] = { unit, iid, ind }
 local thresholdRegistry = {}
+-- PERF NOTE: Profile the 0.25s sound-threshold ticker with many active raid icons.
 local thresholdTicker = EllesmereUI.SafeCreateFrame("Frame")
 thresholdTicker:Hide()
 local thresholdElapsed = 0
 local function EvalThreshold(element, e)
-    -- Visual recolor: skipped for sound-only registrations (no curve/apply).
-    if C_UnitAuras_GetAuraDuration and e.curve and e.apply then
-        local durObj = C_UnitAuras_GetAuraDuration(e.unit, e.iid)
-        if durObj and durObj.EvaluateRemainingDuration then
-            -- pcall: the API can throw on a stale/invalid duration object mid-recycle.
-            local ok, result = pcall(durObj.EvaluateRemainingDuration, durObj, e.curve)
-            if ok and result and result.GetRGBA then
-                e.apply(element, result)   -- result channels may be secret; never read here
-            end
-        end
-    end
-    -- Sound cue: plain-Lua edge detect, guarded so a secret value never enters
-    -- a comparison -- if the timing is secret this whole block is a silent skip
-    -- (visuals above keep working; they never needed the value). Rising-edge
-    -- flag per element so each crossing fires once; refresh above the threshold
-    -- re-arms it.
     local ind = e.ind
     local sKey = ind and ind.thresholdSound
     if sKey and sKey ~= "none" then
         local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(e.unit, e.iid)
         local exp = aura and aura.expirationTime
-        if exp and not issecretvalue(exp) then
+        if exp then
             if (exp - GetTime()) <= (ind.threshold or 3) then
                 if not e.soundFired then
                     e.soundFired = true
@@ -1798,15 +1268,15 @@ thresholdTicker:SetScript("OnUpdate", function(_, dt)
     if not any then thresholdTicker:Hide() end
 end)
 
-local function RegisterThreshold(element, unit, iid, curve, apply, ind)
+local function RegisterThreshold(element, unit, iid, ind)
     local e = thresholdRegistry[element]
     if not e then e = {}; thresholdRegistry[element] = e end
     -- New aura instance -> re-arm the sound edge flag (a reapplied buff is a
     -- fresh crossing); same instance keeps it so re-registers never double-fire.
     if e.iid ~= iid then e.soundFired = nil end
-    e.unit, e.iid, e.curve, e.apply, e.ind = unit, iid, curve, apply, ind
+    e.unit, e.iid, e.ind = unit, iid, ind
     thresholdTicker:Show()
-    EvalThreshold(element, e)   -- immediate, so we never flash the normal color for a tick
+    EvalThreshold(element, e)   -- immediate, so an already-crossed sound cue is not delayed
 end
 
 local function UnregisterThreshold(element)
@@ -1827,9 +1297,7 @@ SlashCmdList.RFTHSDBG = function()
         local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(e.unit, e.iid)
         if aura then
             local exp = aura.expirationTime
-            if exp == nil then expInfo = "nil-exp"
-            elseif issecretvalue(exp) then expInfo = "SECRET"
-            else
+            if exp == nil then expInfo = "nil-exp" else
                 expInfo = "ok"
                 remInfo = string.format("%.1f", exp - now)
             end
@@ -1844,58 +1312,6 @@ SlashCmdList.RFTHSDBG = function()
         now - _thresholdSoundLast))
 end
 
--- Per-type apply helpers. All push the (possibly secret) curve color straight
--- into a secret-safe setter via GetRGBA() -- the channels are never read.
-local function ApplyBarThresholdColor(bar, colorResult)
-    bar:SetStatusBarColor(colorResult:GetRGBA())
-end
--- Icon/Square: the pool frame is the element; its texture carries the color.
-local function ApplyTexThresholdColor(f, colorResult)
-    if f._tex then f._tex:SetVertexColor(colorResult:GetRGBA()) end
-end
--- Duration text: recolor the cooldown's countdown font string. Used when an
--- icon indicator has "Hide Icons" on, so the expiring color lands on the
--- visible duration text instead of the hidden icon texture.
-local function ApplyDurTextThresholdColor(f, colorResult)
-    local cd = f._cooldown
-    local cdText = cd and cd.GetCountdownFontString and cd:GetCountdownFontString()
-    if cdText then cdText:SetTextColor(colorResult:GetRGBA()) end
-end
--- Health-color overlay: the overlay texture itself is the element.
-local function ApplyOverlayThresholdColor(overlay, colorResult)
-    overlay:SetVertexColor(colorResult:GetRGBA())
-end
--- Frame-border threshold recolor. Every style recolors via SetVertexColor with
--- no arithmetic on the channels (dashed -> the ants textures; solid/textured ->
--- PP or BackdropTemplate, both routed through SetBorderStyleColor), so a secret
--- (12.1-restricted) color stays safe. The active style is stamped on the frame
--- by ApplyEffectBorder.
-local function ApplyBorderThresholdColor(borderFrame, colorResult)
-    if borderFrame._euiBorderStyle == "sweep" then
-        local sd = borderFrame._euiSweep
-        if sd then sd.cr, sd.cg, sd.cb, sd.ca = colorResult:GetRGBA() end
-        return
-    end
-    if borderFrame._euiBorderStyle == "dashed" then
-        local Glows = EllesmereUI.Glows
-        if Glows and Glows.SetProceduralAntsColor then
-            Glows.SetProceduralAntsColor(borderFrame, colorResult:GetRGBA())
-        end
-        return
-    end
-    if EllesmereUI.SetBorderStyleColor then
-        EllesmereUI.SetBorderStyleColor(borderFrame, colorResult:GetRGBA())
-    end
-end
-
--- Apply the Frame-Border effect in the configured style. "dashed" draws a static
--- (non-marching) procedural-ants border from the shared glow engine; every other
--- style ("solid" plus the textured styles glow/shadow/blizz/lightspark/dialog and
--- LibSharedMedia borders) is drawn by EllesmereUI.ApplyBorderStyle, which manages
--- the PP-vs-BackdropTemplate swap internally. Only one renderer is shown at a
--- time; the active style is stamped on the frame so ApplyBorderThresholdColor
--- recolors the right texture set. r,g,b,a are the normal (non-secret) configured
--- color/opacity; the frame is Show()n by callers.
 local function ApplyEffectBorder(borderFrame, ind, r, g, b, a)
     local style = ind.borderStyle or "solid"
     local bw = ind.borderWidth or 2
@@ -1937,61 +1353,6 @@ local function ApplyEffectBorder(borderFrame, ind, r, g, b, a)
         end
         borderFrame._euiBorderStyle = style
     end
-end
-
--------------------------------------------------------------------------------
---  Icon Glow -- threshold-gated glow for icon indicators. The shared glow
---  engine runs continuously while the buff is active; its overlay ALPHA is
---  driven by the DurationObject so the glow only shows once remaining drops
---  below the threshold. Fully secret-safe: the (possibly secret) curve value
---  and IsZero boolean flow straight into Blizzard widget APIs
---  (EvaluateColorValueFromBoolean, SetAlpha) and are never compared in Lua.
---  Mirrors the recolor ticker above; the ticker also stops the animation on
---  recycled/hidden pool frames so an inactive icon never leaks a running glow.
--------------------------------------------------------------------------------
-local glowRegistry = {}  -- [overlay] = { unit, iid, curve }
-local glowTicker = EllesmereUI.SafeCreateFrame("Frame")
-glowTicker:Hide()
-local glowElapsed = 0
-local function EvalGlow(overlay, e)
-    if not (C_UnitAuras_GetAuraDuration and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean) then return end
-    local durObj = C_UnitAuras_GetAuraDuration(e.unit, e.iid)
-    if not (durObj and durObj.EvaluateRemainingDuration and durObj.IsZero) then return end
-    -- pcall (method form, no closure): a recycled duration object can throw.
-    local ok, val = pcall(durObj.EvaluateRemainingDuration, durObj, e.curve, 0)
-    if not ok then return end
-    local okz, isZero = pcall(durObj.IsZero, durObj)
-    if not okz then return end
-    -- val + isZero may be secret; they only ever flow into Blizzard widget APIs.
-    overlay:SetAlpha(C_CurveUtil.EvaluateColorValueFromBoolean(isZero, 0, val))
-end
-glowTicker:SetScript("OnUpdate", function(_, dt)
-    glowElapsed = glowElapsed + dt
-    if glowElapsed < 0.2 then return end
-    glowElapsed = 0
-    local any = false
-    for overlay, e in pairs(glowRegistry) do
-        if overlay.IsShown and not overlay:IsShown() then
-            glowRegistry[overlay] = nil
-            if overlay._euiGlowActive and EllesmereUI.Glows and EllesmereUI.Glows.StopGlow then
-                EllesmereUI.Glows.StopGlow(overlay)
-            end
-        else
-            any = true
-            EvalGlow(overlay, e)
-        end
-    end
-    if not any then glowTicker:Hide() end
-end)
-local function RegisterGlow(overlay, unit, iid, curve)
-    local e = glowRegistry[overlay]
-    if not e then e = {}; glowRegistry[overlay] = e end
-    e.unit, e.iid, e.curve = unit, iid, curve
-    glowTicker:Show()
-    EvalGlow(overlay, e)   -- immediate, so the gate is correct on the first frame
-end
-local function UnregisterGlow(overlay)
-    glowRegistry[overlay] = nil
 end
 
 -------------------------------------------------------------------------------
@@ -2068,8 +1429,6 @@ function ns.BM_ClearIndicators(button)
     end
     d.bmActiveInstanceIDs = nil
     button._bmSavedAlpha = nil
-    -- Restore to range-only alpha. If rangeAlpha is nil the range ticker
-    -- already set the correct secret-safe alpha via SetAlphaFromBoolean.
     if d.rangeAlpha then
         button:SetAlpha(d.rangeAlpha)
     end
@@ -2157,9 +1516,6 @@ local function AnchorSimpleGrid(d, health, bs, iscale, visibleCount)
 end
 ns.BM_AnchorSimpleGrid = AnchorSimpleGrid
 
--- Scan HELPFUL auras, match against the active spec's full whitelist (secret
--- auras via fingerprint), and render the matches in the grid. Secret-safe:
--- icon via SetTexture, duration via DurationObject, never reads raw numbers.
 function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo, auraScan)
     local GetFFD = ns.GetFFD
     if not GetFFD then return end
@@ -2185,13 +1541,11 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo, auraScan)
         if updateInfo.addedAuras then
             for _, ad in ipairs(updateInfo.addedAuras) do
                 local sid = ad.spellId
-                if sid and not issecretvalue(sid) then
+                if sid then
                     if ResolveTrackedSpellID(ad, simpleTrackedSpellIDs, simpleTrackedSpellNames) then
                         needScan = true
                         break
                     end
-                elseif sid then
-                    needScan = true; break
                 end
             end
         end
@@ -2245,27 +1599,16 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo, auraScan)
         local tex = auraData.icon
         local matched = false
         if sid and iid then
-            if not issecretvalue(sid) then
-                local psid = ResolveTrackedSpellID(
-                    auraData, simpleTrackedSpellIDs, simpleTrackedSpellNames)
-                if simpleTrackedSpellIDs[psid] and not seen[psid] then
-                    -- Own Only: same PLAYER filter the custom path uses; secret
-                    -- auras below are always player-cast so they skip this check.
-                    local pass = true
-                    if ownOnly and C_UnitAuras_IsAuraFilteredOutByInstanceID then
-                        pass = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "PLAYER|HELPFUL")
-                    end
-                    if pass then
-                        matched = true
-                        seen[psid] = true
-                    end
+            local psid = ResolveTrackedSpellID(
+                auraData, simpleTrackedSpellIDs, simpleTrackedSpellNames)
+            if simpleTrackedSpellIDs[psid] and not seen[psid] then
+                local pass = true
+                if ownOnly and C_UnitAuras_IsAuraFilteredOutByInstanceID then
+                    pass = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "PLAYER|HELPFUL")
                 end
-            else
-                local matchedSid = MatchSecretAuraSimple(unit, iid)
-                if matchedSid and not seen[matchedSid] then
+                if pass then
                     matched = true
-                    seen[matchedSid] = true
-                    if not tex then tex = SECRET_SPELL_ICONS[matchedSid] or QUESTION_MARK_ICON end
+                    seen[psid] = true
                 end
             end
         end
@@ -2283,10 +1626,6 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo, auraScan)
             local cd = icon._cooldown
             if cd then
                 if wantSwipe or wantDurText then
-                    -- Permanent auras return a degenerate 0,0 duration object
-                    -- whose armed cooldown strobes via an internal client
-                    -- show/self-hide cycle; mask with alpha via durObj:IsZero()
-                    -- (secret-safe, see custom-indicator path).
                     local applied = false
                     if C_UnitAuras.GetAuraDuration and cd.SetCooldownFromDurationObject then
                         local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
@@ -2333,8 +1672,6 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo, auraScan)
                 end
             end
 
-            -- Stack count (secret-safe via Blizzard API; mirrors the custom-
-            -- indicator system's stack text).
             if icon._count then
                 if bs.showStacks and C_UnitAuras.GetAuraApplicationDisplayCount and iid then
                     local stackText = C_UnitAuras.GetAuraApplicationDisplayCount(unit, iid, 2, 99)
@@ -2460,17 +1797,14 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
         local needScan = false
         if updateInfo.addedAuras then
             for _, ad in ipairs(updateInfo.addedAuras) do
-                -- Skip isHelpful check (secret on other players, and harmful
-                -- spell IDs won't match tracked buff IDs anyway)
+                -- Skip isHelpful check; harmful spell IDs won't match tracked
+                -- buff IDs anyway.
                 local sid = ad.spellId
-                if sid and not issecretvalue(sid) then
+                if sid then
                     if ResolveTrackedSpellID(ad, trackedSpellIDs, trackedSpellNames) then
                         needScan = true
                         break
                     end
-                elseif sid then
-                    -- Secret spellId: could be a tracked secret buff
-                    needScan = true; break
                 end
             end
         end
@@ -2501,9 +1835,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
         button:SetAlpha(d2.rangeAlpha)
     end
 
-    -- 1. Scan HELPFUL auras, build activeSpells + activePlayerSpells sets
-    --    Non-secret: direct spellId lookup + PLAYER filter check.
-    --    Secret: fingerprint matching (always player-cast by definition).
+    -- 1. Scan HELPFUL auras, build activeSpells + activePlayerSpells sets.
     wipe(activeSpells)
     wipe(activePlayerSpells)
     if not d.bmActiveInstanceIDs then d.bmActiveInstanceIDs = {} end
@@ -2521,50 +1853,20 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
         idx = idx + 1
         local sid = auraData.spellId
         if sid then
-            if not issecretvalue(sid) then
-                -- Normal path: direct spell ID check. Resolve alternate aura IDs
-                -- (e.g. Earth Shield 383648, Ebon Might self-buff 395296) to the
-                -- primary ID the indicators reference. Wrath additionally falls
-                -- back to the localized name for rank/trigger aura variants.
-                local psid = ResolveTrackedSpellID(
-                    auraData, trackedSpellIDs, trackedSpellNames)
-                -- Track "any caster" and "player-cast" copies independently:
-                -- another healer's copy of the same buff can sit earlier in the
-                -- list, and a first-copy-wins check would skip ours entirely,
-                -- leaving Own Only indicators blank.
-                if psid and not (activeSpells[psid] and activePlayerSpells[psid]) then
-                    if not activeSpells[psid] then activeSpells[psid] = auraData end
-                    if auraData.auraInstanceID then
-                        d.bmActiveInstanceIDs[auraData.auraInstanceID] = true
-                    end
-                    -- Player-only check via filter API (avoids secret isFromPlayerOrPlayerPet)
-                    local iid = auraData.auraInstanceID
-                    if iid and not activePlayerSpells[psid] and C_UnitAuras_IsAuraFilteredOutByInstanceID then
-                        if not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "PLAYER|HELPFUL") then
-                            activePlayerSpells[psid] = auraData
-                        end
-                    end
+            -- Resolve alternate aura IDs and Wrath rank/trigger names to the
+            -- primary ID the indicators reference.
+            local psid = ResolveTrackedSpellID(auraData, trackedSpellIDs, trackedSpellNames)
+            -- Track any-caster and player-cast copies independently. Another
+            -- healer's copy may appear first in the aura list.
+            if psid and not (activeSpells[psid] and activePlayerSpells[psid]) then
+                if not activeSpells[psid] then activeSpells[psid] = auraData end
+                if auraData.auraInstanceID then
+                    d.bmActiveInstanceIDs[auraData.auraInstanceID] = true
                 end
-            else
-                -- Secret path: fingerprint matching
-                -- Secret auras identified by our fingerprint are always from
-                -- the player's own spells (the signature table only contains
-                -- spells the player's class can cast).
                 local iid = auraData.auraInstanceID
-                if iid then
-                    local matchedSid = MatchSecretAura(unit, iid)
-                    if matchedSid and not activeSpells[matchedSid] then
-                        local entry = {
-                            spellId = matchedSid,
-                            icon = SECRET_SPELL_ICONS[matchedSid] or QUESTION_MARK_ICON,
-                            duration = auraData.duration,
-                            expirationTime = auraData.expirationTime,
-                            applications = auraData.applications,
-                            auraInstanceID = iid,
-                        }
-                        activeSpells[matchedSid] = entry
-                        activePlayerSpells[matchedSid] = entry
-                        d.bmActiveInstanceIDs[iid] = true
+                if iid and not activePlayerSpells[psid] and C_UnitAuras_IsAuraFilteredOutByInstanceID then
+                    if not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "PLAYER|HELPFUL") then
+                        activePlayerSpells[psid] = auraData
                     end
                 end
             end
@@ -2607,29 +1909,12 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                         local exp = aura.expirationTime
                         local iid = aura.auraInstanceID
                         local maxDur = BM_EffectiveMaxDur(ind)
-                        if dur and exp and not issecretvalue(dur) and not issecretvalue(exp) and dur > 0 then
+                        if dur and exp and dur > 0 then
                             ApplyBarDrain(bar, unit, iid, dur, exp, maxDur)
                         else
                             ApplyBarDrain(bar, unit, iid, nil, nil, maxDur)
                         end
-                        -- Threshold "expiring" recolor (secret-safe curve + ticker).
-                        -- While enabled the ticker owns the bar color and reverts to
-                        -- the normal color above the threshold; the immediate eval in
-                        -- RegisterThreshold avoids a one-tick flash of the normal color.
-                        if ind.thresholdEnabled and iid and not issecretvalue(iid) then
-                            local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
-                            local curve = GetThresholdColorCurve(
-                                ind.threshold or 3,
-                                c.r, c.g, c.b, (ind.barColorOpacity or 100) / 100,
-                                tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
-                            if curve then
-                                RegisterThreshold(bar, unit, iid, curve, ApplyBarThresholdColor, ind)
-                            else
-                                UnregisterThreshold(bar)
-                            end
-                        else
-                            UnregisterThreshold(bar)
-                        end
+                        UnregisterThreshold(bar)
                         BM_PlaceBar(bar, health, ind, iscale)
                         bar:Show()
                     end
@@ -2715,12 +2000,9 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                             -- Icon opacity (affects texture + swipe, not text)
                             local iconAlpha = hideIcon and 0 or (ind.iconOpacity or 100) / 100
 
-                            -- Normal color the threshold curve reverts to above the
-                            -- cutoff: white tint for icons, the square's own color.
-                            local ncR, ncG, ncB, ncA
                             if indType == "icon" then
                                 local icon = aura.icon
-                                if icon and not issecretvalue(icon) then
+                                if icon then
                                     f._tex:SetTexture(icon)
                                 else
                                     f._tex:SetTexture(QUESTION_MARK_ICON)
@@ -2728,51 +2010,22 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                 local _z = db.profile.bmIconZoom or 0.08
                                 f._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
                                 f._tex:SetVertexColor(1, 1, 1, iconAlpha)
-                                ncR, ncG, ncB, ncA = 1, 1, 1, iconAlpha
                             else -- square
                                 -- Per-ability color: this spell's own color, falling
                                 -- back to the legacy single ind.color, then default.
                                 local c = (ind.spellColors and ind.spellColors[sid])
                                     or ind.color or BM_COLOR_GREEN
-                                -- White texture + vertex color (not SetColorTexture) so the
-                                -- threshold can recolor via secret-safe SetVertexColor, and a
-                                -- reused icon's tint can't leak through.
                                 f._tex:SetTexture(1, 1, 1, 1)
                                 f._tex:SetVertexColor(c.r, c.g, c.b, iconAlpha)
                                 f._tex:SetTexCoord(0, 1, 0, 1)
-                                ncR, ncG, ncB, ncA = c.r, c.g, c.b, iconAlpha
                             end
-                            -- Threshold expiring recolor (secret-safe curve + ticker).
-                            -- For the "icon" indicator type the expiring color ALWAYS
-                            -- targets the duration text (never the icon texture), whether
-                            -- or not Hide Icons is on. That registration is deferred to the
-                            -- duration-text block below (so the countdown font string
-                            -- already exists). The "square" type still recolors its texture.
                             local textThresholdMode = (indType == "icon")
                             do
                                 local tiid = aura.auraInstanceID
                                 if textThresholdMode then
-                                    -- Icon type: the expiring recolor targets the duration
-                                    -- text, registered in the text block below -- but ONLY
-                                    -- when duration text is shown. Seed a sound-only
-                                    -- registration (no curve/apply) here so the threshold
-                                    -- sound also works for glow-only / no-text setups; the
-                                    -- text block upgrades this entry with the recolor curve
-                                    -- when it runs. Registering fresh either way clears any
-                                    -- stale prior curve, matching the old Unregister.
-                                    if ind.thresholdEnabled and tiid and not issecretvalue(tiid)
+                                    if ind.thresholdEnabled and tiid
                                        and ind.thresholdSound and ind.thresholdSound ~= "none" then
-                                        RegisterThreshold(f, unit, tiid, nil, nil, ind)
-                                    else
-                                        UnregisterThreshold(f)
-                                    end
-                                elseif ind.thresholdEnabled and tiid and not issecretvalue(tiid) then
-                                    local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
-                                    local curve = GetThresholdColorCurve(
-                                        ind.threshold or 3, ncR, ncG, ncB, ncA,
-                                        tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
-                                    if curve then
-                                        RegisterThreshold(f, unit, tiid, curve, ApplyTexThresholdColor, ind)
+                                        RegisterThreshold(f, unit, tiid, ind)
                                     else
                                         UnregisterThreshold(f)
                                     end
@@ -2781,19 +2034,12 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                 end
                             end
 
-                            -- Icon Glow (icon type only): a glow that plays while
-                            -- the buff is within the threshold window. The engine
-                            -- glow runs while the icon is shown; the glow ticker
-                            -- drives its overlay alpha so it only appears below the
-                            -- threshold. Restart the animation only when style/
-                            -- size/color changed so a steady glow never resets on a
-                            -- rescan. Secret-safe (see the glow ticker above).
                             do
                                 local gType = (indType == "icon") and (ind.iconGlowType or 0) or 0
                                 local giid = aura.auraInstanceID
                                 local Glows = EllesmereUI.Glows
                                 if gType > 0 and ind.thresholdEnabled and giid
-                                   and not issecretvalue(giid) and Glows and Glows.StartGlow then
+                                   and Glows and Glows.StartGlow then
                                     local gov = f._bmGlowOverlay
                                     if not gov then
                                         gov = EllesmereUI.SafeCreateFrame("Frame", nil, f)
@@ -2815,17 +2061,13 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                         gov._bmGlowStyle, gov._bmGlowW = gType, iconSz
                                         gov._bmGlowCR, gov._bmGlowCG, gov._bmGlowCB = cr, cg, cb
                                     end
-                                    local gcurve = GetThresholdAlphaCurve(ind.threshold or 3)
-                                    if gcurve then RegisterGlow(gov, unit, giid, gcurve) end
                                 elseif f._bmGlowOverlay then
-                                    UnregisterGlow(f._bmGlowOverlay)
                                     if f._bmGlowOverlay._euiGlowActive and Glows and Glows.StopGlow then
                                         Glows.StopGlow(f._bmGlowOverlay)
                                     end
                                 end
                             end
 
-                            -- Stack count (secret-safe via Blizzard API)
                             if ind.showStacks and C_UnitAuras.GetAuraApplicationDisplayCount
                                 and aura.auraInstanceID then
                                 local stackText = C_UnitAuras.GetAuraApplicationDisplayCount(
@@ -2847,7 +2089,6 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                 end
                             end
 
-                            -- Duration swipe + text (secret-safe via DurationObject + GetCountdownFontString)
                             if f._cooldown then
                                 -- Hide Icons zeroes the icon texture but keeps the
                                 -- cooldown layer at full alpha so the duration text
@@ -2856,25 +2097,12 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                 local wantSwipe = (not hideIcon) and (ind.showDuration ~= false)
                                 local wantDurText = ind.showDurationText
                                 if wantSwipe or wantDurText then
-                                    -- Only Show the cooldown when a cooldown was actually
-                                    -- applied. A no-duration aura (e.g. a beacon) has nothing
-                                    -- to set; showing the empty cooldown anyway draws its full
-                                    -- reversed swipe for a frame or two before the frame
-                                    -- self-hides, strobing the icon dark on every rescan.
-                                    -- Clear() also wipes any stale swipe a reused pool frame
-                                    -- inherited from its previous occupant.
-                                    -- Permanent auras return a degenerate 0,0 duration object;
-                                    -- a cooldown armed from one strobes -- the CLIENT shows the
-                                    -- full reversed swipe then self-hides, an internal cycle
-                                    -- that Lua-side show/hide gating cannot stop. Mask with
-                                    -- ALPHA instead: durObj:IsZero() -> alpha 0. Secret-safe
-                                    -- and orthogonal to the client's internal show/hide.
                                     local applied = false
                                     local iid = aura.auraInstanceID
                                     local cdBaseA = hideIcon and 1 or iconAlpha
                                     local mdMax = BM_EffectiveMaxDur(ind)
                                     local mdExp = aura.expirationTime
-                                    if mdMax and mdExp and not issecretvalue(mdExp) and mdExp > 0 then
+                                    if mdMax and mdExp and mdExp > 0 then
                                         -- Max Duration override: scale the swipe to the fixed
                                         -- baseline (still ends at the real expiration). A buff
                                         -- applied at < M shows a partly-drained swipe from the
@@ -2883,7 +2111,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                         f._cooldown:SetCooldown(mdExp - mdMax, mdMax)
                                         f._cooldown:SetAlpha(cdBaseA)
                                         applied = true
-                                    elseif iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
+                                    elseif iid and C_UnitAuras.GetAuraDuration then
                                         local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
                                         if durObj then
                                             if f._cooldown.SetCooldownFromDurationObject then
@@ -2901,7 +2129,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                     else
                                         local dur = aura.duration
                                         local exp = aura.expirationTime
-                                        if dur and exp and not issecretvalue(dur) and not issecretvalue(exp) and dur > 0 then
+                                        if dur and exp and dur > 0 then
                                             f._cooldown:SetCooldown(exp - dur, dur)
                                             f._cooldown:SetAlpha(cdBaseA)
                                             applied = true
@@ -2925,24 +2153,6 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                                             cdText:SetTextColor(tc.r, tc.g, tc.b)
                                             cdText:ClearAllPoints()
                                             cdText:SetPoint("CENTER", f, "CENTER", ind.durationTextOffsetX or 0, ind.durationTextOffsetY or 0)
-                                            -- Icon indicator threshold: drive the expiring color
-                                            -- onto the duration text (always, for the icon type).
-                                            -- The curve reverts to the duration text color above
-                                            -- the threshold, so the static color set just above is
-                                            -- the baseline and the immediate eval here overrides it
-                                            -- without a flash.
-                                            if textThresholdMode then
-                                                local tiid = aura.auraInstanceID
-                                                if ind.thresholdEnabled and tiid and not issecretvalue(tiid) then
-                                                    local thc = ind.thresholdColor or BM_COLOR_THRESHOLD
-                                                    local curve = GetThresholdColorCurve(
-                                                        ind.threshold or 3, tc.r, tc.g, tc.b, 1,
-                                                        thc.r, thc.g, thc.b, (ind.thresholdColorOpacity or 100) / 100)
-                                                    if curve then
-                                                        RegisterThreshold(f, unit, tiid, curve, ApplyDurTextThresholdColor, ind)
-                                                    end
-                                                end
-                                            end
                                         end
                                     end
                                 else
@@ -2973,30 +2183,18 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                             or (showWhen == "allPresent" and allPresent)
                             or (showWhen == "anyMissing" and not allPresent)
 
-            -- Threshold drives off the first present tracked aura (present mode
-            -- only -- a missing aura has no remaining time to watch). Secret-safe.
             local presentIid
             if showWhen == "present" and presentAura then presentIid = presentAura.auraInstanceID end
-            local threshOK = ind.thresholdEnabled and presentIid and not issecretvalue(presentIid)
 
             if shouldShow then
                 if indType == "healthcolor" then
                     if d.bmHCOverlay then
                         local c = ind.color or BM_COLOR_GREEN
                         local op = (ind.opacity or 100) / 100
-                        -- White texture + vertex so the threshold can recolor via
-                        -- secret-safe SetVertexColor.
                         d.bmHCOverlay:SetTexture(1, 1, 1, 1)
                         d.bmHCOverlay:SetVertexColor(c.r, c.g, c.b, op)
                         d.bmHCOverlay:Show()
-                        local curve
-                        if threshOK then
-                            local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
-                            curve = GetThresholdColorCurve(ind.threshold or 3,
-                                c.r, c.g, c.b, op, tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
-                        end
-                        if curve then RegisterThreshold(d.bmHCOverlay, unit, presentIid, curve, ApplyOverlayThresholdColor, ind)
-                        else UnregisterThreshold(d.bmHCOverlay) end
+                        UnregisterThreshold(d.bmHCOverlay)
                     end
                 elseif indType == "border" then
                     if d.bmEffectBorder and PP then
@@ -3004,31 +2202,16 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo, auraScan)
                         local op = (ind.borderOpacity or 100) / 100
                         ApplyEffectBorder(d.bmEffectBorder, ind, c.r, c.g, c.b, op)
                         d.bmEffectBorder:Show()
-                        if d.bmEffectBorder._euiBorderStyle == "sweep" and presentIid then
-                            RegisterSweep(d.bmEffectBorder, unit, presentIid)
-                        else
-                            UnregisterSweep(d.bmEffectBorder)
-                            -- No aura drives the reveal (missing/allPresent/anyMissing
-                            -- modes): show the ring fully lit, not a stale partial arc.
-                            if d.bmEffectBorder._euiBorderStyle == "sweep" then
-                                BM_ResetSweepFill(d.bmEffectBorder)
-                            end
+                        -- No aura drives the reveal (missing/allPresent/anyMissing
+                        -- modes): show the ring fully lit, not a stale partial arc.
+                        if not presentIid and d.bmEffectBorder._euiBorderStyle == "sweep" then
+                            BM_ResetSweepFill(d.bmEffectBorder)
                         end
-                        local curve
-                        if threshOK then
-                            local tc = ind.thresholdColor or BM_COLOR_THRESHOLD
-                            curve = GetThresholdColorCurve(ind.threshold or 3,
-                                c.r, c.g, c.b, op, tc.r, tc.g, tc.b, (ind.thresholdColorOpacity or 100) / 100)
-                        end
-                        if curve then RegisterThreshold(d.bmEffectBorder, unit, presentIid, curve, ApplyBorderThresholdColor, ind)
-                        else UnregisterThreshold(d.bmEffectBorder) end
+                        UnregisterThreshold(d.bmEffectBorder)
                     end
                 elseif indType == "framealpha" then
                     local bmA = ind.alpha or 0.4
                     button._bmSavedAlpha = bmA
-                    -- Multiply with range alpha so both effects coexist.
-                    -- If rangeAlpha is nil (secret-managed), just store bmA
-                    -- and let the range ticker apply the combined value.
                     local GetFFD = ns.GetFFD
                     local d3 = GetFFD and GetFFD(button)
                     if d3 and d3.rangeAlpha then
@@ -3274,9 +2457,7 @@ local previewSpellIcons = {}
 local function GetSpellIcon(spellID)
     if previewSpellIcons[spellID] then return previewSpellIcons[spellID] end
     local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
-    -- Secret auras (e.g. Sense Power) often have no resolvable spell-info icon;
-    -- fall back to the known fingerprint icon before the generic question mark.
-    local icon = (info and info.iconID) or SECRET_SPELL_ICONS[spellID] or QUESTION_MARK_ICON
+    local icon = (info and info.iconID) or QUESTION_MARK_ICON
     previewSpellIcons[spellID] = icon
     return icon
 end
@@ -5026,15 +4207,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         MAGE        = { 0.125, 0.25,  0,     0.125 },
         ROGUE       = { 0.25,  0.375, 0,     0.125 },
         DRUID       = { 0.375, 0.5,   0,     0.125 },
-        EVOKER      = { 0.5,   0.625, 0,     0.125 },
         HUNTER      = { 0,     0.125, 0.125, 0.25  },
         SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
         PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
         WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
         PALADIN     = { 0,     0.125, 0.25,  0.375 },
         DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-        MONK        = { 0.25,  0.375, 0.25,  0.375 },
-        DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
     }
     local SPEC_CLASS_MAP = {}
     for _, spec in ipairs(HEALER_SPECS) do
@@ -5723,12 +4901,6 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             return "RIGHT"
         end
 
-        -- THRESHOLD section  rendered after every indicator's DISPLAY section.
-        -- Drives an "expiring soon" recolor (curve route, secret-safe). Default
-        -- OFF so existing indicators are unchanged until enabled.
-        --   Row 1: Enable Threshold (toggle) | Threshold (sec) slider (1-10s).
-        --   Row 2: Color (picker) | Opacity (full slider).
-        -- Frame Alpha (useAlpha) has no colour, so Row 2 is a single Alpha slider.
         local function BuildThresholdRow(useAlpha)
             _, h = W:SectionHeader(leftFrame, "THRESHOLD", sy); sy = sy - h
 
@@ -6952,8 +6124,6 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                       getValue=function() return floor((ind.alpha or 0.4) * 100) end,
                       setValue=function(v) ind.alpha = v / 100; ReloadAndUpdate() end },
                     { type="label", text="" })
-                -- Frame Alpha has no Threshold section: its alpha multiplies with
-                -- the range-fade alpha and two secret values can't be combined.
             end
         end
     else
@@ -6979,46 +6149,4 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Return exactly the visible height so the outer scroll frame has no scroll range
     -- Return 0: content lives on scrollFrame directly, not scroll child
     return 0
-end
-
--------------------------------------------------------------------------------
---  TEMP DEBUG: /euifreedom [unit]  (default target, falls back to player)
---  Prints every HELPFUL aura's id/name (SECRET when hidden), its four-filter
---  fingerprint, what BM_IdentifySecretAura resolves it to, and whether the
---  EXTERNAL_DEFENSIVE filter passes -- plus the active spec key and its
---  registered signature table. Remove after the Freedom investigation.
--------------------------------------------------------------------------------
-do
-    local function SafeStr(v)
-        if v == nil then return "nil" end
-        if issecretvalue and issecretvalue(v) then return "SECRET" end
-        return tostring(v)
-    end
-    SLASH_EUIFREEDOM1 = "/euifreedom"
-    SlashCmdList["EUIFREEDOM"] = function(msg)
-        local unit = (msg and msg ~= "" and msg) or "target"
-        if not UnitExists(unit) then unit = "player" end
-        print("|cff0cd29fEUI Freedom debug|r unit=" .. unit
-            .. "  specKey=" .. tostring(activeSpecKey_BM)
-            .. "  borrow=" .. tostring(activeBorrow_BM and "yes" or "no"))
-        if activeSpecKey_BM then
-            local sigs = GetSpecSignatures(activeSpecKey_BM)
-            local parts = {}
-            for k, v in pairs(sigs) do parts[#parts + 1] = k .. "->" .. tostring(v) end
-            print("  registered sigs: " .. (next(parts) and table.concat(parts, "  ") or "none"))
-        end
-        local i = 1
-        while true do
-            local ad = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
-            if not ad then break end
-            local iid = ad.auraInstanceID
-            local sig = iid and MakeSignature(unit, iid) or "noIID"
-            local ident = iid and ns.BM_IdentifySecretAura and ns.BM_IdentifySecretAura(unit, iid)
-            local ext = iid and not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HELPFUL|EXTERNAL_DEFENSIVE")
-            print(("  #%d id=%s name=%s sig=%s ident=%s extFilter=%s"):format(
-                i, SafeStr(ad.spellId), SafeStr(ad.name), tostring(sig),
-                tostring(ident), tostring(ext)))
-            i = i + 1
-        end
-    end
 end

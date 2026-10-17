@@ -17,7 +17,6 @@ Libs\oUF\oUF.xml
 # Main Luas
 EllesmereUIUnitFrames.lua
 EllesmereUIUnitFrames_PlayerAuras.lua
-EUI_UnitFrames_AuraContainers.lua
 
 # Options
 EUI_UnitFrames_Options.lua

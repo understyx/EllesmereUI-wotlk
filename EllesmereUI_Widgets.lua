@@ -1700,12 +1700,8 @@ end
 
 -- opts (optional table): { color = {r,g,b}, width = number } to override text color or force width
 ShowWidgetTooltip = function(label, text, opts)
-    -- Suppress tooltips in M+/raid/PvP combat -- frame APIs return secret
-    -- values in tainted execution and tooltips aren't useful mid-pull.
     if not (opts and opts.force) then
         local _, iType = IsInInstance()
-        if iType == "party" and C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
-           and C_ChallengeMode.IsChallengeModeActive() then return end
         if iType == "raid" and InCombatLockdown() then return end
         if (iType == "pvp" or iType == "arena") and InCombatLockdown() then return end
     end
@@ -1722,11 +1718,7 @@ ShowWidgetTooltip = function(label, text, opts)
     else
         tt.measure:SetText(displayText)
         local naturalW = tt.measure:GetStringWidth()
-        if issecretvalue and issecretvalue(naturalW) then
-            tt:SetWidth(250)
-        else
-            tt:SetWidth(math.max(MIN_W, math.min((naturalW or 0) + PAD * 2, MAX_W)))
-        end
+        tt:SetWidth(math.max(MIN_W, math.min((naturalW or 0) + PAD * 2, MAX_W)))
     end
     -- Apply text color override or default white
     if opts and opts.color then
@@ -1765,45 +1757,37 @@ ShowWidgetTooltip = function(label, text, opts)
     tt:Show()
     tt:SetHeight(10)
     local textH = tt.text:GetStringHeight()
-    if issecretvalue and issecretvalue(textH) then
-        tt:SetHeight(26)
-    else
-        tt:SetHeight(textH + 16)
-    end
+    tt:SetHeight(textH + 16)
     -- Clamp to screen edges so tooltips don't go off-screen
-    -- Skip clamping if frame metrics are secret (tainted execution in M+)
     local ttScale = tt:GetEffectiveScale()
     local _ttLeft = tt:GetLeft()
     local _ttRight = tt:GetRight()
-    local _isv = issecretvalue
-    if not (_isv and (_isv(ttScale) or _isv(_ttLeft) or _isv(_ttRight))) then
-        local screenW = GetScreenWidth() * UIParent:GetEffectiveScale()
-        local ttLeft = (_ttLeft or 0) * ttScale
-        local ttRight = (_ttRight or 0) * ttScale
-        if ttLeft < 0 then
-            local pt, rel, relPt, px, py = tt:GetPoint(1)
-            if pt then
-                tt:SetPoint(pt, rel, relPt, (px or 0) - ttLeft / ttScale, py or 0)
-            end
-        elseif ttRight > screenW then
-            local pt, rel, relPt, px, py = tt:GetPoint(1)
-            if pt then
-                tt:SetPoint(pt, rel, relPt, (px or 0) - (ttRight - screenW) / ttScale, py or 0)
-            end
+    local screenW = GetScreenWidth() * UIParent:GetEffectiveScale()
+    local ttLeft = (_ttLeft or 0) * ttScale
+    local ttRight = (_ttRight or 0) * ttScale
+    if ttLeft < 0 then
+        local pt, rel, relPt, px, py = tt:GetPoint(1)
+        if pt then
+            tt:SetPoint(pt, rel, relPt, (px or 0) - ttLeft / ttScale, py or 0)
         end
-        local screenH = GetScreenHeight() * UIParent:GetEffectiveScale()
-        local ttTop = (tt:GetTop() or 0) * ttScale
-        local ttBottom = (tt:GetBottom() or 0) * ttScale
-        if ttBottom < 0 then
-            local pt, rel, relPt, px, py = tt:GetPoint(1)
-            if pt then
-                tt:SetPoint(pt, rel, relPt, px or 0, (py or 0) - ttBottom / ttScale)
-            end
-        elseif ttTop > screenH then
-            local pt, rel, relPt, px, py = tt:GetPoint(1)
-            if pt then
-                tt:SetPoint(pt, rel, relPt, px or 0, (py or 0) - (ttTop - screenH) / ttScale)
-            end
+    elseif ttRight > screenW then
+        local pt, rel, relPt, px, py = tt:GetPoint(1)
+        if pt then
+            tt:SetPoint(pt, rel, relPt, (px or 0) - (ttRight - screenW) / ttScale, py or 0)
+        end
+    end
+    local screenH = GetScreenHeight() * UIParent:GetEffectiveScale()
+    local ttTop = (tt:GetTop() or 0) * ttScale
+    local ttBottom = (tt:GetBottom() or 0) * ttScale
+    if ttBottom < 0 then
+        local pt, rel, relPt, px, py = tt:GetPoint(1)
+        if pt then
+            tt:SetPoint(pt, rel, relPt, px or 0, (py or 0) - ttBottom / ttScale)
+        end
+    elseif ttTop > screenH then
+        local pt, rel, relPt, px, py = tt:GetPoint(1)
+        if pt then
+            tt:SetPoint(pt, rel, relPt, px or 0, (py or 0) - (ttTop - screenH) / ttScale)
         end
     end
     -- Alpha animations on the 3.3.5 client can restore the frame's base alpha
@@ -2209,10 +2193,6 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
         ddBtn._resizeToText = function()
             ddMeasure:SetText(ddLbl:GetText() or "")
             local textW = ddMeasure:GetStringWidth()
-            if issecretvalue and issecretvalue(textW) then
-                ddBtn:SetWidth(ddW)
-                return
-            end
             -- Insets, label/arrow gap, arrow, and right padding.
             ddBtn:SetWidth(math.max(minW, math.min((textW or 0) + 39, maxW)))
         end
@@ -2311,9 +2291,7 @@ local function ClampRowLabel(label, rightFrame, rightPoint, gap, text, tooltip)
 
     local truncated = false
     local nw, bw = label:GetStringWidth(), label:GetWidth()
-    if not (issecretvalue and (issecretvalue(nw) or issecretvalue(bw))) then
-        truncated = (nw or 0) > (bw or 0) + 0.5
-    end
+    truncated = (nw or 0) > (bw or 0) + 0.5
 
     if truncated and tooltip then
         -- Both parts pre-localized; the composite is not a catalog key, so the

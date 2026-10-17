@@ -107,19 +107,11 @@ local function _DriverOnUpdate(self, elapsed)
         -- Visibility gate: a per-wrapper OnUpdate used to stop for free when
         -- the frame OR any ancestor was hidden. IsVisible() reproduces that
         -- (own shown flag AND every ancestor shown). It reads only boolean
-        -- shown flags, never alpha, so it is safe on the secret-alpha overlays
-        -- (important-cast, RaidFrames threshold) whose alpha is a secret value.
+        -- shown flags, never alpha.
         -- A wrapper that is shown but alpha-0 stays IsVisible()==true and keeps
         -- animating exactly as it did under its own OnUpdate; only Hide()-d or
         -- hidden-ancestor wrappers are skipped, and they resume automatically.
-        -- 12.1: a wrapper inside an ENGINE aura-button subtree has a SECRET
-        -- visibility (the engine drives the button's shown state); a boolean
-        -- test on it errors. Treat secret as hidden: the animation freezes
-        -- for those wrappers while restricted (the glow still renders when
-        -- its parent is actually shown) instead of ticking on the engine's
-        -- 10x hidden pool buttons.
         local vis = (not wrapper.IsVisible) or wrapper:IsVisible()
-        if issecretvalue and issecretvalue(vis) then vis = false end
         if vis then
             local fn = _regFn[i]
             if fn then fn(wrapper, dt) end
@@ -208,9 +200,8 @@ local DASH_V = [[Interface\AddOns\EllesmereUI\media\glow-dash-v.tga]]
 -- static (_AntsStaticSettle) paths.
 local function _AntsResolveSize(self, d)
     local w, h = self:GetSize()
-    -- Taint-strip (reparented frames can return secret-number sizes).
-    w = tonumber(tostring(w)) or 0
-    h = tonumber(tostring(h)) or 0
+    w = w or 0
+    h = h or 0
     if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
         w = d.fallbackW; h = d.fallbackH or d.fallbackW
     end
@@ -225,10 +216,7 @@ local function _AntsResolveSize(self, d)
     -- endpoint then goes non-finite and SetTexCoord rejects it on every driver
     -- tick. Stay unresolved instead and retry once the scale is real.
     local es = self:GetEffectiveScale()
-    -- Same subtree class the GetSize taint-strip above exists for: a secret
-    -- effective scale would hard-error on the comparison below, so take the
-    -- retry path instead. No-op for normal values.
-    if not es or (issecretvalue and issecretvalue(es)) or es < 0.1 then return false end
+    if not es or es < 0.1 then return false end
     local onePixel = PP.perfect / es
     w = floor(w / onePixel + 0.5) * onePixel
     h = floor(h / onePixel + 0.5) * onePixel
@@ -386,9 +374,6 @@ local function StopProceduralAnts(wrapper)
     end
 end
 
--- Recolor active dashes in place. Secret-safe: r,g,b,a flow straight into
--- SetVertexColor with no arithmetic, so a secret (restricted) color is fine.
--- Used by the Raid Frames Frame-Border threshold recolor.
 local function SetProceduralAntsColor(wrapper, r, g, b, a)
     local d = wrapper._euiScrollData
     if not d then return end
@@ -518,10 +503,8 @@ local function _AutoCastOnUpdate(self, elapsed)
     local w, h = d.w, d.h
     if w * h == 0 then
         w, h = self:GetSize()
-        -- Strip taint from size values (reparented buttons can return
-        -- "secret number" tainted dimensions from GetSize).
-        w = tonumber(tostring(w)) or 0
-        h = tonumber(tostring(h)) or 0
+        w = w or 0
+        h = h or 0
         -- Fallback to the w/h passed at start time (SetAllPoints wrappers
         -- may return 0 before layout resolves)
         if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
@@ -880,15 +863,6 @@ local function StopGlow(wrapper)
     wrapper:SetAlpha(0)
 end
 
--------------------------------------------------------------------------------
---  Animation-driven glow (engine aura buttons)
---  The 12.1 slot-button subtree is forbidden to addon code outside its
---  creation window, so the driver-ticked engines above (Lua OnUpdate)
---  freeze there. This variant reproduces the Pixel Glow march with C-side
---  AnimationGroups: created and started once in the creation window, it
---  animates forever with zero per-frame Lua -- identically in and out of
---  secret contexts.
--------------------------------------------------------------------------------
 local ANIM_MASK_TEX = [[Interface\Buttons\WHITE8X8]]
 
 -- Marching dashes: per edge, a dash strip one pattern-cycle longer than the
@@ -978,35 +952,12 @@ local function StopAnimatedAnts(wrapper)
     end
 end
 
--------------------------------------------------------------------------------
---  Public API — attached to EllesmereUI.Glows
--------------------------------------------------------------------------------
--- Styles that render through C-side FlipBook AnimationGroups (GCD, Modern
--- WoW Glow, Classic WoW Glow) animate IDENTICALLY under 12.1 aura
--- restrictions; driver-ticked styles (Pixel, Action Button, Auto-Cast,
--- Shape) cannot -- secret visibility blocks their Lua ticks, leaving a
--- frozen artifact. Gameplay glows living on ENGINE aura buttons must remap
--- through this so the glow looks the same in and out of restricted content:
--- Pixel -> Classic WoW Glow (ants), everything else driver-based -> Modern
--- WoW Glow (the standard proc loop).
-local SAFE_STYLE_MAP = { [1] = 7, [2] = 6, [3] = 6, [4] = 6 }
-local function RestrictionSafeStyle(idx)
-    -- No aura restrictions on 3.3.5, and the FlipBook targets are unavailable.
-    if not FLIPBOOK_SUPPORTED then return idx end
-    local entry = GLOW_STYLES[idx]
-    if entry and (entry.procedural or entry.buttonGlow or entry.autocast or entry.shapeGlow) then
-        return SAFE_STYLE_MAP[idx] or 6
-    end
-    return idx
-end
-
 EllesmereUI.Glows = {
     STYLES              = GLOW_STYLES,
 
     -- High-level API (recommended)
     StartGlow           = StartGlow,
     StopGlow            = StopGlow,
-    RestrictionSafeStyle = RestrictionSafeStyle,
     FLIPBOOK_SUPPORTED  = FLIPBOOK_SUPPORTED,
     IsStyleAvailable    = IsStyleAvailable,
 

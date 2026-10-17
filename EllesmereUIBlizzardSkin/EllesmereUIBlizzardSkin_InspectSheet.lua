@@ -386,7 +386,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
         local enchantText = EllesmereUI.GetEnchantText(slotID, inspectUnit)
         local canHaveEnchant = INSPECT_ENCHANT_SLOTS[slotID]
         local inspLvl = UnitLevel(inspectUnit)
-        local atEnchantLevel = inspLvl and not (issecretvalue and issecretvalue(inspLvl)) and inspLvl >= 80 or false
+        local atEnchantLevel = inspLvl and inspLvl >= 80 or false
         local isMissing = atEnchantLevel and canHaveEnchant and itemLink and (enchantText == "" or not enchantText)
         local hasEnchant = enchantText and enchantText ~= ""
 
@@ -1526,8 +1526,7 @@ local function SkinInspectSheet()
         InspectModelFrame:SetSize(322, 324)
     end
 
-    -- Position weapon slots at bottom (matches CharacterSheet pattern --
-    -- hardcoded offset, no GetWidth which can return a secret value).
+    -- Position weapon slots at bottom (matches CharacterSheet pattern).
     if InspectMainHandSlot and InspectSecondaryHandSlot then
         InspectMainHandSlot:ClearAllPoints()
         InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", isLegacyInspect and 149 or 128, 10)
@@ -1826,8 +1825,7 @@ local function SkinInspectSheet()
     -- UIParentPanelManager execution context).
     frame:SetFrameStrata("HIGH")
 
-    -- Center the title within the frame (406px wide). Hardcoded to avoid
-    -- frame:GetWidth() which can return a secret value and cause taint.
+    -- Center the title within the frame (406px wide).
     if frame.TitleContainer then
         frame.TitleContainer:Show()
         frame.TitleContainer:SetAlpha(1)

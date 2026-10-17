@@ -2676,10 +2676,6 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                     local sInfo = C_Spell.GetSpellInfo(entryId)
                     entryName = sInfo and sInfo.name
                 else
-                    if C_ToyBox and C_ToyBox.GetToyInfo then
-                        local _, tn = C_ToyBox.GetToyInfo(entryId)
-                        entryName = tn
-                    end
                     if not entryName and C_Item and C_Item.GetItemInfo then
                         entryName = C_Item.GetItemInfo(entryId)
                     end
@@ -2939,464 +2935,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     return inst
 end
 
--------------------------------------------------------------------------------
---  SPEC (specialisation popup)
--------------------------------------------------------------------------------
-ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
-    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
-    inst.key = InstKey(barCtx, blockCfg)
-    inst.events = { "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_TALENT_UPDATE",
-                    "PLAYER_ENTERING_WORLD",
-                    -- Refresh runs in combat too (our frames only); the
-                    -- regen entry stays as a cheap belt-and-suspenders
-                    -- catch-up for anything a combat event path missed.
-                    "PLAYER_REGEN_ENABLED" }
 
-    local SPEC_MEDIA = MEDIA .. "spec\\"
-    -- One PNG per spec in media\spec\, named <class>-<spec>.tga and listed
-    -- here in SPEC INDEX order per class token (GetSpecializationInfo order
-    -- is fixed), so no spec-ID table is needed -- new specs just append.
-    local SPEC_ICON_FILES = {
-        WARRIOR     = { "warrior-arms", "warrior-fury", "warrior-prot" },
-        PALADIN     = { "paladin-holy", "paladin-prot", "paladin-ret" },
-        HUNTER      = { "hunter-beastmaster", "hunter-marksman", "hunter-survival" },
-        ROGUE       = { "rogue-assasin", "rogue-outlaw", "rogue-sub" },
-        PRIEST      = { "priest-disc", "priest-holy", "priest-shadow" },
-        DEATHKNIGHT = { "dk-blood", "dk-frost", "dk-unholy" },
-        SHAMAN      = { "shaman-ele", "shaman-enhance", "shaman-resto" },
-        MAGE        = { "mage-arcane", "mage-fire", "mage-frost" },
-        WARLOCK     = { "warlock-aff", "warlock-demo", "warlock-destro" },
-        MONK        = { "monk-brew", "monk-mw", "monk-ww" },
-        DRUID       = { "druid-balance", "druid-feral", "druid-bear", "druid-resto" },
-        DEMONHUNTER = { "dh-havoc", "dh-vengeance", "dh-devourer" },
-        EVOKER      = { "evoker-dev", "evoker-pres", "evoker-aug" },
-    }
-    local POPUP_FONT_SIZE = 12
-
-    local specCache, numSpecs = {}, 0
-    local currentSpecIdx = nil
-    local mouseOver = false
-
-    -- Per-instance popup pools (lazy). Two spec blocks never fight over the
-    -- same popup frames.
-    local specPool
-
-    local function D() return blockCfg.settings or {} end
-    local function BC() return barCtx.cfg end
-
-    local function BuildSpecCache()
-        specCache = {}; numSpecs = GetNumSpecializations() or 0
-        for i = 1, numSpecs do
-            local id, name, _, icon, role = GetSpecializationInfo(i)
-            if id then specCache[i] = { id = id, name = name, icon = icon, role = role } end
-        end
-    end
-
-    local function UpdateCurrentSpec()
-        currentSpecIdx = GetSpecialization()
-    end
-
-    local function GetBarDisplayText()
-        local d = D()
-        local text = ""
-        if currentSpecIdx and specCache[currentSpecIdx] then
-            text = specCache[currentSpecIdx].name
-        end
-        if d.useUppercase == true then return text:upper() end
-        return text
-    end
-
-    local specButton = EllesmereUI.SafeCreateFrame("Button", nil, content)
-    specButton:SetAllPoints()
-    specButton:EnableMouse(true)
-    specButton:RegisterForClicks("AnyUp")
-
-    local specIcon = content:CreateTexture(nil, "OVERLAY"); specIcon:SetSize(16, 16)
-    local specText = content:CreateFontString(nil, "OVERLAY")
-    AttachTextOffset(inst, specText)
-
-    -- Generic popup builder for this instance's spec selector.
-    local function BuildPopup(pool, parent, title, entries, onClickEntry, noCatcher, footerLines)
-        if not pool then return nil end
-        pool:ReleaseAll()
-        local popup = pool._popup
-        if not popup then
-            popup = ns.CreatePopupFrame(parent)
-            pool._popup = popup
-        end
-        popup._wbNoCatcher = noCatcher and true or nil
-        popup._wbOnHide = function()
-            pool:ReleaseAll()
-            if pool._onHide then pool._onHide() end
-        end
-        popup:Show()
-
-        local ar, ag, ab = ns.GetAccent()
-        local fontSize = POPUP_FONT_SIZE
-        local iconSz = fontSize + 2
-        local PAD, LINE = 8, 18
-
-        -- Title is optional; an empty title renders a plain list with even
-        -- PAD margins on all four sides.
-        if not popup._title then
-            popup._title = popup:CreateFontString(nil, "OVERLAY")
-        end
-        popup._title:ClearAllPoints()
-        popup._title:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -PAD)
-        local maxW, yOff
-        if title and title ~= "" then
-            ns.SetFont(popup._title, fontSize)
-            -- Localize here: these popups draw through SetText instead of the
-            -- Tip_* helpers, which are what normally route fixed UI strings
-            -- through the shared locale (see ns.Tip_AddLine).
-            popup._title:SetText(EllesmereUI.L(title)); popup._title:SetTextColor(1, 1, 1, 1)
-            popup._title:Show()
-            maxW = popup._title:GetStringWidth()
-            yOff = PAD + LINE + PAD
-        else
-            popup._title:Hide()
-            maxW = 0
-            yOff = PAD
-        end
-
-        local rowBtns = {}
-        for _, entry in ipairs(entries) do
-            local btn = pool:Acquire()
-            btn:SetParent(popup)
-            -- 2px band above/below the content, matching the shared tip's
-            -- clickable rows.
-            btn:SetHeight(iconSz + 4)
-            btn:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -yOff)
-            btn:EnableMouse(true); btn:RegisterForClicks("AnyUp")
-            -- Full-row white hover wash (house style 0.10), same as the
-            -- shared tip's clickable rows; HIGHLIGHT layer needs no scripts.
-            -- The color is RE-ASSERTED every build: a HIGHLIGHT-layer
-            -- texture is the button's official highlight texture, and the
-            -- pool resetter nils it on every release.
-            if not btn._hl then
-                btn._hl = btn:CreateTexture(nil, "HIGHLIGHT")
-                btn._hl:SetAllPoints()
-            end
-            btn._hl:SetTexture(1, 1, 1, 0.10)
-
-            if not btn._icon then btn._icon = btn:CreateTexture(nil, "OVERLAY") end
-            btn._icon:SetSize(iconSz, iconSz)
-            btn._icon:ClearAllPoints()
-            btn._icon:SetPoint("LEFT")
-
-            if not btn._label then btn._label = btn:CreateFontString(nil, "OVERLAY") end
-            btn:Show()
-            ns.SetFont(btn._label, fontSize)
-            btn._label:SetText(entry.name)
-            btn._label:Show()
-            btn._label:ClearAllPoints()
-            if entry.icon then
-                btn._icon:SetTexture(entry.icon)
-                btn._icon:SetTexCoord(4 / 64, 60 / 64, 4 / 64, 60 / 64)
-                btn._icon:Show()
-                btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 4, 0)
-            else
-                -- Icon-less rows flush left; anchoring to the hidden icon's
-                -- stale rect would leave a phantom indent.
-                btn._icon:Hide()
-                btn._label:SetPoint("LEFT", btn, "LEFT", 0, 0)
-            end
-
-            if entry.isActive then btn._label:SetTextColor(ar, ag, ab, 1)
-            else btn._label:SetTextColor(1, 1, 1, 1) end
-
-            btn:SetScript("OnEnter", function()
-                btn._label:SetTextColor(ar, ag, ab, 1)
-            end)
-            btn:SetScript("OnLeave", function()
-                if entry.isActive then btn._label:SetTextColor(ar, ag, ab, 1)
-                else btn._label:SetTextColor(1, 1, 1, 1) end
-            end)
-            btn:SetScript("OnClick", function(_, mb)
-                -- entry.noClick marks an informational row such as the
-                -- currently active talent group.
-                if entry.noClick then return end
-                if mb == "LeftButton" and not InCombatLockdown() then
-                    onClickEntry(entry)
-                    popup:Hide()
-                end
-            end)
-
-            local iconExtra = 0
-            if btn._icon:IsShown() then iconExtra = iconSz + 4 end
-            local bw = iconExtra + btn._label:GetStringWidth()
-            if bw > maxW then maxW = bw end
-            btn:SetWidth(bw)
-            rowBtns[#rowBtns + 1] = btn
-            yOff = yOff + (iconSz + 4) + 3
-        end
-        -- Trim the last row's trailing gap so the bottom padding stays PAD.
-        if #entries > 0 then yOff = yOff - 3 end
-
-        -- Optional footer descriptor lines ({left, right} pairs): the same
-        -- Left Click / Right Click hints the shared tip footers use.
-        if not popup._foot then popup._foot = {} end
-        local footCount = footerLines and #footerLines or 0
-        if footCount > 0 then
-            yOff = yOff + 8
-            for i = 1, footCount do
-                local fl = popup._foot[i]
-                if not fl then
-                    fl = { l = popup:CreateFontString(nil, "OVERLAY"),
-                           r = popup:CreateFontString(nil, "OVERLAY") }
-                    popup._foot[i] = fl
-                end
-                ns.SetFont(fl.l, fontSize); ns.SetFont(fl.r, fontSize)
-                fl.l:SetText(EllesmereUI.L(footerLines[i][1])); fl.l:SetTextColor(1, 1, 1, 1)
-                fl.r:SetText(EllesmereUI.L(footerLines[i][2])); fl.r:SetTextColor(1, 1, 1, 1)
-                fl.l:ClearAllPoints()
-                fl.l:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -yOff)
-                fl.r:ClearAllPoints()
-                fl.r:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -PAD, -yOff)
-                fl.l:Show(); fl.r:Show()
-                local fw = (fl.l:GetStringWidth() or 0) + 16 + (fl.r:GetStringWidth() or 0)
-                if fw > maxW then maxW = fw end
-                yOff = yOff + fontSize + 4
-            end
-            yOff = yOff - 4
-        end
-        for i = footCount + 1, #popup._foot do
-            popup._foot[i].l:Hide(); popup._foot[i].r:Hide()
-        end
-
-        popup:SetSize(maxW + PAD * 2, yOff + PAD)
-        -- Stretch every row to the popup's inner width: the wash and the
-        -- click target span the full row, not just the text.
-        for i = 1, #rowBtns do rowBtns[i]:SetWidth(maxW) end
-        popup:ClearAllPoints()
-        if barCtx.IsVertical() then
-            -- Bar on the right half of the screen: popup opens to the left.
-            local cx = parent:GetCenter()
-            if cx and cx > UIParent:GetWidth() / 2 then
-                popup:SetPoint("RIGHT", parent, "LEFT", -4, 0)
-            else
-                popup:SetPoint("LEFT", parent, "RIGHT", 4, 0)
-            end
-        else
-            if barCtx.IsBarAtTop() then
-                popup:SetPoint("TOP", parent, "BOTTOM", 0, -4)
-            else
-                popup:SetPoint("BOTTOM", parent, "TOP", 0, 4)
-            end
-        end
-        popup:SetClampedToScreen(true)
-        if popup._wbClickCatcher then
-            popup._wbClickCatcher:ClearAllPoints()
-            popup._wbClickCatcher:SetAllPoints(UIParent)
-        end
-        return popup
-    end
-
-    local hoverWatch
-
-    local function GetTalentGroupSpec(group)
-        local bestIndex, bestPoints, bestName, bestIcon
-        if GetTalentTabInfo then
-            for i = 1, numSpecs do
-                local name, icon, points = GetTalentTabInfo(i, false, false, group)
-                points = tonumber(points) or 0
-                if not bestIndex or points > bestPoints then
-                    bestIndex, bestPoints = i, points
-                    bestName, bestIcon = name, icon
-                end
-            end
-        end
-        local specInfo = bestIndex and specCache[bestIndex]
-        return {
-            name = bestName or (specInfo and specInfo.name) or ("Talent Group " .. group),
-            icon = bestIcon or (specInfo and specInfo.icon),
-        }
-    end
-
-    local function ToggleSpecPopup()
-        if specPool and specPool._popup and specPool._popup:IsShown() then
-            specPool._popup:Hide(); return
-        end
-        if not specPool then specPool = ns.CreateFramePool("Button", UIParent) end
-        local activeGroup = (GetActiveTalentGroup and GetActiveTalentGroup()) or 1
-        local groupCount = (GetNumTalentGroups and GetNumTalentGroups()) or 1
-        local entries = {}
-        for group = 1, groupCount do
-            local info = GetTalentGroupSpec(group)
-            entries[#entries + 1] = {
-                name = info.name,
-                icon = info.icon,
-                isActive = (group == activeGroup),
-                noClick = (group == activeGroup),
-                talentGroup = group,
-            }
-        end
-        BuildPopup(specPool, specButton, L["CHANGE_SPEC"], entries, function(e)
-            if SetActiveTalentGroup then SetActiveTalentGroup(e.talentGroup) end
-            BuildSpecCache()
-            UpdateCurrentSpec()
-            inst:Refresh()
-        end, true, {
-            { L["LEFT_CLICK"],       L["CHANGE_SPEC_SHORT"] },
-            { L["SHIFT_LEFT_CLICK"], L["OPEN_TALENTS"] },
-        })
-    end
-
-    local function HideAllPopups()
-        if specPool and specPool._popup and specPool._popup:IsShown() then
-            specPool._popup:Hide()
-        end
-    end
-
-    function inst:Refresh()
-        UpdateCurrentSpec()
-        local barCfg = BC()
-        local barH = barCtx.GetThickness()
-        local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
-        local iconGap = ICON_GAP
-        local ar, ag, ab = ns.GetAccent()
-        local isSide = barCtx.IsVertical()
-        local specLabel = GetBarDisplayText()
-        local iconSz = fontSize + 8
-
-        ns.SetFont(specText, fontSize, barCfg)
-        specText:SetText(specLabel)
-
-        if currentSpecIdx then
-            local _, classId = UnitClass("player")
-            local files = classId and SPEC_ICON_FILES[classId]
-            local file = files and files[currentSpecIdx]
-            if file then
-                specIcon:SetTexture(SPEC_MEDIA .. file .. ".tga")
-                specIcon:SetTexCoord(0, 1, 0, 1)
-            end
-        end
-
-        if mouseOver then
-            specText:SetTextColor(ar, ag, ab, 1); specIcon:SetVertexColor(ar, ag, ab, 1)
-        else
-            local br, bgr, bb = BlockColorOf(blockCfg)
-            local ir, ig, ib = IconColorOf(blockCfg)
-            specText:SetTextColor(br, bgr, bb, 1); specIcon:SetVertexColor(ir, ig, ib, 1)
-        end
-
-        -- Show Icon (default ON): hidden drops the icon's width and gap
-        -- from the layout entirely.
-        local d = D()
-        local showIcon = d.showIcon ~= false
-        if showIcon then specIcon:Show() else specIcon:Hide(); iconSz = 0 end
-
-        if isSide then
-            iconSz = min(iconSz, max(14, floor(CONTENT_BASE * 0.72 + 0.5)))
-            if not showIcon then iconSz = 0 end
-        end
-        if showIcon then specIcon:SetSize(iconSz, iconSz) end
-
-        if isSide then
-            local slotW = VSlotW(inst)
-            local innerW = max(30, slotW - 8)
-            local totalH = 8 + iconSz + 2
-
-            specIcon:ClearAllPoints()
-            specIcon:SetPoint("TOP", content, "TOP", 0, -4)
-
-            ns.SetWrappedText(specText, innerW, "CENTER")
-            specText:ClearAllPoints()
-            if showIcon then
-                specText:SetPoint("TOP", specIcon, "BOTTOM", 0, -2)
-            else
-                specText:SetPoint("TOP", content, "TOP", 0, -4)
-            end
-            totalH = totalH + ns.SnapToPixelGrid(specText:GetStringHeight())
-
-            totalH = max(totalH, barH)
-            content:SetSize(slotW, totalH)
-        else
-            local slotW = HBudget(inst, 120)
-            ns.SetFont(specText, fontSize, barCfg)
-            specText:SetText(specLabel)
-            if showIcon then
-                iconSz = min(fontSize + 8, max(14, floor(CONTENT_BASE * 0.72 + 0.5)))
-                specIcon:SetSize(iconSz, iconSz)
-            else
-                iconSz = 0
-            end
-            ns.ResetInlineText(specText, "LEFT")
-            local tw = ns.SnapToPixelGrid(specText:GetStringWidth())
-            local effIconGap = showIcon and iconGap or 0
-            local totalW = min(slotW, iconSz + effIconGap + tw + 4)
-            specIcon:ClearAllPoints(); specIcon:SetPoint("LEFT", content, "LEFT", 0, 0)
-            specText:ClearAllPoints(); specText:SetPoint("LEFT", content, "LEFT", iconSz + effIconGap, 0)
-            content:SetSize(totalW, barH)
-        end
-        specButton:ClearAllPoints(); specButton:SetAllPoints(content)
-        MaybeRelayout(inst)
-    end
-
-    -- The spec popup opens on hover and closes only once the cursor is over
-    -- neither the block nor the popup. Both rects are padded 8px so the 4px
-    -- anchor gap between bar and popup never counts as "outside" mid-travel.
-    hoverWatch = EllesmereUI.SafeCreateFrame("Frame")
-    hoverWatch:Hide()
-    hoverWatch:SetScript("OnUpdate", function(self)
-        local popup = specPool and specPool._popup
-        if not (popup and popup:IsShown()) then self:Hide(); return end
-        if specButton:IsMouseOver(8, -8, -8, 8) or popup:IsMouseOver(8, -8, -8, 8) then return end
-        popup:Hide()
-        self:Hide()
-    end)
-
-    specButton:SetScript("OnEnter", function()
-        mouseOver = true; inst:Refresh()
-        if not (specPool and specPool._popup and specPool._popup:IsShown()) then
-            ToggleSpecPopup()
-        end
-        hoverWatch:Show()
-    end)
-    specButton:SetScript("OnLeave", function() mouseOver = false; inst:Refresh() end)
-    specButton:SetScript("OnClick", function(_, button)
-        if button == "LeftButton" and IsShiftKeyDown() then
-            HideAllPopups()
-            if ToggleTalentFrame then ToggleTalentFrame() end
-        end
-    end)
-
-    inst.eventFrame = MakeEventFrame(inst, function(self)
-        self:Refresh()
-    end)
-
-    function inst:Enable()
-        content:Show()
-        BuildSpecCache()
-        UpdateCurrentSpec()
-        RegisterInstEvents(self)
-    end
-
-    function inst:Disable()
-        UnregisterInstEvents(self)
-        HideAllPopups()
-        content:Hide()
-    end
-
-    function inst:GetAutoLength()
-        local barH = barCtx.GetThickness()
-        if barCtx.IsVertical() then
-            local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
-            local iconSz = min(fontSize + 8, max(14, floor(CONTENT_BASE * 0.72 + 0.5)))
-            local textH = specText:GetStringHeight() or fontSize
-            return max(8 + iconSz + 2 + textH + 4, barH, 60)
-        end
-        return max(content:GetWidth() or 120, 40)
-    end
-
-    function inst:Destroy()
-        self._dead = true
-        HideAllPopups()
-        content:Hide()
-    end
-
-    return inst
-end
 
 -------------------------------------------------------------------------------
 --  PROFESSION (SECURE right-click passthrough to ProfessionMicroButton)
@@ -3844,7 +3383,6 @@ local MM_ICON_FILE = {
     quest   = "menu-quests",
     lfg     = "menu-group",
     pvp     = "menu-pvp",
-    journal = "menu-adventure",
     pet     = "menu-collections",
     shop    = "menu-shop",
     help    = "menu-cs",
@@ -3862,7 +3400,6 @@ local mmButtonDefs = {
     { key = 'quest',   binding = 'TOGGLEQUESTLOG',    label = QUEST_LOG },
     { key = 'lfg',     binding = 'TOGGLEGROUPFINDER', label = DUNGEONS_BUTTON },
     { key = 'pvp',     binding = 'TOGGLECHARACTER4',  label = PLAYER_V_PLAYER or PVP_OPTIONS or 'PvP', special = true },
-    { key = 'journal', binding = 'TOGGLEENCOUNTERJOURNAL', label = ADVENTURE_JOURNAL,            special = true },
     { key = 'pet',     binding = 'TOGGLECOLLECTIONS', label = COLLECTIONS },
     { key = 'shop',    binding = false,               label = BLIZZARD_STORE },
     { key = 'help',    binding = false,               label = HELP_BUTTON },
@@ -3877,14 +3414,12 @@ end
 -- String names for Blizzard MicroButtons, resolved via _G at creation time.
 -- Spellbook/talents/journal MUST be opened via a secure click on the
 -- Blizzard micro button: opening them from addon Lua taints the frame's
--- execution and SetCooldown then rejects secret values (12.x) inside
 -- Blizzard_SpellBookItem. Candidate lists: first existing global wins.
 local MM_MICRO_BUTTON_NAMES = {
     guild   = "GuildMicroButton",
     social  = { "QuickJoinToastButton", "SocialsMicroButton" },
     char    = "CharacterMicroButton",
     spell   = { "PlayerSpellsMicroButton", "SpellbookMicroButton" },
-    journal = { "EJMicroButton" },
     ach     = "AchievementMicroButton",
     quest   = "QuestLogMicroButton",
     lfg     = "LFDMicroButton",
@@ -3946,20 +3481,7 @@ mmClickFunctions.pvp = function(_, button)
         end)
     end
 end
-mmClickFunctions.journal = function(_, button)
-    if MMBlockedInCombat(button) then return end
-    -- Go through Blizzard's toggle so the frame is placed by the UI panel
-    -- system; ej:Show() directly would bypass ShowUIPanel.
-    if _G.ToggleEncounterJournal then
-        _G.ToggleEncounterJournal()
-    else
-        if _G.EncounterJournal_LoadUI then _G.EncounterJournal_LoadUI() end
-        local ej = _G.EncounterJournal
-        if ej then
-            if ej:IsShown() then HideUIPanel(ej) else ShowUIPanel(ej) end
-        end
-    end
-end
+
 
 -- Blizzard micro menu hider. Calling frame:Hide() from addon Lua on Edit
 -- Mode managed frames (MicroMenuContainer) writes taint into the managed
@@ -4032,10 +3554,8 @@ end
 -- Character stats tooltip (opt-in via the micromenu block's charStatsTooltip
 -- setting). Fixed set: equipped item level, primary stat, and the four
 -- secondary percentages with their raw combat rating in parentheses. The
--- versatility read is wrapped in pcall -- GetVersatilityBonus /
--- GetCombatRatingBonus can hand back a Midnight "secret value" under
--- addon-tainted execution, and any arithmetic on it errors, so the line is
--- dropped rather than crashing the whole tooltip.
+-- versatility APIs run inside pcall so an API error does not interrupt the
+-- rest of the tooltip.
 local CS_DIM = "|cffaaaaaa"
 
 local function MMPrimaryStat()
@@ -4050,17 +3570,8 @@ end
 
 local function MMAddCharStats()
     local ar, ag, ab = ns.GetAccent()
-    -- Stat reads return SECRET numbers in restricted content. They do NOT
-    -- error on read: format() quietly carries the secret into the row text,
-    -- which then detonates in Tip_Show's width measuring. Check every value
-    -- and drop that row alone, so the tooltip shortens per stat instead of
-    -- aborting mid-build (Tip_AddDouble also refuses secret rows as a net).
-    local function clean(v)
-        if issecretvalue(v) then return nil end
-        return v or 0
-    end
     local function pctRating(label, pct, rating)
-        pct, rating = clean(pct), clean(rating)
+        pct, rating = pct or 0, rating or 0
         if not (pct and rating) then return end
         ns.Tip_AddDouble(label,
             format("%.2f%%", pct) .. " " .. CS_DIM .. "(" .. floor(rating + 0.5) .. ")|r",
@@ -4070,7 +3581,7 @@ local function MMAddCharStats()
     ns.Tip_AddLine(" ")
 
     local _, eq = GetAverageItemLevel()
-    eq = clean(eq)
+    eq = eq or 0
     if eq then
         ns.Tip_AddDouble(STAT_AVERAGE_ITEM_LEVEL or "Item Level", format("%.1f", eq), ar, ag, ab, 1, 1, 1)
     end
@@ -4078,7 +3589,7 @@ local function MMAddCharStats()
     local pLabel, pIdx = MMPrimaryStat()
     if pLabel and pIdx then
         local _, eff = UnitStat("player", pIdx)
-        eff = clean(eff)
+        eff = eff or 0
         if eff then
             ns.Tip_AddDouble(pLabel, format("%.0f", eff), ar, ag, ab, 1, 1, 1)
         end
@@ -4088,7 +3599,6 @@ local function MMAddCharStats()
     pctRating(STAT_HASTE or "Haste",                     GetHaste(),         GetCombatRating(CR_HASTE_MELEE))
     pctRating(STAT_MASTERY or "Mastery",                 GetMasteryEffect(), GetCombatRating(CR_MASTERY))
 
-    -- Versatility: secret-value-safe (see block comment above).
     local ok, dmg, rating = pcall(function()
         local d = (GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0)
                 + (GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE)  or 0)
@@ -4106,18 +3616,12 @@ end
 -- is an UNPROTECTED call, so the rows stay clickable in and out of combat.
 -- Shift is the fixed invite modifier (the WonderBar default).
 
--- Taint-safe whisper (mirrors the EllesmereUI minimap friends tooltip): BNet
--- friends are reached by Battle.net account name (any character/faction/realm),
--- everyone else by character name. The explicit DEFAULT_CHAT_FRAME argument
--- skips ChatFrame_SendTell's FCF_OpenTemporaryWindow path, which drives the 12.0
--- secret window list and tainted all of chat. Whispering is suppressed in
--- protected content (Mythic+/raid), where chat is taint-sensitive; invites are
--- unaffected (C_PartyInfo.InviteUnit opens no chat window).
+-- Send whispers through DEFAULT_CHAT_FRAME to avoid the temporary-window path
+-- in protected content. Invites use C_PartyInfo.InviteUnit and are unaffected.
 local function MMOpenWhisper(charName, bnetName)
     -- Suppress whispers wherever chat is taint-sensitive: (1) protected content,
-    -- and (2) while /euidev is on -- it forces addonChallengeModeRestrictionsForced,
-    -- i.e. the same secret-value restricted environment as a real Mythic+, so chat
-    -- would taint there too. InProtectedInstance() does NOT see the forced CVar, so
+    -- and (2) while /euidev is on, which forces
+    -- addonChallengeModeRestrictionsForced. InProtectedInstance() does NOT see the CVar, so
     -- the dev-mode check is separate. Same guard shape as the minimap friends
     -- tooltip whisper.
     local blocked
@@ -4333,19 +3837,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             ns.Tip_AddDouble('|cFFFFFFFF' .. L["ACH_POINTS"] .. '|r', '|cFF' .. hexAccent .. pts .. '|r', 1, 1, 1, r, g, b)
         end
 
-        if name == 'journal' then
-            local hexAccent = format('%02x%02x%02x', floor(r * 255), floor(g * 255), floor(b * 255))
-
-        end
-
-        if name == 'char' and D().charStatsTooltip then
-            -- Secret handling lives inside: every stat value is
-            -- issecretvalue-checked (secret reads do not error, they poison
-            -- the row text and detonate later in Tip_Show's measuring). The
-            -- pcall is only a last resort so an API surprise never kills the
-            -- rest of the tooltip.
-            pcall(MMAddCharStats)
-        end
+        if name == 'char' and D().charStatsTooltip then pcall(MMAddCharStats) end
 
         if name == 'social' and D().socialTooltip then pcall(MMBuildSocialTip) end
         if name == 'guild'  and D().socialTooltip then pcall(MMBuildGuildTip)  end
@@ -4387,7 +3879,6 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             end
             if InCombatLockdown() then
                 -- The FULL tooltip reads combat-restricted surfaces (char
-                -- stat secrets, guild/social rosters) -- in lockdown show a
                 -- plain our-Tip notice instead of nothing.
                 local def = mmButtonDefsByKey[name]
                 ns.Tip_Begin(frame)

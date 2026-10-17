@@ -3,7 +3,6 @@ local addonName, ns = ...
 local math_floor, math_ceil, math_max, math_min, math_abs =
     math.floor, math.ceil, math.max, math.min, math.abs
 local string_format = string.format
-local issecretvalue = issecretvalue
 
 local oUF = ns.oUF or _G.EllesmereUF or _G.oUF
 local PP = EllesmereUI.PP
@@ -16,20 +15,9 @@ if not oUF then
     return
 end
 
--- Taint-safe override of the embedded lib's DisableBlizzard for the units
--- this addon disables. The stock version re-parents a disabled Blizzard
--- frame back to its hidden parent INLINE from a SetParent hooksecurefunc.
--- Blizzard's Edit Mode layout pass calls SetParent on managed containers
--- (confirmed live: BossTargetFrameContainer -> UIParent on every Edit Mode
--- enter/exit), so the inline re-parent runs inside that secure execution
--- and taints everything Edit Mode touches afterwards -- every 12.x secret
--- value read then throws a LUA_WARNING (CompactUnitFrame health compares,
--- encounter warnings, SecureUtil arithmetic) and the tainted setup pass
--- poisons party frames for the whole session. Same end state here, but the
--- re-parent is deferred to a timer (a fresh addon-owned execution) and
--- further postponed while the Edit Mode manager is open, because SetParent
--- fires Blizzard's synchronous layout handlers in the caller's execution.
--- Units this addon never disables fall through to the stock implementation.
+-- Override the embedded lib's DisableBlizzard for units this addon disables.
+-- Defer re-parenting so Blizzard's synchronous layout handlers run outside the
+-- hook execution. Units this addon never disables use the stock implementation.
 do
     local hiddenParent = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     hiddenParent:Hide()
@@ -94,41 +82,10 @@ do
     end
 
     local origDisableBlizzard = oUF.DisableBlizzard
-    -- Standalone Midnight player alt-power bars. They live under
-    -- PlayerFrameAlternatePowerBarArea (a child of PlayerFrame), so once we
-    -- reparent PlayerFrame to our hidden holder they become descendants of an
-    -- insecure frame and their own event handlers run tainted. On 12.1 build
-    -- 68824 aura access became a hard-error API (RequiresUnitAuraAccess), so
-    -- when one of these bars fires (power/spec/PEW events it registers itself,
-    -- independent of PlayerFrame's now-unregistered events) it drives
-    -- AttachBarToUnitUI -> PlayerFrame_OnAlternatePowerBarEnabled ->
-    -- PlayerFrame_ToPlayerArt -> BuffFrame:Update() -> GetAuraSlots, which
-    -- throws "Auras cannot be accessed when secret while tainted by
-    -- EllesmereUIUnitFrames". PlayerFrame's own art events are already dead, so
-    -- these bars are the last live driver into that chain: unregister their
-    -- events to cut it. UnregisterAllEvents is taint-clean (the same operation
-    -- the override already does on PlayerFrame's other sub-bars) and combat-
-    -- legal. Do NOT reparent them (Edit-Mode-managed; reparenting risks the
-    -- layout-pass taint the override defers timers to avoid). 12.1-gated:
-    -- retail keeps them event-registered, harmless there since the player
-    -- frame is hidden. The bars' Blizzard globals may not exist on every
-    -- client, so Unreg nil-guards each.
-    local ALT_POWER_BARS = {
-        "AlternatePowerBar", "MonkStaggerBar",
-        "EvokerEbonMightBar", "DemonHunterSoulFragmentsBar",
-    }
-    local function DisableAltPowerBars()
-        if not EllesmereUI.IS_121 then return end
-        for i = 1, #ALT_POWER_BARS do
-            Unreg(_G[ALT_POWER_BARS[i]])
-        end
-    end
-
     function oUF:DisableBlizzard(unit)
         if not unit then return end
         if unit == "player" then
             HandleFrame(PlayerFrame)
-            DisableAltPowerBars()
         elseif unit == "pet" then
             HandleFrame(PetFrame)
         elseif unit == "target" then
@@ -192,10 +149,8 @@ do
     })
 end
 
--- Portrait UNIT_MODEL_CHANGED on eventless frames (TargetTarget) triggers
--- UnitIsUnit which returns secret booleans in protected instances. Rather
--- than patching the global, we unregister the problematic event after oUF
--- sets up eventless frames. See PostCreateTargetTarget below.
+-- Portrait UNIT_MODEL_CHANGED on eventless frames (TargetTarget) causes
+-- redundant updates. Unregister it after oUF sets up those frames.
 
 -- External lookup for portrait side per frame. Avoids writing custom
 -- properties onto oUF frames which taints their secure execution chain.
@@ -231,7 +186,6 @@ local defaults = {
             borderSize    = 1,
             borderBehind  = false,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
-            durationFormat = "blizzard",
             unlockPos     = nil,
         },
         castbarOpacity = 1.0,
@@ -303,17 +257,6 @@ local defaults = {
             debuffOffsetY = 0,
             debuffShowCooldownText = false,
             debuffCooldownTextSize = 10,
-            -- Private Auras (Blizzard-rendered personal boss-mechanic icons).
-            -- Player frame only. Opt-in; zero cost until paEnabled is true.
-            paEnabled        = false,
-            paSize           = 20,
-            paShowCountdown  = false,
-            paHideTooltip    = true,
-            paPosition       = "center",
-            paOffsetX        = 0,
-            paOffsetY        = 0,
-            paGrowDirection  = "RIGHT",
-            paSpacing        = 0,
             namePosition = "left",
             healthTextPosition = "right",
             leftTextContent = "name",
@@ -1304,8 +1247,7 @@ end
 -- WoW does not visually re-lay-out a FontString when only its SetJustifyH changes;
 -- a fresh build does. Clearing then re-setting the text forces the new alignment to
 -- take effect, and it MUST be a real change -- re-setting the identical string is
--- deduped and skips the re-layout. GetText may return a secret (cast name/target);
--- SetText accepts secrets and the value is never inspected, so the round-trip is safe.
+-- deduped and skips the re-layout.
 function ns.ReflowFontString(fs)
     if not fs then return end
     local t = fs:GetText()
@@ -1458,8 +1400,7 @@ end
 -- background. The base StatusBar fill under the tint goes to alpha 0 at the
 -- SetStatusBarColor call sites so it cannot bleed through the translucent
 -- tint. Fully inert at 100: nothing is touched unless previously applied
--- (_fillOpApplied). Value-blind (relational anchors + plain alphas only),
--- so secret cast states render identically.
+-- (_fillOpApplied). Uses relational anchors and plain alpha values only.
 ns.ApplyCastFillOpacity = function(castbar, settings)
     local op = (settings and settings.castFillOpacity) or 100
     local bgHost = castbar:GetParent()
@@ -1598,70 +1539,8 @@ local function ClassColorSourceUnit(unitKey, unit)
     return unit or unitKey
 end
 
--- TEMPORARY oUF SHIM -- REMOVE when upstream oUF ships its own secret-safe
--- class coloring (expected soon; check during the standing per-bump lib
--- re-diff, like the DisableBlizzard copy). 12.1 build 68914 makes UnitClass
--- return a SECRET token for identity-restricted units, and the vendored
--- health element's UpdateColor indexes colors.class with it (secret table
--- keys error -- 193x storms on ToT frames). Vendored-lib edits are not an
--- option (the packager re-pulls oUF tag:latest at release, wiping them),
--- so this rides the element's documented Health.UpdateColor override hook:
--- a faithful copy of the lib function with ONLY the class tier guarded
--- (unreadable class degrades to the reaction/health tiers). Installed under
--- IS_121 via ApplyDarkTheme below -- the one chokepoint every health
--- element passes through at creation -- so retail keeps the untouched lib
--- path. colorSelection is the one lib tier not carried over (needs
--- oUF-private unitSelectionType; no EUI health element enables it).
-local function UF_SecretSafeHealthColor(self, event, unit)
-    if not unit or self.unit ~= unit then return end
-    local element = self.Health
-
-    local color
-    if element.colorDisconnected and not UnitIsConnected(unit) then
-        color = self.colors.disconnected
-    elseif element.colorTapping and not UnitPlayerControlled(unit) and UnitIsTapDenied(unit) then
-        color = self.colors.tapped
-    elseif element.colorThreat and not UnitPlayerControlled(unit) and UnitThreatSituation("player", unit) then
-        color = self.colors.threat[UnitThreatSituation("player", unit)]
-    elseif (element.colorClass and (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
-        or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
-        or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
-        local _, class = UnitClass(unit)
-        if issecretvalue(class) then class = nil end
-        color = class and self.colors.class[class]
-        if not color then
-            -- Unreadable class: fall to the tiers the lib chain would have
-            -- reached had the class branch not matched.
-            if element.colorReaction and UnitReaction(unit, "player") then
-                color = self.colors.reaction[UnitReaction(unit, "player")]
-            elseif element.colorHealth then
-                color = self.colors.health
-            end
-        end
-    elseif element.colorReaction and UnitReaction(unit, "player") then
-        color = self.colors.reaction[UnitReaction(unit, "player")]
-    elseif element.colorSmooth and self.colors.health:GetCurve() then
-        color = element.values:EvaluateCurrentHealthPercent(self.colors.health:GetCurve())
-    elseif element.colorHealth then
-        color = self.colors.health
-    end
-
-    if color then
-        element:SetStatusBarColor(color:GetRGB())
-    end
-
-    if element.PostUpdateColor then
-        element:PostUpdateColor(unit, color)
-    end
-end
-
 local function ApplyDarkTheme(health)
     if not health then return end
-    -- TEMPORARY (see UF_SecretSafeHealthColor above). Idempotent: this
-    -- function re-runs on settings changes; re-assigning is harmless.
-    if EllesmereUI.IS_121 then
-        health.UpdateColor = UF_SecretSafeHealthColor
-    end
     local isDark = db and db.profile and db.profile.darkTheme
     if isDark then
         health.colorClass = false
@@ -1712,7 +1591,7 @@ local function ApplyDarkTheme(health)
                 health.colorTapped = false
                 health.colorDisconnected = false
                 local _, ct = UnitClass("player")
-                local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
+                local cc = ct and EllesmereUI.GetClassColor(ct)
                 if cc then health:SetStatusBarColor(cc.r, cc.g, cc.b) end
             end
         end
@@ -1745,7 +1624,7 @@ local function ApplyDarkTheme(health)
                 bR, bG, bB = cFill.r, cFill.g, cFill.b
             elseif classColored and uKey == "pet" then
                 local _, ct = UnitClass("player")
-                local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
+                local cc = ct and EllesmereUI.GetClassColor(ct)
                 if cc then bR, bG, bB = cc.r, cc.g, cc.b end
             elseif color and color.GetRGB then
                 bR, bG, bB = color:GetRGB()
@@ -1774,9 +1653,7 @@ local function ApplyDarkTheme(health)
                     local classUnit = ClassColorSourceUnit(uKey, unit or self.unit or uKey)
                     if classUnit then
                         local _, ct = UnitClass(classUnit)
-                        -- ct can be a secret value (out-of-range/uninspectable units); skip if so.
-                        -- issecretvalue FIRST: truthiness-testing a secret is itself an error.
-                        local cc = not issecretvalue(ct) and ct and EllesmereUI.GetClassColor(ct)
+                        local cc = ct and EllesmereUI.GetClassColor(ct)
                         if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
                     end
                 end
@@ -1808,9 +1685,7 @@ local function ApplyDarkTheme(health)
                 local classUnit = ClassColorSourceUnit(unitKey, unitKey or (health.__owner and health.__owner.unit))
                 if classUnit then
                     local _, ct = UnitClass(classUnit)
-                    -- ct can be a secret value (out-of-range/uninspectable units); skip if so.
-                    -- issecretvalue FIRST: truthiness-testing a secret is itself an error.
-                    local cc = not issecretvalue(ct) and ct and EllesmereUI.GetClassColor(ct)
+                    local cc = ct and EllesmereUI.GetClassColor(ct)
                     if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
                 end
             end
@@ -1869,20 +1744,17 @@ end
 -- Smart power text: percent for healers/prot pally/arcane mage, numeric for everyone else.
 -- Shared helper used by both the oUF tag and the resource bars renderer.
 -- `displayedPowerType` (optional, an Enum.PowerType value) is the power the
--- caller's bar is actually showing. For form/spec-shifting classes (Druid,
--- Monk) the decision must follow the displayed power, NOT UnitPowerType: a
--- Balance druid's UnitPowerType is Astral Power even while the power bar shows
--- Mana, so without this the mana number would render raw instead of percent.
+-- caller's bar is actually showing. For form/spec-shifting druids the decision
+-- must follow the displayed power, NOT UnitPowerType: a Balance druid's
+-- UnitPowerType is Astral Power even while the power bar shows Mana.
 local function EUI_IsSmartPowerPercent(displayedPowerType)
     local _, cls = UnitClass("player")
     if not cls then return false end
-    -- Druid / Monk both shift their displayed power with form/spec. Percent
-    -- only while the bar shows Mana (Druid caster/Tree/travel + Mistweaver),
-    -- raw value otherwise (Cat=Energy, Bear=Rage, Moonkin=Astral, WW/BRM=Energy).
-    -- This is consistent across every spec, including Restoration weaving
-    -- Cat/Bear where the bar is really Energy/Rage. Prefer the caller-supplied
-    -- displayed power; fall back to the live primary power type.
-    if cls == "DRUID" or cls == "MONK" then
+    -- Druids shift their displayed power with form/spec. Percent only while
+    -- the bar shows Mana; raw value otherwise (Cat=Energy, Bear=Rage,
+    -- Moonkin=Astral). Prefer the caller-supplied displayed power; fall back
+    -- to the live primary power type.
+    if cls == "DRUID" then
         local pt = displayedPowerType or UnitPowerType("player")
         return pt == Enum.PowerType.Mana
     end
@@ -1899,11 +1771,6 @@ local function EUI_IsSmartPowerPercent(displayedPowerType)
         local spec = GetSpecialization()
         return spec == 1  -- Arcane
     end
-    -- Evoker: only Preservation
-    if cls == "EVOKER" then
-        local spec = GetSpecialization()
-        return spec == 2  -- Preservation
-    end
     return false
 end
 ns.EUI_IsSmartPowerPercent = EUI_IsSmartPowerPercent
@@ -1911,9 +1778,8 @@ EllesmereUI.IsSmartPowerPercent = EUI_IsSmartPowerPercent
 
 -- Show Decimal on Text (global, default off). A Blizzard AbbreviateNumbers config
 -- that emits one decimal per magnitude band: 240500 -> "240.5k", 2405000 -> "2.4m".
--- AbbreviateNumbers runs in Blizzard's secure context, so feeding it a secret value
--- PLUS this config stays secret-safe (exactly like the no-config call we already use
--- on secret health/power). Tags read two _G flags (sandbox falls back to _G):
+-- The config controls decimal formatting while the tags continue to use
+-- AbbreviateNumbers. Tags read two _G flags (sandbox falls back to _G):
 --   _G._EUI_AbbrevDecimalCfg = this table when on, nil when off (nil == today's call)
 --   _G._EUI_TextDecimals     = true/false, selects "%.1f" vs "%d" for percents
 ns._decimalAbbrevConfig = { breakpointData = {
@@ -2050,9 +1916,8 @@ end]]
 oUF.Tags.Events["eui-absorb"] = (_G.EllesmereUIHealAbsorb and _G.EllesmereUIHealAbsorb.isLegacy)
     and "UNIT_HEALTH" or "UNIT_ABSORB_AMOUNT_CHANGED"
 
--- eui-absorbshort: absorb amount abbreviated (e.g. 236k). AbbreviateNumbers is
--- secret-safe -- the same call the [curhpshort] health tag uses on the secret
--- health value. Shows "0" when there is no shield (AbbreviateNumbers has no
+-- eui-absorbshort: absorb amount abbreviated (e.g. 236k). Shows "0" when
+-- there is no shield (AbbreviateNumbers has no
 -- blank-at-zero; only the full TruncateWhenZero variant blanks).
 oUF.Tags.Methods["eui-absorbshort"] = [[function(u)
     if not u or not UnitExists(u) then return "" end
@@ -2082,16 +1947,13 @@ oUF.Tags.Events["eui-healabsorbshort"] = (_G.EllesmereUIHealAbsorb and _G.Ellesm
     and "UNIT_HEALTH" or "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
 
 -- eui-level: the unit's effective level (scaling-aware), "??" when unknowable
--- (skull bosses). A SECRET level is returned RAW -- display-safe as a %s arg
--- through SetFormattedText, never compared or formatted in Lua (same rule as
--- the secret target name in eui-tgtname).
+-- (skull bosses).
 oUF.Tags.Methods["eui-level"] = function(u)
     if not u or not UnitExists(u) then return "" end
     local l = UnitEffectiveLevel(u)
     if UnitIsWildBattlePet(u) or UnitIsBattlePetCompanion(u) then
         l = UnitBattlePetLevel(u)
     end
-    if l and issecretvalue and issecretvalue(l) then return l end
     if not l or l <= 0 then return "??" end
     return l
 end
@@ -2102,14 +1964,14 @@ oUF.Tags.Events["eui-level"] = "UNIT_LEVEL PLAYER_LEVEL_UP"
 -- neutral yellow, friendly green, tap-denied gray) so enemies tint correctly --
 -- the custom Enemy Colors override is honored because it is baked into
 -- oUF.colors.reaction. Returns r, g, b (0-1) or nil (caller uses its own default).
--- Secret-value safe for uninspectable units. Namespaced (not a new file local) to
--- stay under the local cap; shared by ApplyClassColor and the eui-tgtname tag
+-- Namespaced (not a new file local) to stay under the local cap; shared by
+-- ApplyClassColor and the eui-tgtname tag
 -- so the target name in "Name > Target" colors identically to the unit frame name.
 ns.ResolveUnitNameColor = function(unit)
     if not unit then return nil end
     if UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit)) then
         local _, class = UnitClass(unit)
-        if not issecretvalue(class) and class then
+        if class then
             local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class]
             if c then return c.r, c.g, c.b end
         end
@@ -2120,7 +1982,7 @@ ns.ResolveUnitNameColor = function(unit)
             return 0.6, 0.6, 0.6
         end
         local reaction = UnitReaction(unit, "player")
-        if reaction and not issecretvalue(reaction) then
+        if reaction then
             local c = (oUF.colors and oUF.colors.reaction and oUF.colors.reaction[reaction])
                 or FACTION_BAR_COLORS[reaction]
             if c then return c.r, c.g, c.b end
@@ -2142,38 +2004,27 @@ ns.NICK_ADDON = addonName:find("Standalone") and addonName or "EllesmereUI"
 -- (TimelineReminders) -> Liquid (LiquidAPI), then the raw unit name. Each provider
 -- is pcall-wrapped so a misbehaving external API can never break names.
 --
--- SECRET-SAFE for target/focus/etc.: an enemy unit's UnitName is a secret value
--- in protected content, and any Lua op on it (==, .., format) throws. Nicknames
--- only ever apply to your own group members, so:
---   * non-players short-circuit to the raw name (no provider can have a nickname),
---   * name-keyed providers (NSRT, Liquid) are skipped when the name is secret,
---   * Timeline Reminders is UNIT-keyed (GetNickname(unit)), so it is safe to
---     consult regardless -- its result is still re-validated as a clean string.
--- The final return may be the raw (possibly secret) name; that is display-safe
--- because oUF feeds tag returns to SetFormattedText as a %s arg, never inspecting
--- them (exactly how the stock [name] tag stays safe).
 function ns.ResolveUnitNickname(unit)
     local name = UnitName(unit)
     if not name then return "" end
     -- Master toggle (Unit Frames > main frames > Display, default OFF): when off,
     -- skip every provider lookup and show the raw unit name. One switch for all
-    -- main frames. Returning the raw (possibly secret) name here is display-safe.
+    -- main frames.
     if not (db and db.profile and db.profile.showNicknames) then return name end
     -- Nicknames are a player-only concept; NPCs (bosses, etc.) keep their name.
     if not UnitIsPlayer(unit) then return name end
-    local nameSecret = issecretvalue and issecretvalue(name)
     local display
-    if not nameSecret and NSAPI and NSAPI.GetName then
+    if NSAPI and NSAPI.GetName then
         local ok, dn = pcall(NSAPI.GetName, NSAPI, name, "EUI")
         if ok and type(dn) == "string"
-           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+           and dn ~= "" and dn ~= name then
             display = dn
         end
     end
-    if not display and not nameSecret and EasyNicknameAPI and EasyNicknameAPI.GetNicknameForUnit then
+    if not display and EasyNicknameAPI and EasyNicknameAPI.GetNicknameForUnit then
         local ok, dn = pcall(EasyNicknameAPI.GetNicknameForUnit, unit)
         if ok and type(dn) == "string"
-           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+           and dn ~= "" and dn ~= name then
             display = dn
         end
     end
@@ -2186,17 +2037,17 @@ function ns.ResolveUnitNickname(unit)
                 if okHas and has then
                     local ok, dn = pcall(TR.GetNickname, TR, unit)
                     if ok and type(dn) == "string"
-                       and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
+                       and dn ~= "" then
                         display = dn
                     end
                 end
             end
         end
     end
-    if not display and not nameSecret and LiquidAPI and LiquidAPI.GetNicknameForEllesmereUI then
+    if not display and LiquidAPI and LiquidAPI.GetNicknameForEllesmereUI then
         local ok, dn = pcall(LiquidAPI.GetNicknameForEllesmereUI, name)
         if ok and type(dn) == "string"
-           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
+           and dn ~= "" then
             display = dn
         end
     end
@@ -2211,10 +2062,6 @@ oUF.Tags.Methods["eui-name"] = function(unit, realUnit, lenStr, ellipsisStr)
     local name = ns.ResolveUnitNickname(unit)
     local maxLen = tonumber(lenStr) or 0
     if maxLen <= 0 then return name end
-    -- Secret names (enemy target/focus in protected content) cannot be
-    -- inspected: #, sub and concat all throw. Return the secret raw -- the
-    -- display sink accepts it -- so those names render untruncated.
-    if issecretvalue and issecretvalue(name) then return name end
     -- Truncate by UTF-8 codepoints, never bytes: multibyte names (Cyrillic,
     -- CJK, accents) must cut on a character boundary, and byte length would
     -- overcount their character count.
@@ -2331,29 +2178,23 @@ do
     end
 end
 
--- "Name > Target" is built from FOUR tags so the (possibly SECRET) target name is
--- never compared/concatenated/string.format'd in Lua -- oUF joins the tag returns via
--- SetFormattedText, where the name is only a %s display arg (exactly how the stock
--- [name] tag stays safe). ContentToTag maps "nametotarget" to
--- "[name][eui-tgtsep(...)][eui-tgtcol][eui-tgtname]":
+-- "Name > Target" is built from four tags joined by oUF. ContentToTag maps
+-- "nametotarget" to "[name][eui-tgtsep(...)][eui-tgtcol][eui-tgtname]":
 --   [name]        -> the unit's own name (zone-colored, stock oUF tag)
 --   [eui-tgtsep]  -> the indicator between the names, only when the unit has a
 --                    target. Per-slot separator string and indicator color ride
 --                    in the tag ARGS (see BuildTgtSepTag); no args = " > ".
---   [eui-tgtcol]  -> the target's class/reaction COLOR escape (no name involved)
---   [eui-tgtname] -> the target's name, returned RAW
+--   [eui-tgtcol]  -> the target's class/reaction COLOR escape
+--   [eui-tgtname] -> the target's name
 -- The colour escape precedes the raw name and runs to the end of the string, so the
--- target name is class-coloured IDENTICALLY to the Target of Target frame name (both
--- colours come from ns.ResolveUnitNameColor). It works even for a SECRET name, because
--- the colour and the name are SEPARATE tags joined by SetFormattedText -- never touched
--- together in Lua (UnitName for an enemy target in protected content is secret, and any
--- Lua op on it -- ==, .., string.format -- throws).
+-- target name is class-coloured like the Target of Target frame name. Both colours
+-- come from ns.ResolveUnitNameColor.
 --
 -- PLAYER_TARGET_CHANGED is unitless in oUF (refreshes every frame), covering the
 -- player frame's target; UNIT_TARGET covers target/focus frames' own target.
 
 -- Separator/indicator between the names, shown only when the unit has a target.
--- Plain literal plus color escapes -- no secret is ever touched. Args:
+-- Plain literal plus color escapes. Args:
 --   sepHex    -> the separator string, hex-encoded per byte (any character the
 --                user types is safe inside the tag brackets); rendered with a
 --                space on each side, exactly like the stock " > ".
@@ -2397,8 +2238,8 @@ end
 oUF.Tags.Events["eui-tgtsep"] = "UNIT_TARGET PLAYER_TARGET_CHANGED UNIT_FACTION"
 
 -- The target's class/reaction colour escape (e.g. "|cffc41f3b"), or "" when none. Uses
--- ns.ResolveUnitNameColor -- the SAME resolver ApplyClassColor uses for the Target of
--- Target name. No unit NAME is touched, so it is fully secret-safe.
+-- ns.ResolveUnitNameColor -- the same resolver ApplyClassColor uses for the Target
+-- of Target name.
 oUF.Tags.Methods["eui-tgtcol"] = function(unit)
     local tunit = unit and (unit .. "target")
     if not tunit or not UnitExists(tunit) then return "" end
@@ -2409,9 +2250,8 @@ oUF.Tags.Methods["eui-tgtcol"] = function(unit)
 end
 oUF.Tags.Events["eui-tgtcol"] = "UNIT_TARGET PLAYER_TARGET_CHANGED UNIT_FACTION"
 
--- The unit's target NAME (nickname-aware via ResolveUnitNickname; raw name
--- otherwise, possibly secret -- display-safe via SetFormattedText, never
--- inspected). The colour comes from [eui-tgtcol] in front of it.
+-- The unit's target name (nickname-aware via ResolveUnitNickname). The colour
+-- comes from [eui-tgtcol] in front of it.
 oUF.Tags.Methods["eui-tgtname"] = function(unit)
     local tunit = unit and (unit .. "target")
     if not tunit or not UnitExists(tunit) then return "" end
@@ -2843,10 +2683,8 @@ local function ContentToTag(content, prefix, settings)
     elseif content == "curhpshort" then return "[curhpshort]"
     elseif content == "perhp" then return "[eui-perhp]%"
     elseif content == "perhpnosign" then return "[perhpnosign]"
-    -- Power content uses the secret-safe eui- power tags (identical to the power
-    -- bar text). The stock [curpp]/[perpp] tags read raw UnitPower, which is a
-    -- secret value for enemies and bugs out the fontstring on target change; the
-    -- eui- tags resolve power type from the cache and stay display-safe.
+    -- Power content uses the eui- power tags, matching the power bar text.
+    -- They resolve the power type from the unit cache.
     elseif content == "perpp" then return "[eui-perpp]%"
     elseif content == "curpp" then return "[eui-curpp]"
     elseif content == "curhp_curpp" then return "[curhpshort] | [eui-curpp]"
@@ -2902,15 +2740,12 @@ local CLASS_FULL_COORDS = {
     MAGE        = { 0.125, 0.25,  0,     0.125 },
     ROGUE       = { 0.25,  0.375, 0,     0.125 },
     DRUID       = { 0.375, 0.5,   0,     0.125 },
-    EVOKER      = { 0.5,   0.625, 0,     0.125 },
     HUNTER      = { 0,     0.125, 0.125, 0.25  },
     SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
     PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
     WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
     PALADIN     = { 0,     0.125, 0.25,  0.375 },
     DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-    MONK        = { 0.25,  0.375, 0.25,  0.375 },
-    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
 }
 
 -- Helper: apply class icon from sprite sheet
@@ -2995,7 +2830,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- Non-dark: use the unit's health bar color (class for players,
             -- reaction for NPCs, tapped grey, etc.)
             local _, classToken = UnitClass(unitToken)
-            if UnitIsPlayer(unitToken) and not issecretvalue(classToken) and classToken then
+            if UnitIsPlayer(unitToken) and classToken then
                 local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
                 if c then bR, bG, bB = c.r, c.g, c.b end
             elseif UnitIsTapDenied and UnitIsTapDenied(unitToken) then
@@ -3257,9 +3092,8 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     local function ApplyBTBPowerColor(fs, contentKey, usePowerColor)
         if not fs or not usePowerColor then return end
         if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
-            -- Secret-safe per-unit power color: player resolves via the clean
-            -- string token (identical to before); non-player units recover it
-            -- from the clean integer power type instead of falling back to white.
+            -- Resolve per-unit power color from the player token or the unit
+            -- power type.
             local r, g, b = EllesmereUI.ResolveUnitPowerColor(unit)
             if r then fs:SetTextColor(r, g, b)
             else fs:SetTextColor(1, 1, 1) end
@@ -3336,7 +3170,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         local style = s.btbClassIcon or "none"
         if style == "none" then classIconTex:Hide(); return end
         local _, classToken = UnitClass(unit)
-        if issecretvalue(classToken) or not classToken then classIconTex:Hide(); return end
+        if not classToken then classIconTex:Hide(); return end
         if not ApplyClassIconTexture(classIconTex, classToken, style) then classIconTex:Hide(); return end
         local sz = s.btbClassIconSize or 14
         PP.Size(classIconTex, sz, sz)
@@ -3856,10 +3690,8 @@ local function ApplyHealAbsorbStyle(haBar, style, settings)
     end
 end
 
--- Two-segment absorb rendering using dynamic clip-frame trickery, so it
--- works with secret-valued absorbs (player absorbs in 12.0+). We cannot
--- split the absorb value in Lua (min/subtract on secret values is blocked),
--- so we use STATUSBAR CLIPPING to do the math visually:
+-- Two-segment absorb rendering uses status bar clipping to split the amount
+-- visually without arithmetic on the tracked absorb value:
 --
 --   curClip  bounds: hpBar.LEFT  ->  healthTexture.RIGHT  (dynamic)
 --   missClip bounds: healthTexture.RIGHT -> hpBar.RIGHT   (dynamic)
@@ -3881,8 +3713,8 @@ end
 --     portion is exactly max(0, absorb - missing) pixels wide -- only
 --     shows when shield overflows past the missing-health area.
 --
--- Both bars receive the raw (secret-safe) absorbAmt via SetValue. No Lua
--- arithmetic on the absorb value is ever performed. Wired into oUF via
+-- Both bars receive absorbAmt via SetValue. No Lua arithmetic on the absorb
+-- value is performed. Wired into oUF via
 -- HealthPrediction.Override so oUF still owns event registration
 -- (UNIT_HEALTH, UNIT_ABSORB_AMOUNT_CHANGED, etc.) and enable/disable.
 
@@ -4158,7 +3990,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     healPredictionBar:SetFrameLevel(hpBar:GetFrameLevel())
     healPredictionBar:Hide()
 
-    -- Per-frame calculator for reading the absorb value (secret-safe).
+    -- Per-frame calculator for reading the absorb value.
     -- Matches nameplate UpdateHealthValues init exactly.
     local hpCalc
     if CreateUnitHealPredictionCalculator then
@@ -4209,7 +4041,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     -- Black backing behind the heal-absorb texture (all styles; opacity user-set
     -- via healAbsorbBgOpacity). Drawn UNDER the fill (ARTWORK sublevel 1 < the
     -- fill's 2), masked + SetAllPoints'd to the fill rect each update so it
-    -- tracks the secret heal-absorb amount and collapses when there is none.
+    -- tracks the heal-absorb amount and collapses when there is none.
     local haBg = healAbsorbBar:CreateTexture(nil, "ARTWORK", nil, 1)
     haBg:SetTexture(0, 0, 0, 0.15)
     if absorbMask and haBg.AddMaskTexture then haBg:AddMaskTexture(absorbMask) end
@@ -4277,8 +4109,7 @@ local function CreateAbsorbBar(frame, unit, settings)
             -- update on a throttled cycle, so a bare tag lags the synchronous clip
             -- reveal by a frame). Only the absorb event moves the gate. Runs before
             -- the bar-style early return so it works with the absorb BAR disabled.
-            -- Secret-safe: the absorb is only fed to SetValue and AbbreviateNumbers,
-            -- never compared to zero (SetText takes the same value the tag would).
+            -- The absorb is fed to SetValue and AbbreviateNumbers.
             -- Each gate feeds its own value source: shield gates use total
             -- absorbs, heal gates (g._euiHealGate) use total heal absorbs. Both
             -- absorb events drive the loop; each amount is fetched lazily once.
@@ -4482,9 +4313,8 @@ local function CreateAbsorbBar(frame, unit, settings)
             end
 
             -- Heal absorb: overlay eating into filled health.
-            -- The value can be a secret number in 12.0+, so never compare
-            -- it in Lua. Feed it directly to StatusBar:SetValue and let the
-            -- bar render zero width when the value is 0.
+            -- Feed the value directly to StatusBar:SetValue; the bar renders
+            -- zero width when the value is 0.
             if ha then
                 local haStyle = (s and s.healAbsorbStyle) or "clean"
                 if haStyle == "none" then
@@ -4668,9 +4498,8 @@ local function CreatePowerBar(frame, unit, settings)
             local cf = s2.customPowerFillColor
             if cf then bR, bG, bB = cf.r, cf.g, cf.b else bR, bG, bB = 0, 0, 1 end
         else
-            -- Secret-safe: player via the clean token, non-player via the clean
-            -- integer power type, so the custom power color applies on EVERY unit
-            -- (the bar no longer depends on oUF's colors.power sync). Unmapped
+            -- Resolve player color from the class token and other units from
+            -- their power type, independent of oUF's colors.power sync. Unmapped
             -- power types return nil and keep oUF's resolved color.
             bR, bG, bB = EllesmereUI.ResolveUnitPowerColor(unit)
         end
@@ -4739,12 +4568,12 @@ local function CreatePowerBar(frame, unit, settings)
 
     -- Power-percent text color for the CURRENT unit (applied per-unit so
     -- target/focus follow the unit, not the player). Power-color mode resolves
-    -- the unit's own power type; some enemies return a secret token that can't
-    -- map to a color, so those fall back to white (matching the reference
+    -- the unit's own power type; unmapped types fall back to white (matching
+    -- the reference
     -- approach). No-power units are NOT special-cased -- they keep showing 0%.
     local function ApplyPowerTextColor(s)
         if s.powerPercentTextPowerColor then
-            -- Secret-safe per-unit power color (see EllesmereUI.ResolveUnitPowerColor):
+            -- Per-unit power color (see EllesmereUI.ResolveUnitPowerColor):
             -- player keeps the exact token color; non-player units recover it from
             -- the clean integer power type instead of falling back to white.
             local r, g, b = EllesmereUI.ResolveUnitPowerColor(unit)
@@ -4863,11 +4692,10 @@ local function CreatePowerBar(frame, unit, settings)
             local isElite = (cls == "elite" or cls == "rareelite")
             local lvl = UnitLevel(u)
             local pLvl = UnitLevel("player")
-            local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
-            local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
+            local lvlOk = lvl and true
+            local pLvlOk = pLvl and true
             if isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1)) then return false end
             local uCls = UnitClassBase and UnitClassBase(u)
-            if issecretvalue(uCls) then uCls = nil end
             if uCls == "PALADIN" then return false end
             return true
         end)
@@ -5065,7 +4893,6 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     PP.Point(texClass, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", -classInset, classInset)
     texClass:SetAlpha(0.8)
     local _, classToken = UnitClass(unit)
-    if issecretvalue(classToken) then classToken = nil end
     local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
     ApplyClassIconTexture(texClass, classToken or "WARRIOR", classStyle)
     texClass:Hide()
@@ -5077,7 +4904,6 @@ local function CreatePortrait(frame, side, frameHeight, unit)
         if not evUnit or not UnitIsUnit(f.unit, evUnit) then return end
         local targetUnit = f.unit
         local _, ct = UnitClass(targetUnit)
-        if issecretvalue(ct) then ct = nil end
         local uS = db.profile[UnitToSettingsKey(targetUnit)] or db.profile.player
         local cStyle = (uS and uS.classThemeStyle) or "modern"
         ApplyClassIconTexture(self, ct or "WARRIOR", cStyle)
@@ -5199,10 +5025,6 @@ local function HideUnitFrameKickTick(castbar)
     castbar.kickPositioner:Hide()
     castbar.kickMarker:Hide()
     castbar.kickReadyFill:Hide()
-    if castbar._kickTicker then
-        castbar._kickTicker:Cancel()
-        castbar._kickTicker = nil
-    end
 end
 local function ApplyUnitFrameCastColor(castbar)
     if not castbar or not castbar.castTintLayer then return end
@@ -5212,7 +5034,6 @@ local function ApplyUnitFrameCastColor(castbar)
     if settings and settings.castbarClassColored and ownerUnit == "player" then
         if ownerUnit then
             local _, classToken = UnitClass(ownerUnit)
-            if issecretvalue(classToken) then classToken = nil end
             if classToken and EllesmereUI.GetClassColor then
                 cc = EllesmereUI.GetClassColor(classToken)
             end
@@ -5232,13 +5053,12 @@ local function ApplyUnitFrameCastColor(castbar)
     if castbar._shieldedTint then
         -- Uninterruptible overlay colour (customizable; defaults to the
         -- previously-hardcoded grey). The overlay's alpha is toggled from the
-        -- secret "not interruptible" flag, so the colour is always set and only
+        -- uninterruptible status, so the colour is always set and only
         -- becomes visible on uninterruptible casts.
         local uc = (settings and settings.castbarUninterruptibleColor) or { r = 0.5, g = 0.5, b = 0.5 }
         castbar._shieldedTint:SetVertexColor(uc.r, uc.g, uc.b)
         local uninterruptible = GetCastbarUninterruptible(castbar)
-        -- Visible alpha honors Fill Opacity (castbar._fillOp, nil at 100);
-        -- both branches pass it as a plain number, never touching the secret.
+        -- Visible alpha honors Fill Opacity (castbar._fillOp, nil at 100).
         if castbar._shieldedTint.SetAlphaFromBoolean then
             castbar._shieldedTint:SetAlphaFromBoolean(uninterruptible, castbar._fillOp or 1, 0)
         else
@@ -5264,8 +5084,6 @@ local function UpdateUnitFrameKickTick(castbar)
         HideUnitFrameKickTick(castbar)
         return
     end
-    local kickProtected = GetCastbarUninterruptible(castbar)
-    castbar._kickProtected = kickProtected
     local isChannel = castbar.channeling and true or false
     local isEmpowered = false
     if not (UnitCastingDuration and ownerUnit) then
@@ -5367,42 +5185,16 @@ local function UpdateUnitFrameKickTick(castbar)
     castbar.kickPositioner:Show()
     castbar.kickMarker:Show()
     -- Mid-cast fill: CLEAN DB color tint + CLEAN per-toggle visibility. Its alpha
-    -- (the SECRET on-CD x interruptible gate) is applied with the tick alpha
+    -- (on cooldown and interruptible) is applied with the tick alpha
     -- below. Geometry above runs whenever the tick OR the fill is enabled;
     -- SetShown gates each element to its own toggle so one never forces the other.
     local mc = (settings and settings.castbarInterruptMidCastColor) or { r = 0.318, g = 0.820, b = 0.357 }
     castbar.kickReadyFill:SetVertexColor(mc.r, mc.g, mc.b, 1)
     if tickOn then castbar.kickTick:Show() else castbar.kickTick:Hide() end
     if midOn then castbar.kickReadyFill:Show() else castbar.kickReadyFill:Hide() end
-    if interruptCD.IsZero and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
-        local interruptible = C_CurveUtil.EvaluateColorValueFromBoolean(kickProtected, 0, 1)
-        local kickReady = interruptCD:IsZero()
-        local alpha = C_CurveUtil.EvaluateColorValueFromBoolean(kickReady, 0, interruptible)
-        castbar.kickTick:SetAlpha(alpha)
-        castbar.kickReadyFill:SetAlpha(alpha)
-    else
-        castbar.kickTick:SetAlpha(0)
-        castbar.kickReadyFill:SetAlpha(0)
-    end
-    if castbar._kickTicker then castbar._kickTicker:Cancel() end
-    castbar._kickTicker = C_Timer.NewTicker(0.1, function()
-        if not castbar:IsShown() or not ownerUnit then
-            HideUnitFrameKickTick(castbar)
-            return
-        end
-        if not GetActiveKickSpell() then
-            HideUnitFrameKickTick(castbar)
-            return
-        end
-        local icd = C_Spell.GetSpellCooldownDuration(GetActiveKickSpell())
-        if icd and icd.IsZero and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
-            local interruptible = C_CurveUtil.EvaluateColorValueFromBoolean(castbar._kickProtected, 0, 1)
-            local kickReady = icd:IsZero()
-            local alpha = C_CurveUtil.EvaluateColorValueFromBoolean(kickReady, 0, interruptible)
-            castbar.kickTick:SetAlpha(alpha)
-            castbar.kickReadyFill:SetAlpha(alpha)
-        end
-    end)
+    -- Keep the original 3.3.5 fallback alpha.
+    castbar.kickTick:SetAlpha(0)
+    castbar.kickReadyFill:SetAlpha(0)
 end
 
 -- Light per-cooldown-event refresh: bar values + tick alpha only. The geometry
@@ -5439,12 +5231,6 @@ local function RefreshUnitFrameKickTick(castbar)
     end
     castbar.kickPositioner:SetValue(castDuration:GetElapsedDuration())
     castbar.kickMarker:SetValue(interruptCD:GetRemainingDuration())
-    if interruptCD.IsZero and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
-        local interruptible = C_CurveUtil.EvaluateColorValueFromBoolean(castbar._kickProtected, 0, 1)
-        local alpha = C_CurveUtil.EvaluateColorValueFromBoolean(interruptCD:IsZero(), 0, interruptible)
-        castbar.kickTick:SetAlpha(alpha)
-        castbar.kickReadyFill:SetAlpha(alpha)
-    end
 end
 
 ns._castingCastbars = {}
@@ -5762,10 +5548,10 @@ local function CreateCastBar(frame, unit, settings)
         -- "kick ready here" point to the cast end (the window during which the
         -- player's interrupt will be available) when the kick is on cooldown now
         -- but comes off cooldown before the cast finishes. Rides the SAME
-        -- kickMarker geometry as the tick; the "ready in time" two-secret test is
+        -- kickMarker geometry as the tick; the "ready in time" check is
         -- resolved by where the marker texture edge lands -- when the kick will
         -- NOT be ready in time the fill anchors cross to zero width and it self-
-        -- hides with no Lua branch on a secret. ARTWORK sublevel 1 (created after
+        -- hides. ARTWORK sublevel 1 (created after
         -- castTintLayer so it draws above the fill colour) sits below the cast
         -- text (OVERLAY) and the uninterruptible grey (sublevel 2). Anchors are
         -- (re)applied per cast in UpdateUnitFrameKickTick.
@@ -5911,8 +5697,7 @@ local function SetupShowOnCastBar(frame, unit)
             -- TARGET slot ("Spell Name - Target", target class colored); the
             -- separate Spell Name element is suppressed via _combineNT in
             -- LayoutCastTextZones. The color code lives in the clean FORMAT
-            -- string and the (possibly secret) names ride through
-            -- SetFormattedText -- never Lua-concatenated.
+            -- string and names are passed through SetFormattedText.
             local combine = sOwn and sOwn.castCombineNameTarget == true
                 and (ownerUnit == "target" or ownerUnit == "focus")
             self._combineNT = combine or nil
@@ -6347,7 +6132,7 @@ end
 -- aura shows if it matches ANY selected classification (union) instead of ANDing
 -- the tokens into the slot fetch (which would intersect). The element fetches
 -- with the broad base filter (HELPFUL/HARMFUL); per-classification membership is
--- resolved here via IsAuraFilteredOutByInstanceID -- the same secret-safe API
+-- resolved here via IsAuraFilteredOutByInstanceID.
 -- processData already uses to set data.isPlayerAura. No toggles -> show all.
 local IsAuraFilteredOut = C_UnitAuras and C_UnitAuras.IsAuraFilteredOutByInstanceID
 -- Sated/Exhaustion spell IDs (the lust debuff variants). Blizzard keeps these
@@ -6372,7 +6157,7 @@ function ns.EUIAuraFilter(element, unit, data, filter)
     if not data then return false end
     local f = element._euiAuraFlags
     local sid = data.spellId
-    if sid and not issecretvalue(sid) then
+    if sid then
         -- Permanently hidden debuffs -- never shown, no toggle.
         if ALWAYS_HIDE_DEBUFFS[sid] then return false end
         -- Lust/Sated debuff: handled OUTSIDE the filter system -- gated solely by
@@ -6417,16 +6202,7 @@ function ns.ApplyEUIAuraFilter(element, base, settings)
 end
 
 local function CreateTargetAuras(frame, unit)
-    -- 12.1 aura containers: migrated units render through the container system
-    -- in EUI_UnitFrames_AuraContainers.lua. frame.Buffs/frame.Debuffs stay nil
-    -- for those units, which self-neutralizes every legacy element touchpoint
-    -- (all reload/startup/toggle sites are frame.Buffs-guarded).
-    if ns.UF_CreateAuraContainers and ns.UF_ContainerUnits and ns.UF_ContainerUnits[unit or "target"] then
-        ns.UF_GetSettings = GetSettingsForUnit -- always-fresh settings access for the container file
-        ns.UF_GetProfile = ns.UF_GetProfile or function() return db and db.profile end
-        return ns.UF_CreateAuraContainers(frame, unit or "target")
-    end
-    -- Live (12.0) oUF recycles aura buttons. Border styling must therefore run
+    -- oUF recycles aura buttons. Border styling must therefore run
     -- on updates as well as creation; otherwise pooled buttons keep their old
     -- border (or no border at all) after settings/profile changes.
     local function ApplyLegacyAuraBorder(button)
@@ -6757,7 +6533,6 @@ local function CreateTargetAuras(frame, unit)
         -- options toggle applies on the next aura update without a rebuild.
         debuffs.PostUpdateButton = function(_, button, u, data)
             ApplyLegacyAuraBorder(button)
-            if ns.UF_ColorDebuffDispelBorder then ns.UF_ColorDebuffDispelBorder(button, u, data) end
         end
         if settings and settings.onlyPlayerDebuffs then
             debuffs.onlyShowPlayer = true
@@ -6977,7 +6752,7 @@ local function StyleFullFrame(frame, unit)
     frame.HealthValue = rightText
 
     -- "Absorb Short" zero-hide: a binary StatusBar gate (max 1) fed the raw
-    -- absorb clips the abbreviated absorb text away at zero shield, secret-safely
+    -- absorb clips the abbreviated absorb text away at zero shield
     -- (the absorb is only fed to SetValue, never compared to zero). The clip
     -- frame tracks the gate's fill texture; the zone FontString is reparented
     -- into it. Driven every absorb update by the HealthPrediction Override.
@@ -7311,7 +7086,7 @@ local function StyleFocusFrame(frame, unit)
     frame.HealthValue = rightText
 
     -- "Absorb Short" zero-hide: a binary StatusBar gate (max 1) fed the raw
-    -- absorb clips the abbreviated absorb text away at zero shield, secret-safely
+    -- absorb clips the abbreviated absorb text away at zero shield
     -- (the absorb is only fed to SetValue, never compared to zero). The clip
     -- frame tracks the gate's fill texture; the zone FontString is reparented
     -- into it. Driven every absorb update by the HealthPrediction Override.
@@ -7602,12 +7377,12 @@ local function StyleSimpleFrame(frame, unit)
 
     -- "Absorb Short" zero-hide: the [eui-absorbshort] tag shows the abbreviated
     -- absorb but cannot blank at zero (no has-absorb boolean exists). Instead we
-    -- clip the text away when there is no shield, secret-safely: a binary
+    -- clip the text away when there is no shield: a binary
     -- StatusBar gate (max 1) is fed the raw absorb so its fill texture is full
     -- width with any shield and zero width with none; a clip frame tracks that
     -- fill rect and the zone FontString is reparented into it, so the text is
     -- clipped to nothing at zero absorb. The absorb is never compared to zero in
-    -- Lua -- only fed to SetValue (which accepts secret values natively). The
+    -- Lua -- only fed to SetValue. The
     -- gate is driven every absorb update by the HealthPrediction Override.
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
@@ -7847,12 +7622,12 @@ local function StylePetFrame(frame, unit)
 
     -- "Absorb Short" zero-hide: the [eui-absorbshort] tag shows the abbreviated
     -- absorb but cannot blank at zero (no has-absorb boolean exists). Instead we
-    -- clip the text away when there is no shield, secret-safely: a binary
+    -- clip the text away when there is no shield: a binary
     -- StatusBar gate (max 1) is fed the raw absorb so its fill texture is full
     -- width with any shield and zero width with none; a clip frame tracks that
     -- fill rect and the zone FontString is reparented into it, so the text is
     -- clipped to nothing at zero absorb. The absorb is never compared to zero in
-    -- Lua -- only fed to SetValue (which accepts secret values natively). The
+    -- Lua -- only fed to SetValue. The
     -- gate is driven every absorb update by the HealthPrediction Override.
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
@@ -8115,12 +7890,12 @@ local function StyleBossFrame(frame, unit)
 
     -- "Absorb Short" zero-hide: the [eui-absorbshort] tag shows the abbreviated
     -- absorb but cannot blank at zero (no has-absorb boolean exists). Instead we
-    -- clip the text away when there is no shield, secret-safely: a binary
+    -- clip the text away when there is no shield: a binary
     -- StatusBar gate (max 1) is fed the raw absorb so its fill texture is full
     -- width with any shield and zero width with none; a clip frame tracks that
     -- fill rect and the zone FontString is reparented into it, so the text is
     -- clipped to nothing at zero absorb. The absorb is never compared to zero in
-    -- Lua -- only fed to SetValue (which accepts secret values natively). The
+    -- Lua -- only fed to SetValue. The
     -- gate is driven every absorb update by the HealthPrediction Override.
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
@@ -8297,9 +8072,8 @@ local function RegisterStylesOnce()
     oUF:RegisterStyle("EllesmerePet", function(frame, unit)
         StylePetFrame(frame, unit)
     end)
-    -- Skip unitIsUnit check in portrait Update for eventless frames to avoid
-    -- secret boolean errors. These frames poll on OnUpdate so redundant
-    -- portrait updates are harmless.
+    -- Skip UnitIsUnit in portrait updates for eventless frames. These frames
+    -- poll on OnUpdate, so redundant portrait updates are harmless.
     local function ApplyPortraitOverride(frame)
         if not frame.Portrait then return end
         frame.Portrait.Override = function(self, event, evtUnit)
@@ -8391,7 +8165,6 @@ local function SwapPortraitMode(frame)
         local s2 = uKey2 and db.profile[uKey2]
         local classStyle = (s2 and s2.classThemeStyle) or "modern"
         local _, ct = UnitClass(unit)
-        if issecretvalue(ct) then ct = nil end
         ApplyClassIconTexture(bd._class, ct or "WARRIOR", classStyle)
         bd._class:Show()
         bd._2d:Hide()
@@ -8434,17 +8207,8 @@ local CLASS_POWER_TYPES = {
     },
     WARLOCK     = Enum.PowerType.SoulShards,
     PALADIN     = Enum.PowerType.HolyPower,
-    MONK        = {
-        [269] = { Enum.PowerType.Chi, 5 },        -- Windwalker
-        [268] = { "BREWMASTER_STAGGER", 1, "bar" },  -- Brewmaster: single bar
-    },
-    EVOKER      = Enum.PowerType.Essence,
     DEATHKNIGHT = Enum.PowerType.Runes,
-    -- Spec-specific custom resources (resolved at creation time)
-    DEMONHUNTER = { [581] = { "SOUL_FRAGMENTS_VENGEANCE", 6 },
-                    [1480] = { "SOUL_FRAGMENTS_DEVOURER", 50, "bar" } },
     SHAMAN      = { [263] = { "MAELSTROM_WEAPON", 10 } },
-    HUNTER      = { [255] = { "TIP_OF_THE_SPEAR", 3 } },
     WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 },
                     [71]  = { "SWEEPING_STRIKES", 12 } },
 }
@@ -8518,20 +8282,19 @@ local function CreateCustomClassPower(playerFrame, style)
     if not entry then return nil end
 
     -- Resolve spec-specific entries (table with specID keys)
-    local powerType, customMax, isCustom, renderMode
+    local powerType, customMax, isCustom
     if type(entry) == "table" then
         local spec = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
         local specID = spec and C_SpecializationInfo.GetSpecializationInfo(spec)
         local specEntry = specID and entry[specID]
         if not specEntry then return nil end
         if type(specEntry) == "table" and type(specEntry[1]) == "string" then
-            -- String-keyed custom resource (e.g. "SOUL_FRAGMENTS_VENGEANCE")
+            -- String-keyed custom resource
             powerType = specEntry[1]
             customMax = specEntry[2]
-            renderMode = specEntry[3]  -- optional "bar" for continuous fill
             isCustom = true
         elseif type(specEntry) == "table" then
-            -- Numeric powerType wrapped in a spec table (e.g. Chi for Windwalker)
+            -- Numeric powerType wrapped in a spec table
             powerType = specEntry[1]
             customMax = specEntry[2]
             isCustom = false
@@ -8543,38 +8306,18 @@ local function CreateCustomClassPower(playerFrame, style)
         powerType = entry
         isCustom = false
     end
-    local isBarMode = (renderMode == "bar")
-
     local maxPower
     if isCustom then
         -- For custom resources, get live max from EllesmereUI helpers
-        if powerType == "SOUL_FRAGMENTS_VENGEANCE" then
-            maxPower = 6
-        elseif powerType == "MAELSTROM_WEAPON" and EllesmereUI and EllesmereUI.GetMaelstromWeapon then
+        if powerType == "MAELSTROM_WEAPON" and EllesmereUI and EllesmereUI.GetMaelstromWeapon then
             local _, mMax = EllesmereUI.GetMaelstromWeapon()
             maxPower = (mMax and mMax > 0) and mMax or customMax
-        elseif powerType == "TIP_OF_THE_SPEAR" then
-            maxPower = customMax
         elseif powerType == "WHIRLWIND_STACKS" then
             maxPower = customMax
         elseif powerType == "SWEEPING_STRIKES" then
             maxPower = customMax
         elseif powerType == "ICICLES" then
             maxPower = customMax or 5
-        elseif powerType == "SOUL_FRAGMENTS_DEVOURER" then
-            local maxC = customMax or 50
-            if EllesmereUI and EllesmereUI.GetSoulFragments then
-                local _, m = EllesmereUI.GetSoulFragments()
-                if m and m > 0 then maxC = m end
-            end
-            maxPower = maxC
-            customMax = maxPower
-        elseif powerType == "BREWMASTER_STAGGER" then
-            -- Bar mode: "max" is player max HP; StatusBar fills with UnitStagger.
-            local mh = UnitHealthMax("player") or 0
-            if issecretvalue and issecretvalue(mh) then mh = 0 end
-            maxPower = (mh > 0) and mh or 1
-            customMax = maxPower
         else
             maxPower = customMax or 5
         end
@@ -8596,12 +8339,7 @@ local function CreateCustomClassPower(playerFrame, style)
     pipH = PP.Scale(pipH)
     gap = PP.Scale(gap)
     pad = PP.Scale(pad)
-    -- For bar-mode resources (stagger), "maxPower" is a raw game value
-    -- (e.g. player max HP) and doesn't drive layout width. Use a 5-pip
-    -- equivalent so the bar matches the visual footprint of Chi / Combo
-    -- Points etc.
-    local drawPipCount = isBarMode and 5 or maxPower
-    local totalW = drawPipCount * pipSize + (drawPipCount - 1) * gap + pad
+    local totalW = maxPower * pipSize + (maxPower - 1) * gap + pad
     local totalH = pipH + pad
 
     local container = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
@@ -8687,88 +8425,17 @@ local function CreateCustomClassPower(playerFrame, style)
     end
 
     local pips = {}
-    local staggerBar  -- set only in bar mode
-    if isBarMode then
-        -- Single StatusBar filling the container; color updates per-tier.
-        local inset = pad / 2
-        staggerBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, container)
-        staggerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        staggerBar:GetStatusBarTexture():SetHorizTile(false)
-        PP.Point(staggerBar, "TOPLEFT",     container, "TOPLEFT",     inset, 0)
-        PP.Point(staggerBar, "BOTTOMRIGHT", container, "BOTTOMRIGHT", -inset, 0)
-        staggerBar:SetMinMaxValues(0, maxPower)
-        staggerBar:SetValue(0)
-        staggerBar:GetStatusBarTexture():SetVertexColor(0.2, 0.8, 0.2, 1)
-        container._staggerBar = staggerBar
-    else
-        for i = 1, maxPower do
-            pips[i] = MakePip(container, i)
-        end
+    for i = 1, maxPower do
+        pips[i] = MakePip(container, i)
     end
 
     -- Update function
-    local isSecretResource = (powerType == "SOUL_FRAGMENTS_VENGEANCE")
     local function UpdatePips()
-        -- Bar-mode resources fill a single StatusBar instead of discrete pips.
-        if isBarMode and staggerBar then
-            if powerType == "BREWMASTER_STAGGER" then
-                local stagger = UnitStagger and UnitStagger("player") or 0
-                local maxHP   = UnitHealthMax("player") or 0
-                local tainted = issecretvalue
-                             and (issecretvalue(stagger) or issecretvalue(maxHP))
-                if tainted then
-                    staggerBar:Hide()
-                    return
-                end
-                if maxHP <= 0 then maxHP = 1 end
-                if staggerBar._lastMax ~= maxHP then
-                    staggerBar._lastMax = maxHP
-                    staggerBar:SetMinMaxValues(0, maxHP)
-                end
-                staggerBar:SetValue(stagger)
-                local pct = stagger / maxHP
-                local sr, sg, sb
-                if pct >= 0.6 then      sr, sg, sb = 1.0,  0.2,  0.2
-                elseif pct >= 0.3 then  sr, sg, sb = 1.0,  0.85, 0.2
-                else                    sr, sg, sb = 0.2,  0.8,  0.2 end
-                if staggerBar._lastR ~= sr or staggerBar._lastG ~= sg or staggerBar._lastB ~= sb then
-                    staggerBar._lastR, staggerBar._lastG, staggerBar._lastB = sr, sg, sb
-                    staggerBar:GetStatusBarTexture():SetVertexColor(sr, sg, sb, 1)
-                end
-            elseif powerType == "SOUL_FRAGMENTS_DEVOURER" then
-                local cur, maxC = 0, customMax or 50
-                if EllesmereUI and EllesmereUI.GetSoulFragments then
-                    cur, maxC = EllesmereUI.GetSoulFragments()
-                    if not maxC or maxC <= 0 then maxC = customMax or 50 end
-                end
-                if staggerBar._lastMax ~= maxC then
-                    staggerBar._lastMax = maxC
-                    staggerBar:SetMinMaxValues(0, maxC)
-                end
-                staggerBar:SetValue(cur or 0)
-                -- Use class color (DH)
-                if not staggerBar._colorSet then
-                    staggerBar._colorSet = true
-                    local rc = EllesmereUI.GetResourceColor and EllesmereUI.GetResourceColor("DEMONHUNTER")
-                    local cc = rc or (EllesmereUI.GetClassColor and EllesmereUI.GetClassColor("DEMONHUNTER"))
-                    if cc then
-                        staggerBar:GetStatusBarTexture():SetVertexColor(cc.r, cc.g, cc.b, 1)
-                    end
-                end
-            end
-            if not staggerBar:IsShown() then staggerBar:Show() end
-            return
-        end
         local cur, max
         if isCustom then
             -- Custom resource: use EllesmereUI tracker functions
-            if powerType == "SOUL_FRAGMENTS_VENGEANCE" then
-                cur = C_Spell and C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(228477) or 0
-                max = 6
-            elseif powerType == "MAELSTROM_WEAPON" and EllesmereUI and EllesmereUI.GetMaelstromWeapon then
+            if powerType == "MAELSTROM_WEAPON" and EllesmereUI and EllesmereUI.GetMaelstromWeapon then
                 cur, max = EllesmereUI.GetMaelstromWeapon()
-            elseif powerType == "TIP_OF_THE_SPEAR" and EllesmereUI and EllesmereUI.GetTipOfTheSpear then
-                cur, max = EllesmereUI.GetTipOfTheSpear()
             elseif powerType == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
                 cur, max = EllesmereUI.GetWhirlwindStacks()
             elseif powerType == "SWEEPING_STRIKES" and EllesmereUI and EllesmereUI.GetSweepingStrikes then
@@ -8824,38 +8491,12 @@ local function CreateCustomClassPower(playerFrame, style)
             end
         end
 
-        if isSecretResource then
-            -- Secret-value path: use StatusBar overlays per pip
-            for i = 1, #pips do
-                if pips[i] then
-                    if not pips[i]._secretBar then
-                        local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, pips[i])
-                        sb:SetAllPoints(pips[i]._fill or pips[i])
-                        sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-                        sb:SetStatusBarColor(cr, cg, cb, 1)
-                        sb:SetFrameLevel(pips[i]:GetFrameLevel() + 1)
-                        pips[i]._secretBar = sb
-                    end
-                    pips[i]._secretBar:SetMinMaxValues(i - 1, i)
-                    pips[i]._secretBar:SetValue(cur)
-                    pips[i]._secretBar:SetStatusBarColor(cr, cg, cb, 1)
-                    pips[i]._secretBar:Show()
-                    -- Hide normal fill; StatusBar replaces it
-                    if pips[i]._fill then pips[i]._fill:Hide() end
-                end
-            end
-        else
-            -- Clean-value path
-            for i = 1, #pips do
-                if pips[i] then
-                    if pips[i]._secretBar then pips[i]._secretBar:Hide() end
-                    if pips[i]._fill then
-                        if i <= cur then
-                            pips[i]._fill:Show()
-                        else
-                            pips[i]._fill:Hide()
-                        end
-                    end
+        for i = 1, #pips do
+            if pips[i] and pips[i]._fill then
+                if i <= cur then
+                    pips[i]._fill:Show()
+                else
+                    pips[i]._fill:Hide()
                 end
             end
         end
@@ -8880,8 +8521,7 @@ local function CreateCustomClassPower(playerFrame, style)
         local auraDriven    = (powerType == "MAELSTROM_WEAPON" or powerType == "ICICLES")
         local needsOnUpdate = not auraDriven
         local needsAura     = auraDriven
-        local needsCasts    = (powerType == "TIP_OF_THE_SPEAR" or powerType == "WHIRLWIND_STACKS"
-                               or powerType == "SWEEPING_STRIKES")
+        local needsCasts    = (powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES")
 
         if needsOnUpdate then
             -- 10 Hz poll on the shared anim ticker (see ns._cpDriverTick):
@@ -8919,9 +8559,6 @@ local function CreateCustomClassPower(playerFrame, style)
                 if not _G._ERB_AceDB and EllesmereUI then
                     local unit, castGUID, spellID = ...
                     if unit == "player" then
-                        if EllesmereUI.HandleTipOfTheSpear then
-                            EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
-                        end
                         if EllesmereUI.HandleWhirlwindStacks then
                             EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
                         end
@@ -8932,9 +8569,6 @@ local function CreateCustomClassPower(playerFrame, style)
                 end
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
                 if not _G._ERB_AceDB and EllesmereUI then
-                    if EllesmereUI.HandleTipOfTheSpear then
-                        EllesmereUI.HandleTipOfTheSpear(event)
-                    end
                     if EllesmereUI.HandleWhirlwindStacks then
                         EllesmereUI.HandleWhirlwindStacks(event)
                     end
@@ -9350,7 +8984,6 @@ local function ReloadFrames()
                 if isClassMode then
                     local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
                     local _, ct = UnitClass(unit)
-                    if issecretvalue(ct) then ct = nil end
                     ApplyClassIconTexture(frame.Portrait.backdrop._class, ct or "WARRIOR", classStyle)
                 end
             end
@@ -9528,10 +9161,10 @@ local function ReloadFrames()
                                 local isElite = (cls == "elite" or cls == "rareelite")
                                 local lvl = UnitLevel(unit)
                                 local pLvl = UnitLevel("player")
-                                local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
-                                local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
+                                local lvlOk = lvl and true
+                                local pLvlOk = pLvl and true
                                 local isMB = isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1))
-                                local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
+                                local isCst = UnitClassBase and UnitClassBase(unit); isCst = (isCst == "PALADIN")
                                 if not isBoss and not isMB and not isCst then shouldGray = true end
                             end
                             if shouldGray then
@@ -9941,10 +9574,10 @@ local function ReloadFrames()
                                 local isElite = (cls == "elite" or cls == "rareelite")
                                 local lvl = UnitLevel(unit)
                                 local pLvl = UnitLevel("player")
-                                local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
-                                local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
+                                local lvlOk = lvl and true
+                                local pLvlOk = pLvl and true
                                 local isMB = isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1))
-                                local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
+                                local isCst = UnitClassBase and UnitClassBase(unit); isCst = (isCst == "PALADIN")
                                 if not isBoss and not isMB and not isCst then shouldGray = true end
                             end
                             if shouldGray then
@@ -10691,7 +10324,7 @@ local function ReloadFrames()
                             local lvl = UnitLevel(unit)
                             local pLvl = UnitLevel("player")
                             local isMB = isElite and (lvl == -1 or (pLvl and lvl >= pLvl + 1))
-                            local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
+                            local isCst = UnitClassBase and UnitClassBase(unit); isCst = (isCst == "PALADIN")
                             if not isBoss and not isMB and not isCst then shouldGray = true end
                         end
                         if shouldGray then
@@ -11041,7 +10674,7 @@ local function ReloadFrames()
             -- so this is a no-op unless the user enabled a boss border).
             if unit:match("^boss%d$") then
                 local isT = UnitIsUnit(unit, "target")
-                frame._isTarget = (not issecretvalue(isT) and isT) and true or false
+                frame._isTarget = isT and true or false
                 ns.ApplyBossBorderState(frame)
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
@@ -11084,9 +10717,7 @@ local function ReloadFrames()
                         local cf = s2.customPowerFillColor
                         if cf then bR, bG, bB = cf.r, cf.g, cf.b else bR, bG, bB = 0, 0, 1 end
                     else
-                        -- Secret-safe per-unit power color (player via token,
-                        -- non-player via the clean integer type), so custom power
-                        -- colors apply on EVERY unit independent of oUF's sync.
+                        -- Per-unit power color, independent of oUF's sync.
                         bR, bG, bB = EllesmereUI.ResolveUnitPowerColor(unit)
                     end
                     if s2.powerGradientEnabled and bR then
@@ -11471,9 +11102,7 @@ function InitializeFrames()
     local BLIZZARD_CP_FRAMES = {
         DEATHKNIGHT = "RuneFrame",
         DRUID       = "DruidComboPointBarFrame",
-        EVOKER      = "EssencePlayerFrame",
         MAGE        = "MageArcaneChargesFrame",
-        MONK        = "MonkHarmonyBarFrame",
         PALADIN     = "PaladinPowerBarFrame",
         ROGUE       = "RogueComboPointBarFrame",
         WARLOCK     = "WarlockPowerFrame",
@@ -12180,7 +11809,6 @@ function InitializeFrames()
             -- Class theming resolves the FRAME's unit (player class on the
             -- player frame, current target's class on the target frame).
             local _, classToken = UnitClass(ciUnit)
-            if issecretvalue(classToken) then classToken = nil end
             -- All custom combat icons (Arcade/Dungeoneer/Classic/Cross/Circle/Square =
             -- combat0..5) are shown exactly as authored: no class theming, no tint, no
             -- desaturation. Standard/Class Theme below are tinted by the colour mode.
@@ -12266,12 +11894,10 @@ function InitializeFrames()
             local unit = uf.unit
             local isLeader = UnitIsGroupLeader(unit)
             local isAssist = UnitIsGroupAssistant(unit)
-            -- Secrecy check MUST run before any truthiness test: boolean-testing
-            -- a secret errors, so "value and not issecretvalue(value)" crashes.
-            if not issecretvalue(isLeader) and isLeader then
+            if isLeader then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
                 tex:Show()
-            elseif not issecretvalue(isAssist) and isAssist then
+            elseif isAssist then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
                 tex:Show()
             else
@@ -12906,12 +12532,6 @@ function InitializeFrames()
         frames._visFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         frames._visFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
         frames._visFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-        -- Dragonriding visibility modes: capability edge plus the airborne
-        -- edge (probed at load in EllesmereUI_Visibility.lua)
-        frames._visFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
-        if EllesmereUI._hasGlidingEvent then
-            frames._visFrame:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
-        end
     end
     frames._visFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_DISABLED" then
@@ -12980,7 +12600,6 @@ function InitializeFrames()
         -- Refresh class icon texture so it shows the actual unit class (not WARRIOR fallback)
         if backdrop._class and uSettings and (uSettings.portraitMode or "2d") == "class" then
             local _, ct = UnitClass(unitKey)
-            if issecretvalue(ct) then ct = nil end
             if ct then
                 local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
                 ApplyClassIconTexture(backdrop._class, ct, classStyle)
@@ -13039,7 +12658,7 @@ function InitializeFrames()
             if f then
                 if f.unifiedBorder then
                     local isT = UnitIsUnit(bUnit, "target")
-                    f._isTarget = (not issecretvalue(isT) and isT) and true or false
+                    f._isTarget = isT and true or false
                     ns.ApplyBossBorderState(f)
                 end
                 if s then
@@ -13079,7 +12698,6 @@ function InitializeFrames()
                     local uSettings = db.profile[unitKey]
                     if uSettings and (uSettings.portraitMode or "2d") == "class" then
                         local _, ct = UnitClass(unitKey)
-                        if issecretvalue(ct) then ct = nil end
                         if ct then
                             local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
                             ApplyClassIconTexture(backdrop._class, ct, classStyle)
@@ -13159,7 +12777,7 @@ function SetupOptionsPanel()
         -- A reload restyles the boss frames and re-colors their health to the
         -- player's class color (preview rides on unit="player") + re-tags the
         -- name. Re-assert the preview (red color + fake name) so a settings
-        -- change doesn't revert it. Secret-safe: no health values are read.
+        -- change doesn't revert it.
         if ns._bossPreviewActive and ns.SetBossPreview then ns.SetBossPreview(true) end
         -- ReloadFrames rebuilds frames but never touches the top-level wrapper /
         -- 3D-portrait alpha, so recompute the out-of-combat fade here. Without
@@ -13169,13 +12787,6 @@ function SetupOptionsPanel()
         -- throttle: UpdateFrameVisibility guards its restricted Show/Hide behind
         -- InCombatLockdown, and SetAlpha is unrestricted.
         if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-        -- 12.1 aura containers reload with every real pass (direct call --
-        -- ns.ReloadFrames is just the throttle-arming stub, so wrapping it
-        -- from the container file is timing-unreliable).
-        if ns.UF_ReloadAllAuraContainers then ns.UF_ReloadAllAuraContainers() end
-        -- Player private auras re-register with fresh geometry (one boolean
-        -- check + return when disabled).
-        if ns.PlayerPA_Apply then ns.PlayerPA_Apply() end
     end)
     ns.ReloadFrames = function()
         if not reloadPending then
@@ -13209,7 +12820,6 @@ function SetupOptionsPanel()
             frame.Debuffs:Hide()
             frame.Debuffs.num = 0
         end
-        if ns.UF_HideAuraContainers then ns.UF_HideAuraContainers(frame) end
         local settings = db.profile.boss or {}
         local simpleMode = ns.GetBossSimpleDebuffMode(settings)
         local simple = simpleMode ~= "none"
@@ -13388,7 +12998,6 @@ function SetupOptionsPanel()
             frame.Buffs:Hide()
             frame.Buffs.num = 0
         end
-        if ns.UF_HideAuraContainers then ns.UF_HideAuraContainers(frame) end
         local settings = db.profile.boss or {}
         local simpleMode = ns.GetBossSimpleBuffMode(settings)
         local simple = simpleMode ~= "none"
@@ -13563,8 +13172,7 @@ function SetupOptionsPanel()
 
     -- Fake boss names for the preview. Generated once per activation (stable
     -- across reloads), regenerated on a fresh activation. Health is intentionally
-    -- NOT faked: the health max is a secret value in Midnight and cannot be read
-    -- or compared, so the bar keeps the player's real (filled) health.
+    -- NOT faked: the bar keeps the player's real health.
     local PREVIEW_BOSS_NAMES = {
         "The Lich King", "Ragnaros", "Kel'Thuzad", "Archimonde", "Kil'jaeden",
         "Deathwing", "Yogg-Saron", "C'Thun", "Cenarius", "Varimathras",
@@ -13581,7 +13189,7 @@ function SetupOptionsPanel()
 
     -- Override the name fontstring with a fake boss name. Untag it so the [name]
     -- tag (driven by unit="player") stops overwriting it. SetText with a literal
-    -- string is secret-safe. Restored on clear.
+    -- string is fixed. Restored on clear.
     local function BossPreviewNameFS(f)
         local s = db.profile.boss
         local lc = (s and s.leftTextContent) or "name"
@@ -14152,257 +13760,6 @@ StaticPopupDialogs["ELLESMERE_RESET_DEFAULTS"] = {
 -- 3D portrait warning popup is now handled by EllesmereUI:ShowConfirmPopup
 -- in EUI_UnitFrames_Options.lua (portrait mode dropdown handler).
 
--------------------------------------------------------------------------------
---  Private Auras (player frame only, 12.0.5+)
---  Blizzard renders personal boss-mechanic aura icons through
---  C_UnitAuras.AddPrivateAuraAnchor; we register one non-container anchor per
---  slot frame, mirroring the raid frames implementation. Opt-in: no frames,
---  no events, and no anchors exist until paEnabled is true. The player unit
---  token never changes, so anchors are registered once and re-registered only
---  on PLAYER_ENTERING_WORLD (Blizzard drops anchors on unit reassignment and
---  a static player unit never fires OnAttributeChanged) or settings changes.
--------------------------------------------------------------------------------
-do
-    local C_UnitAuras_AddPrivateAuraAnchor    = C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor
-    local C_UnitAuras_RemovePrivateAuraAnchor = C_UnitAuras and C_UnitAuras.RemovePrivateAuraAnchor
-
-    -- Private aura icons render behind the parent unless the slot frame's
-    -- strata sits one level above it (12.0.5 rendering bug).
-    local PA_STRATA_FIX = {
-        BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG",
-    }
-    local PA_SLOT_COUNT = 5   -- fixed pool; player boss mechanics are few
-    local PA_LVL_AURA   = 13  -- frame level offset, matches the raid frames aura layer
-
-    -- Snap to the physical pixel grid (same approach as the raid frames
-    -- helper): EllesmereUI.PP.perfect is the real pixel-perfect multiplier.
-    local function PA_PixelSnap(value)
-        if value == 0 then return 0 end
-        local realPP = EllesmereUI and EllesmereUI.PP
-        local perfect = realPP and realPP.perfect
-        if not perfect then return value end
-        local pf = frames.player
-        local es = (pf and pf:GetEffectiveScale()) or (UIParent and UIParent:GetEffectiveScale()) or 1
-        local onePixel = perfect / es
-        return math.floor(value / onePixel + 0.5 + 0.001) * onePixel
-    end
-
-    local st = { frames = nil, anchorIDs = {}, active = false, ev = nil }
-    ns._playerPA = st
-
-    -- Lazily create the slot frames the first time the feature is enabled.
-    local function CreateSlots(frame)
-        if st.frames then return end
-        local sz = db.profile.player.paSize or 20
-        st.frames = {}
-        for i = 1, PA_SLOT_COUNT do
-            local f = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-            f:SetFrameLevel(frame:GetFrameLevel() + PA_LVL_AURA)
-            f:SetSize(sz, sz)
-            f:EnableMouse(false)
-            if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
-            f:Hide()
-            st.frames[i] = f
-        end
-    end
-
-    -- Remove all live anchors and hide the slot frames (frames persist for
-    -- cheap re-enable).
-    local function Unregister()
-        if C_UnitAuras_RemovePrivateAuraAnchor then
-            for _, aid in ipairs(st.anchorIDs) do
-                C_UnitAuras_RemovePrivateAuraAnchor(aid)
-            end
-            wipe(st.anchorIDs)
-        end
-        if st.frames then
-            for _, f in ipairs(st.frames) do f:Hide() end
-        end
-    end
-    ns.UnregisterPlayerPrivateAuras = Unregister
-
-    -- Position the slot frames and register one per-slot anchor each.
-    local function Register(frame)
-        if not C_UnitAuras_AddPrivateAuraAnchor then return end
-        if not st.frames then return end
-        local unit = "player"
-        if not UnitExists(unit) then return end
-
-        -- Remove old anchors before re-adding
-        for _, aid in ipairs(st.anchorIDs) do
-            C_UnitAuras_RemovePrivateAuraAnchor(aid)
-        end
-        wipe(st.anchorIDs)
-
-        local d = db.profile.player
-        local health = frame.Health
-        if not health then return end
-        local sz = d.paSize or 20
-        local showCD = d.paShowCountdown ~= false
-
-        local pos = d.paPosition or "center"
-        -- "None": private auras hidden. Old anchors were already removed above;
-        -- hide the slot frames and skip registration so Blizzard's secure layer
-        -- draws nothing.
-        if pos == "none" then
-            for _, f in ipairs(st.frames) do f:Hide() end
-            return
-        end
-        local ox = d.paOffsetX or 0
-        local oy = d.paOffsetY or 0
-        local grow = d.paGrowDirection or "RIGHT"
-        local spc = PA_PixelSnap(d.paSpacing or 0)
-
-        -- Hide Tooltips: Blizzard draws each private aura icon at iconInfo size
-        -- centered on the slot frame, but the icon's HOVER area comes from the
-        -- slot frame's own rect (the C-side icon ignores Lua mouse flags set on
-        -- the parent). Collapsing each slot to a sub-pixel point leaves the icon
-        -- rendering at full size with no surface left to hover, so the tooltip
-        -- can never trigger. The offset shift below moves the point to where the
-        -- full-size slot's CENTER used to sit, and the chain spacing regains the
-        -- icon width the collapsed frames no longer contribute -- the rendered
-        -- icons land pixel-identical to normal mode.
-        local slotSz = sz
-        if d.paHideTooltip then
-            slotSz = 0.001
-            local half = sz / 2
-            if pos == "topleft" or pos == "left" or pos == "bottomleft" then
-                ox = ox + half
-            elseif pos == "topright" or pos == "right" or pos == "bottomright" then
-                ox = ox - half
-            end
-            if pos == "topleft" or pos == "top" or pos == "topright" then
-                oy = oy - half
-            elseif pos == "bottomleft" or pos == "bottom" or pos == "bottomright" then
-                oy = oy + half
-            end
-            spc = spc + sz
-        end
-
-        local parentStrata = frame:GetFrameStrata()
-        local fixedStrata = PA_STRATA_FIX[parentStrata] or "DIALOG"
-
-        -- Countdown text scale-trick: Blizzard draws the timer/stack text as a
-        -- child of the slot frame, so its on-screen size follows the frame's
-        -- SCALE, not the iconInfo pixel size. Scaling the frame by (size / 32)
-        -- makes the text track the icon size; the icon dimension is compensated
-        -- back to a constant 32 local units so the rendered icon stays exactly
-        -- paSize pixels. SetPoint offsets and spacing live in the frame's local
-        -- (pre-scale) space, so they are divided by the same factor.
-        local ts = sz / 32
-        if ts <= 0 then ts = 1 end
-        local comp = 32               -- icon size in local units; renders at comp*ts = paSize px
-        local oxL, oyL, spcL = ox / ts, oy / ts, spc / ts
-
-        for i, paFrame in ipairs(st.frames) do
-            paFrame:SetScale(ts)
-            paFrame:SetSize(slotSz / ts, slotSz / ts)
-            paFrame:SetFrameStrata(fixedStrata)
-            paFrame:SetFrameLevel(frame:GetFrameLevel() + PA_LVL_AURA)
-            paFrame:ClearAllPoints()
-
-            if i == 1 then
-                -- Private auras anchor flush to the health bar edge (no inset),
-                -- matching the raid frames behavior.
-                if pos == "topleft" then
-                    paFrame:SetPoint("TOPLEFT", health, "TOPLEFT", oxL, oyL)
-                elseif pos == "top" then
-                    paFrame:SetPoint("TOP", health, "TOP", oxL, oyL)
-                elseif pos == "topright" then
-                    paFrame:SetPoint("TOPRIGHT", health, "TOPRIGHT", oxL, oyL)
-                elseif pos == "left" then
-                    paFrame:SetPoint("LEFT", health, "LEFT", oxL, oyL)
-                elseif pos == "center" then
-                    paFrame:SetPoint("CENTER", health, "CENTER", oxL, oyL)
-                elseif pos == "right" then
-                    paFrame:SetPoint("RIGHT", health, "RIGHT", oxL, oyL)
-                elseif pos == "bottomright" then
-                    paFrame:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", oxL, oyL)
-                elseif pos == "bottom" then
-                    paFrame:SetPoint("BOTTOM", health, "BOTTOM", oxL, oyL)
-                else
-                    paFrame:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", oxL, oyL)
-                end
-            else
-                local prev = st.frames[i - 1]
-                if grow == "RIGHT" then
-                    paFrame:SetPoint("LEFT", prev, "RIGHT", spcL, 0)
-                elseif grow == "LEFT" then
-                    paFrame:SetPoint("RIGHT", prev, "LEFT", -spcL, 0)
-                elseif grow == "UP" then
-                    paFrame:SetPoint("BOTTOM", prev, "TOP", 0, spcL)
-                elseif grow == "DOWN" then
-                    paFrame:SetPoint("TOP", prev, "BOTTOM", 0, -spcL)
-                end
-            end
-
-            paFrame:Show()
-
-            -- Register per-slot anchor
-            local iconInfoTbl = {
-                iconWidth  = comp,
-                iconHeight = comp,
-                iconAnchor = {
-                    point         = "CENTER",
-                    relativeTo    = paFrame,
-                    relativePoint = "CENTER",
-                    offsetX       = 0,
-                    offsetY       = 0,
-                },
-            }
-            -- Scale Blizzard's native border 1:1 to OUR icon size. The border
-            -- art is authored for a 32px icon, so iconSize/32*2 makes it fit
-            -- any size. Divide by the frame scale (ts) so the visible border
-            -- stays identical to the pre-scale-trick size.
-            iconInfoTbl.borderScale = (sz / 32 * 2) / ts
-            local ok, anchorID = pcall(function()
-                return C_UnitAuras_AddPrivateAuraAnchor({
-                    unitToken     = unit,
-                    auraIndex     = i,
-                    parent        = paFrame,
-                    isContainer   = false,
-                    -- 12.1 renamed this anchor key; retail keeps the old spelling.
-                    [EllesmereUI.IS_121 and "showCooldownFrame" or "showCountdownFrame"] = true,
-                    showCountdownNumbers = showCD,
-                    iconInfo = iconInfoTbl,
-                })
-            end)
-            if ok and anchorID then
-                st.anchorIDs[i] = anchorID
-            end
-        end
-    end
-
-    -- Master apply: safe to call any time after OnInitialize. The disabled
-    -- path costs one boolean check.
-    local function Apply()
-        local d = db and db.profile and db.profile.player
-        if not d then return end
-        if not d.paEnabled then
-            if st.active then
-                Unregister()
-                if st.ev then st.ev:UnregisterAllEvents() end
-                st.active = false
-            end
-            return
-        end
-        if not C_UnitAuras_AddPrivateAuraAnchor then return end
-        local pf = frames.player
-        if not pf or not pf.Health then return end
-
-        CreateSlots(pf)
-        -- Lazy PEW watcher: exists and is registered only while enabled.
-        if not st.ev then
-            st.ev = EllesmereUI.SafeCreateFrame("Frame")
-            st.ev:SetScript("OnEvent", function() Apply() end)
-        end
-        st.ev:RegisterEvent("PLAYER_ENTERING_WORLD")
-        st.active = true
-        Register(pf)
-    end
-    ns.PlayerPA_Apply = Apply
-end
-
 local EllesmereUF = EllesmereUI.Lite.NewAddon("EllesmereUIUnitFrames")
 
 function EllesmereUF:OnInitialize()
@@ -14482,12 +13839,6 @@ local function EnableBody()
         if db and db.profile and db.profile.playerThreatBorderEnabled and ns.SetPlayerThreatEnabled then
             ns.SetPlayerThreatEnabled(true)
         end
-        -- Restore player private auras if the saved setting has them enabled
-        -- (zero cost otherwise -- nothing is created when off).
-        if db and db.profile and db.profile.player and db.profile.player.paEnabled
-            and ns.PlayerPA_Apply then
-            ns.PlayerPA_Apply()
-        end
     end)
 end
 
@@ -14533,12 +13884,9 @@ end
 do
     local HARM_CHAIN = {
         DEATHKNIGHT = { 49576, 47541 },           -- Death Grip, Death Coil
-        DEMONHUNTER = { 185123, 183752, 204021 }, -- Throw Glaive, Consume Magic, Fiery Brand
         DRUID       = { 8921, 5176, 6795 },       -- Moonfire, Wrath, Growl
-        EVOKER      = { 362969 },                 -- Azure Strike (25yd native)
         HUNTER      = { 75, 466930, 190925 },     -- Auto Shot, Black Arrow, Harpoon
         MAGE        = { 116, 133, 44425, 118 },   -- Frostbolt, Fireball, Arcane Barrage, Polymorph
-        MONK        = { 117952, 115546 },         -- Crackling Jade Lightning, Provoke
         PALADIN     = { 20271, 62124 },           -- Judgment, Hand of Reckoning
         PRIEST      = { 589, 585, 8092 },         -- Shadow Word: Pain, Smite, Mind Blast
         ROGUE       = { 36554, 185763, 2094 },    -- Shadowstep, Pistol Shot, Blind
@@ -14548,7 +13896,7 @@ do
     }
     local HELP_HEAL = {
         PRIEST = 2061, PALADIN = 19750, SHAMAN = 8004,
-        DRUID = 8936, MONK = 116670, EVOKER = 361469,
+        DRUID = 8936,
     }
 
     local harmSpell, helpSpell
@@ -14586,13 +13934,8 @@ do
             spell = helpSpell
         end
         if spell then
-            -- Secret-safe: the result may be secret in instances, which
-            -- SetAlphaFromBoolean accepts natively -- but it can also be NIL
-            -- (unit not range-checkable right now / spell momentarily not
-            -- evaluable), which it rejects. issecretvalue runs first so the
-            -- nil check never touches a secret.
             local inRange = C_Spell.IsSpellInRange(spell, unit)
-            if issecretvalue(inRange) or inRange ~= nil then
+            if inRange ~= nil then
                 f:SetAlphaFromBoolean(inRange, 1, oor)
             else
                 f:SetAlpha(1)
@@ -14656,46 +13999,14 @@ end
 -------------------------------------------------------------------------------
 --  Player Dispel Overlay (player frame only, health bar only)
 --  Settings mirror the raid frames' Dispel Overlay / Dispel Colors keys 1:1.
---  SECRET-SAFE, same as the raid frames: in raid content even the player's
---  own debuffs can carry a secret dispelName (boss/raid auras), so detection
---  is the bare `dispelName ~= nil` test (a permitted secret nil-check) and
---  the color comes from GetAuraDispelTypeColor evaluating a Step color curve
---  seeded from the user's dispel colors -- the secret type is never read,
---  indexed or branched on. Curve indices are Blizzard's dispel enum:
---  0 none, 1 Magic, 2 Curse, 3 Disease, 4 Poison, 9 Enrage, 11 Bleed.
+--  The color falls back to the default Magic color when no curve support exists.
 --  (do-block: zero persistent main-chunk locals.)
 -------------------------------------------------------------------------------
 do
     local olTex
-    local curve
-
-    local function RebuildCurve()
-        if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return end
-        local p = db and db.profile
-        curve = C_CurveUtil.CreateColorCurve()
-        curve:SetType(Enum.LuaCurveType.Step)
-        local function add(idx, key, dr, dg, dbv)
-            local col = p and p[key]
-            curve:AddPoint(idx, CreateColor(col and col.r or dr, col and col.g or dg, col and col.b or dbv))
-        end
-        add(0,  "dispelColorMagic",   0.349, 0.475, 1.0)   -- none: harmless default
-        add(1,  "dispelColorMagic",   0.349, 0.475, 1.0)
-        add(2,  "dispelColorCurse",   0.636, 0.0,   0.64)
-        add(3,  "dispelColorDisease", 0.671, 0.384, 0.098)
-        add(4,  "dispelColorPoison",  0.0,   0.706, 0.286)
-        add(9,  "dispelColorBleed",   0.75,  0.15,  0.15)
-        add(11, "dispelColorBleed",   0.75,  0.15,  0.15)
-    end
 
     local function Update()
         if not db then return end
-        -- 12.1: dispel display is owned by the container dispel slots once the
-        -- player frame migrates (the index scan below errors while auras are
-        -- secret). The slots live in EUI_UnitFrames_AuraContainers.lua.
-        if ns.UF_DispelOverlayDisabled then
-            if olTex then olTex:Hide() end
-            return
-        end
         local pf = frames and frames["player"]
         local health = pf and pf.Health
         if not health then return end
@@ -14710,9 +14021,7 @@ do
         end
         if mode == "none" then olTex:Hide(); return end
 
-        -- First harmful aura with a dispel type. dispelName can be SECRET on
-        -- the player in raid content: only the nil-test is permitted -- never
-        -- index a table with it or branch on its value.
+        -- First harmful aura with a dispel type.
         -- "Only Dispellable by You" delegates entirely to the engine filter
         -- token (class/spec/talents evaluated live, no addon tables) -- the
         -- same token the Raid Frames dispel system uses.
@@ -14728,16 +14037,8 @@ do
         end
         if not found then olTex:Hide(); return end
 
-        -- Resolve the color through the curve. The components may be secret;
-        -- they pass straight into SetColorTexture/SetVertexColor natively.
-        if not curve then RebuildCurve() end
+        -- Keep the original 3.3.5 fallback color.
         local r, g, b = 0.349, 0.475, 1.0
-        if curve and C_UnitAuras.GetAuraDispelTypeColor then
-            local col = C_UnitAuras.GetAuraDispelTypeColor("player", found.auraInstanceID, curve)
-            if col then
-                r, g, b = col:GetRGB()
-            end
-        end
         local alpha = (p.dispelOverlayOpacity or 100) / 100
 
         olTex:ClearAllPoints()
@@ -14746,8 +14047,7 @@ do
             olTex:SetAllPoints(health)
             olTex:SetTexture(r, g, b, alpha)
         elseif mode == "gradient" or mode == "gradient_sharp" then
-            -- Pre-baked vertical gradient tinted via vertex color (CreateColor
-            -- cannot wrap secret components; SetVertexColor passes them natively)
+            -- Pre-baked vertical gradient tinted via vertex color.
             olTex:SetAllPoints(health)
             olTex:SetTexture(mode == "gradient_sharp"
                 and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
@@ -14767,55 +14067,11 @@ do
     end
 
     ns.UpdatePlayerDispelOverlay = function()
-        RebuildCurve()
         Update()
-        -- 12.1: the container dispel slots own the overlay (Update() bails
-        -- above); poke their fingerprinted reload so dropdown/cog edits
-        -- apply live instead of waiting for the next full container pass.
-        if ns.UF_DispelOverlayDisabled and ns.UF_ReloadPlayerDispelSlots then
-            ns.UF_ReloadPlayerDispelSlots()
-        end
     end
 
-    -- Debuff dispel-type borders (per-unit debuffDispelBorder, default off):
-    -- recolors a debuff icon's PP border by dispel type on the legacy oUF
-    -- aura path, sharing this block's palette-seeded curve. Same secret
-    -- discipline as the overlay: presence = the permitted nil-test, color =
-    -- curve evaluation whose components pass natively into the border
-    -- setters. Untyped debuffs (and the feature off) restore the standard
-    -- black border. On 12.1 the containers own UF auras and render the
-    -- engine dispel border instead (style.dispelBorder in
-    -- EUI_UnitFrames_AuraContainers.lua) -- engine-picked colors there.
-    ns.UF_ColorDebuffDispelBorder = function(button, unit, data)
-        local border = button and button.Border
-        if not border then return end
-        local s = GetSettingsForUnit(unit)
-        local dispelName = data and data.dispelName
-        if s and s.debuffDispelBorder and dispelName ~= nil then
-            if not curve then RebuildCurve() end
-            local r, g, b
-            if curve and C_UnitAuras.GetAuraDispelTypeColor then
-                local col = C_UnitAuras.GetAuraDispelTypeColor(unit, data.auraInstanceID, curve)
-                if col then r, g, b = col:GetRGB() end
-            end
-            if r then
-                PP.SetBorderColor(border, r, g, b, 1)
-                button._euiDispelTinted = true
-                return
-            end
-        end
-        -- Restore the standard border only when we tinted it (pooled buttons
-        -- recycle across auras; never churn untouched borders).
-        if button._euiDispelTinted then
-            button._euiDispelTinted = nil
-            PP.SetBorderColor(border,
-                (s and s.auraBorderR) or 0, (s and s.auraBorderG) or 0,
-                (s and s.auraBorderB) or 0, (s and s.auraBorderA) or 1)
-        end
-    end
-
-    -- Re-seed the curve + re-apply after any frame reload (settings changes
-    -- and profile swaps route through ns.ReloadFrames / _EUF_ReloadFrames).
+    -- Re-apply after any frame reload (settings changes and profile swaps
+    -- route through ns.ReloadFrames / _EUF_ReloadFrames).
     -- ns.ReloadFrames is assigned during OnEnable, so the wrap is deferred to
     -- the first event after login; the global export is re-pointed too.
     local wrapped = false
@@ -14825,7 +14081,6 @@ do
         local orig = ns.ReloadFrames
         local function hookedReload(...)
             orig(...)
-            RebuildCurve()
             Update()
         end
         ns.ReloadFrames = hookedReload

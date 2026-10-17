@@ -1332,7 +1332,6 @@ local TBB_STYLE_KEYS = {
     "gradientEnabled", "gradientR", "gradientG", "gradientB", "gradientA", "gradientDir",
     "opacity", "hideWhenInactive",
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
-    "timerDecimals", "timerDecimalThreshold",
     "showName", "namePosition", "nameSize", "nameX", "nameY",
     "showSpark",
     "iconDisplay", "iconSize", "iconX", "iconY", "iconBorderSize",
@@ -1794,9 +1793,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
 end
 
 -------------------------------------------------------------------------------
---  Threshold Overlays (stacked StatusBars, secret-safe)
 --
---  bar._stackCount may be a secret number, so it can never be compared or
 --  sorted in Lua. Each threshold gets its own StatusBar whose range is
 --  (value - 1, value): SetValue does the comparison inside the C layer and the
 --  overlay snaps 0 -> full as the count crosses the threshold.
@@ -1926,8 +1923,7 @@ local function GetTBBMaxCharges(cfg)
     local ch = sid and C_Spell and C_Spell.GetSpellCharges
         and C_Spell.GetSpellCharges(sid)
     local maxCharges = ch and ch.maxCharges
-    if issecretvalue and issecretvalue(maxCharges) then return nil end
-    if type(maxCharges) == "number" and maxCharges > 1 then
+        if type(maxCharges) == "number" and maxCharges > 1 then
         return math.floor(maxCharges + 0.5)
     end
     return nil
@@ -2638,10 +2634,7 @@ ns.FindTBBChild = FindChild
 --
 --  Three passes, each only over still-unconsumed frames:
 --    1. Sticky  -- reuse last tick's binding. The frame OBJECT identity never
---                  goes secret, so a pairing locked in out of combat stays put
---                  when GetAuraSpellID turns secret mid-fight. Revalidated
 --                  against a clean read when one is available (self-heals a
---                  recycled pool frame); trusted blindly only while secret.
 --    2. Exact   -- per-frame canonical id == the config's spell (clean reads
 --                  pair frameSolar->cfgSolar, frameLunar->cfgLunar). Locks the
 --                  sticky binding for future ticks.
@@ -2705,7 +2698,6 @@ local function AssignFramesToConfigs(bars)
     for _, cfg in ipairs(bars) do
         local bound = _tbbStickyFrame[cfg]
         -- A bar converted to cooldown tracking releases its old viewer-frame
-        -- binding immediately -- the secret-trust branch below never calls
         -- CfgWantsSID, so without this it would keep consuming the frame.
         if bound and cfg.trackType == "cooldown" then
             _tbbStickyFrame[cfg] = nil
@@ -2722,7 +2714,6 @@ local function AssignFramesToConfigs(bars)
                     _tbbStickyFrame[cfg] = nil
                 end
             else
-                -- Secret/combat: trust the binding locked in earlier.
                 assignment[cfg] = bound
                 consumed[bound] = true
             end
@@ -3037,17 +3028,15 @@ end
 -- Applications count for a Blizzard child without the aura-instance query
 -- when possible. The child's auraDataCached table (the aura it currently
 -- shows) reads without erroring on every client; its applications field is
--- plain on live and secret under the 12.1 combat restriction, and both feed
 -- StatusBar:SetValue / FontString:SetText natively. The instance-id query
 -- stays as the fallback for a child whose cache is not populated -- it
--- hard-errors on 12.1 restricted units, hence the pcall and the secret-iid
 -- guard.
 local function ReadStackApplications(blzChild)
     local ad = blzChild.auraDataCached
     if ad and ad.applications then return ad.applications end
     local auraInstID = blzChild.auraInstanceID
     local auraUnit = blzChild.auraDataUnit
-    if auraInstID and auraUnit and not issecretvalue(auraInstID) then
+    if auraInstID and auraUnit then
         local ok, d = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, auraUnit, auraInstID)
         if ok and d and d.applications then return d.applications end
     end
@@ -3065,11 +3054,10 @@ local function UpdateStacks(bar, blzChild, cfg)
         -- Stack-based bar: skip the Blizzard text mirror (blank below 2
         -- stacks) and drive both fill and text from the aura data. This
         -- helper only runs for active frames, so the aura is up and a
-        -- readable count floors at 1; a secret count passes through to the
         -- SetValue/SetText sinks untouched.
         local apps = ReadStackApplications(blzChild)
         if apps then
-            if not issecretvalue(apps) and apps < 1 then apps = 1 end
+            if apps < 1 then apps = 1 end
             bar._stackCount = apps
             if bar._stacksText then
                 if bar._stacksHidden then
@@ -3091,15 +3079,12 @@ local function UpdateStacks(bar, blzChild, cfg)
     -- Read stacks from blzChild.Icon.Applications FontString.
     if blzChild and blzChild.Icon and blzChild.Icon.Applications then
         -- Pass the text straight through without comparing (it may be tainted).
-        -- SetText accepts secret strings natively.
         local ok, txt = pcall(blzChild.Icon.Applications.GetText, blzChild.Icon.Applications)
         if ok and txt then
             bar._stacksText:SetText(txt)
             bar._stacksText:Show()
             -- Stack count for the threshold overlay. The applications field
-            -- can be a secret number we can't compare, but the overlay
             -- consumes it through SetValue (FeedTBBThresholdOverlay), which
-            -- accepts secret numbers natively.
             bar._stackCount = ReadStackApplications(blzChild) or 0
             return
         end
@@ -3109,7 +3094,7 @@ local function UpdateStacks(bar, blzChild, cfg)
         local appsText = blzChild.Applications.Applications
         if appsText then
             local ok, txt = pcall(appsText.GetText, appsText)
-            if ok and txt and (issecretvalue(txt) or txt ~= "") then
+            if ok and txt and txt ~= "" then
                 if bar._stacksText and not bar._stacksHidden then
                     bar._stacksText:SetText(txt)
                     bar._stacksText:Show()
@@ -3193,43 +3178,6 @@ local function CooldownBarSpellID(cfg)
     return EffectiveIconSpellID(cfg)
 end
 
--- Mirror the 12.1 engine-written decimal timer string (hidden FS on the aura
--- slot button; see EllesmereUICdmTbbDecimals.lua) onto the bar's timer FS.
--- SECRET RULES (field-hit): the slot button's IsShown() is a SECRET BOOLEAN
--- (aura presence) -- never test it in Lua; route it through the engine-side
--- SetAlphaFromBoolean instead (present -> alpha 1, gone -> alpha 0), so a
--- stale string can never be VISIBLE even if a filter miss leaves old text in
--- the hidden FS. The engine string itself may be secret: nil-check via the
--- type tag only, and SetText accepts secret strings. Returns true only when
--- a string was written AND the alpha gate applied; callers fall back to
--- their existing timer source on false, so failure can only ever degrade
--- precision, never accuracy. bar._tbbAlphaGated tracks the alpha gate so the
--- fallback path never inherits a stuck alpha-0 FontString.
-local function MirrorEngineTimer(bar, cfg)
-    local engBtn = bar._tbbEngineText
-    if not engBtn then return false end
-    local out = bar._timerText
-    local engFS = bar._tbbEngineFS
-    local wrote = false
-    if cfg.showTimer and out and engFS then
-        local ok, txt = pcall(engFS.GetText, engFS)
-        if ok and type(txt) ~= "nil" then
-            wrote = (pcall(out.SetText, out, txt))
-        end
-    end
-    -- Alpha gate is best-effort: every mirror call site has already
-    -- established aura presence (viewer isActive / a live aura read), so a
-    -- missing setter must not disable the mirror itself.
-    if wrote and out.SetAlphaFromBoolean then
-        pcall(out.SetAlphaFromBoolean, out, engBtn:IsShown(), 1, 0)
-        bar._tbbAlphaGated = true
-    elseif bar._tbbAlphaGated then
-        if out then out:SetAlpha(1) end
-        bar._tbbAlphaGated = nil
-    end
-    return wrote
-end
-
 --- Check if a TBB config has a matching frame in BuffBarCooldownViewer.
 --- Uses FindChild (frame-based matching via MatchFrameToConfig) instead
 --- of spell-ID cache lookups. Robust against ID mismatches.
@@ -3239,7 +3187,6 @@ end
 
 -------------------------------------------------------------------------------
 --  Bloodlust / Heroism duration bar (debuff-driven, self-timed)
---  The lust buff is cast by others and is secret, so it can't be mirrored from
 --  a Blizzard buff-bar child. Instead we watch ONLY the player's Sated /
 --  Exhaustion debuff (player-only UNIT_AURA, never a global aura scan) and start
 --  a 40s bar on its rising edge -- the instant lust goes out. No login/reload
@@ -3257,8 +3204,6 @@ local function _playerHasSated()
     if not (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) then return false end
     for i = 1, #SATED_DEBUFFS do
         -- Querying a KNOWN spellID returns the aura even when its fields are
-        -- secret in combat, so the edge is detected mid-fight. We never read
-        -- the (possibly secret) spellID back -- we already know it.
         if C_UnitAuras.GetPlayerAuraBySpellID(SATED_DEBUFFS[i]) then return true end
     end
     return false
@@ -3270,7 +3215,7 @@ local function _ensureLustListener(enable)
     if enable then
         if not _lustListener then
             _lustListener = ns.TakeShell()
-            _lustListener:SetScript("OnEvent", function(_, event, _, updateInfo)
+            _lustListener:SetScript("OnEvent", function(_, event)
                 if event == "PLAYER_ENTERING_WORLD" then
                     -- Zone/login aura refresh: re-baseline WITHOUT arming and
                     -- suppress edges briefly. A Sated debuff we already carry
@@ -3281,19 +3226,9 @@ local function _ensureLustListener(enable)
                     return
                 end
                 local present = _playerHasSated()
-                -- Arm ONLY on a genuine incremental application: not a full aura
-                -- refresh (zone/login resends every aura), and not inside the
-                -- post-zone grace window. 12.1: the UNIT_AURA payload (and its
-                -- fields) can be SECRET in combat -- a secret payload is treated
-                -- as incremental (full refreshes come from zone/login, which the
-                -- zone guard already covers; boolean use of a secret errors).
-                local isFull = false
-                if updateInfo and not issecretvalue(updateInfo) then
-                    local v = updateInfo.isFullUpdate
-                    if not issecretvalue(v) and v then isFull = true end
-                end
-                if present and not _satedPresent and not isFull
-                    and GetTime() >= _lustZoneGuard then
+                -- Arm on the rising edge of Sated, outside the post-zone grace
+                -- window.
+                if present and not _satedPresent and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
                     -- Drive any Custom Auras (icon) lust display sharing this edge.
                     if ns.SignalLustCast then ns.SignalLustCast() end
@@ -3418,7 +3353,6 @@ local function _ensurePotionCastListener(enable)
         if not _potionFrame then
             _potionFrame = ns.TakeShell()
             -- UNIT_SPELLCAST_SUCCEEDED (player): the same edge the CDM buff-bar
-            -- potions fire on. arg4 is the cast spellID (clean, never secret).
             _potionFrame:SetScript("OnEvent", function(_, _, _, _, spellID)
                 local key = spellID and _potionTrigger[spellID]
                 if not key then return end
@@ -3451,17 +3385,14 @@ function ns.UpdatePotionCastListener()
     _ensurePotionCastListener(any)
 end
 
--- True when v is a plain, readable number. A 12.1 secret value fails the
--- check BEFORE any type/comparison touches it; nil and non-numbers fail too.
+-- True when v is a number; nil and non-numbers fail too.
 local function _tbbCleanNum(v)
-    if issecretvalue and issecretvalue(v) then return false end
     return type(v) == "number"
 end
 
 -------------------------------------------------------------------------------
 --  Charge hash fill
 --
---  currentCharges is secret in combat, so addon Lua cannot calculate
 --      (currentCharges + next-recharge progress) / maxCharges.
 --  Instead, two invisible native StatusBars provide the geometry: one accepts
 --  Blizzard's charge count directly, and one animates exactly one charge-wide
@@ -3606,8 +3537,7 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
        or maxCharges <= 1 then
         return false
     end
-    local secretCount = issecretvalue and issecretvalue(currentCharges)
-    if not secretCount and type(currentCharges) ~= "number" then return false end
+    if type(currentCharges) ~= "number" then return false end
     if not durObj and not (_tbbCleanNum(remaining) and _tbbCleanNum(duration)
        and duration > 0) then
         return false
@@ -3689,7 +3619,6 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
         bar._chargeHashFillBarH = barH
     end
 
-    -- SetValue is a supported secret sink: never inspect or calculate with the
     -- live count in Lua.
     countBar:SetValue(currentCharges)
 
@@ -3737,13 +3666,10 @@ end
 
 -------------------------------------------------------------------------------
 --  Cooldown-bar cast mirror. In combat the cooldown APIs keep isActive
---  readable but turn startTime/duration SECRET, which used to drop every
 --  on-cooldown bar into the shown-full fail-open for the whole fight. So
 --  each tracked spell keeps a local { start, dur } mirror of clean numbers:
 --    * synced from every clean read (out of combat, incl. mid-cooldown), and
 --    * armed from the player's own cast edge in combat --
---      UNIT_SPELLCAST_SUCCEEDED's spellID arg is clean, never secret.
---  The tick falls back to the mirror when the API turns secret. isActive
 --  stays readable, so the bar still ends/hides exactly when the real
 --  cooldown does even if the mirror drifts (in-combat CDR, resets).
 -------------------------------------------------------------------------------
@@ -3861,7 +3787,6 @@ function ns.UpdateCooldownCastListener()
                     end
                     -- Seed the duration cache NOW: build paths run out of
                     -- combat, where these reads are clean. At cast time in
-                    -- combat the same reads can be secret, and a fresh
                     -- session has no clean tick read yet -- without a seed
                     -- the combat cast could never arm the mirror. Never
                     -- overwrites a value learned from a live clean read.
@@ -3881,14 +3806,11 @@ function ns.UpdateCooldownCastListener()
     _ensureCooldownCastListener(any)
 end
 
--- Debug: /tbbcd -- dumps the cooldown-bar pipeline state, secret-safe.
 -- Run it IN COMBAT while a bar is misbehaving and read which leg is dead:
 -- listener armed? watch mapped? durCache seeded? mirror live? which API
--- fields are SECRET right now?
 SLASH_TBBCD1 = "/tbbcd"
 SlashCmdList.TBBCD = function()
     local function V(v)
-        if issecretvalue and issecretvalue(v) then return "SECRET" end
         return tostring(v)
     end
     print("|cff00ccff[TBB CD Debug]|r combat=" .. tostring(InCombatLockdown())
@@ -3960,29 +3882,22 @@ end
 --
 --  FILL SOURCE ORDER:
 --  1. Engine duration handle (C_Spell.GetSpellCooldownDuration /
---     GetSpellChargeDuration + StatusBar:SetTimerDuration): the ENGINE
---     animates the drain and tracks CDR / resets live, secret-proof by
---     construction. Timer text reads the handle's remaining -- a secret
---     number in combat, which SetFormattedText accepts.
---  2. Clean API numbers (out of combat): exact pretty timer text; also
---     keeps the cast mirror synced.
---  3. Cast mirror (clients without the duration-object API, or secret
---     reads with no handle): clean local dead-reckoning -- does NOT see
---     in-combat CDR, which is why it is last.
---  4. Fail-open: shown-full bar, no text. Secrecy loses precision, never
---     errors.
+--     GetSpellChargeDuration + StatusBar:SetTimerDuration): the engine
+--     drives the fill and tracks cooldown changes during combat.
+--  2. API numbers: format the remaining time and keep the cast mirror synced.
+--  3. Cast mirror: estimate remaining time when API numbers and a duration
+--     handle are unavailable. The estimate does not include in-combat CDR.
+--  4. Fail-open: show a full bar with no countdown if timing is unavailable.
 -------------------------------------------------------------------------------
 local function _UpdateCooldownBar(bar, cfg)
     local sid = CooldownBarSpellID(cfg)
 
-    -- remaining/duration: CLEAN numbers only (nil = ready or secret).
     -- wantHandle: which engine duration handle drives the fill ("charge" /
-    -- "cd"); timingSecret: the raw numbers were unreadable, so the bar
+    -- "cd"); timingUnavailable: raw numbers were missing, so the bar
     -- NEEDS the handle (or falls back to the mirror).
-    -- charges: CLEAN count for logic/overlays; chargesDisplay: maybe-secret
-    -- count that ONLY ever flows into SetFormattedText; hasCharges: clean
-    -- flag so no secret is ever branched on.
-    local remaining, duration, unreadable, wantHandle, timingSecret
+    -- chargesDisplay is the value shown in the stacks text; hasCharges marks
+    -- whether the spell has a charge count.
+    local remaining, duration, unreadable, wantHandle, timingUnavailable
     local charges, chargesDisplay, hasCharges
     local maxCharges, chargeCountValue
     if sid then
@@ -3991,15 +3906,10 @@ local function _UpdateCooldownBar(bar, cfg)
         if _tbbCleanNum(maxCh) and maxCh > 1 then
             maxCharges = math.floor(maxCh + 0.5)
             -- Charge spell: bar tracks the next charge's recharge. The
-            -- recharge-active flag is the same CLEAN combat signal the Max
-            -- Stacks Glow uses: false only at max charges, and it stays
-            -- readable while the count/timing fields are secret.
+            -- recharge-active flag is false only at max charges.
             local chActive = ch.isActive
-            if issecretvalue and issecretvalue(chActive) then
-                unreadable = true
-            elseif not chActive then
-                -- At max charges: ready, and the count is KNOWN without
-                -- touching the secret currentCharges field.
+            if not chActive then
+                -- At max charges, the current charge count equals the maximum.
                 charges = maxCh
                 chargesDisplay = maxCh
                 chargeCountValue = maxCh
@@ -4027,17 +3937,14 @@ local function _UpdateCooldownBar(bar, cfg)
                     if charges then m.charges = charges end
                     m.maxCh = maxCh
                 else
-                    timingSecret = true
+                    timingUnavailable = true
                 end
             end
         else
             local cd = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
             if cd then
                 local act, gcd = cd.isActive, cd.isOnGCD
-                local isSec = issecretvalue
-                if isSec and (isSec(act) or isSec(gcd)) then
-                    unreadable = true
-                elseif act and not gcd then
+                if act and not gcd then
                     -- Real cooldown running (GCD-only spin never drives the bar).
                     wantHandle = "cd"
                     local st, du = cd.startTime, cd.duration
@@ -4051,7 +3958,7 @@ local function _UpdateCooldownBar(bar, cfg)
                         m.start = st
                         m.dur = du
                     else
-                        timingSecret = true
+                        timingUnavailable = true
                     end
                 end
             end
@@ -4094,11 +4001,10 @@ local function _UpdateCooldownBar(bar, cfg)
     else
         bar._cdDurObj = nil
     end
-    if timingSecret and not durObj then unreadable = true end
+    if timingUnavailable and not durObj then unreadable = true end
 
-    -- Combat-secrecy fallback: timing went secret but the cast mirror holds
-    -- clean local numbers -- drive the drain from those instead of the
-    -- shown-full fail-open. An expired/absent mirror keeps the fail-open.
+    -- If timing is unavailable and there is no duration handle, use the cast
+    -- mirror to drive the drain. An expired or absent mirror keeps the bar full.
     if unreadable and sid then
         local m = _cdCast[sid]
         if m and m.dur then
@@ -4136,8 +4042,7 @@ local function _UpdateCooldownBar(bar, cfg)
     if remaining and remaining <= 0 then remaining = nil; duration = nil end
 
     -- Clean ready: drop the mirror so a stale window can never resurrect.
-    -- (A live duration handle means ON cooldown with secret timing -- that
-    -- is not ready, so the mirror stays.)
+    -- A live duration handle means the spell is still on cooldown.
     if sid and not unreadable and remaining == nil and not durObj then
         _cdCast[sid] = nil
     end
@@ -4219,10 +4124,7 @@ local function _UpdateCooldownBar(bar, cfg)
         end
     end
 
-    -- Timer: remaining cooldown; hidden when ready/unreadable. Clean
-    -- numbers get the pretty format; a secret remaining from the duration
-    -- handle goes through SetFormattedText (accepts secrets). Hash mode keeps
-    -- tenths visible; stock mode retains its whole-second secret display.
+    -- Show the remaining cooldown when available; otherwise hide the timer.
     if bar._timerText then
         if remaining and cfg.showTimer then
             if hashChargeMode then
@@ -4235,7 +4137,7 @@ local function _UpdateCooldownBar(bar, cfg)
             bar._timerText:Show()
         elseif cfg.showTimer and durObj and durObj.GetRemainingDuration then
             local rem = durObj:GetRemainingDuration()
-            if (issecretvalue and issecretvalue(rem)) or type(rem) == "number" then
+            if type(rem) == "number" then
                 bar._timerText:SetFormattedText(hashChargeMode and "%.1f" or "%.0f", rem)
                 bar._timerText:Show()
             else
@@ -4246,9 +4148,7 @@ local function _UpdateCooldownBar(bar, cfg)
         end
     end
 
-    -- Charges reuse the stacks text and the threshold overlay feed. The
-    -- text setter accepts a SECRET live count; overlays need clean numbers
-    -- so a secret count zeroes them instead of freezing a stale value.
+    -- Share the charge count with the stacks text and threshold overlay.
     if hasCharges then
         bar._stackCount = charges or 0
         if bar._stacksText then
@@ -4390,7 +4290,6 @@ function ns.UpdateTrackedBuffBarTimers()
                 if _anyStacks then UpdateStacks(bar, blzChild, cfg) end
 
                 if blizzBar then
-                    -- Mirror Blizzard's bar onto ours. Secret values pass
                     -- through natively to widget setters -- no Lua comparison.
                     -- Smooth fill is baseline (see UpdateLustBar note).
                     local smooth = _smoothBuffs and wasShown and Enum
@@ -4482,21 +4381,12 @@ function ns.UpdateTrackedBuffBarTimers()
                             bar._nameSet = true
                         end
                     end
-                    -- Timer: engine-bound decimal mirror first (12.1 Decimals:
-                    -- the engine formats the secret remaining time into a
-                    -- hidden FS we copy -- same passthrough mechanics as the
-                    -- fallback, decimal source). Fallback: passthrough from
-                    -- Blizzard's FontString every frame (changes constantly).
-                    if MirrorEngineTimer(bar, cfg) then
+                    local _, blizzTimerFS = GetBlizzBarFontStrings(blizzBar)
+                    if cfg.showTimer and bar._timerText and blizzTimerFS then
+                        bar._timerText:SetText(blizzTimerFS:GetText())
                         bar._timerText:Show()
-                    else
-                        local _, blizzTimerFS = GetBlizzBarFontStrings(blizzBar)
-                        if cfg.showTimer and bar._timerText and blizzTimerFS then
-                            bar._timerText:SetText(blizzTimerFS:GetText())
-                            bar._timerText:Show()
-                        elseif bar._timerText then
-                            bar._timerText:Hide()
-                        end
+                    elseif bar._timerText then
+                        bar._timerText:Hide()
                     end
 
                     -- Icon source priority:
@@ -4505,7 +4395,6 @@ function ns.UpdateTrackedBuffBarTimers()
                     --      form, so mirroring the file can never disagree with
                     --      Blizzard's own CDM. Mirrored every tick like the
                     --      fill color; the file value passes through even when
-                    --      secret (truthy; SetTexture accepts secret values).
                     --   2. Live aura data (frames without an icon region), so
                     --      dynamic buffs (Roll the Bones) show the rolled buff.
                     --   3. Effective config spell (override-resolved saved id).
@@ -4580,11 +4469,9 @@ function ns.UpdateTrackedBuffBarTimers()
                 local sb = bar._bar
                 local dur = fbAura.duration
                 local exp = fbAura.expirationTime
-                local isSec = issecretvalue
-                local clean = dur and exp and not (isSec and (isSec(dur) or isSec(exp)))
+                local clean = dur and exp
                 -- Stack-based fill works in fallback mode too: fill and
                 -- stacks text come from the live aura's applications (plain
-                -- or secret; SetValue/SetText accept both) while the timer
                 -- keeps tracking remaining time.
                 local fbStackFill = cfg.stackBasedBar
                     and cfg.trackType ~= "cooldown"
@@ -4593,7 +4480,7 @@ function ns.UpdateTrackedBuffBarTimers()
                     local apps = fbAura.applications
                     -- The aura is up, so a readable count floors at 1 even
                     -- when applications reads 0/nil (non-stacking aura).
-                    if not apps or (not (isSec and isSec(apps)) and apps < 1) then
+                    if not apps or apps < 1 then
                         apps = 1
                     end
                     sb:SetMinMaxValues(0, cfg.stackThresholdMax or 10)
@@ -4617,15 +4504,13 @@ function ns.UpdateTrackedBuffBarTimers()
                         if cfg.showTimer and bar._timerText then
                             local remaining = exp - GetTime()
                             if remaining < 0 then remaining = 0 end
-                            if not MirrorEngineTimer(bar, cfg) then
-                                bar._timerText:SetText(FormatTime(remaining))
-                            end
+                            bar._timerText:SetText(FormatTime(remaining))
                             bar._timerText:Show()
                         elseif bar._timerText then
                             bar._timerText:Hide()
                         end
                     elseif bar._timerText then
-                        if MirrorEngineTimer(bar, cfg) then bar._timerText:Show() else bar._timerText:Hide() end
+                        bar._timerText:Hide()
                     end
                     if cfg.showSpark and bar._spark then bar._spark:Show() end
                 elseif sb then
@@ -4642,25 +4527,18 @@ function ns.UpdateTrackedBuffBarTimers()
                             sb:SetValue(remaining)
                         end
                         if cfg.showTimer and bar._timerText then
-                            -- Engine-bound decimal mirror first (12.1); the
-                            -- clean local format is the fallback.
-                            if not MirrorEngineTimer(bar, cfg) then
-                                bar._timerText:SetText(FormatTime(remaining))
-                            end
+                            bar._timerText:SetText(FormatTime(remaining))
                             bar._timerText:Show()
                         elseif bar._timerText then
                             bar._timerText:Hide()
                         end
                     else
-                        -- Duration unreadable (secret) or infinite aura: show a
-                        -- full bar with no countdown.
+                        -- Missing duration or an infinite aura: show a full
+                        -- bar with no countdown.
                         sb:SetMinMaxValues(0, 1)
                         sb:SetValue(1)
                         if bar._timerText then
-                            -- Engine-bound decimal mirror (12.1) can render the
-                            -- secret remaining time we cannot; otherwise no
-                            -- readable time -> no text.
-                            if MirrorEngineTimer(bar, cfg) then bar._timerText:Show() else bar._timerText:Hide() end
+                            bar._timerText:Hide()
                         end
                     end
                     if cfg.showSpark and bar._spark then bar._spark:Show() end
@@ -4669,16 +4547,14 @@ function ns.UpdateTrackedBuffBarTimers()
                 -- exactly when the frame mirror is unavailable, and for
                 -- override/variant spells the saved-form icon seeded at build
                 -- time can be the wrong form -- the live aura is the truth
-                -- here. The icon passes through even when secret (truthy;
-                -- SetTexture accepts secret values); the name only applies on
-                -- a clean read (font strings need a plain string).
+                -- here. The icon and name come directly from the live aura.
                 if bar._icon and bar._icon:IsShown() and fbAura.icon then
                     bar._icon._tex:SetTexture(fbAura.icon)
                     bar._lastIconSID = nil
                 end
                 local fbName = fbAura.name
                 if bar._nameText and bar._nameText:IsShown() and fbName
-                   and not (isSec and isSec(fbName)) then
+                   then
                     bar._nameText:SetText(fbName)
                     bar._nameSet = true
                 end
@@ -4978,8 +4854,6 @@ function ns.BuildTrackedBuffBars()
     -- Unlock mode
     if ns.RegisterTBBUnlockElements then ns.RegisterTBBUnlockElements() end
 
-    -- 12.1 engine-driven decimal timer text (nil on 12.0: module self-gates)
-    if ns.TBBDecimals_Sync then ns.TBBDecimals_Sync() end
 end
 
 -------------------------------------------------------------------------------

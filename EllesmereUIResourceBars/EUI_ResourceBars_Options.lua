@@ -122,10 +122,7 @@ initFrame:SetScript("OnEvent", function(self)
         SHAMAN      = { 0.00, 0.44, 0.87 },
         MAGE        = { 0.25, 0.78, 0.92 },
         WARLOCK     = { 0.53, 0.53, 0.93 },
-        MONK        = { 0.00, 1.00, 0.60 },
         DRUID       = { 1.00, 0.49, 0.04 },
-        DEMONHUNTER = { 0.64, 0.19, 0.79 },
-        EVOKER      = { 0.20, 0.58, 0.50 },
     }
 
     -- Dark Mode preview colours pull from the global per-profile palette
@@ -701,7 +698,7 @@ initFrame:SetScript("OnEvent", function(self)
         _previewFrames.pips = {}
 
         if isBar then
-            -- Bar-type preview (Devourer, Elemental Shaman)
+            -- Bar-type preview (Elemental Shaman, Balance Druid, Shadow Priest)
             local totalW = p.primary.width or 214
             pipC:SetSize(totalW, pipH)
             pipC:SetPoint("CENTER", container, "CENTER", 0, 0)
@@ -1165,7 +1162,6 @@ initFrame:SetScript("OnEvent", function(self)
     local _bandRows = {}
     local _bandEntryIdx
     local _bandGetBarData, _bandRefreshFn, _bandCountBased
-    local _bandLockPercent, _bandPercentMax   -- Brewmaster stagger: force percent, cap 500
     local _bandDefR, _bandDefG, _bandDefB, _bandDefA = 1, 0.2, 0.2, 1
     local _bandModeRow, _bandModeSeg, _bandModeSegRefresh, _bandModeHint, _bandAddBtn, _bandTitleFS
     local _bandReverseRow, _bandReverseSeg, _bandReverseSegRefresh
@@ -1184,10 +1180,6 @@ initFrame:SetScript("OnEvent", function(self)
 
     local BAND_REPLACES_TIP =
         "Single threshold is off while Multi-band is on.\n"
-
-    -- Shown on the greyed percent/value control for Brewmaster stagger.
-    local STAGGER_PCT_TIP =
-        "Stagger value can only be percent based"
 
     local function CurrentBandEntry()
         if not _bandEntryIdx or not _bandGetBarData then return nil end
@@ -1271,12 +1263,10 @@ initFrame:SetScript("OnEvent", function(self)
             height    = 22,
             getChecked = function(key)
                 local ent = CurrentBandEntry()
-                local isPercent = (_bandLockPercent or (ent and ent.bandMode == "percent")) or false
+                local isPercent = (ent and ent.bandMode == "percent") or false
                 if key == "percent" then return isPercent else return not isPercent end
             end,
-            isDisabled = function() return _bandLockPercent and true or false end,
             onToggle = function(key)
-                if _bandLockPercent then return end
                 local ent = CurrentBandEntry(); if not ent then return end
                 ent.bandMode = (key == "percent") and "percent" or "value"
                 if _bandRefreshFn then _bandRefreshFn() end
@@ -1284,15 +1274,6 @@ initFrame:SetScript("OnEvent", function(self)
             end,
         })
         _bandModeSeg:SetPoint("RIGHT", _bandModeRow, "RIGHT", 0, 0)
-        -- Disabled-state tooltip (Brewmaster stagger: percent-only).
-        local _bandModeDis = EllesmereUI.SafeCreateFrame("Frame", nil, _bandModeRow)
-        _bandModeDis:SetAllPoints(_bandModeSeg)
-        _bandModeDis:SetFrameLevel(_bandModeSeg:GetFrameLevel() + 5)
-        _bandModeDis:EnableMouse(true)
-        _bandModeDis:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(STAGGER_PCT_TIP)) end)
-        _bandModeDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        _bandModeDis:Hide()
-        _bandModeRow._staggerDis = _bandModeDis
         _bandModeHint = EllesmereUI.MakeFont(bandPopup, 10, nil, 1, 1, 1)
         _bandModeHint:SetAlpha(0.4)
 
@@ -1392,8 +1373,8 @@ initFrame:SetScript("OnEvent", function(self)
             if not band then return end
             local val = tonumber(self:GetText())
             if val then
-                local pctMax = _bandPercentMax or 100
-                local hi = _bandCountBased and 100 or ((not _bandLockPercent and ent.bandMode == "value") and 1000000 or pctMax)
+            local pctMax = 100
+                local hi = _bandCountBased and 100 or (ent.bandMode == "value" and 1000000 or pctMax)
                 val = math.max(1, math.min(hi, math.floor(val + 0.5)))
                 band.to = val
                 SortBands(ent.bands)
@@ -1476,9 +1457,7 @@ initFrame:SetScript("OnEvent", function(self)
             _bandModeHint:Hide()
             -- Static descriptor; the segmented pill shows Amount vs Percent.
             if _bandModeSegRefresh then _bandModeSegRefresh() end
-            -- Brewmaster stagger: percent locked, grey the control + tooltip.
-            if _bandModeRow._staggerDis then if _bandLockPercent and true or false then _bandModeRow._staggerDis:Show() else _bandModeRow._staggerDis:Hide() end end
-            if _bandModeRow._lbl then _bandModeRow._lbl:SetAlpha(_bandLockPercent and 0.3 or 0.6) end
+            if _bandModeRow._lbl then _bandModeRow._lbl:SetAlpha(0.6) end
             placeRow(_bandModeRow)
         end
 
@@ -1521,15 +1500,12 @@ initFrame:SetScript("OnEvent", function(self)
         _bandRefreshFn  = params.refreshFn
         _bandEntryIdx   = params.entryIdx
         _bandCountBased = params.countBased and true or false
-        _bandLockPercent = params.lockPercent and true or false
-        _bandPercentMax = params.percentMax
         _bandDefR = params.defR or 1
         _bandDefG = params.defG or 0.2
         _bandDefB = params.defB or 0.2
         _bandDefA = params.defA or 1
         local ent = CurrentBandEntry()
         if ent then
-            if _bandLockPercent then ent.bandMode = "percent" end  -- stagger: percent-only
             if not ent.bands then ent.bands = {} end
             -- Seed a starter band from the single threshold the first time.
             if #ent.bands == 0 then
@@ -5372,24 +5348,6 @@ initFrame:SetScript("OnEvent", function(self)
                       p.secondary.textYOffset = v; RefreshClass()
                   end },
             }
-            -- Devourer (DH soul fragments) only: option to hide the "/ max"
-            -- suffix on the count text. Inserted above "Show %".
-            do
-                local gsr = _G._ERB_GetSecondaryResource
-                local secInfo = gsr and gsr()
-                if secInfo and secInfo.power == "SOUL_FRAGMENTS_DEVOURER" then
-                    table.insert(resTextRows, 1, {
-                        type = "toggle", label = "Show Max Stacks",
-                        get = function()
-                            local p = DB()
-                            return (not p) or p.secondary.showMaxStacks ~= false
-                        end,
-                        set = function(v)
-                            local p = DB(); if not p then return end
-                            p.secondary.showMaxStacks = v; RefreshClass()
-                        end })
-                end
-            end
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Resource Text",
                 rows = resTextRows,
@@ -6118,12 +6076,6 @@ initFrame:SetScript("OnEvent", function(self)
 				-- moved rows (Threshold as / Direction / Only color at-above) grey correctly.
 				local function _thrEnt() return CurEntry() end
 				local function _thrIsBar() local e=_thrEnt(); return (e and ns.IsEntryBarType(e)) and true or false end
-				local function _thrIsStagger()
-					local e=_thrEnt(); if not e then return false end
-					if advSingle then return ctx.specID == 268 end
-					if e.specIDs then for _, sp in ipairs(e.specIDs) do if sp == 268 then return true end end end
-					return false
-				end
 				local function _thrIsEnhance()
 					local e=_thrEnt(); if not e then return false end
 					local pp = DB(); if not (pp and pp.secondary.enhanceFiveBar == true) then return false end
@@ -6141,11 +6093,10 @@ initFrame:SetScript("OnEvent", function(self)
 					rows = {
 						{ type = "segmented", label = "Threshold as",
 							keys = { "percent", "value" }, labels = { percent = "Percent", value = "Value" }, rawTooltip = true,
-							disabled = function() return (not _thrOptUsable()) or (not _thrIsBar()) or _thrIsStagger() end,
+							disabled = function() return (not _thrOptUsable()) or (not _thrIsBar()) end,
 							disabledTooltip = function()
 								if not _thrOptUsable() then return _thrOffTip() end
 								if not _thrIsBar() then return "This option applies to bar-type resources only (pips use stack counts)." end
-								return STAGGER_PCT_TIP
 							end,
 							get = function() local e=_thrEnt(); return (e and e.thresholdMode) or "percent" end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdMode=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
@@ -6277,17 +6228,11 @@ initFrame:SetScript("OnEvent", function(self)
 				end)
 				bandsBtn:SetScript("OnClick", function(self)
 					local ent = CurEntry(); if not ent then return end
-					local isStag
-					if advSingle then isStag = (ctx.specID == 268)
-					elseif ent.specIDs then
-						for _, s in ipairs(ent.specIDs) do if s == 268 then isStag = true end end
-					end
 					ShowBandEditor({
 						getBarData = function() local pp = DB(); return pp and pp.secondary end,
 						refreshFn = function() RefreshClass() end,
 						entryIdx = _selectedIdx, anchor = self,
 						countBased = not ns.IsEntryBarType(ent),
-						lockPercent = isStag, percentMax = isStag and 500 or nil,
 						defR = 0x0c/255, defG = 0xd2/255, defB = 0x9d/255, defA = 1,
 					})
 				end)
@@ -6387,49 +6332,6 @@ initFrame:SetScript("OnEvent", function(self)
 				textInsteadToggle:SetPoint("RIGHT", textInsteadRow, "RIGHT", 0, 0)
 				textInsteadRow._toggle = textInsteadToggle
 				textInsteadRow._snap = textInsteadSnap
-				-- Disable overlay: Vengeance soul fragments + Prot Ignore Pain bar are secret,
-				-- so recoloring text can't work there (toggled per-entry in RefreshDetail).
-				local TI_BLOCK_TIP = "Not available for this spec: Vengeance soul fragments and the Protection Ignore Pain bar use secret values that can't be read into a text color, so recoloring the text would have no effect."
-				local textInsteadDis = EllesmereUI.SafeCreateFrame("Frame", nil, textInsteadRow)
-				textInsteadDis:SetPoint("TOPLEFT", textInsteadRow, "TOPLEFT", -2, 3)
-				textInsteadDis:SetPoint("BOTTOMRIGHT", textInsteadToggle, "BOTTOMRIGHT", 3, -3)
-				textInsteadDis:SetFrameLevel(textInsteadRow:GetFrameLevel() + 6)
-				textInsteadDis:EnableMouse(true)
-				local textInsteadDisTex = textInsteadDis:CreateTexture(nil, "OVERLAY")
-				textInsteadDisTex:SetAllPoints()
-				textInsteadDisTex:SetTexture(0.06, 0.08, 0.10, 0.7)
-				textInsteadDis:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(textInsteadDis, EllesmereUI.L(TI_BLOCK_TIP)) end)
-				textInsteadDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-				textInsteadDis:Hide()
-				textInsteadRow._dis = textInsteadDis
-				----------------------------------------------------------------
-				-- Row: Stagger ceiling % (Brewmaster only). The stagger bar fills to
-				-- this % of max health (lower = fills sooner); the color % thresholds
-				-- still use REAL max health. Bar-wide (DB().secondary); placed only for stagger.
-				----------------------------------------------------------------
-				local ceilingRow = DRow("Stagger Full %", ROWH)
-				local ceilingInput = MakeInput(ceilingRow, 50, true)
-				ceilingInput:SetPoint("RIGHT", ceilingRow, "RIGHT", 0, 0)
-				ceilingInput:SetMaxLetters(3)
-				local function ceilingSnap()
-					local p = DB()
-					ceilingInput:SetText(tostring((p and p.secondary.staggerCeilingPercent) or 100))
-				end
-				local function CeilingCommit(self)
-					if self._cancelCommit then self._cancelCommit = nil; return end
-					local p = DB(); if not p then return end
-					local v = tonumber(self:GetText())
-					if v then
-						v = math.max(1, math.min(500, math.floor(v + 0.5)))
-						p.secondary.staggerCeilingPercent = v
-						RefreshClass()
-					end
-					ceilingSnap()
-				end
-				ceilingInput:SetScript("OnEditFocusLost", CeilingCommit)
-				ceilingInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-				ceilingInput:SetScript("OnEscapePressed", function(self) self._cancelCommit = true; self:ClearFocus(); ceilingSnap() end)
-
 				----------------------------------------------------------------
 				-- RefreshDetail: repaint the pane for the selected entry.
 				----------------------------------------------------------------
@@ -6443,34 +6345,18 @@ initFrame:SetScript("OnEvent", function(self)
 					dPlaceholder:Hide()
 
 					local isBar = ns.IsEntryBarType(ent)
-					local isGuardian, isIgnorePain, isVengeance
+					local isGuardian, isIgnorePain
 					if advSingle then
 						isGuardian = (ctx.specID == 104)
 						isIgnorePain = (ctx.specID == 73)
-						isVengeance = (ctx.specID == 581)
 					else
 						if ent.specIDs then
 							for _, s in ipairs(ent.specIDs) do
 								if s == 104 then isGuardian = true end
 								if s == 73 then isIgnorePain = true end
-								if s == 581 then isVengeance = true end
 							end
 						end
 					end
-					-- "Recolor text instead" no-ops for secret resources (Vengeance soul
-					-- fragments; Prot Ignore Pain bar) -- grey the toggle for those entries.
-					local _tiPP = DB()
-					local tiBlocked = (isVengeance or (isIgnorePain and _tiPP and _tiPP.secondary.protIgnorePainBar)) and true or false
-					if tiBlocked then textInsteadRow._dis:Show() else textInsteadRow._dis:Hide() end
-					if textInsteadRow._lbl then textInsteadRow._lbl:SetAlpha(tiBlocked and 0.3 or 0.6) end
-					-- Brewmaster only, keyed off the SELECTED entry's spec (not the live spec),
-					-- so editing another spec's entry while playing Brewmaster stays unlocked.
-					local isStagger
-					if advSingle then isStagger = (ctx.specID == 268)
-					elseif ent.specIDs then
-						for _, s in ipairs(ent.specIDs) do if s == 268 then isStagger = true end end
-					end
-					if isStagger and ent.thresholdMode == "value" then ent.thresholdMode = "percent" end
 
 					-- Hash row text
 					local hashWord
@@ -6485,8 +6371,8 @@ initFrame:SetScript("OnEvent", function(self)
 
 					-- Threshold input bounds (Enhance five-bar minimum). Bar-type can
 					-- read the threshold as % (max 100) or an absolute value (higher cap).
-					local threshIsValue = isBar and not isStagger and ent.thresholdMode == "value"
-					local threshMax = isStagger and 500 or (isBar and (threshIsValue and 1000 or 100) or 10)
+					local threshIsValue = isBar and ent.thresholdMode == "value"
+					local threshMax = isBar and (threshIsValue and 1000 or 100) or 10
 					local entryIsEnhance = false
 					local pp = DB()
 					if pp and pp.secondary.enhanceFiveBar == true then
@@ -6515,7 +6401,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 					-- Snap the toggles / swatches to the entry
 					hashRow._swatchSnap()
-					threshEnableSnap(); threshSwatchSnap(); multiSnap(); buffSnap(); textInsteadSnap(); ceilingSnap()
+					threshEnableSnap(); threshSwatchSnap(); multiSnap(); buffSnap(); textInsteadSnap()
 
 					-- Enable/disable + greying state. Single threshold and multi-band are independent toggles
 					local entEnabled = ent.thresholdEnabled
@@ -6558,7 +6444,6 @@ initFrame:SetScript("OnEvent", function(self)
 					-- detail panel. (No visible effect for pip resources / Ignore Pain,
 					-- where the render path keeps its own coloring.)
 					place(textInsteadRow)
-					if isStagger then place(ceilingRow) end
 				end
 				thrPage:Hide();
             end -- BuildFrame
@@ -7501,7 +7386,6 @@ initFrame:SetScript("OnEvent", function(self)
                 DRUID  = { [1] = { "Mana", "Astral Power" }, [2] = { "Energy", "Mana" }, [3] = { "Rage", "Mana" } },
                 PRIEST = { [3] = { "Mana", "Insanity" } },
                 SHAMAN = { [1] = { "Mana", "Maelstrom" } },
-                EVOKER = { [3] = { "Ebon Might", "Mana" } },
             }
             local classAlts = SPEC_POWER_ALTS[playerClass]
             if classAlts then
@@ -8877,8 +8761,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local ALL_CLASSES = {
             "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
-            "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK",
-            "DRUID", "DEMONHUNTER", "EVOKER",
+            "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID",
         }
 
         -- Row 1: Enabled Classes dropdown | Icon Size (+ spacing cog)

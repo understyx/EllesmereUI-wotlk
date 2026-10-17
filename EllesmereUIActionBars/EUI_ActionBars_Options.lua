@@ -3822,8 +3822,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
             end
 
-            -- Row 4: Icon Background (opacity slider + inline swatch) |
-            --        One Button Assist Icon (toggle + inline cog)
+            -- Row 4: Icon Background (opacity slider + inline swatch)
             local slotBgRow
             slotBgRow, h = W:DualRow(parent, y,
                 { type="slider", text="Icon Background", min=0, max=100, step=1,
@@ -3837,30 +3836,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       EAB.db.profile.slotBgOpacity = v
                       EAB:ApplySlotBackgroundColor()
-                  end },
-                { type="toggle", text="One Button Assist Icon",
-                  tooltip="Shows the rotation-helper ring on the button holding the One Button Assist action.",
-                  getValue=function() return EAB.db.profile.obaIconEnabled ~= false end,
-                  setValue=function(v)
-                      EAB.db.profile.obaIconEnabled = v
-                      if ns.RefreshAssistSpinners then ns.RefreshAssistSpinners() end
-                  end });  y = y - h
-            -- Inline cog on One Button Assist Icon: ring outset slider.
-            do
-                local rgn = slotBgRow._rightRegion
-                local _, obaCogShow = EllesmereUI.BuildCogPopup({
-                    title = "One Button Assist Icon",
-                    rows = {
-                        { type="slider", label="Icon Outset", min=0, max=30, step=1,
-                          get=function() return EAB.db.profile.obaIconOutset or 9 end,
-                          set=function(v)
-                              EAB.db.profile.obaIconOutset = v
-                              if ns.RefreshAssistSpinners then ns.RefreshAssistSpinners() end
-                          end },
-                    },
-                })
-                MakeCogBtn(rgn, obaCogShow)
-            end
+                  end }, nil);  y = y - h
             -- Inline swatch: icon background color (left region). Dimmed while
             -- Blizzard style is on (no slot background exists) or at 0 opacity.
             do

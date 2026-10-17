@@ -343,15 +343,12 @@ initFrame:SetScript("OnEvent", function(self)
         MAGE        = { 0.125, 0.25,  0,     0.125 },
         ROGUE       = { 0.25,  0.375, 0,     0.125 },
         DRUID       = { 0.375, 0.5,   0,     0.125 },
-        EVOKER      = { 0.5,   0.625, 0,     0.125 },
         HUNTER      = { 0,     0.125, 0.125, 0.25  },
         SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
         PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
         WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
         PALADIN     = { 0,     0.125, 0.25,  0.375 },
         DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
-        MONK        = { 0.25,  0.375, 0.25,  0.375 },
-        DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
     }
 
     local classIconValues = {
@@ -667,10 +664,7 @@ initFrame:SetScript("OnEvent", function(self)
         SHAMAN      = { {name="Lightning Bolt", castTime=2.0}, {name="Chain Lightning", castTime=2.0}, {name="Lava Burst", castTime=2.0}, {name="Healing Wave", castTime=2.5} },
         MAGE        = { {name="Fireball", castTime=2.25}, {name="Frostbolt", castTime=2.0}, {name="Arcane Blast", castTime=2.25}, {name="Pyroblast", castTime=4.0} },
         WARLOCK     = { {name="Shadow Bolt", castTime=2.0}, {name="Chaos Bolt", castTime=3.0}, {name="Incinerate", castTime=2.0} },
-        MONK        = { {name="Vivify", castTime=1.5}, {name="Spinning Crane Kick", castTime=1.5} },
         DRUID       = { {name="Wrath", castTime=1.5}, {name="Starfire", castTime=2.25}, {name="Regrowth", castTime=1.5}, {name="Healing Touch", castTime=2.5} },
-        DEMONHUNTER = { {name="Eye Beam", castTime=2.0} },
-        EVOKER      = { {name="Fire Breath", castTime=2.5}, {name="Disintegrate", castTime=3.0}, {name="Living Flame", castTime=1.5}, {name="Eternity Surge", castTime=2.5} },
     }
     -- Fallback spells if class pool yields nothing with a cast time
     local FALLBACK_CAST_SPELLS = {
@@ -709,10 +703,7 @@ initFrame:SetScript("OnEvent", function(self)
         SHAMAN      = { 136048, 136052, 136042, 136044, 136053 },
         MAGE        = { 135812, 135846, 135735, 135808, 236219 },
         WARLOCK     = { 136197, 136145, 136188, 136169, 136162 },
-        MONK        = { 606551, 627606, 775461, 606543, 620827 },
         DRUID       = { 136096, 136048, 136041, 136085, 136060 },
-        DEMONHUNTER = { 1344649, 1247262, 1344650, 1344652, 1344651 },
-        EVOKER      = { 4622462, 4622460, 4622468, 4622464, 4622466 },
     }
     local FALLBACK_BUFF_ICONS = { 135932, 135981, 136075, 136205, 135987 }
     local _previewBuffIcons = {}  -- 2 randomized buff icons for player preview
@@ -1810,9 +1801,9 @@ initFrame:SetScript("OnEvent", function(self)
         local cpPipContainer, cpPips
         if unitKey == "player" then
             local CLASS_POWER_MAP = {
-                ROGUE={5}, DRUID={[103]=5,[104]=5,[105]=5}, PALADIN={5}, MONK={5},
-                WARLOCK={5}, MAGE={4}, EVOKER={5}, DEATHKNIGHT={6},
-                DEMONHUNTER={[581]=6, [1480]=5}, SHAMAN={[263]=10}, HUNTER={[255]=3}, WARRIOR={[72]=4},
+                ROGUE={5}, DRUID={[103]=5,[104]=5,[105]=5}, PALADIN={5},
+                WARLOCK={5}, MAGE={4}, DEATHKNIGHT={6},
+                SHAMAN={[263]=10}, HUNTER={[255]=3}, WARRIOR={[72]=4},
             }
             local _, playerClass = UnitClass("player")
             local cpInfo = CLASS_POWER_MAP[playerClass]
@@ -10513,73 +10504,23 @@ initFrame:SetScript("OnEvent", function(self)
         -- side shown, the row stays and the off side grays out as before.
         if not (BuffDisabled() and DebuffDisabled()) then
         do
-            -- Version-branched classification lists: 12.1 exposes the full
-            -- engine set; 12.0 keeps today's exact five entries. Both
-            -- branches assign the SAME local names the consumers below use.
-            local buffFilterItems, debuffFilterItems, BUFF_FILTER_KEYS, DEBUFF_FILTER_KEYS
-            if EllesmereUI.IS_121 then
-                -- Full 12.1 classification set. Checked classes OR together at
-                -- runtime; all default OFF (off = show everything). Cancelable and
-                -- Stealable are buff-side classes; Boss/Role/Priority are
-                -- debuff-side engine selectors.
-                buffFilterItems = {
-                    { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Buffs that appear on Raid Frames" },
-                    { key = "raidInCombat",      label = "Raid (In Combat)",   tooltip = "Shows only auras flagged for raid frames during combat" },
-                    { key = "dispellable",       label = "Dispellable",        tooltip = "Shows only auras with a dispel type you can dispel" },
-                    { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
-                    { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                    { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
-                    { key = "cancelable",        label = "Cancelable",         tooltip = "Shows only buffs that can be canceled" },
-                    { key = "stealable",         label = "Stealable",          tooltip = "Shows only buffs you can spellsteal or purge" },
-                    { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Buffs you apply" },
-                }
-                debuffFilterItems = {
-                    { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Debuffs that appear on Raid Frames" },
-                    { key = "raidInCombat",      label = "Raid (In Combat)",   tooltip = "Shows only auras flagged for raid frames during combat" },
-                    { key = "dispellable",       label = "Dispellable",        tooltip = "Shows only auras with a dispel type you can dispel" },
-                    { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
-                    { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                    { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
-                    { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
-                    { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                    { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
-                    { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
-                }
-                BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   raidInCombat = "buffRaidInCombat",   dispellable = "buffDispellable",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive",   cancelable = "buffCancelable", stealable = "buffStealable" }
-                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura", nonplayer = "debuffNonPlayer" }
-            else
-                buffFilterItems = {
-                    { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Buffs/Debuffs that appear on Raid Frames" },
-                    { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
-                    { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                    { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
-                    { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Buffs/Debuffs you apply" },
-                }
-                debuffFilterItems = buffFilterItems
-                BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive" }
-                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive" }
-            end
+            local buffFilterItems = {
+                { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Buffs/Debuffs that appear on Raid Frames" },
+                { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
+                { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
+                { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
+                { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Buffs/Debuffs you apply" },
+            }
+            local debuffFilterItems = buffFilterItems
+            local BUFF_FILTER_KEYS = { ownOnly = "onlyPlayerBuffs", raidFrames = "buffRaid", crowdControl = "buffCrowdControl", bigDefensive = "buffBigDefensive", externalDefensive = "buffExternalDefensive" }
+            local DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive" }
             -- "Own Only" is not offered for the PLAYER's debuffs (you rarely apply
             -- your own debuffs to yourself); any stale onlyPlayerDebuffs value is
             -- ignored at runtime.
             if selectedUnit == "player" then
-                -- Player list is re-ordered: Important leads (the most common
-                -- pick) with the 12.1-only Non-Player Debuffs classification
-                -- (the negated PLAYER engine token) right below it; the rest
-                -- keep their relative order. On 12.0 neither key exists in
-                -- the list, so this reduces to the plain ownOnly trim.
                 local trimmed = {}
                 for _, it in ipairs(debuffFilterItems) do
-                    if it.key == "priorityAura" then trimmed[#trimmed + 1] = it end
-                end
-                if EllesmereUI.IS_121 then
-                    trimmed[#trimmed + 1] = { key = "nonplayer", label = "Non-Player Debuffs",
-                        tooltip = "Shows every debuff except the ones you or your pet apply" }
-                end
-                for _, it in ipairs(debuffFilterItems) do
-                    if it.key ~= "ownOnly" and it.key ~= "priorityAura" then
-                        trimmed[#trimmed + 1] = it
-                    end
+                    if it.key ~= "ownOnly" then trimmed[#trimmed + 1] = it end
                 end
                 debuffFilterItems = trimmed
             end
@@ -10747,123 +10688,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         AddAuraBorderSettings()
-
-        -------------------------------------------------------------------
-        --  PRIVATE AURAS (player frame only)
-        -------------------------------------------------------------------
-        if selectedUnit == "player" then
-        _, h = W:Spacer(parent, y, 20); y = y - h
-        _, h = W:SectionHeader(parent, "PRIVATE AURAS", y); y = y - h
-
-        local function PrivGet(key, default)
-            local p = db.profile.player
-            local v = p and p[key]
-            if v ~= nil then return v end
-            return default
-        end
-        local function PrivSet(key, v)
-            db.profile.player[key] = v
-            ReloadAndUpdate()
-        end
-
-        local paPosValues = {
-            none        = "None",
-            topleft     = "Top Left",
-            top         = "Top",
-            topright    = "Top Right",
-            left        = "Left",
-            center      = "Center",
-            right       = "Right",
-            bottomleft  = "Bottom Left",
-            bottom      = "Bottom",
-            bottomright = "Bottom Right",
-        }
-        local paPosOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
-        local paGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" }
-        local paGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN" }
-
-        local function GetDefaultPaGrow(pos)
-            if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
-            if pos == "left" or pos == "topleft" or pos == "bottomleft" then return "RIGHT" end
-            if pos == "top" then return "DOWN" end
-            if pos == "bottom" then return "UP" end
-            return "RIGHT"
-        end
-
-        -- Row 1: Enable Private Auras | Position (+ cog X/Y)
-        local paRow1
-        paRow1, h = W:DualRow(parent, y,
-            { type="toggle", text="Enable Private Auras",
-              tooltip="Show Blizzard's private boss-mechanic aura icons on the player frame.",
-              getValue=function() return PrivGet("paEnabled", false) end,
-              -- DependentSetValue: Rows 2-4 below are hidden while Private
-              -- Auras are off; the flip forces the full rebuild.
-              setValue=EllesmereUI.DependentSetValue(
-                  function() return PrivGet("paEnabled", false) end,
-                  function(v) PrivSet("paEnabled", v) end) },
-            { type="dropdown", text="Position", values=paPosValues, order=paPosOrder,
-              getValue=function() return PrivGet("paPosition", "center") end,
-              setValue=function(v)
-                  PrivSet("paPosition", v)
-                  PrivSet("paGrowDirection", GetDefaultPaGrow(v))
-                  EllesmereUI:RefreshPage()
-              end });  y = y - h
-        -- Cog for position offset X/Y
-        do
-            local rgn = paRow1._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Private Aura Offset",
-                rows = {
-                    { type="slider", label="Offset X", min=-50, max=50, step=1,
-                      get=function() return PrivGet("paOffsetX", 0) end,
-                      set=function(v) PrivSet("paOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
-                      get=function() return PrivGet("paOffsetY", 0) end,
-                      set=function(v) PrivSet("paOffsetY", v) end },
-                },
-            })
-            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-        end
-
-        -- Rows 2-4 are HIDDEN entirely while Enable Private Auras is off (the
-        -- toggle's DependentSetValue forces the rebuild on flips).
-        if PrivGet("paEnabled", false) then
-        -- Row 2: Growth Direction | Icon Size
-        _, h = W:DualRow(parent, y,
-            { type="dropdown", text="Growth Direction", values=paGrowValues, order=paGrowOrder,
-              getValue=function() return PrivGet("paGrowDirection", "RIGHT") end,
-              setValue=function(v) PrivSet("paGrowDirection", v) end },
-            { type="slider", text="Icon Size", min=10, max=50, step=1,
-              getValue=function() return PrivGet("paSize", 20) end,
-              setValue=function(v) PrivSet("paSize", v) end });  y = y - h
-
-        -- Row 3: Spacing | Show Countdown Text
-        _, h = W:DualRow(parent, y,
-            { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
-              getValue=function() return PrivGet("paSpacing", 0) end,
-              setValue=function(v) PrivSet("paSpacing", v) end },
-            { type="toggle", text="Show Countdown Text",
-              getValue=function() return PrivGet("paShowCountdown", false) end,
-              setValue=function(v) PrivSet("paShowCountdown", v) end });  y = y - h
-
-        -- Row 4: Hide Tooltips | (blank)
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Hide Tooltips",
-              getValue=function() return PrivGet("paHideTooltip", true) end,
-              setValue=function(v) PrivSet("paHideTooltip", v) end },
-            { type="label", text="" });  y = y - h
-        end   -- close Private Auras hidden-while-disabled gate
-        end -- selectedUnit == "player" (private auras)
 
         _, h = W:Spacer(parent, y, 20); y = y - h
 
@@ -14255,47 +14079,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- key so existing boss settings carry over.
             do
                 local PP = EllesmereUI.PanelPP
-                -- Version-branched: 12.1 exposes the full engine
-                -- classification set plus a buff-side list for the 12.1-only
-                -- Boss Buff Filter; 12.0 keeps today's exact five entries
-                -- (buff vars stay nil -- only the 12.1 block consumes them).
-                local filterItems, DEBUFF_FILTER_KEYS, buffFilterItems, BUFF_FILTER_KEYS
-                if EllesmereUI.IS_121 then
-                    filterItems = {
-                        { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Debuffs that appear on Raid Frames" },
-                        { key = "raidInCombat",      label = "Raid (In Combat)",   tooltip = "Shows only auras flagged for raid frames during combat" },
-                        { key = "dispellable",       label = "Dispellable",        tooltip = "Shows only auras with a dispel type you can dispel" },
-                        { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
-                        { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                        { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
-                        { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
-                        { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                        { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
-                        { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
-                    }
-                    DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
-                    buffFilterItems = {
-                        { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Buffs that appear on Raid Frames" },
-                        { key = "raidInCombat",      label = "Raid (In Combat)",   tooltip = "Shows only auras flagged for raid frames during combat" },
-                        { key = "dispellable",       label = "Dispellable",        tooltip = "Shows only auras with a dispel type you can dispel" },
-                        { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
-                        { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                        { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
-                        { key = "cancelable",        label = "Cancelable",         tooltip = "Shows only buffs that can be canceled" },
-                        { key = "stealable",         label = "Stealable",          tooltip = "Shows only buffs you can spellsteal or purge" },
-                        { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Buffs you apply" },
-                    }
-                    BUFF_FILTER_KEYS = { ownOnly = "onlyPlayerBuffs", raidFrames = "buffRaid", raidInCombat = "buffRaidInCombat", dispellable = "buffDispellable", crowdControl = "buffCrowdControl", bigDefensive = "buffBigDefensive", externalDefensive = "buffExternalDefensive", cancelable = "buffCancelable", stealable = "buffStealable" }
-                else
-                    filterItems = {
-                        { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Debuffs that appear on Raid Frames" },
-                        { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
-                        { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
-                        { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
-                        { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
-                    }
-                    DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive" }
-                end
+                local filterItems = {
+                    { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Debuffs that appear on Raid Frames" },
+                    { key = "crowdControl",      label = "Crowd Control",      tooltip = "Shows only crowd-control auras" },
+                    { key = "bigDefensive",      label = "Big Defensive",      tooltip = "Shows only major defensive cooldowns" },
+                    { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
+                    { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
+                }
+                local DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive" }
                 -- Debuff Size | Debuff Text Size: the debuff sizing pair
                 -- (mirrors the buff pair on the row above). Debuff Text Size
                 -- gates on the "Show Duration" toggle inside its Duration &
@@ -14485,18 +14276,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local p = db.profile.boss
                     return ns.GetBossSimpleDebuffMode(p) == "none" and (p.debuffAnchor or "bottomleft") == "none"
                 end
-                local buffFilterOff
                 local bossFilterRightSlot = { type="label", text="" }
-                if EllesmereUI.IS_121 then
-                    buffFilterOff = function()
-                        local p = db.profile.boss
-                        return ns.GetBossSimpleBuffMode(p) == "none" and not p.showBuffs
-                    end
-                    bossFilterRightSlot = { type="dropdown", text="Boss Buff Filter",
-                      disabled=buffFilterOff, disabledTooltip="Buffs", requireState="displayed",
-                      values={ __placeholder="..." }, order={ "__placeholder" },
-                      getValue=function() return "__placeholder" end, setValue=function() end }
-                end
                 filterRow, hh = Ww:DualRow(pp, yy,
                     { type="dropdown", text="Boss Debuff Filter",
                       disabled=filterOff, disabledTooltip="Debuffs", requireState="displayed",
@@ -14535,36 +14315,6 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     UpdateFilterDisabled()
                     EllesmereUI.RegisterWidgetRefresh(UpdateFilterDisabled)
-                end
-                -- Right slot: Boss Buff Filter (12.1 only; mirror of the
-                -- debuff dropdown).
-                if EllesmereUI.IS_121 then
-                    local rgn = filterRow._rightRegion
-                    if rgn._control then rgn._control:Hide() end
-                    local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                        rgn, 210, rgn:GetFrameLevel() + 2, buffFilterItems,
-                        function(k) return db.profile.boss[BUFF_FILTER_KEYS[k]] or false end,
-                        function(k, v) db.profile.boss[BUFF_FILTER_KEYS[k]] = v; ReloadAndUpdate() end)
-                    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-                    rgn._control = cbDD; rgn._lastInline = nil
-                    EllesmereUI.RegisterWidgetRefresh(cbRefresh)
-                    local buffFilterBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cbDD)
-                    buffFilterBlock:SetAllPoints()
-                    buffFilterBlock:SetFrameLevel(cbDD:GetFrameLevel() + 10)
-                    buffFilterBlock:EnableMouse(true)
-                    buffFilterBlock:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(cbDD, EllesmereUI.DisabledTooltip("Buffs", "displayed"))
-                    end)
-                    buffFilterBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    local function UpdateBuffFilterDisabled()
-                        if buffFilterOff() then
-                            cbDD:SetAlpha(0.3); buffFilterBlock:Show()
-                        else
-                            cbDD:SetAlpha(1); buffFilterBlock:Hide()
-                        end
-                    end
-                    UpdateBuffFilterDisabled()
-                    EllesmereUI.RegisterWidgetRefresh(UpdateBuffFilterDisabled)
                 end
             end
 
@@ -15566,7 +15316,6 @@ initFrame:SetScript("OnEvent", function(self)
             if not db.profile.playerAuras then db.profile.playerAuras = {} end
             db.profile.playerAuras[key] = v
             if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
-            if ns.ApplyPlayerAuraScale then ns.ApplyPlayerAuraScale() end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -15814,15 +15563,12 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Row 4: Blizzard debuff borders | buff-frame expand button.
+        -- Row 4: Blizzard debuff borders.
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "No Border on Debuffs",
               tooltip = "When enabled, debuff icons keep Blizzard's colored border instead of using the custom border.",
               getValue = function() return PAGet("noBorderDebuffs") ~= false end,
-              setValue = function(v) PASet("noBorderDebuffs", v) end },
-            { type = "toggle", text = "Show Expand Button",
-              getValue = function() return PAGet("showExpandButton") ~= false end,
-              setValue = function(v) PASet("showExpandButton", v) end }
+              setValue = function(v) PASet("noBorderDebuffs", v) end }
         );  y = y - h
 
         end -- PAGet("enabled") section gate
@@ -15899,9 +15645,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- enable toggle's SectionToggleSetValue wrapper forces the rebuild).
         if EDGet("enabled") then
 
-        -- Row 2: Show Text | Text Size (+ Duration Format cog)
-        local edRow2
-        edRow2, h = W:DualRow(parent, y,
+        -- Row 2: Show Text | Text Size
+        _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Show Text",
               getValue = function() return EDGet("showText") ~= false end,
               setValue = function(v) EDSet("showText", v) end },
@@ -15909,37 +15654,6 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return EDGet("textSize") or 11 end,
               setValue = function(v) EDSet("textSize", v) end }
         );  y = y - h
-        do
-            local rgn = edRow2._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Duration Format",
-                rows = {
-                    { type = "dropdown", label = "Format",
-                      values = {
-                          blizzard = { text = "Blizzard Default (2 min)" },
-                          compact  = { text = "Standard (5m / 32)" },
-                          colon    = { text = "Colon (5:32)" },
-                          seconds  = { text = "Seconds (152)" },
-                      },
-                      order = { "blizzard", "compact", "colon", "seconds" },
-                      get = function() return EDGet("durationFormat") or "blizzard" end,
-                      set = function(v) EDSet("durationFormat", v) end },
-                },
-            })
-            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-        end
-
         -- Row 3: Border Style (+ offset cog) | Border Size (+ color swatch)
         do
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()

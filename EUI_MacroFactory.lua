@@ -269,24 +269,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         { name="EUI_PetResummon", icon="Interface\\Icons\\spell_shadow_animatedead", label="Pet Resummon", spells={46584}, fixedBody="/script PetDismiss()\n/cast [nopet] {1}" }, -- Raise Dead
     }
 
-    -- Demon Hunter (577=Havoc, 581=Vengeance)
-    local DH_GEN = {
-        { name="EUI_Disrupt", icon="Interface\\Icons\\ability_demonhunter_consumemagic", label="Disrupt\n(Focus)", spells={183752}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Disrupt
-        { name="EUI_ConsumeMagic", icon="Interface\\Icons\\spell_shadow_manaburn", label="Consume Magic\n(Focus)", spells={278326}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Consume Magic
-        { name="EUI_MetaCursor", icon="Interface\\Icons\\ability_demonhunter_metamorphasisdps", label="Metamorphosis\n(Cursor)", spells={191427}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Metamorphosis (Havoc)
-        { name="EUI_SigilFlame", icon="Interface\\Icons\\ability_demonhunter_sigilofinquisition", label="Sigil of Flame\n(Cursor)", spells={204596}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Flame
-        { name="EUI_SigilMisery", icon="Interface\\Icons\\ability_demonhunter_sigilofmisery", label="Sigil of Misery\n(Cursor)", spells={207684}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Misery
-    }
-    local DH_HAVOC = {
-        { name="EUI_TheHunt", icon="Interface\\Icons\\ability_ardenweald_demonhunter", label="The Hunt\n(Focus)", spells={370965}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- The Hunt
-        { name="EUI_VRGlide", icon="Interface\\Icons\\ability_demonhunter_vengefulretreat2", label="Vengeful Retreat\n& Glide", spells={198793, 131347}, fixedBody="/cast {1}\n/cast !{2}", fixedTooltip="{1}" }, -- Vengeful Retreat / Glide
-    }
-    local DH_VENG = {
-        { name="EUI_InfernalStrike", icon="Interface\\Icons\\ability_demonhunter_infernalstrike1", label="Infernal Strike\n(Cursor)", spells={189110}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Infernal Strike
-        { name="EUI_SigilChains", icon="Interface\\Icons\\ability_demonhunter_sigilofchains", label="Sigil of Chains\n(Cursor)", spells={202138}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Chains
-        { name="EUI_SigilSilence", icon="Interface\\Icons\\ability_demonhunter_sigilofsilence", label="Sigil of Silence\n(Cursor)", spells={202137}, fixedBody="/cast [@cursor] {1}" }, -- Sigil of Silence
-    }
-
     -- Druid (102=Balance, 103=Feral, 104=Guardian, 105=Restoration)
     local DRUID_GEN = {
         { name="EUI_UrsolVortex", icon="Interface\\Icons\\spell_druid_ursolsvortex", label="Ursol's Vortex\n(Cursor)", spells={102793}, fixedBody="/cast [@cursor] {1}" }, -- Ursol's Vortex
@@ -308,25 +290,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         { name="EUI_Ironbark", icon="Interface\\Icons\\spell_druid_ironbark", label="Ironbark\n(Focus)", spells={102342}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Ironbark
         { name="EUI_InnervateSelf", icon="Interface\\Icons\\spell_nature_lightning", label="Innervate\n(Player)", spells={29166}, fixedBody="/cast [@player] {1}" }, -- Innervate
         { name="EUI_NSConvoke", icon="Interface\\Icons\\ability_ardenweald_druid", label="Nature's Swiftness\nConvoke", spells={132158, 391528}, fixedBody="/cast [nochanneling] {1}\n/cast {2}\n/cqs", fixedTooltip="{2}" }, -- Nature's Swiftness / Convoke the Spirits
-    }
-
-    -- Evoker (1467=Devastation, 1468=Preservation, 1473=Augmentation)
-    local EVOKER_GEN = {
-        { name="EUI_CautFlame", icon="Interface\\Icons\\ability_evoker_fontofmagic_red", label="Cauterizing Flame\n(Focus)", spells={374251}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Cauterizing Flame
-        { name="EUI_RescueCursor", icon="Interface\\Icons\\ability_evoker_flywithme", label="Rescue\n(Cursor)", spells={370665}, fixedBody="/tar [@focus]\n/cast [@cursor] {1}\n/targetlasttarget", fixedTooltip="{1}" }, -- Rescue
-        { name="EUI_RescueToYou", icon="Interface\\Icons\\ability_evoker_flywithme", label="Rescue\n(To You)", spells={370665}, fixedBody="/tar [@focus]\n/cast [@player] {1}\n/targetlasttarget", fixedTooltip="{1}" }, -- Rescue
-        { name="EUI_SleepWalk", icon="Interface\\Icons\\ability_xavius_dreamsimulacrum", label="Sleep Walk\n(Focus)", spells={360806}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Sleep Walk
-    }
-    local EVOKER_AUG = {
-        { name="EUI_Quell", icon="Interface\\Icons\\ability_evoker_quell", label="Quell\n(Focus)", spells={351338}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Quell
-        { name="EUI_BlistScales", icon="Interface\\Icons\\ability_evoker_blisteringscales", label="Blistering Scales\n(Focus)", spells={360827}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Blistering Scales
-    }
-    local EVOKER_DEV = {
-        { name="EUI_Quell", icon="Interface\\Icons\\ability_evoker_quell", label="Quell\n(Focus)", spells={351338}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Quell
-        { name="EUI_DragonrageBurst", icon="Interface\\Icons\\ability_evoker_dragonrage2", label="Dragonrage\nBurst", spells={375087}, fixedBody="/cast {1}\n/use 13", fixedTooltip="{1}" }, -- Dragonrage
-    }
-    local EVOKER_PRES = {
-        { name="EUI_DreamFlight", icon="Interface\\Icons\\ability_evoker_dreamflight", label="Dream Flight\n(Cursor)", spells={359816}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Dream Flight
     }
 
     -- Hunter (253=BeastMastery, 254=Marksmanship, 255=Survival)
@@ -364,24 +327,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     }
     local MAGE_FROST_SPEC = {
         { name="EUI_BlizzardCursor", icon="Interface\\Icons\\spell_frost_icestorm", label="Blizzard\n(Cursor)", spells={190356}, fixedBody="/cast [@cursor] {1}" }, -- Blizzard (modern Frost)
-    }
-
-    -- Monk (268=Brewmaster, 270=Mistweaver, 269=Windwalker)
-    local MONK_GEN = {
-        { name="EUI_Detox", icon="Interface\\Icons\\ability_rogue_imrovedrecuperate", label="Detox\n(Focus)", spells={115450}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Detox (MW id; WW/Brew 218164 share name)
-        { name="EUI_TigersLust", icon="Interface\\Icons\\ability_monk_tigerslust", label="Tiger's Lust\n(Focus)", spells={116841}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Tiger's Lust
-        { name="EUI_RingOfPeace", icon="Interface\\Icons\\spell_monk_ringofpeace", label="Ring of Peace\n(Cursor)", spells={116844}, fixedBody="/cast [@cursor] {1}" }, -- Ring of Peace
-    }
-    local MONK_BREW = {
-        { name="EUI_SpearHand", icon="Interface\\Icons\\ability_monk_spearhand", label="Spear Hand Strike\n(Focus)", spells={116705}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Spear Hand Strike
-        { name="EUI_BlackOxStatue", icon="Interface\\Icons\\monk_ability_summonoxstatue", label="Black Ox Statue\n(Cursor)", spells={115315}, fixedBody="/cast [@cursor] {1}" }, -- Summon Black Ox Statue
-    }
-    local MONK_WW = {
-        { name="EUI_SpearHand", icon="Interface\\Icons\\ability_monk_spearhand", label="Spear Hand Strike\n(Focus)", spells={116705}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Spear Hand Strike
-    }
-    local MONK_MW = {
-        { name="EUI_LifeCocoon", icon="Interface\\Icons\\ability_monk_chicocoon", label="Life Cocoon\n(Focus)", spells={116849}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Life Cocoon
-        { name="EUI_JadeSerpent", icon="Interface\\Icons\\ability_monk_summonserpentstatue", label="Jade Serpent\nStatue (Cursor)", spells={115313}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Summon Jade Serpent Statue
     }
 
     -- Paladin (65=Holy, 66=Protection, 70=Retribution)
@@ -497,18 +442,11 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         [250] = mergeMacros(DK_BLOOD, DK_GEN),
         [251] = mergeMacros(DK_FROST, DK_GEN),
         [252] = mergeMacros(DK_UNHOLY, DK_GEN),
-        -- Demon Hunter (577=Havoc, 581=Vengeance)
-        [577] = mergeMacros(DH_HAVOC, DH_GEN),
-        [581] = mergeMacros(DH_VENG, DH_GEN),
         -- Druid
         [102] = mergeMacros(DRUID_BAL, DRUID_GEN),
         [103] = mergeMacros(DRUID_FERAL, DRUID_GEN),
         [104] = mergeMacros(DRUID_GUARD, DRUID_GEN),
         [105] = mergeMacros(DRUID_RESTO, DRUID_GEN),
-        -- Evoker
-        [1467] = mergeMacros(EVOKER_DEV, EVOKER_GEN),
-        [1468] = mergeMacros(EVOKER_PRES, EVOKER_GEN),
-        [1473] = mergeMacros(EVOKER_AUG, EVOKER_GEN),
         -- Hunter
         [253] = mergeMacros(HUNTER_BM, HUNTER_GEN),
         [254] = mergeMacros(HUNTER_MM, HUNTER_GEN),
@@ -517,10 +455,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         [62]  = mergeMacros(MAGE_ARCANE, MAGE_GEN),
         [63]  = mergeMacros(MAGE_FIRE, MAGE_GEN),
         [64]  = mergeMacros(MAGE_FROST_SPEC, MAGE_GEN),
-        -- Monk
-        [268] = mergeMacros(MONK_BREW, MONK_GEN),
-        [269] = mergeMacros(MONK_WW, MONK_GEN),
-        [270] = mergeMacros(MONK_MW, MONK_GEN),
         -- Paladin
         [65]  = mergeMacros(PALA_HOLY, PALA_GEN),
         [66]  = mergeMacros(PALA_PROT, PALA_GEN),

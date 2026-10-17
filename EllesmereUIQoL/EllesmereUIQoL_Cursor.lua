@@ -423,19 +423,13 @@ local function CreateGCDCircle()
             end
             return
         end
-        -- Query GCD via the reference spell; duration may be a secret number
-        -- so wrap the comparison in pcall to avoid taint errors
+        -- Query GCD via the reference spell
         local cdData = GetSpellCooldown(61304)
         if not cdData or not cdData.startTime then return end
-        local ok, elapsed, dur = pcall(function()
-            local d = cdData.duration
-            local s = cdData.startTime
-            if d and d > 0 and d <= 1.6 and s and s > 0 then
-                return GetTime() - s, d
-            end
-        end)
-        if ok and elapsed then
-            gcdRing:StartRing(elapsed, dur)
+        local d = cdData.duration
+        local s = cdData.startTime
+        if d and d > 0 and d <= 1.6 and s and s > 0 then
+            gcdRing:StartRing(GetTime() - s, d)
         end
     end)
 
@@ -781,11 +775,6 @@ local function CreateCastCircle()
     castRoot:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
     castRoot:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "player")
     castRoot:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
-    if UnitChannelInfo and GetUnitEmpowerHoldAtMaxTime then
-        castRoot:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START", "player")
-        castRoot:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", "player")
-        castRoot:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_STOP", "player")
-    end
 
     castRoot._castID = nil
 
@@ -810,16 +799,11 @@ local function CreateCastCircle()
             end
 
         elseif event == "UNIT_SPELLCAST_CHANNEL_START"
-            or event == "UNIT_SPELLCAST_CHANNEL_UPDATE"
-            or event == "UNIT_SPELLCAST_EMPOWER_START"
-            or event == "UNIT_SPELLCAST_EMPOWER_UPDATE" then
+            or event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
             local SafeChannelInfo = (EUI and EUI.SafeUnitChannelInfo) or (EllesmereUI and EllesmereUI.SafeUnitChannelInfo) or UnitChannelInfo
-            local name, _, _, startMS, endMS, _, _, _, _, numStages = SafeChannelInfo("player")
+            local name, _, _, startMS, endMS = SafeChannelInfo("player")
             if name and type(startMS) == "number" and type(endMS) == "number" then
                 self._castID = nil
-                if numStages and numStages > 0 and GetUnitEmpowerHoldAtMaxTime then
-                    endMS = endMS + GetUnitEmpowerHoldAtMaxTime("player")
-                end
                 local elapsed = GetTime() - startMS * 0.001
                 local total = (endMS - startMS) * 0.001
                 castRing:StartRing(elapsed, total)
@@ -837,7 +821,7 @@ local function CreateCastCircle()
                 if self._sparkGlow then self._sparkGlow:Hide() end
             end
 
-        else  -- FAILED, INTERRUPTED, CHANNEL_STOP, EMPOWER_STOP
+        else  -- FAILED, INTERRUPTED, CHANNEL_STOP
             if not castID or castID == self._castID then
                 self._castID = nil
                 castRing:StopRing()
@@ -871,11 +855,6 @@ local function ApplyCastCircle()
     castRoot:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
     castRoot:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "player")
     castRoot:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
-    if UnitChannelInfo and GetUnitEmpowerHoldAtMaxTime then
-        castRoot:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START", "player")
-        castRoot:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", "player")
-        castRoot:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_STOP", "player")
-    end
     local attached = c.attached ~= false  -- default true
     local radius = c.radius or 36
     local scale = (c.scale or 100) / 100

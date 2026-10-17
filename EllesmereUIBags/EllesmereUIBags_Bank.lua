@@ -2046,9 +2046,6 @@ eventFrame:RegisterEvent("BANKFRAME_OPENED")
 eventFrame:RegisterEvent("BANKFRAME_CLOSED")
 eventFrame:RegisterEvent("BAG_UPDATE")
 eventFrame:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
-eventFrame:RegisterEvent("BANK_TABS_CHANGED")
-eventFrame:RegisterEvent("BANK_TAB_SETTINGS_UPDATED")
-eventFrame:RegisterEvent("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED")
 eventFrame:RegisterEvent("PLAYER_MONEY")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "BANKFRAME_OPENED" then
@@ -2106,33 +2103,6 @@ eventFrame:SetScript("OnEvent", function(_, event)
             EUI_Bags:Hide()
         end
         EUI_Bank._autoOpenedBags = false
-
-    elseif event == "BANK_TABS_CHANGED" or event == "BANK_TAB_SETTINGS_UPDATED"
-        or event == "PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED" then
-        if EUI_Bank:IsVisible() then
-            local prevCount = #_allTabs
-            DiscoverBankTabs()
-            ScheduleBankRefresh()
-            -- Server may not have slot data ready yet for a newly purchased tab.
-            -- Poll until tab count changes or we give up after 5 seconds.
-            if #_allTabs == prevCount then
-                local attempts = 0
-                local poller = EllesmereUI.SafeCreateFrame("Frame")
-                poller:SetScript("OnUpdate", function(self, elapsed)
-                    attempts = attempts + 1
-                    if attempts % 6 ~= 0 then return end -- ~0.1s per check
-                    if not EUI_Bank:IsVisible() or attempts > 300 then
-                        self:SetScript("OnUpdate", nil)
-                        return
-                    end
-                    DiscoverBankTabs()
-                    if #_allTabs ~= prevCount then
-                        self:SetScript("OnUpdate", nil)
-                        EUI_Bank:RefreshBank()
-                    end
-                end)
-            end
-        end
 
     elseif event == "BAG_UPDATE" or event == "PLAYERBANKSLOTS_CHANGED" then
         if EUI_Bank:IsVisible() then

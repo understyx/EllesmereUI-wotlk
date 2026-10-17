@@ -262,7 +262,6 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.customTooltips = v
-                  if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
                   EllesmereUI:RefreshPage()  -- gray/ungray the rest of the section now
                   if EllesmereUI.ShowConfirmPopup then
                       EllesmereUI:ShowConfirmPopup({
@@ -386,16 +385,6 @@ initFrame:SetScript("OnEvent", function(self)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.tooltipItemLevel = v
                       end },
-                    { type="toggle", label="Show Mount",
-                      tooltip="Adds the mount a player is riding to their tooltip, with a green check if you own it or a red X if you don't.",
-                      disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
-                      get=function()
-                          return EllesmereUIDB and EllesmereUIDB.tooltipShowMount or false
-                      end,
-                      set=function(v)
-                          if not EllesmereUIDB then EllesmereUIDB = {} end
-                          EllesmereUIDB.tooltipShowMount = v
-                      end },
                     { type="toggle", label="Show Guild Rank",
                       disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
                       get=function()
@@ -469,7 +458,6 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(r, g, b)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.tooltipBgColor = { r = r, g = g, b = b }
-                  if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
               end },
             { type="slider", text="Background Opacity", min=0, max=100, step=1,
               disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
@@ -480,7 +468,6 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.tooltipBgOpacity = v / 100
-                  if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
               end });  y = y - h
 
         local ttModeRow
@@ -507,7 +494,6 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showSpellID = v
-                  if EllesmereUI.SyncAuraSpellIDCVar then EllesmereUI.SyncAuraSpellIDCVar() end
                   EllesmereUI:RefreshPage()  -- update the Use Modifier cog disabled state
               end }
         );  y = y - h
@@ -530,9 +516,6 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.spellIDModifier = v
-                          -- Modifier choice gates the engine-side combat
-                          -- aura-ID CVar (12.1; no-op on retail).
-                          if EllesmereUI.SyncAuraSpellIDCVar then EllesmereUI.SyncAuraSpellIDCVar() end
                       end },
                 },
             })
@@ -626,8 +609,8 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues,texOrder=EllesmereUI.GetBorderTextureDropdown()
             local tooltipBorder
             tooltipBorder,h=W:DualRow(parent,y,
-                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil; EllesmereUIDB.tooltipBorderBehind=b; EllesmereUIDB.tooltipBorderColor=c; if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end end},
-                {type="dropdown",text="Border Size",disabled=ttReskinOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.tooltipBorderThickness or ({[0]="none",[1]="thin",[2]="normal",[3]="heavy",[4]="strong"})[EllesmereUIDB.tooltipBorderSize or 1] or "thin" end,setValue=function(v) EllesmereUIDB.tooltipBorderThickness=v; if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end end}); y=y-h
+                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil; EllesmereUIDB.tooltipBorderBehind=b; EllesmereUIDB.tooltipBorderColor=c end},
+                {type="dropdown",text="Border Size",disabled=ttReskinOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.tooltipBorderThickness or ({[0]="none",[1]="thin",[2]="normal",[3]="heavy",[4]="strong"})[EllesmereUIDB.tooltipBorderSize or 1] or "thin" end,setValue=function(v) EllesmereUIDB.tooltipBorderThickness=v end}); y=y-h
             AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true)
         end
 
@@ -2315,7 +2298,6 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Legacy numeric key the tooltip Border Size still falls back
                 -- to when tooltipBorderThickness is unset.
                 EllesmereUIDB.tooltipBorderSize = nil
-                if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
                 EllesmereUIDB.reskinLFGMenu = nil
                 EllesmereUIDB.showQueueTimer = nil
                 EllesmereUIDB.blizzWindowSkinStyles = nil

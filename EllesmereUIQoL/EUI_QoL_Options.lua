@@ -1432,7 +1432,7 @@ initFrame:SetScript("OnEvent", function(self)
             if eyeInitOff then eyeBlock:Show() else eyeBlock:Hide() end
         end
 
-        -- Row 3: Secondary Stat Display (left, with swatch+cog) | Guild Chat Privacy (right)
+        -- Row 3: Secondary Stat Display (left, with swatch+cog)
         local row4
         row4, h = W:DualRow(parent, y,
             { type="toggle", text="Secondary Stat Display",
@@ -1444,16 +1444,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.QoLExtrasSet("showSecondaryStats", v)
                 if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
                 EllesmereUI:RefreshPage()
-              end },
-            { type="toggle", text="Guild Chat Privacy Cover",
-              tooltip="Displays a spoiler tag over guild chat in the communities window that you can click to hide",
-              getValue=function()
-                return EllesmereUIDB and EllesmereUIDB.guildChatPrivacy or false
-              end,
-              setValue=function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.guildChatPrivacy = v
-                if EllesmereUI._applyGuildChatPrivacy then EllesmereUI._applyGuildChatPrivacy() end
               end }
         );  y = y - h
 
@@ -2188,21 +2178,8 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Auto Unwrap Collections | Auto Open Containers
-        local autoOpenContainerRow
-        autoOpenContainerRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Auto Unwrap Collections",
-              tooltip="Automatically dismisses the 'new mount/pet/toy' fanfare notification when you receive one, so you don't have to click through the collections journal.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.autoUnwrapCollections = v
-                  if EllesmereUI._applyAutoUnwrap then
-                      EllesmereUI._applyAutoUnwrap()
-                  end
-              end },
+        -- Auto Open Containers
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Auto Open Containers",
               tooltip="Automatically opens bags, boxes and parcels in your inventory when they are added to your bags.",
               getValue=function()
@@ -2267,7 +2244,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.instanceResetAnnounce = false
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
-                EllesmereUIDB.persistSignupNote = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1
                 EllesmereUIDB.healthMacroPrio2 = 2
@@ -2275,7 +2251,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.foodMacroEnabled = false
                 EllesmereUIDB.hideScreenshotStatus = false
                 EllesmereUIDB.trainAllButton = false
-                EllesmereUIDB.autoUnwrapCollections = false
                 EllesmereUIDB.autoOpenContainers = false
                 EllesmereUIDB.autoCancelTricksThreat = false
                 EllesmereUIDB.autoCancelMisdirectionThreat = false
@@ -2332,7 +2307,6 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
-            if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             if EllesmereUI._applyQuickLoot then EllesmereUI._applyQuickLoot() end
             if EllesmereUI._applyInstanceResetAnnounce then EllesmereUI._applyInstanceResetAnnounce() end
             if EllesmereUI._applyAutoOpenContainers then EllesmereUI._applyAutoOpenContainers() end

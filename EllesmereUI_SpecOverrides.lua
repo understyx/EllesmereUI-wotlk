@@ -114,14 +114,13 @@ local MODERN_SPRITE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\
 local MULTISPEC_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\multispec.tga"
 local CLASS_COORDS = {
     WARRIOR={0,0.125,0,0.125}, MAGE={0.125,0.25,0,0.125}, ROGUE={0.25,0.375,0,0.125},
-    DRUID={0.375,0.5,0,0.125}, EVOKER={0.5,0.625,0,0.125}, HUNTER={0,0.125,0.125,0.25},
+    DRUID={0.375,0.5,0,0.125}, HUNTER={0,0.125,0.125,0.25},
     SHAMAN={0.125,0.25,0.125,0.25}, PRIEST={0.25,0.375,0.125,0.25}, WARLOCK={0.375,0.5,0.125,0.25},
     PALADIN={0,0.125,0.25,0.375}, DEATHKNIGHT={0.125,0.25,0.25,0.375},
-    MONK={0.25,0.375,0.25,0.375}, DEMONHUNTER={0.375,0.5,0.25,0.375},
 }
 local CLASS_ORDER = {
     "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT",
-    "SHAMAN", "MAGE", "WARLOCK", "MONK", "DRUID", "DEMONHUNTER", "EVOKER",
+    "SHAMAN", "MAGE", "WARLOCK", "DRUID",
 }
 -- Modern role icons (shipped with RaidFrames; loaded by path, no addon dep)
 local ROLE_MEDIA = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\"

@@ -43,123 +43,6 @@ qolFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
 
     ---------------------------------------------------------------------------
-    --  Auto Unwrap Collections (Mounts / Pets / Toys)
-    ---------------------------------------------------------------------------
-    do
-        local busy = false
-
-        -- Dismiss the pending "new item" glow on all mounts that need it,
-        -- temporarily narrowing the journal filter so we only iterate collected ones.
-        local function AckMountAlerts()
-            if not C_MountJournal then return false end
-            local pending = C_MountJournal.GetNumMountsNeedingFanfare
-                and C_MountJournal.GetNumMountsNeedingFanfare()
-            if not pending or pending <= 0 then return false end
-
-            -- Snapshot active filters, force "collected only", sweep, then restore
-            local snapshot = {}
-            for i = LE_MOUNT_JOURNAL_FILTER_COLLECTED, LE_MOUNT_JOURNAL_FILTER_UNUSABLE do
-                snapshot[i] = C_MountJournal.GetCollectedFilterSetting(i) and true or false
-                C_MountJournal.SetCollectedFilterSetting(i, i == LE_MOUNT_JOURNAL_FILTER_COLLECTED)
-            end
-            for i = 1, C_MountJournal.GetNumDisplayedMounts() do
-                local id = C_MountJournal.GetDisplayedMountID(i)
-                if id and C_MountJournal.NeedsFanfare(id) then
-                    C_MountJournal.ClearFanfare(id)
-                end
-            end
-            for i = LE_MOUNT_JOURNAL_FILTER_COLLECTED, LE_MOUNT_JOURNAL_FILTER_UNUSABLE do
-                C_MountJournal.SetCollectedFilterSetting(i, snapshot[i])
-            end
-            return true
-        end
-
-        local function AckPetAlerts()
-            if not C_PetJournal or not C_PetJournal.GetNumPetsNeedingFanfare then return false end
-            if (C_PetJournal.GetNumPetsNeedingFanfare() or 0) == 0 then return false end
-            local any = false
-            for _, id in ipairs(C_PetJournal.GetOwnedPetIDs and C_PetJournal.GetOwnedPetIDs() or {}) do
-                if id and C_PetJournal.PetNeedsFanfare and C_PetJournal.PetNeedsFanfare(id) then
-                    if C_PetJournal.ClearFanfare then C_PetJournal.ClearFanfare(id) end
-                    any = true
-                end
-            end
-            return any
-        end
-
-        local function AckToyAlerts()
-            if not C_ToyBoxInfo or not C_ToyBoxInfo.ClearFanfare then return false end
-            local any = false
-            -- Fast path via ToyBox.fanfareToys lookup table
-            if ToyBox and ToyBox.fanfareToys then
-                for id, needs in pairs(ToyBox.fanfareToys) do
-                    if needs and id and C_ToyBoxInfo.NeedsFanfare and C_ToyBoxInfo.NeedsFanfare(id) then
-                        C_ToyBoxInfo.ClearFanfare(id)
-                        any = true
-                    end
-                end
-                if any then return true end
-            end
-            -- Fallback: full scan
-            if C_ToyBox and C_ToyBox.GetNumToys and C_ToyBox.GetToyFromIndex then
-                for i = 1, C_ToyBox.GetNumToys() do
-                    local id = C_ToyBox.GetToyFromIndex(i)
-                    if id and C_ToyBoxInfo.NeedsFanfare and C_ToyBoxInfo.NeedsFanfare(id) then
-                        C_ToyBoxInfo.ClearFanfare(id)
-                        any = true
-                    end
-                end
-            end
-            return any
-        end
-
-        local function DismissCollectionAlerts()
-            if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
-            if busy then return end
-            busy = true
-            C_Timer.After(0.2, function()
-                busy = false
-                local changed = AckMountAlerts() or AckPetAlerts() or AckToyAlerts()
-                if changed then
-                    if CollectionsMicroButton and MainMenuMicroButton_HideAlert then
-                        MainMenuMicroButton_HideAlert(CollectionsMicroButton)
-                    end
-                    if CollectionsMicroButton_SetAlertShown then
-                        CollectionsMicroButton_SetAlertShown(false)
-                    end
-                end
-            end)
-        end
-
-        EllesmereUI._applyAutoUnwrap = function() end
-
-        if type(MainMenuMicroButton_ShowAlert) == "function" then
-            hooksecurefunc("MainMenuMicroButton_ShowAlert", function(_, text)
-                if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
-                if text == COLLECTION_UNOPENED_PLURAL or text == COLLECTION_UNOPENED_SINGULAR then
-                    DismissCollectionAlerts()
-                end
-            end)
-        end
-
-        local f = EllesmereUI.SafeCreateFrame("Frame")
-        f:RegisterEvent("PLAYER_LOGIN")
-        f:RegisterEvent("NEW_MOUNT_ADDED")
-        f:RegisterEvent("NEW_PET_ADDED")
-        f:RegisterEvent("NEW_TOY_ADDED")
-        f:SetScript("OnEvent", function(self, event)
-            if event == "PLAYER_LOGIN" then
-                self:UnregisterEvent("PLAYER_LOGIN")
-                -- Defer 3s so ToyBox.fanfareToys is available (avoids
-                -- the 1000+ toy fallback scan that spikes the login frame)
-                C_Timer.After(3, DismissCollectionAlerts)
-                return
-            end
-            DismissCollectionAlerts()
-        end)
-    end
-
-    ---------------------------------------------------------------------------
     --  Auto Open Containers (incremental cache -- no login spike)
     ---------------------------------------------------------------------------
     do
@@ -962,57 +845,17 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Quick Signup (double-click to sign up)
+    --  Quick Signup (automatic role-check acceptance)
     ---------------------------------------------------------------------------
     do
-        local lastClickTime  = 0
-        local lastClickEntry = nil
-        local DOUBLE_CLICK_THRESHOLD = 0.4
-        local installed = false   -- hooks are installed ONCE, on first enable
+        local installed = false   -- listener is installed ONCE, on first enable
         local roleFrame           -- classic role-check listener (created on install)
 
-        -- Hooks/listeners are installed only when Quick Signup is turned on, so
-        -- nothing touches the LFG execution path unless the feature is in use.
-        -- hooksecurefunc/HookScript can't be undone, so the bodies keep their
-        -- setting guard for the toggle-off-after-enable case; the role-check
-        -- event is registered/unregistered live for true zero cost when off.
-        local function InstallQuickSignupHooks()
+        -- The listener is installed only when Quick Signup is turned on; its
+        -- event is registered/unregistered live to avoid work while the option is off.
+        local function InstallQuickSignupRoleCheck()
             if installed then return end
             installed = true
-
-            hooksecurefunc("LFGListSearchEntry_OnClick", function(entry, button)
-                if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
-                if button == "RightButton" then return end
-
-                local panel = LFGListFrame and LFGListFrame.SearchPanel
-                if not panel then return end
-                if not LFGListSearchPanelUtil_CanSelectResult(entry.resultID) then return end
-                if not panel.SignUpButton or not panel.SignUpButton:IsEnabled() then return end
-
-                local now = GetTime()
-                if lastClickEntry == entry.resultID and (now - lastClickTime) < DOUBLE_CLICK_THRESHOLD then
-                    if panel.selectedResult ~= entry.resultID then
-                        LFGListSearchPanel_SelectResult(panel, entry.resultID)
-                    end
-                    LFGListSearchPanel_SignUp(panel)
-                    lastClickEntry = nil
-                    lastClickTime  = 0
-                else
-                    lastClickEntry = entry.resultID
-                    lastClickTime  = now
-                end
-            end)
-
-            -- Auto-accept role check for Quick Signup. Holding Shift skips the
-            -- auto-accept so the dialog stays open (e.g. to type a signup note).
-            if LFGListApplicationDialog then
-                LFGListApplicationDialog:HookScript("OnShow", function(self)
-                    if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
-                    if self.SignUpButton:IsEnabled() and not IsShiftKeyDown() then
-                        self.SignUpButton:Click()
-                    end
-                end)
-            end
 
             -- Classic Dungeon Finder role check for Quick Signup
             roleFrame = EllesmereUI.SafeCreateFrame("Frame")
@@ -1036,11 +879,11 @@ qolFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        -- Called at load and from the options toggle. Installs the hooks on
-        -- first enable; toggles the role-check event registration to match.
+        -- Called at load and from the options toggle. Installs the role-check
+        -- listener on first enable and toggles its event registration to match.
         EllesmereUI._applyQuickSignup = function()
             local on = EllesmereUIDB and EllesmereUIDB.quickSignup
-            if on then InstallQuickSignupHooks() end
+            if on then InstallQuickSignupRoleCheck() end
             if roleFrame then
                 if on then
                     roleFrame:RegisterEvent("LFG_ROLE_CHECK_SHOW")
@@ -1051,57 +894,6 @@ qolFrame:SetScript("OnEvent", function(self)
         end
 
         EllesmereUI._applyQuickSignup()
-    end
-
-    ---------------------------------------------------------------------------
-    --  Persistent LFG Signup Note
-    ---------------------------------------------------------------------------
-    do
-        local vanilla = LFGListApplicationDialog_Show
-        local patched = false
-
-        local function PatchedShow(self, resultID)
-            if resultID then
-                self.resultID = resultID
-                -- In Midnight the apply-phase search result is SECRET: activityID
-                -- can be a secret value and activityIDs is a secret table whose
-                -- indexing throws. Guard every read so we degrade to a nil
-                -- activityID rather than erroring out the whole sign-up dialog.
-                pcall(function()
-                    -- Degrade to nil up-front so a mid-read throw cannot leave a
-                    -- stale activityID from a previous dialog open.
-                    self.activityID = nil
-                    local info = C_LFGList.GetSearchResultInfo(resultID)
-                    if type(info) ~= "table" then return end
-                    local aid = info.activityID
-                    if issecretvalue(aid) then aid = nil end
-                    if aid == nil and info.activityIDs and not issecretvalue(info.activityIDs) then
-                        aid = info.activityIDs[1]
-                        if issecretvalue(aid) then aid = nil end
-                    end
-                    self.activityID = aid
-                end)
-            end
-            LFGListApplicationDialog_UpdateRoles(self)
-            StaticPopupSpecial_Show(self)
-        end
-
-        local function SyncPatch()
-            if EllesmereUIDB and EllesmereUIDB.persistSignupNote then
-                if not patched then
-                    LFGListApplicationDialog_Show = PatchedShow
-                    patched = true
-                end
-            else
-                if patched then
-                    LFGListApplicationDialog_Show = vanilla
-                    patched = false
-                end
-            end
-        end
-
-        EllesmereUI._applyPersistSignupNote = SyncPatch
-        SyncPatch()
     end
 
     ---------------------------------------------------------------------------
@@ -1260,79 +1052,6 @@ qolFrame:SetScript("OnEvent", function(self)
 
 end)
 
--------------------------------------------------------------------------------
---  Guild Chat Privacy
---  Streamer feature: overlay on CommunitiesFrame guild chat, click to reveal.
--------------------------------------------------------------------------------
-do
-    local overlay
-    local function ShowOverlay()
-        if not overlay then return end
-        if not (EllesmereUIDB and EllesmereUIDB.guildChatPrivacy) then return end
-        local cf = CommunitiesFrame
-        if not cf or not cf.Chat or not cf.Chat.MessageFrame then return end
-        local mf = cf.Chat.MessageFrame
-        overlay:SetParent(mf)
-        overlay:SetAllPoints(mf)
-        overlay:SetFrameLevel(mf:GetFrameLevel() + 20)
-        overlay:Show()
-    end
-
-    local function ApplyGuildChatPrivacy()
-        local enabled = EllesmereUIDB and EllesmereUIDB.guildChatPrivacy
-        if not enabled then
-            if overlay then overlay:Hide() end
-            return
-        end
-
-        if not overlay then
-            overlay = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
-            overlay:SetFrameStrata("DIALOG")
-            local bg = overlay:CreateTexture(nil, "BACKGROUND")
-            bg:SetPoint("TOPLEFT", -2, 0)
-            bg:SetPoint("BOTTOMRIGHT", 2, -4)
-            bg:SetTexture(0.133, 0.133, 0.133, 1)
-            local txt = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-            txt:SetPoint("CENTER")
-            txt:SetText(EllesmereUI.L("Click to Show"))
-            txt:SetTextColor(0.7, 0.7, 0.7, 1)
-            overlay:SetScript("OnClick", function(self)
-                self:Hide()
-            end)
-        end
-
-        if CommunitiesFrame then
-            ShowOverlay()
-            if not overlay._hooked then
-                CommunitiesFrame:HookScript("OnShow", ShowOverlay)
-                overlay._hooked = true
-            end
-        else
-            local loader = EllesmereUI.SafeCreateFrame("Frame")
-            loader:RegisterEvent("ADDON_LOADED")
-            loader:SetScript("OnEvent", function(self, _, addon)
-                if addon == "Blizzard_Communities" then
-                    self:UnregisterAllEvents()
-                    if EllesmereUIDB and EllesmereUIDB.guildChatPrivacy then
-                        ShowOverlay()
-                        if not overlay._hooked then
-                            CommunitiesFrame:HookScript("OnShow", ShowOverlay)
-                            overlay._hooked = true
-                        end
-                    end
-                end
-            end)
-        end
-    end
-    EllesmereUI._applyGuildChatPrivacy = ApplyGuildChatPrivacy
-
-    local f = EllesmereUI.SafeCreateFrame("Frame")
-    f:RegisterEvent("PLAYER_LOGIN")
-    f:SetScript("OnEvent", function(self)
-        self:UnregisterAllEvents()
-        ApplyGuildChatPrivacy()
-    end)
-end
 
 -------------------------------------------------------------------------------
 --  Secondary Stats Display
@@ -1342,10 +1061,8 @@ do
     local statsFrame, statsText
     local format = string.format
 
-    -- Secret-safe percent text: stat getters can return secret numbers in
-    -- restricted content, and string.format errors on a secret value.
     local function PctText(v)
-        if v == nil or issecretvalue(v) then return "?" end
+        if v == nil then return "?" end
         return format("%.2f%%", v)
     end
 
@@ -1376,13 +1093,7 @@ do
         local mastery = GetMasteryEffect()
         local versRating = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
         local versBase = GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
-        -- Arithmetic on a secret errors; show the rating alone in that case
-        local vers
-        if issecretvalue(versRating) or issecretvalue(versBase) then
-            vers = versRating
-        else
-            vers = versRating + versBase
-        end
+        local vers = versRating + versBase
 
         local txt =
             format("|cff%s%s:|r  |cffffffff%s|r", labelHex, EllesmereUI.L("Crit"), PctText(crit)) .. "\n" ..
@@ -2083,20 +1794,6 @@ do
             else
                 _crosshairCutoffRange = 5
             end
-        elseif classFile == "DEMONHUNTER" then
-            if specIndex == 3 or (specID ~= 577 and specID ~= 581) then
-                _crosshairCutoffRange = 25 -- Devourer
-            else
-                _crosshairCutoffRange = 5
-            end
-        elseif classFile == "EVOKER" then
-            if specID == 1467 or specID == 1470 then -- Devastation, Augmentation
-                _crosshairCutoffRange = 25
-            elseif specID == 1468 then -- Preservation
-                _crosshairCutoffRange = 30
-            else
-                _crosshairCutoffRange = 25
-            end
         elseif classFile == "HUNTER" then
             if specID == 253 or specID == 254 then -- Beast Mastery, Marksmanship
                 _crosshairCutoffRange = 40
@@ -2120,12 +1817,6 @@ do
                 _crosshairCutoffRange = 5
             else
                 _crosshairCutoffRange = 40
-            end
-        elseif classFile == "MONK" then
-            if specID == 270 then -- Mistweaver
-                _crosshairCutoffRange = 40
-            else
-                _crosshairCutoffRange = 5
             end
         elseif classFile == "PRIEST" or classFile == "MAGE" or classFile == "WARLOCK" then
             _crosshairCutoffRange = 40
@@ -3695,26 +3386,16 @@ do
 
     local auraFrame = EllesmereUI.SafeCreateFrame("Frame")
 
-    -- 12.1: index scans hard-error while aura restrictions are active
-    -- (M+/raids, even out of combat). Transforms are cosmetic; skipping the
-    -- sweep there is fine -- it re-runs on the next event outside.
-    local function AurasRestricted()
-        local AK = EllesmereUI and EllesmereUI.AuraKit
-        if AK and AK.AurasRestricted then return AK.AurasRestricted() end
-        return false
-    end
-
     -- Sweep current buffs, canceling any included transform. Descending so a
     -- cancel (which shifts later buff indices down) cannot skip a match.
     local function CancelMatching(force)
         if not (C_UnitAuras and C_UnitAuras.GetBuffDataByIndex) then return end
         if not force and UnitAffectingCombat("player") then return end
-        if AurasRestricted() then return end
         for i = 40, 1, -1 do
             local data = C_UnitAuras.GetBuffDataByIndex("player", i)
             if data then
                 local spellID = data.spellId
-                if spellID and not (issecretvalue and issecretvalue(spellID)) and cTable[spellID] then
+                if spellID and cTable[spellID] then
                     CancelUnitBuff("player", i)
                 end
             end
@@ -3727,19 +3408,14 @@ do
             CancelMatching(true)
             return
         end
-        -- UNIT_AURA (player only, via RegisterUnitEvent). 12.1: the payload
-        -- (and its fields) can be secret in restricted content -- boolean
-        -- use of a secret errors, and the sweep would error anyway; bail.
         if not updateInfo then return end
-        if issecretvalue and issecretvalue(updateInfo) then return end
         local isFull = updateInfo.isFullUpdate
-        if isFull ~= nil and issecretvalue and issecretvalue(isFull) then return end
         if isFull then
             CancelMatching(false)
         elseif updateInfo.addedAuras then
             for _, aura in ipairs(updateInfo.addedAuras) do
                 local spellID = aura.spellId
-                if spellID and not (issecretvalue and issecretvalue(spellID)) and cTable[spellID] then
+                if spellID and cTable[spellID] then
                     CancelMatching(false)
                     break
                 end
@@ -3752,16 +3428,14 @@ do
     -- feature is on and the Fishing entry is included.
     local fishFrame = EllesmereUI.SafeCreateFrame("Frame")
     fishFrame:SetScript("OnEvent", function(_, _, _, _, spellID)
-        if issecretvalue and issecretvalue(spellID) then return end
         if spellID ~= 131476 then return end
         if UnitAffectingCombat("player") then return end
         if not (C_UnitAuras and C_UnitAuras.GetBuffDataByIndex) then return end
-        if AurasRestricted() then return end
         for i = 40, 1, -1 do
             local data = C_UnitAuras.GetBuffDataByIndex("player", i)
             if data then
                 local sid = data.spellId
-                if sid and not (issecretvalue and issecretvalue(sid)) and sid == 394009 then
+                if sid and sid == 394009 then
                     CancelUnitBuff("player", i)
                 end
             end

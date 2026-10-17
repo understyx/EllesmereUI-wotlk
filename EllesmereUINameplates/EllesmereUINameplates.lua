@@ -1849,8 +1849,6 @@ function ns.OnPlayerClassCached(name)
 end
 ns.RefreshFriendlyPlateOffset = ns.RefreshFriendlySize
 
-ns.RefreshStackingMotion = function() end
-ns.RefreshStackingBounds = function() end
 function ns.UpdateClassificationIcon(plate)
     if plate and plate.UpdateClassification then
         plate:UpdateClassification()
@@ -1870,8 +1868,6 @@ ns.ForceFriendlyPlayerCVarsOn = function() end
 -- Friendly plates: on 3.3.5 there is no separate container – reuse `plates`.
 ns.friendlyPlates = ns.plates
 
--- NPC overlay reload – no NPC filter system in WotLK, stub.
-ns.NPC_ReloadAll = function() end
 ns.RefreshAllNPCOverlays = function() end
 
 -- Quest objective refresh – no quest mob highlighting API in 3.3.5, stub.

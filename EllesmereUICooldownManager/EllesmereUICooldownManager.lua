@@ -3,7 +3,6 @@
 --  CDM Look Customization and Cooldown Display
 --  Mirrors Blizzard CDM bars with custom styling, cooldown swipes,
 --  desaturation, active state animations, and per-spec profiles.
---  Does NOT parse secret values works around restricted APIs.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -376,7 +375,6 @@ end
 -- Display: reverse cooldown swipe for the duration.
 -- Bloodlust/Heroism is the exception below: it is debuff-driven (see the TBB
 -- tick special-case for popularKey == "bloodlust") rather than cooldown-
--- detected, because the lust buff is cast by others and is secret. It starts a
 -- 40s bar off the player's Sated/Exhaustion debuff edge; warlock pets stay out
 -- because they have no usable detection.
 local BUFF_BAR_PRESETS = {
@@ -1764,22 +1762,14 @@ end
 local function ResolveChildSpellID(child)
     if not child then return nil end
     -- Prefer the aura spellID (most accurate for buff viewers).
-    -- Wrap comparisons in pcall: these frame methods can return secret
-    -- number values in combat which cannot be compared with > 0.
     if child.GetAuraSpellID then
         local ok, auraID = pcall(child.GetAuraSpellID, child)
-        if ok and auraID then
-            local cmpOk, gt = pcall(function() return auraID > 0 end)
-            if cmpOk and gt then return auraID end
-        end
+        if ok and type(auraID) == "number" and auraID > 0 then return auraID end
     end
     -- Then try the frame's own spellID
     if child.GetSpellID then
         local ok, fid = pcall(child.GetSpellID, child)
-        if ok and fid then
-            local cmpOk, gt = pcall(function() return fid > 0 end)
-            if cmpOk and gt then return fid end
-        end
+        if ok and type(fid) == "number" and fid > 0 then return fid end
     end
     -- Fall back to cooldownInfo struct
     local cdID = child.cooldownID or (child.cooldownInfo and child.cooldownInfo.cooldownID)
@@ -5250,7 +5240,6 @@ end
 --  Rendering is a NumericRuleFormatter attached to the icon's Cooldown widget
 --  via SetCountdownFormatter: the ENGINE formats the number (no OnUpdate, no
 --  per-tick Lua), it covers whatever the widget displays (cooldown, recharge,
---  aura duration, fake-active window), and it evaluates engine-side, so secret
 --  durations format fine. The color change rides IN the format string (color
 --  escape wrap), so no text-color swapping happens at the threshold edge.
 --  Formatters are immutable per config and shared: one instance per distinct
@@ -6337,16 +6326,10 @@ local function EnsureFocusCastProxy()
         end
         if not spellID or spellID <= 0 then return end
 
-        -- No interruptible check. The kickProtected flag on UnitCastingInfo
-        -- and UnitChannelInfo is a secret boolean in Midnight and any
-        -- laundering path that returns a value back into Lua produces a
-        -- tainted result we cannot branch on. We accept that the sound will
-        -- occasionally fire on uninterruptible casts -- the nameplate
-        -- shield icon still tells the player visually.
+        -- Uninterruptible casts are not filtered, so the sound can also play
+        -- for them. The nameplate shield remains the visual indicator.
 
-        -- Cooldown check: only play if our interrupt is ready. cdInfo.isActive
-        -- is a clean bool -- the duration/startTime fields are secret in
-        -- Midnight and can't be compared in Lua, but isActive is safe.
+        -- Play only while our interrupt is ready.
         if C_Spell and C_Spell.GetSpellCooldown then
             local cdInfo = C_Spell.GetSpellCooldown(spellID)
             if cdInfo and cdInfo.isActive then return end
@@ -6363,10 +6346,8 @@ ns.EnsureFocusCastProxy = EnsureFocusCastProxy
 -- (gain) or drops (loss). Blizzard's buff cooldown-viewer item frames fire
 -- TriggerAuraAppliedAlert on the apply edge and TriggerAuraRemovedAlert on the
 -- drop edge, so we hooksecurefunc both (taint-safe post-hook, no polling) and
--- play the matching per-icon sound. The frame's GetSpellID is a SECRET value
 -- while the aura is active, so we resolve the clean canonical id via
 -- GetCanonicalSpellIDForFrame (the same id the options menu writes the setting
--- under) -- never index a table with the live secret id. Hooked-frame + throttle
 -- state live in a do-block, off the Blizzard frame table per the no-custom-props
 -- rule. Reuses the FocusKick sound table so the option list stays identical to
 -- Focus Cast Sound. The two edges use separate throttle tables so they never
@@ -6514,9 +6495,7 @@ local function FocusReminderUnitMatches(unit)
     if cls == "elite" or cls == "rareelite" or cls == "worldboss" then
         local lvl = UnitLevel(unit)
         local plvl = UnitLevel("player")
-        local lvlClean = lvl and not (issecretvalue and issecretvalue(lvl))
-        local plvlClean = plvl and not (issecretvalue and issecretvalue(plvl))
-        if lvlClean and (lvl == -1 or (plvlClean and lvl >= plvl + 1)) then return true end
+        if lvl and (lvl == -1 or (plvl and lvl >= plvl + 1)) then return true end
     end
     return false
 end
@@ -7819,11 +7798,9 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     end
 
     for _, barData in ipairs(ns.GetActiveCDMConfig(true).bars) do
-        -- cdUtilOnly (the automatic reseed path): buff-family bars are
-        -- picker-authoritative -- materializing live buff icons would
-        -- reintroduce the secret-ID drift duplicate-slot bug the options
-        -- materializer's skip exists to prevent. The manual Repopulate
-        -- flow passes nothing and keeps its full sweep.
+        -- Automatic reseeds skip picker-authoritative buff bars because live
+        -- icons can introduce duplicate slots. Manual Repopulate keeps its
+        -- full sweep.
         if not barData.isGhostBar
            and barData.key ~= "buffs" and barData.key ~= "debuffs"
            and (barData.barType == "cooldowns" or barData.barType == "utility"
@@ -8751,183 +8728,7 @@ function ECME:CDMFinishSetup()
     ns._pendingApplyOnReanchor = true
 end
 
--------------------------------------------------------------------------------
---  Rotation Helper Integration (Blizzard C_AssistedCombat)
---  Highlights the currently suggested spell on its CDM icon using Blizzard's
---  native ActionBarButtonAssistedCombatHighlightTemplate -- same shine as the
---  stock action bars. Gated purely by Blizzard's "assistedCombatHighlight"
---  CVar; we don't carry a second toggle of our own.
--------------------------------------------------------------------------------
-ns._rotationGlowedIcons = {}
-ns._rotationHookInstalled = false
-ns._rotationInCombat = false
 
-local ROT_GLOW_RATIO = 0.33
-
-local function _rotCVarOn()
-    -- User can force-hide via our own toggle, overriding Blizzard's CVar
-    local p = ECME.db and ECME.db.profile
-    if p and ns.GetActiveCDMConfig(true) and ns.GetActiveCDMConfig(true).hideRotationHelper then return false end
-    return GetCVarBool and GetCVarBool("assistedCombatHighlight")
-end
-
-local function _rotCreateHighlight(icon)
-    local ok, hf = pcall(EllesmereUI.SafeCreateFrame, "Frame", nil, icon, "ActionBarButtonAssistedCombatHighlightTemplate")
-    if not ok or not hf then return nil end
-    hf:SetAllPoints()
-    -- Sit above everything on the icon: Blizzard's cooldown swipe, our border
-    -- frame, our glowOverlay (+6), and any proc alert frames. +15 clears them
-    -- all with margin.
-    hf:SetFrameLevel(icon:GetFrameLevel() + 15)
-    hf:Hide()
-    if hf.Flipbook and hf.Flipbook.Anim then
-        hf.Flipbook.Anim:Play()
-        hf.Flipbook.Anim:Stop()
-    end
-    return hf
-end
-
-local function _rotHide(icon)
-    local rfc = icon and _ecmeFC[icon]
-    local hf = rfc and rfc.rotationHighlight
-    if not hf then return end
-    if hf.Flipbook and hf.Flipbook.Anim then hf.Flipbook.Anim:Stop() end
-    hf:Hide()
-end
-
-local function _rotShow(icon)
-    if not icon then return end
-    local rfc = FC(icon)
-    local hf = rfc.rotationHighlight
-    if not hf then
-        hf = _rotCreateHighlight(icon)
-        if not hf then return end
-        rfc.rotationHighlight = hf
-    end
-    if hf.Flipbook then
-        local w = icon:GetWidth() or 36
-        local h = icon:GetHeight() or 36
-        local ox = w * ROT_GLOW_RATIO
-        local oy = h * ROT_GLOW_RATIO
-        hf.Flipbook:ClearAllPoints()
-        hf.Flipbook:SetPoint("TOPLEFT", icon, "TOPLEFT", -ox, oy)
-        hf.Flipbook:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", ox, -oy)
-    end
-    hf:Show()
-    if hf.Flipbook and hf.Flipbook.Anim then
-        hf.Flipbook.Anim:Play()
-        if not ns._rotationInCombat then hf.Flipbook.Anim:Stop() end
-    end
-end
-
-local function UpdateRotationHighlights()
-    if not _rotCVarOn() then
-        for icon in pairs(ns._rotationGlowedIcons) do
-            _rotHide(icon)
-            ns._rotationGlowedIcons[icon] = nil
-        end
-        return
-    end
-
-    local suggestedSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell and C_AssistedCombat.GetNextCastSpell()
-
-    local newSet = {}
-    if suggestedSpell then
-        -- A CDM icon and GetNextCastSpell can each hold EITHER the base or an
-        -- override spell id (e.g. Maul <-> Raze), and which side is which
-        -- varies by spec. The old code only resolved the suggestion's base and
-        -- compared it to the stored id, so it matched "icon=base, suggested=
-        -- override" but missed the reverse ("icon=override, suggested=base"),
-        -- leaving those icons un-highlighted. Compare on base ids in BOTH
-        -- directions. This is strictly a superset of the old exact-id match, so
-        -- anything that highlighted before still does.
-        local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
-        local suggestedBase = (GetBaseSpell and GetBaseSpell(suggestedSpell)) or suggestedSpell
-        for _, icons in pairs(cdmBarIcons) do
-            for _, icon in ipairs(icons) do
-                local ifc = _ecmeFC[icon]
-                local sid = ifc and ifc.spellID
-                if sid and icon:IsShown() then
-                    -- Direct/base match first (cheap); only resolve the icon's
-                    -- own base if those miss, to keep the common path light.
-                    -- sid > 0: item/trinket icons store -itemID / -13 / -14,
-                    -- which must not be fed to GetBaseSpell.
-                    local match = (sid == suggestedSpell) or (sid == suggestedBase)
-                    if not match and GetBaseSpell and sid > 0 then
-                        match = GetBaseSpell(sid) == suggestedBase
-                    end
-                    if match then
-                        _rotShow(icon)
-                        newSet[icon] = true
-                    end
-                end
-            end
-        end
-    end
-
-    for icon in pairs(ns._rotationGlowedIcons) do
-        if not newSet[icon] then _rotHide(icon) end
-    end
-    ns._rotationGlowedIcons = newSet
-end
-ns.UpdateRotationHighlights = UpdateRotationHighlights
-
--- One-frame defer after a bar rebuild: icon frames may have just been
--- recycled or re-shown, so we want to re-run the match after the layout
--- settles (dirty-frame pattern).
-local _rotDirty = EllesmereUI.SafeCreateFrame("Frame")
-_rotDirty:Hide()
-_rotDirty:SetScript("OnUpdate", function(self)
-    self:Hide()
-    UpdateRotationHighlights()
-end)
-
-local function _rotSyncCombat()
-    local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
-    ns._rotationInCombat = inCombat and true or false
-    for icon in pairs(ns._rotationGlowedIcons) do
-        local rfc2 = icon and _ecmeFC[icon]
-        local hf = rfc2 and rfc2.rotationHighlight
-        if hf and hf:IsShown() and hf.Flipbook and hf.Flipbook.Anim then
-            if ns._rotationInCombat then
-                if not hf.Flipbook.Anim:IsPlaying() then hf.Flipbook.Anim:Play() end
-            else
-                if hf.Flipbook.Anim:IsPlaying() then hf.Flipbook.Anim:Stop() end
-            end
-        end
-    end
-end
-ns._syncRotationCombatState = _rotSyncCombat
-
-local function InstallRotationHook()
-    if ns._rotationHookInstalled then return end
-    ns._rotationHookInstalled = true
-
-    _rotSyncCombat()
-
-    if EventRegistry and EventRegistry.RegisterCallback then
-        EventRegistry:RegisterCallback("AssistedCombatManager.OnAssistedHighlightSpellChange", function()
-            UpdateRotationHighlights()
-        end, "ECME_CDM_RotationHelper")
-        -- Clear highlights if the user flips Blizzard's CVar off at runtime.
-        EventRegistry:RegisterCallback("AssistedCombatManager.OnSetUseAssistedHighlight", function()
-            UpdateRotationHighlights()
-        end, "ECME_CDM_RotationHelper_CVar")
-    end
-
-    if AssistedCombatManager and AssistedCombatManager.UpdateAllAssistedHighlightFramesForSpell then
-        hooksecurefunc(AssistedCombatManager, "UpdateAllAssistedHighlightFramesForSpell", function()
-            UpdateRotationHighlights()
-        end)
-    end
-
-    -- Re-run after bar rebuilds so the shine follows icon recycling.
-    if ns.CollectAndReanchor then
-        hooksecurefunc(ns, "CollectAndReanchor", function() _rotDirty:Show() end)
-    end
-
-    UpdateRotationHighlights()
-end
 
 -- Show Item Count "Out of Combat" mode: re-run the icon restyle for bars
 -- using it whenever combat starts or ends (the gate inside the restyle reads
@@ -8981,14 +8782,7 @@ local mainCDMEvents = {
     -- Visibility option events: mounted, target, instance zone changes
     "PLAYER_MOUNT_DISPLAY_CHANGED",
     "PLAYER_TARGET_CHANGED",
-    -- Dragonriding visibility modes: capability edge (mount/dismount/zone) plus
-    -- the airborne edge (takeoff/landing while staying mounted; probed at load
-    -- in EllesmereUI_Visibility.lua -- absent = the checklist items lock).
-    "PLAYER_CAN_GLIDE_CHANGED",
 }
-if EllesmereUI._hasGlidingEvent then
-    mainCDMEvents[#mainCDMEvents + 1] = "PLAYER_IS_GLIDING_CHANGED"
-end
 -- Druid travel/flight/aquatic form needs an explicit re-check for the
 -- visHideMounted option. PLAYER_MOUNT_DISPLAY_CHANGED only fires for real
 -- mounts, and the viewer hooks rebuild icon content on shapeshift but
@@ -9079,7 +8873,7 @@ local function ScheduleRosterRebuild()
     if ns.QueueReanchor then ns.QueueReanchor() end
 end
 
-function ns.MainCDMOnEvent(_, event, unit, updateInfo, arg3)
+function ns.MainCDMOnEvent(_, event, unit)
     if not ECME.db then return end
     if event == "PLAYER_LOGOUT" then
         ns.SaveCachedBarSizes()
@@ -9158,14 +8952,10 @@ function ns.MainCDMOnEvent(_, event, unit, updateInfo, arg3)
         _CDMApplyVisibility()
         return
     end
-    if event == "PLAYER_MOUNT_DISPLAY_CHANGED"
-        or event == "PLAYER_CAN_GLIDE_CHANGED"
-        or event == "PLAYER_IS_GLIDING_CHANGED" then
+    if event == "PLAYER_MOUNT_DISPLAY_CHANGED" then
         -- Defer to a clean execution context: the event handler chain can
         -- carry taint from other addons, which propagates into LayoutCDMBar
         -- when a bar transitions from hidden to visible (visHideMounted).
-        -- The dragonriding edges take the same deferred path for the same
-        -- reason (mid-flight unhide runs LayoutCDMBar).
         C_Timer.After(0, _CDMApplyVisibility)
         return
     end
@@ -9188,7 +8978,6 @@ function ns.MainCDMOnEvent(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "ZONE_CHANGED_NEW_AREA" then
-        if ns._syncRotationCombatState then ns._syncRotationCombatState() end
         if event == "PLAYER_REGEN_DISABLED" then
             _inCombat = true
             _CDMApplyVisibility()
@@ -9242,10 +9031,6 @@ function ns.MainCDMOnEvent(_, event, unit, updateInfo, arg3)
         if isPvP and not wasPvP then
             if ns.QueueReanchor then ns.QueueReanchor() end
         end
-        -- Install rotation helper hook after CDM frames have been built
-        C_Timer.After(1, function()
-            InstallRotationHook()
-        end)
         -- Safety: re-apply visibility after loading screen settles.
         -- Two passes to catch both fast and late viewer pool rebuilds.
         C_Timer.After(1.5, _CDMApplyVisibility)
@@ -9496,11 +9281,9 @@ SlashCmdList.CDMDBG = function()
                 local canonical = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame) or nil
                 local canonName = canonical and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(canonical) or "?"
                 local fc = ns._ecmeFC and ns._ecmeFC[frame]
-                -- Render state: effective alpha (secret-guarded) + what the
                 -- frame's first point anchors to (our bar container name via
                 -- reverse lookup, else the region's own name).
                 local alpha = frame:GetAlpha()
-                if issecretvalue and issecretvalue(alpha) then alpha = -1 end
                 local _, relTo = frame:GetPoint(1)
                 local relName = nil
                 if relTo then
@@ -9718,16 +9501,14 @@ SlashCmdList.CDMBUFFID = function()
     local OFF    = "|r"
     local function P(s) print(ACCENT .. "[CDMBUFFID]" .. OFF .. " " .. s) end
 
-    -- Live buff GetSpellID is a secret value while the aura is active; guard
-    -- every numeric so the probe never compares or prints a secret.
-    local function IsSecret(v) return issecretvalue and issecretvalue(v) end
+    -- The probe prints the live ids and compares the rendered and preview
+    -- identities for each buffs-bar frame.
     local function SN(v)
         if v == nil then return "nil" end
-        if IsSecret(v) then return "<secret>" end
         return tostring(v)
     end
     local function NM(sid)
-        if not sid or IsSecret(sid) or type(sid) ~= "number" or sid <= 0 then return "?" end
+        if not sid or type(sid) ~= "number" or sid <= 0 then return "?" end
         return (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)) or "?"
     end
 
@@ -9790,9 +9571,7 @@ SlashCmdList.CDMBUFFID = function()
 
                 -- id-collapse verdict: seed/sort (fcSpell) vs preview/settings (canon)
                 local verdict
-                if IsSecret(fcSpell) or IsSecret(canon) then
-                    verdict = BAD .. "SECRET" .. OFF; nDiverge = nDiverge + 1
-                elseif type(fcSpell) == "number" and type(canon) == "number" and fcSpell == canon then
+                if type(fcSpell) == "number" and type(canon) == "number" and fcSpell == canon then
                     verdict = GOOD .. "OK" .. OFF
                 else
                     verdict = BAD .. "DIVERGE" .. OFF; nDiverge = nDiverge + 1

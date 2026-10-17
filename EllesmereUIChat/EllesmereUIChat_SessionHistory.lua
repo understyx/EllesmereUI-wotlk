@@ -134,11 +134,7 @@ end
 
 local function IsValidMessage(msg)
     if msg == nil then return false end
-    if issecretvalue and issecretvalue(msg) then return false end
-    local ok, valid = pcall(function()
-        return type(msg) == "string" and msg ~= ""
-    end)
-    return ok and valid
+    return type(msg) == "string" and msg ~= ""
 end
 
 local function MessageForStorage(msg)
@@ -311,7 +307,6 @@ local function TextFromChatLineID(lineID)
     if not C_ChatInfo or not C_ChatInfo.GetChatLineText then return nil end
     local ok, text = pcall(C_ChatInfo.GetChatLineText, lineID)
     if not ok or not text then return nil end
-    if issecretvalue and issecretvalue(text) then return nil end
     return MessageForStorage(text)
 end
 
@@ -320,7 +315,6 @@ local function SenderFromChatLineID(lineID)
     if not C_ChatInfo or not C_ChatInfo.GetChatLineSenderName then return nil end
     local ok, name = pcall(C_ChatInfo.GetChatLineSenderName, lineID)
     if not ok or not name then return nil end
-    if issecretvalue and issecretvalue(name) then return nil end
     return MessageForStorage(name)
 end
 
@@ -336,9 +330,7 @@ local function BuildLineFromChatEvent(event, ...)
 
     local sender = SenderFromChatLineID(lineID)
     if not sender and type(arg2) == "string" and arg2 ~= "" then
-        if not (issecretvalue and issecretvalue(arg2)) then
-            sender = MessageForStorage(arg2)
-        end
+        sender = MessageForStorage(arg2)
     end
 
     if chatType == "WHISPER_INFORM" or chatType == "BN_WHISPER_INFORM" then

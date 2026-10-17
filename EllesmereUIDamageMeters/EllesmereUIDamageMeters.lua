@@ -911,7 +911,7 @@ local function GetCurrentViewDuration()
     if _inCombat or _needsFinalRefresh then
         if C_DamageMeter and C_DamageMeter.GetSessionDurationSeconds then
             local d = C_DamageMeter.GetSessionDurationSeconds(Enum.DamageMeterSessionType.Current)
-            if type(d) == "number" and not (issecretvalue and issecretvalue(d)) then
+            if type(d) == "number" then
                 _curViewFrozenDur = d   -- keep the pin warm with the last live value
                 return d
             end
@@ -923,7 +923,7 @@ local function GetCurrentViewDuration()
     if _curViewFrozenDur and _curViewFrozenDur > 0 then return _curViewFrozenDur end
     if C_DamageMeter and C_DamageMeter.GetSessionDurationSeconds then
         local d = C_DamageMeter.GetSessionDurationSeconds(Enum.DamageMeterSessionType.Current)
-        if type(d) == "number" and not (issecretvalue and issecretvalue(d)) then return d end
+        if type(d) == "number" then return d end
     end
     return 0
 end
@@ -937,7 +937,7 @@ local function FreezeCombat(ts)
     _combatEndTime = ts or GetTime()
     if C_DamageMeter and C_DamageMeter.GetSessionDurationSeconds then
         local d = C_DamageMeter.GetSessionDurationSeconds(Enum.DamageMeterSessionType.Current)
-        if type(d) == "number" and not (issecretvalue and issecretvalue(d)) and d >= (_curViewFrozenDur or 0) then
+        if type(d) == "number" and d >= (_curViewFrozenDur or 0) then
             _curViewFrozenDur = d
         end
     end
@@ -972,7 +972,7 @@ local function CleanupFeignCache()
     local present = {}
     local function note(unit)
         local g = UnitGUID(unit)
-        if g and not (issecretvalue and issecretvalue(g)) then present[g] = unit end
+        if g then present[g] = unit end
     end
     note("player")
     if IsInRaid() then
@@ -989,7 +989,7 @@ local function CleanupFeignCache()
             _feignDeathGUIDs[guid] = nil  -- player left the group: untrackable
         else
             local hp = UnitHealth(unit)
-            if hp and not (issecretvalue and issecretvalue(hp)) and hp <= 0 then
+            if hp and hp <= 0 then
                 _feignDeathGUIDs[guid] = nil
             end
         end
@@ -1039,39 +1039,13 @@ instanceFrame:SetScript("OnEvent", function(_, event)
         -- no-reset-on-pull). Force an immediate repaint reading the fresh session,
         -- and revive the live ticker if we are mid-fight. Cheap and rare (fires at
         -- combat-segment boundaries, not per damage event).
-        if EllesmereUI and EllesmereUI.IS_121 then
-            -- 12.1: the event is no longer reliably rare -- it can fire
-            -- continuously during combat, and even a debounced full repaint
-            -- per burst multiplied by windows dwarfed the ticker's designed
-            -- refresh rate (each repaint pays the session-fetch C call).
-            -- In a live fight the caches just invalidate so the next tick
-            -- reads fresh data: the segment boundaries already force their
-            -- own immediate repaints (ENCOUNTER_START / REGEN_DISABLED),
-            -- and the ticker covers everything in between. Out of combat,
-            -- one debounced repaint keeps session rolls visually prompt.
-            for _, w in ipairs(_windows) do
-                w._barCacheKey = nil
-                w._barSources = nil
-                w._cachedTargets = nil
-            end
-            if _inCombat or _needsFinalRefresh then
-                if not _sharedTicker then StartSharedTicker() end
-            elseif not instanceFrame._curSessionPending then
-                instanceFrame._curSessionPending = true
-                C_Timer.After(0.1, function()
-                    instanceFrame._curSessionPending = nil
-                    for _, w in ipairs(_windows) do w.Refresh() end
-                end)
-            end
-        else
-            for _, w in ipairs(_windows) do
-                w._barCacheKey = nil
-                w._barSources = nil
-                w._cachedTargets = nil
-                w.Refresh()
-            end
-            if _inCombat and not _sharedTicker then StartSharedTicker() end
+        for _, w in ipairs(_windows) do
+            w._barCacheKey = nil
+            w._barSources = nil
+            w._cachedTargets = nil
+            w.Refresh()
         end
+        if _inCombat and not _sharedTicker then StartSharedTicker() end
     elseif event == "DAMAGE_METER_RESET" then
         -- Blizzard cleared all session data (auto-reset CVar, manual reset, etc.)
         _combatEndTime = 0; _curViewFrozenDur = 0
@@ -1417,9 +1391,8 @@ end
 local function FormatBarValue(amt, perSec, numFmt)
     -- Per-second can drop below 1 on long overall windows (total / huge time),
     -- which makes AbbreviateNumbers dump the raw float ("0.6100439606729"). Clamp
-    -- to a minimum of 1, but only when perSec is a plain number -- never compare a
-    -- secret value. (While secret, the session is short and perSec is never sub-1.)
-    if perSec ~= nil and (not issecretvalue or not issecretvalue(perSec)) then
+    -- to a minimum of 1.
+    if perSec ~= nil then
         if perSec < 1 then perSec = 1 end
     end
     if numFmt == 0 then
@@ -1436,7 +1409,6 @@ end
 
 local function StripRealm(name)
     if not name or name == "" then return "Unknown" end
-    if issecretvalue and issecretvalue(name) then return "You" end
     if Ambiguate then
         local short = Ambiguate(name, "short")
         if short and short ~= "" then return short end
@@ -1445,7 +1417,7 @@ local function StripRealm(name)
 end
 
 local function FormatTimer(seconds)
-    if not seconds or (issecretvalue and issecretvalue(seconds)) then return "0:00" end
+    if not seconds then return "0:00" end
     return format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
 end
 
@@ -1455,7 +1427,7 @@ local function GetBreakdownDuration(session, sessionID)
             local sess = C_DamageMeter.GetAvailableCombatSessions()
             if sess then
                 for _, s in ipairs(sess) do
-                    if s.sessionID == sessionID and type(s.durationSeconds) == "number" and not (issecretvalue and issecretvalue(s.durationSeconds)) then
+                    if s.sessionID == sessionID and type(s.durationSeconds) == "number" then
                         return s.durationSeconds
                     end
                 end
@@ -1465,7 +1437,7 @@ local function GetBreakdownDuration(session, sessionID)
         return GetCurrentViewDuration()
     elseif C_DamageMeter and C_DamageMeter.GetSessionDurationSeconds then
         local d = C_DamageMeter.GetSessionDurationSeconds(session)
-        if type(d) == "number" and not (issecretvalue and issecretvalue(d)) then return d end
+        if type(d) == "number" then return d end
     end
 end
 
@@ -1530,7 +1502,7 @@ local function ResolveIcon(src, iconTex, barH)
     if style == "none" then iconTex:Hide(); return 0 end
 
     local classFile = src.classFilename
-    if not classFile or (issecretvalue and issecretvalue(classFile)) or classFile == "" then iconTex:Hide(); return 0 end
+    if not classFile or classFile == "" then iconTex:Hide(); return 0 end
 
     if style == "spec" then
         local specIcon = src.specIconID
@@ -1588,9 +1560,8 @@ local function AggregateEnemyPlayers(srcData, duration)
         local det = spell.combatSpellDetails
         if det then
             local name = det.unitName
-            if name and not (issecretvalue and issecretvalue(name)) then
-                local ok, amt = pcall(function() return spell.totalAmount end)
-                local amount = (ok and amt) or 0
+            if name then
+                local amount = spell.totalAmount or 0
                 local p = byName[name]
                 if not p then
                     p = { name = name, class = det.unitClassFilename, specIcon = det.specIconID, total = 0 }
@@ -1656,10 +1627,9 @@ local function BuildAllPlayerTargets(session, sessionID)
         if srcData and srcData.combatSpells then
             for _, spell in ipairs(srcData.combatSpells) do
                 local det = spell.combatSpellDetails
-                if det and det.unitName and not (issecretvalue and issecretvalue(det.unitName)) then
+                if det and det.unitName then
                     local pName = det.unitName
-                    local ok, amt = pcall(function() return spell.totalAmount end)
-                    local amount = (ok and amt) or 0
+                    local amount = spell.totalAmount or 0
                     if amount > 0 then
                         local pt = byPlayer[pName]
                         if not pt then pt = {}; byPlayer[pName] = pt end
@@ -1690,7 +1660,6 @@ end
 local function BuildPlayerTargets(playerName, session, sessionID, maxTargets, playerGUID)
 
     if not playerName and not playerGUID then return nil end
-    if playerName and issecretvalue and issecretvalue(playerName) then return nil end
     local queryKey = playerName or playerGUID
 
     -- 1. Direct adapter query if supported (e.g. Skada adapter direct target tracking)
@@ -1803,7 +1772,7 @@ local function EnsureTooltipFrame()
     _ttFrame._hdrText:SetWidth(TT_WIDTH - 25); _ttFrame._hdrText:SetJustifyH("LEFT"); _ttFrame._hdrText:SetWordWrap(false)
     SetDMFont(_ttFrame._hdrText, 10)
 
-    -- Combat lockdown message (shown instead of bars)
+    -- Tooltip status message
     _ttFrame._combatMsg = _ttFrame:CreateFontString(nil, "OVERLAY")
     _ttFrame._combatMsg:SetPoint("TOP", _ttFrame._hdr, "BOTTOM", 0, -8)
     _ttFrame._combatMsg:SetPoint("LEFT", _ttFrame, "LEFT", 8, 0)
@@ -1811,7 +1780,6 @@ local function EnsureTooltipFrame()
     _ttFrame._combatMsg:SetJustifyH("CENTER"); _ttFrame._combatMsg:SetWordWrap(true)
     SetDMFont(_ttFrame._combatMsg, 10)
     _ttFrame._combatMsg:SetTextColor(0.6, 0.6, 0.6, 1)
-    _ttFrame._combatMsg:SetText(EllesmereUI.L("Detailed information is\nsecret while in combat"))
     _ttFrame._combatMsg:Hide()
 
     _ttFrame:SetScript("OnShow", function() _ttVisible = true end)
@@ -1894,7 +1862,6 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     -- Death recap tooltip: show last few events before death
     if curDMType == Enum.DamageMeterType.Deaths then
         local recapID = bar._src.deathRecapID
-        if recapID and issecretvalue and issecretvalue(recapID) then recapID = nil end
         if not recapID or recapID <= 0 or not C_DeathRecap or not C_DeathRecap.GetRecapEvents then return false end
         local ok, raw = pcall(C_DeathRecap.GetRecapEvents, recapID)
         if not ok or not raw or #raw == 0 then return false end
@@ -1932,7 +1899,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 if isHeal then b.fill:SetStatusBarColor(0.10, 0.50, 0.10)
                 else b.fill:SetStatusBarColor(0.60, 0.08, 0.08) end
                 local spellName = ev.spellName
-                if not spellName or (issecretvalue and issecretvalue(spellName)) or spellName == "" then
+                if not spellName or spellName == "" then
                     if isHeal then spellName = "Heal"
                     elseif evType == "SWING_DAMAGE" then spellName = "Melee"
                     else spellName = "Unknown" end
@@ -1961,7 +1928,6 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     if curDMType == Enum.DamageMeterType.EnemyDamageTaken then
         local guid = bar._srcGUID
         local cid = bar._src.sourceCreatureID
-        if issecretvalue and (issecretvalue(guid) or issecretvalue(cid)) then return false end
         local srcData
         if curSessionID and C_DamageMeter.GetCombatSessionSourceFromID then
             srcData = C_DamageMeter.GetCombatSessionSourceFromID(curSessionID, curDMType, guid, cid)
@@ -2016,7 +1982,6 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     -- Standard spell breakdown tooltip
     local guid = bar._srcGUID
     local cid = bar._src.sourceCreatureID
-    if issecretvalue and (issecretvalue(guid) or issecretvalue(cid)) then return false end
     local srcData
     if curSessionID and C_DamageMeter.GetCombatSessionSourceFromID then
         srcData = C_DamageMeter.GetCombatSessionSourceFromID(curSessionID, curDMType, guid, cid)
@@ -2030,13 +1995,12 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     wipe(_ttSorted)
     for _, spell in ipairs(srcData.combatSpells) do
         local amt = spell.totalAmount
-        if issecretvalue and issecretvalue(amt) then amt = 0
-        elseif type(amt) ~= "number" then amt = 0 end
+        if type(amt) ~= "number" then amt = 0 end
         _ttSorted[#_ttSorted + 1] = { spell = spell, amount = amt }
     end
     local maxAmt = _ttSorted[1] and _ttSorted[1].amount or 1
     local totalDmg = 0
-    local canPercent = type(maxAmt) == "number" and (not issecretvalue or not issecretvalue(maxAmt))
+    local canPercent = type(maxAmt) == "number"
     if canPercent then for _, e in ipairs(_ttSorted) do totalDmg = totalDmg + e.amount end end
     local texPath, texKey = GetBreakdownBarTexturePath()
     local ttMax = TT_MAX()
@@ -2074,7 +2038,6 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             local spellName = spell.name
             if (not spellName or spellName == "") and spell.spellID and spell.spellID > 0 then
                 spellName = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID)
-                if issecretvalue and issecretvalue(spellName) then spellName = nil end
             end
             b.label:SetText(spellName or spell.creatureName or "Unknown")
             if spell.formattedValue and spell.formattedValue ~= "" then
@@ -2492,10 +2455,7 @@ local function CreateDMWindow(winIdx)
                 if bar._fillBorder then bar._fillBorder:Hide() end
                 return
             end
-            -- Follow-fill mode: the filled extent is SECRET geometry (fill
-            -- values are secret damage numbers), so nothing here may measure
-            -- it -- Blizzard's Backdrop/NineSlice styles crash on GetWidth of
-            -- a frame anchored to it. Render four plain color strips stretched
+            -- Follow-fill mode: render four plain color strips stretched
             -- purely by engine anchors instead: left edge on plain geometry,
             -- right edge riding the fill texture. Always solid, whatever the
             -- Border Style dropdown says; the styled path stays full-row only.
@@ -2567,7 +2527,7 @@ local function CreateDMWindow(winIdx)
                 bar._iconBorderFrame:SetAllPoints(bar.classIcon) -- tracks icon size/position
             end
             -- Follow the icon's actual shown state: ResolveIcon hides the icon
-            -- for sources without a usable class (secret/NPC rows), and a frame
+            -- for sources without a usable class (NPC rows), and a frame
             -- anchored to a hidden texture would still render a floating border.
             if bar.classIcon:IsShown() then bar._iconBorderFrame:Show() else bar._iconBorderFrame:Hide() end
             local tex = c.iconBorderTexture or "solid"
@@ -2585,12 +2545,11 @@ local function CreateDMWindow(winIdx)
             local a = c.barBgAlpha or 0
             -- Class-colored track when enabled: tint the per-bar background with
             -- this bar's player class color (x the bg alpha), else the custom bg
-            -- color. classFile can be a secret value, so guard before indexing
-            -- (RAID_CLASS_COLORS[secret] throws); EUI.GetClassColor honors global
-            -- custom class color overrides. Mirrors the fill/text class coloring.
+            -- color. Check the class key before indexing; EUI.GetClassColor honors
+            -- global custom class color overrides. Mirrors fill/text coloring.
             if c.barBgUseClassColor then
                 local cf = bar._class
-                if cf and (not issecretvalue or not issecretvalue(cf)) and RAID_CLASS_COLORS[cf] then
+                if cf and RAID_CLASS_COLORS[cf] then
                     local cc = EUI.GetClassColor(cf)
                     if cc then bar._bg:SetTexture(cc.r, cc.g, cc.b, a); return end
                 end
@@ -2625,7 +2584,7 @@ local function CreateDMWindow(winIdx)
                     -- Deaths without recap data: block click
                     if W.curDMType == Enum.DamageMeterType.Deaths then
                         local rid = bar._src.deathRecapID
-                        if not rid or (issecretvalue and issecretvalue(rid)) or rid <= 0 then return end
+                        if not rid or rid <= 0 then return end
                         if C_DeathRecap and C_DeathRecap.GetRecapEvents then
                             local ok, raw = pcall(C_DeathRecap.GetRecapEvents, rid)
                             if not ok or not raw or #raw == 0 then return end
@@ -2644,7 +2603,7 @@ local function CreateDMWindow(winIdx)
             -- Deaths without recap: show "no recap available" tooltip
             if W.curDMType == Enum.DamageMeterType.Deaths and bar._src then
                 local rid = bar._src.deathRecapID
-                local hasRecap = rid and not (issecretvalue and issecretvalue(rid)) and rid > 0
+                local hasRecap = rid and rid > 0
                 if hasRecap and C_DeathRecap and C_DeathRecap.GetRecapEvents then
                     local ok, raw = pcall(C_DeathRecap.GetRecapEvents, rid)
                     if not ok or not raw or #raw == 0 then hasRecap = false end
@@ -2695,17 +2654,16 @@ local function CreateDMWindow(winIdx)
     --
     -- Anchored to the LEFT of the bar via ANCHOR_NONE + manual SetPoint.
     -- Guards: bar._spellID is a clean numeric spellID on spell rows (nil on
-    -- player/target rows); secret-value + valid-spell checks keep it safe in
+    -- player/target rows); valid-spell checks keep it safe in
     -- any context (and ShowWidgetTooltip's combat suppression no longer applies,
     -- so the guards do the work).
     local function ShowSpellRowTooltip(anchor, spellID)
         if not spellID or type(spellID) ~= "number" then return end
         local cfg = DB()
         if cfg and cfg.showSpellTooltips == false then return end
-        if issecretvalue and issecretvalue(spellID) then return end
         -- Only show for a real, resolvable spell.
         local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
-        if not name or (issecretvalue and issecretvalue(name)) then return end
+        if not name then return end
         GameTooltip:SetOwner(anchor, "ANCHOR_NONE")
         GameTooltip:ClearAllPoints()
         GameTooltip:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -6, 0)
@@ -2912,7 +2870,7 @@ local function CreateDMWindow(winIdx)
                 for i = startIdx, #sessions do
                     local s = sessions[i]
                     local segName = s.name
-                    if not segName or (issecretvalue and issecretvalue(segName)) or segName == "" then segName = "Combat" end
+                    if not segName or segName == "" then segName = "Combat" end
                     local segTime = FormatTimer(s.durationSeconds or 0)
                     items[#items + 1] = {
                         text = segName, timerText = segTime, compact = true,
@@ -3802,14 +3760,11 @@ local function CreateDMWindow(winIdx)
             W._stickyRankCache = playerIdx
             bar.pos:SetText(RANK_STRINGS[playerIdx] or (playerIdx .. "."))
         end
-        -- Name: only when source name changes (guard secret values)
+        -- Name: only when source name changes
         local srcName = src.name
-        if issecretvalue and issecretvalue(srcName) then
-            bar.label:SetText(StripRealm(srcName) or "You")
-            W._stickyNameCache = nil
-        elseif srcName ~= W._stickyNameCache then
+        if srcName ~= W._stickyNameCache then
             W._stickyNameCache = srcName
-            bar.label:SetText(StripRealm(srcName) or "You")
+            bar.label:SetText(StripRealm(srcName))
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
@@ -3859,13 +3814,7 @@ local function CreateDMWindow(winIdx)
                     local s = sources[ri]
                     local rid = s.deathRecapID
                     local sg = s.sourceGUID
-                    -- _feignDeathGUIDs[secret] throws ("cannot be indexed with
-                    -- secret keys"), so only consult the cache when the GUID is
-                    -- a plain string. Secret-GUID rows fall back to the
-                    -- deathRecapID-only filter.
-                    local sgOk = sg and (not issecretvalue or not issecretvalue(sg))
-                    if not (issecretvalue and issecretvalue(rid)) and rid and rid > 0
-                       and not (sgOk and _feignDeathGUIDs[sg]) then
+                    if rid and rid > 0 and not (sg and _feignDeathGUIDs[sg]) then
                         rev[#rev + 1] = s
                     end
                 end
@@ -3881,7 +3830,6 @@ local function CreateDMWindow(winIdx)
             if fullRebuild then W._barCacheKey = cacheKey end
 
             local numFmt = c.numberFormat or 2
-            local isSecret = issecretvalue and true or false
 
             -- Visible range calculation
             local scrollOff = viewport:GetVerticalScroll() or 0
@@ -3985,16 +3933,13 @@ local function CreateDMWindow(winIdx)
 
                         -- Name
                         local srcName = src.name
-                        if isSecret and issecretvalue(srcName) then
-                            bar.label:SetText(StripRealm(srcName))
-                            bar._cachedSrcName = nil
-                        elseif srcName ~= bar._cachedSrcName then
+                        if srcName ~= bar._cachedSrcName then
                             bar._cachedSrcName = srcName
                             bar._cachedDisplayName = StripRealm(srcName)
                             bar.label:SetText(bar._cachedDisplayName)
                         end
 
-                        -- Amount text (guard secret values -- can't compare)
+                        -- Amount text
                         local fmtVal
                         if isDeaths then
                             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
@@ -4006,10 +3951,7 @@ local function CreateDMWindow(winIdx)
                         else
                             fmtVal = FormatBarValue(src.totalAmount, src.amountPerSecond, numFmt)
                         end
-                        if isSecret and issecretvalue(fmtVal) then
-                            bar.amount:SetText(fmtVal)
-                            bar._cachedAmtText = nil
-                        elseif fmtVal ~= bar._cachedAmtText then
+                        if fmtVal ~= bar._cachedAmtText then
                             bar._cachedAmtText = fmtVal
                             bar.amount:SetText(fmtVal)
                         end
@@ -4109,7 +4051,6 @@ local function CreateDMWindow(winIdx)
         -- Death recap: use C_DeathRecap API instead of combatSpells
         if isDeathRecap then
             local recapID = W.sourceRecapID
-            if recapID and issecretvalue and issecretvalue(recapID) then recapID = nil end
             local events
             if recapID and recapID > 0 and C_DeathRecap and C_DeathRecap.GetRecapEvents then
                 local ok, raw = pcall(C_DeathRecap.GetRecapEvents, recapID)
@@ -4170,7 +4111,7 @@ local function CreateDMWindow(winIdx)
                     bar.label:SetTextColor(1, 1, 1); bar.amount:SetTextColor(1, 1, 1)
                     -- Label: time before death + spell name
                     local spellName = ev.spellName
-                    if not spellName or (issecretvalue and issecretvalue(spellName)) or spellName == "" then
+                    if not spellName or spellName == "" then
                         if isHeal then spellName = "Heal"
                         elseif evType == "SWING_DAMAGE" then spellName = "Melee"
                         else spellName = "Unknown" end
@@ -4260,7 +4201,7 @@ local function CreateDMWindow(winIdx)
         end
 
         -- Standard spell breakdown (non-Deaths)
-        -- Pass guid/cid straight through -- API accepts its own secret values
+        -- Pass source identifiers straight through to the API.
         local guid = W.sourceGUID
         local cid = W.sourceCreatureID
         local srcData
@@ -4278,12 +4219,12 @@ local function CreateDMWindow(winIdx)
         local spells = srcData.combatSpells; local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
         local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp; local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
         local sorted = {}
-        for _, spell in ipairs(spells) do local ok, amt = pcall(function() return spell.totalAmount end); sorted[#sorted + 1] = { spell = spell, amount = (ok and amt) or 0 } end
+        for _, spell in ipairs(spells) do local amount = spell.totalAmount or 0; sorted[#sorted + 1] = { spell = spell, amount = amount } end
         -- API returns combatSpells pre-sorted; no table.sort needed
         local maxAmt = sorted[1] and sorted[1].amount or 1
-        -- Sum totals for percentage (skip if amounts are secret)
+        -- Sum totals for percentage.
         local totalDmg = 0
-        local canPercent = maxAmt and (not issecretvalue or not issecretvalue(maxAmt)) and type(maxAmt) == "number"
+        local canPercent = maxAmt and type(maxAmt) == "number"
         if canPercent then for _, e in ipairs(sorted) do totalDmg = totalDmg + e.amount end end
         local spCount = math.min(#sorted, BAR_POOL_SIZE)
         for i = 1, BAR_POOL_SIZE do
@@ -5349,13 +5290,9 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
         if not unit then return end
-        -- spellID can be a secret number when our execution is tainted by
-        -- C_DamageMeter; comparing one throws "attempt to compare a secret
-        -- value." Without a usable spellID we can't classify the cast, so bail.
-        if issecretvalue and issecretvalue(spellID) then return end
         if spellID == 5384 then -- Feign Death
             local guid = UnitGUID(unit)
-            if guid and not (issecretvalue and issecretvalue(guid)) then
+            if guid then
                 _feignDeathGUIDs[guid] = true
             end
         end
@@ -5480,7 +5417,6 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
             ScheduleStopTicker(DB().refreshRate or TICK_COMBAT)
         end
         -- Delayed refresh after player exits combat: API needs a moment to
-        -- declassify secret source GUIDs so breakdowns work post-combat
         C_Timer.After(0.5, function()
             for _, w in ipairs(_windows) do w.Refresh() end
         end)

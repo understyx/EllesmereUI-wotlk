@@ -1153,17 +1153,7 @@ end
 
 function RCD:OnEvent(event, ...)
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        if select("#", ...) == 0 and CombatLogGetCurrentEventInfo then
-            local timestamp, subEvent, hideCaster, sourceGUID, sourceName,
-                sourceFlags, sourceRaidFlags, destinationGUID, destinationName,
-                destinationFlags, destinationRaidFlags, rawSpellID =
-                CombatLogGetCurrentEventInfo()
-            self:OnCombatLog(event, timestamp, subEvent, sourceGUID, sourceName,
-                sourceFlags, destinationGUID, destinationName, destinationFlags,
-                rawSpellID)
-        else
-            self:OnCombatLog(event, ...)
-        end
+        self:OnCombatLog(event, ...)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         self:OnSpellcastSucceeded(event, ...)
     elseif event == "CHAT_MSG_ADDON" then

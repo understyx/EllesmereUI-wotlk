@@ -4,7 +4,6 @@
 local ADDON_NAME, ns = ...
 local L = _G.EllesmereUI and _G.EllesmereUI.L or function(k) return k end
 local skinned = false
-local issecretvalue = issecretvalue or function() return false end
 local activeEquipmentSetID = nil
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
@@ -2951,7 +2950,6 @@ local function SkinCharacterSheet()
                     local role = specIndex and GetSpecializationRole(specIndex) or nil
 
                     local statValue = stat.func()
-                    if issecretvalue(statValue) then return end
                     GameTooltip:SetOwner(valueButton, "ANCHOR_RIGHT")
 
                     -- Read the section title's CURRENT color so the tooltip lines
@@ -3033,7 +3031,7 @@ local function SkinCharacterSheet()
 
                         -- Diminishing returns breakdown (opt-in via Stat Display)
                         if EllesmereUIDB and EllesmereUIDB.showAdjustedStats
-                           and not issecretvalue(rawValue) and EllesmereUI.GetStatDR then
+                           and EllesmereUI.GetStatDR then
                             local adjusted, wasted, penalty, nextPenalty, nextThreshold =
                                 EllesmereUI.GetStatDR(stat.name, rawValue)
                             if adjusted then
@@ -3128,13 +3126,9 @@ local function SkinCharacterSheet()
                                 GameTooltip:AddLine(L("|cff888888(Against an evenly matched enemy)|r"), 1, 1, 1, true)
                             end
 
-                            -- Reduction against target. The return can be a
-                            -- SECRET number when the target's combat data is
-                            -- secret (12.0) -- comparing it would throw, so
-                            -- check issecretvalue before any compare.
                             if C_PaperDollInfo and C_PaperDollInfo.GetArmorEffectivenessAgainstTarget then
                                 local targetEff = C_PaperDollInfo.GetArmorEffectivenessAgainstTarget(effectiveArmor)
-                                if targetEff and not issecretvalue(targetEff) and targetEff > 0 then
+                                if targetEff and targetEff > 0 then
                                     GameTooltip:AddLine(string.format(L("(Against Current Target: %.2f%%)"), targetEff * 100), 1, 1, 1, true)
                                 end
                             end
@@ -3152,11 +3146,9 @@ local function SkinCharacterSheet()
                                 GameTooltip:AddLine(L("|cff888888(Against an evenly matched enemy)|r"), 1, 1, 1, true)
                             end
 
-                            -- Reduction against target. Same SECRET-number
-                            -- guard as the Armor block above.
                             if C_PaperDollInfo and C_PaperDollInfo.GetArmorEffectivenessAgainstTarget then
                                 local targetEff = C_PaperDollInfo.GetArmorEffectivenessAgainstTarget(shieldBlockArmor)
-                                if targetEff and not issecretvalue(targetEff) and targetEff > 0 then
+                                if targetEff and targetEff > 0 then
                                     GameTooltip:AddLine(string.format(L("(Against Current Target: %.2f%%)"), targetEff * 100), 1, 1, 1, true)
                                 end
                             end
@@ -5298,7 +5290,7 @@ local function SkinCharacterSheet()
             -- gear churn means the red icon and pulse would constantly fire
             -- on every replacement. Endgame players are the audience.
             local playerLvl = UnitLevel("player")
-            local atEnchantLevel = playerLvl and not (issecretvalue and issecretvalue(playerLvl)) and playerLvl >= 80 or false
+            local atEnchantLevel = playerLvl and playerLvl >= 80 or false
             local isMissing    = atEnchantLevel and canHaveEnchant and itemLink and (enchantText == "" or not enchantText)
             local hasEnchant   = enchantText and enchantText ~= ""
 

@@ -40,7 +40,6 @@ SnapshotTracker\CDMIntegration.lua
 EllesmereUICdmSpellPicker.lua
 EllesmereUICdmBarGlows.lua
 EllesmereUICdmBuffBars.lua
-EllesmereUICdmTbbDecimals.lua
 EllesmereUICdmFakeActive.lua
 EllesmereUICdmRPTSync.lua
 

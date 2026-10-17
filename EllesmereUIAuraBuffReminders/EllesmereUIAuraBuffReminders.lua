@@ -16,12 +16,10 @@ local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id))
 local _eabrInCombat = false
 local _encounterSnapshotTime = nil
 local _needGroupAura = false
-local _isEvokerOwnOnRaid = false
 local _groupAuraBroadActive = false
 local _groupAuraDirty = false
 local InCombat = function() return _eabrInCombat or (InCombatLockdown and InCombatLockdown()) end
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
-local isSecret = issecretvalue or function() return false end
 local AURA_SCAN_LIMIT = 40
 local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
 local DEFAULT_TEXT_COLOR = {r=1, g=1, b=1}
@@ -326,7 +324,6 @@ end
 
 -------------------------------------------------------------------------------
 --  Aura query helpers
---  NON_SECRET_SPELL_IDS: whitelisted IDs readable via GetPlayerAuraBySpellID
 --  even during combat lockdown.
 -------------------------------------------------------------------------------
 local NON_SECRET_SPELL_IDS = {
@@ -358,12 +355,7 @@ local NON_SECRET_SPELL_IDS = {
 -------------------------------------------------------------------------------
 local _preCombatAuraCache = {}  -- [spellID] = true/false, snapshotted at REGEN_DISABLED
 
-local function _isRuntimeNonSecret(id)
-    if C_Secrets and C_Secrets.ShouldSpellAuraBeSecret then
-        return not C_Secrets.ShouldSpellAuraBeSecret(id)
-    end
-    return true  -- if API missing, assume non-secret (pre-12.0 client)
-end
+
 
 local function SnapshotPlayerAuras()
     wipe(_preCombatAuraCache)
@@ -371,29 +363,21 @@ local function SnapshotPlayerAuras()
         local result = C_UnitAuras.GetPlayerAuraBySpellID(id)
         _preCombatAuraCache[id] = (result ~= nil)
     end
-    -- Also snapshot non-whitelisted auras that become
-    -- secret when a party member enters combat before the local player does.
-    -- 12.1: the index scan hard-errors under aura restrictions (M+/raid,
-    -- even out of combat); the whitelisted lookups above still work and the
-    -- extras are simply skipped there.
-    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return end
+    -- Also snapshot non-whitelisted auras so their later lookups can use the
+    -- same cache after combat starts.
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
         local sid = aura.spellId
-        if sid and not isSecret(sid) and not NON_SECRET_SPELL_IDS[sid] then
+        if sid and not NON_SECRET_SPELL_IDS[sid] then
             _preCombatAuraCache[sid] = true
         end
     end
 end
 
--- Pre-combat snapshot for ownOnRaid buffs (Source of Magic, Blistering Scales).
-local _preCombatOwnOnRaidCache = {}  -- [spellID] = true/false
-local _ownOnRaidIDs = {}  -- No ownOnRaid auras in WotLK
-local SnapshotOwnOnRaidBuffs  -- forward declaration; defined after _unitHasBuffFromPlayer
+
 
 -- Pre-allocated scratch tables for hot per-Refresh functions (avoids GC churn)
-local _idLookupScratch  = {}
 local _lookupScratch    = {}
 
 -------------------------------------------------------------------------------
@@ -419,13 +403,11 @@ function _AC.ensureNames()
     _AC.nameScanned = true
     wipe(_AC.byName)
     if InCombat() then return end
-    -- 12.1: index scans hard-error under restrictions even out of combat.
-    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return end
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
         local aName = aura.name
-        if aName and not isSecret(aName) then
+        if aName then
             _AC.byName[aName] = true
         end
     end
@@ -479,13 +461,10 @@ local function PlayerHasAuraByID(spellIDs)
             end
         elseif not inCombat then
             -- Non-whitelisted OOC: use GetPlayerAuraBySpellID anyway (may return
-            -- secret values, but non-nil means the aura exists)
             local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
             if ok and result ~= nil then
-                -- 12.1: fields can be secret in restricted content even OOC;
-                -- math on secrets errors, so presence alone counts then.
                 local dur, exp = result.duration, result.expirationTime
-                if dur ~= nil and exp ~= nil and not isSecret(dur) and not isSecret(exp) then
+                if dur ~= nil and exp ~= nil then
                     if IsUnderDuration(dur, exp) then
                         return false
                     end
@@ -513,11 +492,6 @@ local function GetStanceState(stanceSpellID)
     return false, false
 end
 
--- 12.1: aura restrictions apply in M+/raids even OUT of combat, and index
--- scans HARD-ERROR there (not just secret results). Every "OOC only" scan
--- also checks EllesmereUI.AuraKit.AurasRestricted() inline (no file-scope
--- helper: this chunk sits at the Lua 5.1 200-local cap).
-
 -- Shared helpers for group aura scanning (hoisted to avoid per-call closure allocation)
 local function _unitOk(u) return UnitExists(u) and UnitIsConnected(u) and not UnitIsDeadOrGhost(u) end
 local function _unitHasBuff(u, spellIDs)
@@ -538,27 +512,24 @@ local function _unitHasBuff(u, spellIDs)
         end
     else
         -- Non-player units: use GetUnitAuraBySpellID for whitelisted IDs
-        -- This works in combat for non-secret spell IDs.
         for j = 1, #spellIDs do
             local id = spellIDs[j]
             if NON_SECRET_SPELL_IDS[id] then
                 local ok, result = pcall(C_UnitAuras.GetUnitAuraBySpellID, u, id)
-                if ok and result ~= nil and not isSecret(result) then
+                if ok and result ~= nil then
                     return true
                 end
             end
         end
     end
-    -- Iterate auras for non-whitelisted IDs (only works out of combat AND
-    -- outside restricted content -- the scan errors under restriction)
+    -- Iterate auras for non-whitelisted IDs (only works out of combat)
     -- Skip iteration for player (GetPlayerAuraBySpellID above covers all IDs)
-    if not inCombat and not UnitIsUnit(u, "player")
-        and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
+    if not inCombat and not UnitIsUnit(u, "player") then
         for i = 1, AURA_SCAN_LIMIT do
             local aura = C_UnitAuras.GetAuraDataByIndex(u, i, "HELPFUL")
             if not aura then break end
             local sid = aura.spellId
-            if sid and not isSecret(sid) then
+            if sid then
                 for j = 1, #spellIDs do if sid == spellIDs[j] then return true end end
             end
         end
@@ -566,109 +537,7 @@ local function _unitHasBuff(u, spellIDs)
     return false
 end
 
--- Returns true if the buff's source is the player.
--- Non-player units: OOC iteration only; in combat returns false (caller uses snapshot).
-local function _unitHasBuffFromPlayer(u, spellIDs)
-    local inCombat = InCombat()
-    local idLookup = _idLookupScratch
-    wipe(idLookup)
-    for j = 1, #spellIDs do idLookup[spellIDs[j]] = true end
 
-    if UnitIsUnit(u, "player") then
-        -- Player-self: GetPlayerAuraBySpellID for whitelisted IDs
-        for id in pairs(idLookup) do
-            if NON_SECRET_SPELL_IDS[id] then
-                local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-                if ok and aura ~= nil and not isSecret(aura) then
-                    local fromMe = aura.isFromPlayerOrPlayerPet
-                    if fromMe and not isSecret(fromMe) and fromMe == true then
-                        return true
-                    end
-                    local src = aura.sourceUnit
-                    if src and not isSecret(src) and UnitIsUnit(src, "player") then
-                        return true
-                    end
-                end
-            end
-        end
-        if not inCombat and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
-            for i = 1, AURA_SCAN_LIMIT do
-                local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
-                if not aura then break end
-                local sid = aura.spellId
-                if sid and not isSecret(sid) and idLookup[sid] then
-                    local src = aura.sourceUnit
-                    if src and not isSecret(src) and UnitIsUnit(src, "player") then
-                        return true
-                    end
-                end
-            end
-        end
-        return false
-    end
-
-    if inCombat then return false end  -- sourceUnit secret in combat, caller uses snapshot
-    -- Fast path: direct lookup for whitelisted IDs (1 API call per ID instead
-    -- of scanning every aura on the unit via GetAuraDataByIndex).
-    local needScan = false
-    for id in pairs(idLookup) do
-        if NON_SECRET_SPELL_IDS[id] then
-            local aura = C_UnitAuras.GetUnitAuraBySpellID(u, id)
-            if aura and not isSecret(aura) then
-                local src = aura.sourceUnit
-                if src and not isSecret(src) then
-                    if UnitIsUnit(src, "player") then return true end
-                else
-                    return true  -- sourceUnit unavailable OOC, assume ours
-                end
-            end
-        else
-            needScan = true
-        end
-    end
-    if not needScan then return false end
-    -- Scan errors under restriction; skip (caller falls back to snapshot).
-    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return false end
-    -- Fallback: full scan for non-whitelisted IDs only
-    for i = 1, AURA_SCAN_LIMIT do
-        local aura = C_UnitAuras.GetAuraDataByIndex(u, i, "HELPFUL")
-        if not aura then break end
-        local sid = aura.spellId
-        if sid and not isSecret(sid) and idLookup[sid] then
-            local src = aura.sourceUnit
-            if src and not isSecret(src) then
-                if UnitIsUnit(src, "player") then return true end
-            else
-                return true  -- sourceUnit unavailable OOC, assume ours
-            end
-        end
-    end
-    return false
-end
-
--- Assign the SnapshotOwnOnRaidBuffs function (forward-declared earlier,
--- now that _unitHasBuffFromPlayer is defined).
-local _snapScratch = {}  -- reused for SnapshotOwnOnRaidBuffs
-SnapshotOwnOnRaidBuffs = function()
-    wipe(_preCombatOwnOnRaidCache)
-    for _, id in ipairs(_ownOnRaidIDs) do
-        local found = false
-        _snapScratch[1] = id
-        if _unitHasBuffFromPlayer("player", _snapScratch) then found = true end
-        if not found then
-            if IsInRaid() then
-                for i = 1, GetNumGroupMembers() do
-                    if _unitHasBuffFromPlayer("raid"..i, _snapScratch) then found = true; break end
-                end
-            elseif IsInGroup() then
-                for i = 1, GetNumSubgroupMembers() do
-                    if _unitHasBuffFromPlayer("party"..i, _snapScratch) then found = true; break end
-                end
-            end
-        end
-        _preCombatOwnOnRaidCache[id] = found
-    end
-end
 
 -- Returns true only if the buff was cast by the player on themselves.
 -- OOC only — combatOk must be false on any aura using this check.
@@ -680,13 +549,13 @@ local function PlayerHasSelfCastAuraByID(spellIDs)
     for j = 1, #spellIDs do
         local id = spellIDs[j]
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-        if ok and aura ~= nil and not isSecret(aura) then
+        if ok and aura ~= nil then
             local src = aura.sourceUnit
-            if src and not isSecret(src) and UnitIsUnit(src, "player") then
+            if src and UnitIsUnit(src, "player") then
                 return true
             end
             -- If sourceUnit is unavailable OOC, assume ours
-            if not src or isSecret(src) then return true end
+            if not src then return true end
         end
     end
     return false
@@ -694,30 +563,19 @@ end
 
 -- Group-member range check, mirroring the raid frames' range path:
 -- UnitInRange (~40 yd helpful range, works in combat, not protected) is the
--- primary check. The raid frames never BRANCH on it though -- they feed the
--- result into SetAlphaFromBoolean because it can be a SECRET value in
--- instances, and Lua cannot branch on secrets. When that happens here we
--- fall back to UnitIsVisible (~100 yd, same phase/zone), which the raid
--- frames' ghost-aura sweep branches on in plain Lua -- proven clean in
--- instances. That still excludes the practical false-positive cases
--- (members parked in another wing, cross-zone, other phase), it is just
+-- primary check. When its result is unavailable, use UnitIsVisible (~100 yd,
+-- same phase/zone) as a wider fallback. This excludes practical false positives
+-- such as members in another wing, cross-zone, or in another phase, but is
 -- coarser than true cast range.
 local function _unitInRange(u)
     if UnitIsUnit(u, "player") then return true end
     if not UnitExists(u) then return false end
     local inRange, checked = UnitInRange(u)
-    if not (isSecret(inRange) or isSecret(checked)) then
-        -- Retail returns (inRange, checked). Wrath 3.3.5 returns only
-        -- inRange; a nil second result therefore means the first result is
-        -- authoritative, not that the range check failed.
-        if checked ~= nil then
-            return (checked == true or checked == 1) and (inRange == true or inRange == 1)
-        end
-        if inRange ~= nil then return inRange == true or inRange == 1 end
+    if checked ~= nil then
+        return (checked == true or checked == 1) and (inRange == true or inRange == 1)
     end
-    -- Secret or uncheckable: visibility fallback
+    if inRange ~= nil then return inRange == true or inRange == 1 end
     local vis = UnitIsVisible(u)
-    if isSecret(vis) then return true end
     return vis == true or vis == 1
 end
 
@@ -725,8 +583,7 @@ end
 -- missing it. `benefits` is an optional CLASS->true set (e.g. only int users
 -- for Arcane Intellect); nil means every class benefits. The class gate runs
 -- BEFORE the aura read so non-beneficiaries are skipped without scanning their
--- auras -- a net win over the unfiltered scan. UnitClass's class token is
--- non-secret for friendly group members.
+-- auras. UnitClass provides the class token used by this check.
 local function AnyGroupMemberMissingBuff(spellIDs, benefits, eligible)
     local selfBenefits = (not benefits or benefits[GetPlayerClass()])
                          and (not eligible or eligible("player"))
@@ -774,32 +631,7 @@ local function BuffExistsOnAnyGroupMember(spellIDs)
     return false
 end
 
--- Returns true if the player's cast of spellIDs exists on any group member,
--- OR if no in-range member is a valid target (suppress reminder either way).
--- Used for Source of Magic, Blistering Scales.
-local function PlayerOwnBuffOnAnyGroupMember(spellIDs)
-    if _unitHasBuffFromPlayer("player", spellIDs) then return true end
-    local anyInRangeWithoutBuff = false
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local u = "raid"..i
-            if _unitOk(u) and not UnitIsUnit(u, "player") then
-                if _unitHasBuffFromPlayer(u, spellIDs) then return true end
-                if _unitInRange(u) then anyInRangeWithoutBuff = true end
-            end
-        end
-    elseif IsInGroup() then
-        for i = 1, GetNumSubgroupMembers() do
-            local u = "party"..i
-            if _unitOk(u) then
-                if _unitHasBuffFromPlayer(u, spellIDs) then return true end
-                if _unitInRange(u) then anyInRangeWithoutBuff = true end
-            end
-        end
-    end
-    -- No reminder if nobody reachable is missing the buff.
-    return not anyInRangeWithoutBuff
-end
+
 
 -- Returns true if the target has the debuff. OOC only; suppresses in combat.
 
@@ -923,7 +755,6 @@ local RAID_BUFFS = {
 }
 
 -------------------------------------------------------------------------------
---  SPELL DATA Auras (some non-secret, some still OOC-only)
 -------------------------------------------------------------------------------
 local AURAS = {
     -- Warrior stances: shapeshift forms (detected via the stance bar, not auras), OOC only.
@@ -1172,13 +1003,9 @@ local INKY_BLACK_ITEM = nil
 local INKY_BLACK_BUFF = nil
 
 -------------------------------------------------------------------------------
---  Helpers: Well Fed / Flask buff detection (by name, not spell ID secret)
+--  Helpers: Well Fed / Flask buff detection
 -------------------------------------------------------------------------------
 local function PlayerHasBuffByName(buffName)
-    -- 12.1: name scans are impossible under aura restrictions (the index
-    -- API errors; names are secret anyway). Cannot verify -> treat as
-    -- present so the reminder never false-fires in restricted content.
-    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     if _AC.valid then
         _AC.ensureNames()
         return _AC.byName[buffName] or false
@@ -1187,7 +1014,7 @@ local function PlayerHasBuffByName(buffName)
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
         local aName = aura.name
-        if aName and not isSecret(aName) and aName == buffName then return true end
+        if aName and aName == buffName then return true end
     end
     return false
 end
@@ -1195,14 +1022,12 @@ end
 local function PlayerHasWellFed()
     if InCombat() then return true end  -- never show food reminder in combat
     if InPvPInstance() then return true end  -- food not trackable in PvP, suppress
-    -- 12.1: any other restricted content (raid instances OOC) -- suppress.
-    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     local wellFedName = GetSpellInfo(57399) or "Well Fed"
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
         local auraName = aura.name
-        if auraName and not isSecret(auraName) and auraName == wellFedName then
+        if auraName and auraName == wellFedName then
             if IsUnderDuration(aura.duration, aura.expirationTime) then
                 return false
             end
@@ -1215,9 +1040,6 @@ end
 local function PlayerHasFlaskBuff()
     -- Aura API is restricted in PvP and M+ keystones; suppress since player can't act on it.
     if InPvPInstance() then return true end
-    -- 12.1: any other restricted content -- the name fallback below cannot
-    -- populate there, so suppress instead of false-reminding.
-    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     -- Direct ID lookup for known flask buff IDs (zero allocation)
     for id in pairs(FLASK_BUFF_ID_SET) do
         local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
@@ -1259,14 +1081,13 @@ local function PlayerHasInkyBlackness()
     -- Aura API is restricted in PvP and M+ keystones; suppress since the buff
     -- can't be read there and the player can't act on it mid-key (mirrors flask/food).
     if InPvPInstance() then return true end
-    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     for i = 1, AURA_SCAN_LIMIT do
         local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
         if not aura then break end
         local sid = aura.spellId
         local ic = aura.icon
-        if (sid and not isSecret(sid) and sid == INKY_BLACK_BUFF)
-        or (ic and not isSecret(ic) and ic == 136122) then
+        if (sid and sid == INKY_BLACK_BUFF)
+        or (ic and ic == 136122) then
             if IsUnderDuration(aura.duration, aura.expirationTime) then
                 return false
             end
@@ -2399,14 +2220,6 @@ if inInstance or au.showNonInstanced then
                             isMissing = not BuffExistsOnAnyGroupMember(aura.buffIDs)
                             if not (IsInGroup() or IsInRaid()) then isMissing = false end
                         end
-                    elseif aura.check == "ownOnRaid" then
-                        if inCombat then
-                            local cached = _preCombatOwnOnRaidCache[aura.buffIDs[1]]
-                            isMissing = (cached == false)
-                        else
-                            isMissing = not PlayerOwnBuffOnAnyGroupMember(aura.buffIDs)
-                        end
-                        if not (IsInGroup() or IsInRaid()) then isMissing = false end
                     elseif aura.check == "playerSelfCast" then
                         -- Player must have the buff from their OWN cast
                         isMissing = not PlayerHasSelfCastAuraByID(aura.buffIDs)
@@ -2452,7 +2265,6 @@ end
 local function CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
 local co = db.profile.consumables
 local specialsActive = inInstance or co.showSpecialsNonInstanced
-    -- Only check consumables out of combat (secret value protection)
     if not inCombat then
 
         -- Rebuild the bag/equip-derived item cache only when its inputs changed
@@ -2960,7 +2772,7 @@ local function Refresh()
                and co.enabled.wrong_pet ~= false
                and UnitExists("pet") and not UnitIsDead("pet") then
                 local _, familyID = UnitCreatureFamily("pet")
-                local isFelguard = familyID and not (issecretvalue and issecretvalue(familyID)) and familyID == 29
+                local isFelguard = familyID and familyID == 29
                 if not isFelguard then
                     local e = AcquireEntry()
                     e.mode = "texture"
@@ -2972,14 +2784,13 @@ local function Refresh()
                 end
             end
             -- Pet on Passive: warn when an active pet is set to Passive stance.
-            -- Combat-safe: pet command state is not part of the secret system.
             if not suppress and co.enabled.pet_passive ~= false
                and UnitExists("pet") and not UnitIsDead("pet") then
                 local passiveActive, passiveTex, passiveIsToken
                 for i = 1, (NUM_PET_ACTION_SLOTS or 10) do
                     local nm, _, tx, tok, active = GetPetActionInfo(i)
                     if nm == "PET_MODE_PASSIVE" then
-                        if not isSecret(active) then passiveActive = active and true or false end
+                        passiveActive = active and true or false
                         passiveTex, passiveIsToken = tx, tok
                         break
                     end
@@ -3775,31 +3586,19 @@ function EABR:OnEnable()
     BeaconInit()
     C_Timer.After(0.5, RegisterUnlockElements)
 
-    -- Register broad UNIT_AURA only when the player's class actually needs
-    -- group aura tracking AND only while out of combat.  Broad UNIT_AURA
-    -- fires 100+ times/sec in a raid; in combat, CollectRaidBuffs only
-    -- checks the player's own auras (PlayerHasAuraByID), so group events
-    -- are pure waste.  Evoker keeps broad in combat for ownOnRaid cache
-    -- updates but skips RequestRefresh on group events (handler below).
+    -- Register broad UNIT_AURA only when the player's class needs group
+    -- aura tracking. In combat, group scans keep broad tracking enabled only
+    -- when showOthersMissing needs timely updates.
     local function UpdateGroupAuraRegistration()
         local playerClass = GetPlayerClass()
         _needGroupAura = false
-        _isEvokerOwnOnRaid = false
         for _, buff in ipairs(RAID_BUFFS) do
             if buff.class == playerClass then _needGroupAura = true; break end
-        end
-        for _, aura in ipairs(AURAS) do
-            if aura.class == playerClass and aura.check == "ownOnRaid" then
-                _needGroupAura = true
-                _isEvokerOwnOnRaid = true
-                break
-            end
         end
         if _needGroupAura then
             mainFrame:RegisterEvent("GROUP_JOINED")
             mainFrame:RegisterEvent("GROUP_LEFT")
-            -- Start broad if OOC, player-only if in combat (Evoker excepted)
-            if InCombat() and not _isEvokerOwnOnRaid then
+            if InCombat() then
                 _setBroad(false)
             else
                 _setBroad(true)
@@ -3933,7 +3732,6 @@ end
 mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "ENCOUNTER_START" then
         SnapshotPlayerAuras()
-        if _isEvokerOwnOnRaid then SnapshotOwnOnRaidBuffs() end
         _encounterSnapshotTime = GetTime()
         -- Mark combat immediately: ENCOUNTER_START fires before
         -- InCombatLockdown() returns true, but aura APIs are already
@@ -3945,10 +3743,9 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     end
 
     if e == "PLAYER_REGEN_DISABLED" then
-        -- Drop broad UNIT_AURA during combat unless we need group tracking.
-        -- Evoker keeps broad for ownOnRaid cache updates; showOthersMissing
-        -- keeps broad so AnyGroupMemberMissingBuff gets timely refreshes.
-        local keepBroad = _isEvokerOwnOnRaid or (db and db.profile.raidBuffs and db.profile.raidBuffs.showOthersMissing)
+        -- Keep broad UNIT_AURA during combat when showOthersMissing needs
+        -- timely group-buff updates.
+        local keepBroad = db and db.profile.raidBuffs and db.profile.raidBuffs.showOthersMissing
         if _needGroupAura and not keepBroad then _setBroad(false) end
         -- Only flag Hunter's Mark needed if the target doesn't already have it
         _huntersMarkNeeded = true
@@ -3967,8 +3764,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         -- since the aura API is fully available pre-lockdown).
         if not _encounterSnapshotTime or (GetTime() - _encounterSnapshotTime) > 1 then
             SnapshotPlayerAuras()
-            if _isEvokerOwnOnRaid then SnapshotOwnOnRaidBuffs() end
-        end
+            end
         _encounterSnapshotTime = nil
         RequestRefresh()
         return
@@ -4014,46 +3810,16 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     end
 
     if e == "UNIT_AURA" then
-        -- arg1 = unit token. Player aura changes always refresh.
-        -- Group member aura changes only matter for Evoker ownOnRaid
-        -- cache updates and OOC raid buff checks. The broad UNIT_AURA
-        -- event is only registered for classes that need group tracking
-        -- (see UpdateGroupAuraRegistration).
         if arg1 == "player" then
-            local isEvoker = _cachedPlayerClass == "EVOKER"
-            if isEvoker and InCombat() and IsInGroup() then
-                for _, id in ipairs(_ownOnRaidIDs) do
-                    local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-                    if ok and result ~= nil and not isSecret(result) then
-                        _preCombatOwnOnRaidCache[id] = true
-                    end
-                end
-            end
             RequestRefresh()
         else
-            -- Group member aura change. Fast unit-type check via first byte.
-            -- Broad UNIT_AURA stays registered in combat for Evoker ownOnRaid
-            -- and for showOthersMissing raid buff tracking. Coalesce group
-            -- events into a single deferred refresh to avoid per-event spam.
             local c = arg1 and arg1:byte(1)
-            if c == 112 or c == 114 then  -- 'p' or 'r'
-                if _isEvokerOwnOnRaid and InCombat() and IsInGroup() then
-                    for _, id in ipairs(_ownOnRaidIDs) do
-                        if not _preCombatOwnOnRaidCache[id] then
-                            local ok, result = pcall(C_UnitAuras.GetUnitAuraBySpellID, arg1, id)
-                            if ok and result ~= nil and not isSecret(result) then
-                                _preCombatOwnOnRaidCache[id] = true
-                            end
-                        end
-                    end
-                end
-                if not _groupAuraDirty then
-                    _groupAuraDirty = true
-                    C_Timer.After(0.3, function()
-                        _groupAuraDirty = false
-                        RequestRefresh()
-                    end)
-                end
+            if (c == 112 or c == 114) and not _groupAuraDirty then
+                _groupAuraDirty = true
+                C_Timer.After(0.3, function()
+                    _groupAuraDirty = false
+                    RequestRefresh()
+                end)
             end
         end
         return
@@ -4178,7 +3944,7 @@ mainFrame:RegisterEvent("PET_BAR_UPDATE")
 --  Out-of-combat only.
 -------------------------------------------------------------------------------
 local SetupReadyCheckManaWarning = function()
-    local warnFrame, warnFS, warnTimer, warnCurve
+    local warnFrame, warnFS, warnTimer
 
     -- Helpers hang on EABR, NOT block locals: this file's main chunk sits at
     -- Lua 5.1's 200-local cap, so new file-scope locals here fail to load.
@@ -4213,9 +3979,8 @@ local SetupReadyCheckManaWarning = function()
         if warnTimer then warnTimer:Cancel(); warnTimer = nil end
     end
 
-    -- Push position/size/color settings onto the built frame. The color curve
-    -- is rebuilt here because its colors are baked in at AddPoint time; an
-    -- already-visible warning/preview is re-tinted so edits show live.
+    -- Push position/size/color settings onto the built frame; an already-visible
+    -- warning/preview is re-tinted so edits show live.
     function EABR.RCWApplySettings()
         if not warnFrame then return end
         local p = db and db.profile
@@ -4227,23 +3992,13 @@ local SetupReadyCheckManaWarning = function()
         local outline = GetABROutline()
         if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(warnFS, outline == "" and GetABRUseShadow()) end
         warnFS:SetFont(font, (c and c.rcManaWarnSize) or 48, outline)
-        -- Explicit white instance color. This string is tinted purely via
-        -- SetVertexColor (curve result), and with no instance color set the
+        -- Explicit white instance color. This string is tinted via
+        -- SetVertexColor, and with no instance color set the
         -- string inherits the primed shadow FontObject's color -- which
         -- resolves BLACK on 12.0.7, rendering the warning black. White base
         -- restores the pre-12.0.7 default so the vertex tint shows true.
         warnFS:SetTextColor(1, 1, 1, 1)
         local r, g, b = EABR.RCWColor()
-        -- Curve: alpha 1 at/below 80%, alpha 0 above.
-        -- The curve colors the FontString directly via SetVertexColor,
-        -- using alpha to control visibility -- no secret value reads.
-        if C_CurveUtil and C_CurveUtil.CreateColorCurve then
-            warnCurve = C_CurveUtil.CreateColorCurve()
-            warnCurve:AddPoint(0.0,    CreateColor(r, g, b, 1))
-            warnCurve:AddPoint(0.80,   CreateColor(r, g, b, 1))
-            warnCurve:AddPoint(0.8001, CreateColor(r, g, b, 0))
-            warnCurve:AddPoint(1.0,    CreateColor(r, g, b, 0))
-        end
         if warnFrame:IsShown() then
             warnFS:SetVertexColor(r, g, b, 1)
         end
@@ -4319,12 +4074,10 @@ local SetupReadyCheckManaWarning = function()
         if not UnitPowerPercent then return end
         BuildWarnFrame()
         EABR.RCWApplySettings()
-        if not warnCurve then return end
-        -- Let WoW's C side evaluate mana % against the curve.
-        -- Result: mana color at full alpha if below 80%, zero alpha if above.
-        -- SetVertexColor applies the secret RGBA directly -- no reads needed.
-        local color = UnitPowerPercent("player", Enum.PowerType.Mana, false, warnCurve)
-        if not color or not color.GetRGBA then return end
+        -- Without the retail curve overload this helper returns a number, so
+        -- there is no color result to apply on the WotLK client.
+        local color = UnitPowerPercent("player", Enum.PowerType.Mana, false)
+        if type(color) ~= "table" or not color.GetRGBA then return end
         warnFS:SetVertexColor(color:GetRGBA())
         warnFrame:Show()
         if warnFrame._breathe and not warnFrame._breathe:IsPlaying() then
@@ -4339,8 +4092,7 @@ local SetupReadyCheckManaWarning = function()
         BuildWarnFrame()
         EABR.RCWApplySettings()
     end
-    -- Preview bypasses the curve: it must be visible at any mana level, so it
-    -- tints with the plain configured color (readable constants, no secrets).
+    -- Preview is visible at any mana level, so it
     _G._EABR_RCWarnPreview = function()
         BuildWarnFrame()
         EABR.RCWApplySettings()

@@ -97,7 +97,6 @@ end
 -------------------------------------------------------------------------------
 ;(function()
     local _ttSkinned = {}
-    local _isSecret = issecretvalue
     local _PP  -- resolved lazily
     local _select = select
     local _GameTooltip = GameTooltip
@@ -200,7 +199,6 @@ end
         -- Adding our bg + border to them makes the embedded block look like
         -- a standalone framed tooltip sitting inside the parent.
         if isEmbedded or tt.IsEmbedded then return end
-        if _isSecret and _isSecret(tt:GetWidth()) then return end
         if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
         -- Retail draws the stock tooltip chrome through NineSlice, while Wrath's
         -- GameTooltipTemplate draws it through the frame backdrop.  Hiding only
@@ -250,16 +248,9 @@ end
         -- Re-show so the frame recalculates size with the new fonts. Gated
         -- on the skin toggle: with it off the fonts above were never
         -- applied, and the hook (uninstallable) must stay zero-cost.
-        -- pcall'd: on 12.1 a tooltip rendering secret-capable content
-        -- (widget spell tooltips via SetSpellByID) enforces access
-        -- restrictions, and a tainted re-Show is denied as forbidden-object
-        -- access (field-hit via Blizzard_PTRFeedback's tooltip hook, which
-        -- Shows the tooltip from secure code with our OnShow hook behind
-        -- it). The recalc is optional polish -- skip it there; the font
-        -- writes above are region-level and stay legal.
         if _enabled() and not _ttRelaying[self] then
             _ttRelaying[self] = true
-            pcall(self.Show, self)
+            self:Show()
             _ttRelaying[self] = nil
         end
     end
@@ -283,8 +274,6 @@ end
     -- Mount-name cache. Short TTL: mount state changes often, but this only
     -- needs to survive a single hover's refresh ticks so an unmounted player
     -- is scanned once, not once per tick. name = false means "scanned, none".
-    local _mountCache = {}      -- guid -> { name = string|false, collected = bool|nil, time = GetTime() }
-    local _mountCacheTTL = 3
     local _inspectPendingGUID = nil
     local _userInspectUntil = 0
     -- GUID the visible GameTooltip was last populated for (set by the Unit
@@ -301,51 +290,13 @@ end
         for i = 1, n do
             local fs = _G[nm .. "TextLeft" .. i]
             local txt = fs and fs:GetText()
-            if txt and not (_isSecret and _isSecret(txt)) and txt:find(label, 1, true) then
+            if txt and txt:find(label, 1, true) then
                 return true
             end
         end
         return false
     end
 
-    -- Returns the mount name shown on a unit and whether the LOCAL player has
-    -- that mount collected (true/false, or nil when unknown -- e.g. the name
-    -- could only be read from the aura, not MountJournal). Collection state is
-    -- the 11th return of GetMountInfoByID, which is per-character.
-    local function _getMountedAuraName(unit)
-        if not unit or (_isSecret and _isSecret(unit)) then return nil end
-        if not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
-        if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
-        if not (C_MountJournal and C_MountJournal.GetMountFromSpell) then return nil end
-
-        for i = 1, 255 do
-            local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
-            if not aura then break end
-            local spellID = aura.spellId
-            if spellID and not (_isSecret and _isSecret(spellID)) then
-                local mountID = C_MountJournal.GetMountFromSpell(spellID)
-                if mountID and not (_isSecret and _isSecret(mountID)) and mountID > 0 then
-                    local name, collected
-                    if C_MountJournal.GetMountInfoByID then
-                        local mountName, _, _, _, _, _, _, _, _, _, isCollected =
-                            C_MountJournal.GetMountInfoByID(mountID)
-                        if mountName and not (_isSecret and _isSecret(mountName)) then
-                            name = mountName
-                            if type(isCollected) == "boolean" then collected = isCollected end
-                        end
-                    end
-                    if not name then
-                        local auraName = aura.name
-                        if auraName and not (_isSecret and _isSecret(auraName)) then
-                            name = auraName
-                        end
-                    end
-                    if name and name ~= "" then return name, collected end
-                end
-            end
-        end
-        return nil
-    end
     hooksecurefunc("InspectUnit", function()
         _userInspectUntil = GetTime() + 2
     end)
@@ -353,15 +304,15 @@ end
     _inspectFrame:SetScript("OnEvent", function(self, _, guid)
         self:UnregisterEvent("INSPECT_READY")
         _inspectPendingGUID = nil
-        if not guid or (_isSecret and _isSecret(guid)) then return end
+        if not guid then return end
         -- Read the inspected GUID's item level through a token derived from THAT
         -- GUID, so the value is captured even when the cursor has already left
         -- the unit, and is always cached under the GUID we actually inspected.
         if C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel and _G.UnitTokenFromGUID then
             local u = _G.UnitTokenFromGUID(guid)
-            if u and not (_isSecret and _isSecret(u)) and UnitExists(u) then
+            if u and UnitExists(u) then
                 local val = C_PaperDollInfo.GetInspectItemLevel(u)
-                if val and not (_isSecret and _isSecret(val)) and val > 0 then
+                if val and val > 0 then
                     _ilvlCache[guid] = { ilvl = math.floor(val), time = GetTime() }
                 end
             end
@@ -387,31 +338,6 @@ end
     -- Expose for inspect sheet to use
     EllesmereUI._inspectCache = _ilvlCache
 
-    -- Re-derive a CLEAN literal group unit token for a GUID by matching it
-    -- against tokens we build ourselves (player / raidN / partyN). On secure
-    -- raid-frame unit tooltips, GameTooltip:GetUnit() and UnitTokenFromGUID can
-    -- hand back a secret/unusable token even though the member's GUID is clean,
-    -- which starves the token-based APIs (M+ summary, inspect item level). A
-    -- literal token string we construct here is never secret, so those work.
-    local function _CleanTokenForGUID(guid)
-        if not guid or (_isSecret and _isSecret(guid)) then return nil end
-        if UnitGUID("player") == guid then return "player" end
-        if IsInRaid() then
-            for i = 1, GetNumGroupMembers() do
-                local tk = "raid" .. i
-                local tg = UnitGUID(tk)
-                if tg and not (_isSecret and _isSecret(tg)) and tg == guid then return tk end
-            end
-        else
-            for i = 1, GetNumSubgroupMembers() do
-                local tk = "party" .. i
-                local tg = UnitGUID(tk)
-                if tg and not (_isSecret and _isSecret(tg)) and tg == guid then return tk end
-            end
-        end
-        return nil
-    end
-
     -- Resolve who this unit tooltip was populated for. GameTooltip:SetUnit(u)
     -- drives the Unit data pass and stamps u's GUID into data.guid before this
     -- post-call runs, so data.guid is the one authoritative identity and is
@@ -425,32 +351,22 @@ end
     -- stock (plus any foreign) tooltip rather than attributing the wrong unit.
     local function _resolveTipIdentity(tt, data)
         local guid = data and data.guid
-        if guid and _isSecret and _isSecret(guid) then guid = nil end
         local token
         local ok, _, u = pcall(tt.GetUnit, tt)
-        if ok and u and not (_isSecret and _isSecret(u)) and UnitExists(u) then
+        if ok and u and UnitExists(u) then
             local g = UnitGUID(u)
-            if g and not (_isSecret and _isSecret(g)) then
+            if g then
                 if not guid then guid = g end
                 if g == guid then token = u end
             end
         end
-        -- Clean literal group token: covers our raid/party frames, where
-        -- GetUnit()/UnitTokenFromGUID return secret tokens but the GUID is clean.
-        if guid and not token then
-            token = _CleanTokenForGUID(guid)
-        end
         if guid and not token and _G.UnitTokenFromGUID then
             local tu = _G.UnitTokenFromGUID(guid)
-            if tu and not (_isSecret and _isSecret(tu)) and UnitExists(tu) then token = tu end
+            if tu and UnitExists(tu) then token = tu end
         end
-        -- Last resort: accept "mouseover" ONLY when it provably maps to the same
-        -- authoritative guid. Recovers a usable token (for M+/ilvl/title) in
-        -- restricted contexts where UnitTokenFromGUID hands back a secret token,
-        -- without ever risking the cursor-lag wrong-person attribution.
         if guid and not token and UnitExists("mouseover") then
             local mg = UnitGUID("mouseover")
-            if mg and not (_isSecret and _isSecret(mg)) and mg == guid then
+            if mg and mg == guid then
                 token = "mouseover"
             end
         end
@@ -460,17 +376,13 @@ end
     -- "Targeting" line: who the hovered unit is currently targeting. Opt-in
     -- (default off). Needs a live unit token for the relational target token,
     -- so hovers that only resolve a GUID (our raid/party frames in Midnight)
-    -- skip it. Identity-secret targets are skipped entirely. Refresh passes
+    -- skip it. Refresh passes
     -- re-run the postprocessor while the tip is up, so an existing line is
     -- updated IN PLACE (never appended twice) and the value stays current.
     local function _ttTargetLine(tt, unit)
         local db = EllesmereUIDB
         if not (unit and db and db.tooltipShowTarget) then return end
         local tu = unit .. "target"
-        if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
-            local s = C_Secrets.ShouldUnitIdentityBeSecret(tu)
-            if (_isSecret and _isSecret(s)) or s == true then return end
-        end
         local label = EllesmereUI.L("Targeting:")
         local tName, r, g, b
         if UnitExists(tu) then
@@ -479,17 +391,16 @@ end
                 r, g, b = 0.1, 1, 0.1
             else
                 local n = UnitName(tu)
-                if n and not (_isSecret and _isSecret(n)) then
+                if n then
                     tName = n
                     r, g, b = 0.9, 0.9, 0.9
                     if UnitIsPlayer(tu) then
                         local _, cf = UnitClass(tu)
-                        local cc = cf and not (_isSecret and _isSecret(cf)) and _RAID_CC and _RAID_CC[cf]
+                        local cc = cf and _RAID_CC and _RAID_CC[cf]
                         if cc then r, g, b = cc.r, cc.g, cc.b end
                     else
                         local reaction = UnitReaction and UnitReaction(tu, "player")
-                        local fc = reaction and not (_isSecret and _isSecret(reaction))
-                            and FACTION_BAR_COLORS and FACTION_BAR_COLORS[reaction]
+                        local fc = reaction and FACTION_BAR_COLORS and FACTION_BAR_COLORS[reaction]
                         if fc then r, g, b = fc.r, fc.g, fc.b end
                     end
                 end
@@ -498,7 +409,7 @@ end
         for i = 2, (tt.NumLines and tt:NumLines() or 0) do
             local lineL = _G["GameTooltipTextLeft" .. i]
             local txt = lineL and lineL:GetText()
-            if txt and not (_isSecret and _isSecret(txt)) and txt == label then
+            if txt and txt == label then
                 local lineR = _G["GameTooltipTextRight" .. i]
                 if lineR then
                     if tName then
@@ -538,7 +449,7 @@ end
         local classFile, pname, prealm
         if GetPlayerInfoByGUID then
             local _, eClass, _, _, _, n, r = GetPlayerInfoByGUID(guid)
-            if eClass and not (_isSecret and _isSecret(eClass)) then
+            if eClass then
                 classFile, pname, prealm = eClass, n, r
             end
         end
@@ -551,7 +462,7 @@ end
                 return
             end
             local _, cf = UnitClass(unit)
-            if cf and not (_isSecret and _isSecret(cf)) then
+            if cf then
                 classFile = cf
                 pname, prealm = UnitName(unit)
             end
@@ -564,21 +475,18 @@ end
         -- rewrite line 1 when a title is genuinely present, so the common
         -- no-title case never clobbers name formatting Blizzard or another
         -- addon produced on line 1.
-        if not (db and db.tooltipPlayerTitles) and pname
-            and not (_isSecret and _isSecret(pname)) then
+        if not (db and db.tooltipPlayerTitles) and pname then
             local display = (prealm and prealm ~= "") and (pname .. "-" .. prealm) or pname
             local cur = _nameL1:GetText()
             -- Line 1 carries a title (or other decoration) when it differs from
             -- the plain name. With a clean unit token, confirm precisely via
             -- UnitPVPName so an equivalent plain-name form is never rewritten.
-            -- Without a token -- e.g. our raid/party frames, whose unit token is
-            -- secret in Midnight so only the GUID resolves -- fall back to the
-            -- name-difference check so titles are still stripped there.
-            if cur and not (_isSecret and _isSecret(cur)) and cur ~= display then
+            -- Without a token, fall back to the name-difference check.
+            if cur and cur ~= display then
                 local strip
                 if unit and UnitPVPName then
                     local titled = UnitPVPName(unit)
-                    strip = titled and not (_isSecret and _isSecret(titled)) and titled ~= pname
+                    strip = titled and titled ~= pname
                 else
                     strip = true
                 end
@@ -600,48 +508,18 @@ end
         -- this postprocessor on text that may already carry the rank.
         if unit and db and db.tooltipShowGuildRank then
             local guildName, guildRankName = GetGuildInfo(unit)
-            if guildName and guildRankName
-                and not (_isSecret and (_isSecret(guildName) or _isSecret(guildRankName))) then
+            if guildName and guildRankName then
                 local suffix = " [" .. guildRankName .. "]"
                 for i = 2, nLinesBefore do
                     local line = _G["GameTooltipTextLeft" .. i]
                     local text = line and line:GetText()
-                    if text and not (_isSecret and _isSecret(text))
-                        and string.find(text, guildName, 1, true) then
+                    if text and string.find(text, guildName, 1, true) then
                         if text:sub(-#suffix) ~= suffix then
                             line:SetText(text .. suffix)
                         end
                         break
                     end
                 end
-            end
-        end
-        -- Mount name from the live helpful aura that MountJournal recognizes.
-        -- Opt-in (default off). Per-GUID cached so refresh ticks on an
-        -- unmounted player never re-walk the whole aura list.
-        local mountLabel = EllesmereUI.L("Mount:")
-        if unit and guid and db and db.tooltipShowMount and not _tipHasLine(tt, mountLabel) then
-            local mountName, mountCollected
-            local cached = _mountCache[guid]
-            if cached and (GetTime() - cached.time) < _mountCacheTTL then
-                mountName = cached.name
-                mountCollected = cached.collected
-            else
-                local nm, col = _getMountedAuraName(unit)
-                mountName = nm or false
-                mountCollected = col
-                _mountCache[guid] = { name = mountName, collected = mountCollected, time = GetTime() }
-            end
-            if mountName then
-                -- Append a green check / red X for whether YOU own this mount
-                -- (nil = unknown, so no marker) Credit for Fix: TipTac
-                local valText = mountName
-                if mountCollected == true then
-                    valText = mountName .. " |TInterface\\RaidFrame\\ReadyCheck-Ready:0|t"
-                elseif mountCollected == false then
-                    valText = mountName .. " |TInterface\\RaidFrame\\ReadyCheck-NotReady:0|t"
-                end
-                tt:AddDoubleLine(mountLabel, valText, 1, 1, 1, 1, 1, 1)
             end
         end
         -- Who the hovered player currently targets (opt-in, default off).
@@ -660,7 +538,7 @@ end
                 elseif unit then
                     if C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel then
                         local val = C_PaperDollInfo.GetInspectItemLevel(unit)
-                        if val and not (_isSecret and _isSecret(val)) and val > 0 then
+                        if val and val > 0 then
                             ilvl = math.floor(val)
                             _ilvlCache[guid] = { ilvl = ilvl, time = GetTime() }
                         end
@@ -1196,8 +1074,6 @@ end
                 _ttInitData()
                 _ttInitVisual()
             end
-            -- Engine aura tooltip mirrors the skin (12.1; no-op on retail).
-            if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
             if _pmEnabled() then
                 _menuInit()
                 _popupInit()
@@ -1211,39 +1087,6 @@ end
         end)
     end
     EllesmereUI._initTooltipSkins = function() _ttInit(); _menuInit(); _popupInit() end
-
-    -- 12.1 ONLY: mirror the tooltip skin onto the ENGINE aura tooltip
-    -- (AuraButtonTooltip -- the forbidden GameTooltip clone every aura
-    -- container button uses; addon hooks can never touch it). 68914 exposes
-    -- global styling entry points for it: resolved DEFENSIVELY (public-env
-    -- reachability is a field-verify item) and pcall'd throughout. Applied
-    -- at login and from the tooltip-skin setters; skin off restores the
-    -- engine default style.
-    function EllesmereUI.SyncAuraTooltipSkin()
-        if not EllesmereUI.IS_121 then return end
-        local inb = _G.AuraContainerInbound
-        if not inb then return end
-        if _enabled() then
-            if not inb.SetTooltipBackdrop then return end
-            local cr, cg, cb, ca = EllesmereUI.GetTooltipBg()
-            local br, bgc, bb, ba, size = EllesmereUI.GetTooltipBorder()
-            local info = {
-                backdropInfo = {
-                    bgFile = "Interface\\Buttons\\WHITE8X8",
-                    insets = { left = 0, right = 0, top = 0, bottom = 0 },
-                },
-                centerColor = CreateColor(cr or 0, cg or 0, cb or 0, ca or 0.9),
-            }
-            if (size or 0) > 0 then
-                info.backdropInfo.edgeFile = "Interface\\Buttons\\WHITE8X8"
-                info.backdropInfo.edgeSize = size
-                info.borderColor = CreateColor(br or 0, bgc or 0, bb or 0, ba or 1)
-            end
-            pcall(inb.SetTooltipBackdrop, info)
-        elseif inb.ResetTooltipStyle then
-            pcall(inb.ResetTooltipStyle)
-        end
-    end
 
     ---------------------------------------------------------------------------
     --  LFG Queue Accept Popup: reskin + countdown timer bar
@@ -2467,9 +2310,9 @@ do
     -- few frames after show WITHOUT clearing points first (see the Growth
     -- Direction block below), which would pin a second corner and stretch the
     -- tooltip between our box and Blizzard's container. Enforcement rides the
-    -- same armed/disarmed SetPoint pattern: never reads hook args (hooked
-    -- secure setters can receive secret values), re-derives everything, and
-    -- only rewrites on deviation so it converges instead of looping.
+    -- same armed/disarmed SetPoint pattern: never reads hook args, re-derives
+    -- everything, and only rewrites on deviation so it converges instead of
+    -- looping.
     local _fixedEnforcing = false
     local _fixedArmed = false
 
@@ -2640,8 +2483,7 @@ do
     -- stretched to fill the gap. Enforcement therefore rides a SetPoint
     -- hook: any anchor write that isn't ours while a default-anchored
     -- tooltip is up gets collapsed back to the single forced corner. The
-    -- hook never reads its args (hooked setters can receive secret values);
-    -- it re-derives everything from GetPoint. _growthEnforcing guards the
+    -- hook re-derives everything from GetPoint. _growthEnforcing guards the
     -- re-entry from our own SetPoint inside the hook.
     local _growthEnforcing = false
     local _growthDefaultAnchored = false
@@ -2696,9 +2538,8 @@ end
 --  An optional "peek" modifier (tooltipShowModifier) lifts suppression while the
 --  chosen key is held, so a suppressed tip can be read on hover (e.g. mid-combat).
 --  Suppression keeps the tooltip SHOWN but parked in a hidden host frame (never
---  Hide, never alpha) so peek is a pure reparent flip -- rebuilding a hidden
---  tooltip from insecure code errors on secret cooldown data in combat, and
---  alpha is engine-owned (FadeOut snaps it back and leaks the tip).
+--  Hide, never alpha) so peek is a pure reparent flip. Alpha is engine-owned
+--  (FadeOut snaps it back and leaks the tip).
 -------------------------------------------------------------------------------
 do
     local function ShowModifierHeld()
@@ -2741,12 +2582,7 @@ do
     end
 
     -- Suppression parks the tooltip in a hidden host frame -- NOT Hide() and
-    -- NOT alpha. Hide()-based suppression forced the peek path to REBUILD the
-    -- tooltip from our insecure execution: in combat, action tooltips read
-    -- secret cooldown data and that rebuild hard-errors ("secret values are
-    -- only allowed during untainted execution"), which the FireHoveredOnEnter
-    -- pcall silently swallowed -- peek looked dead in combat on action bars.
-    -- Alpha-based suppression fought the engine: FadeOut (hover-off on world
+    -- NOT alpha. Alpha-based suppression fought the engine: FadeOut (hover-off on world
     -- units) snaps alpha back to full and animates it down, leaking the tip.
     -- Parking wins both ways: the tooltip stays SHOWN (the secure hover path
     -- keeps building and refreshing it), visibility inherits from the hidden

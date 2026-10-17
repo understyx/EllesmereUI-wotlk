@@ -34,14 +34,8 @@ local ComputeTopRowStride    = ns.ComputeTopRowStride
 --  IsVariantOf(spellIDA, spellIDB):
 --      True if A and B share any variant family member.
 -------------------------------------------------------------------------------
--- Reject secret-tainted numbers BEFORE comparing. In Midnight, frame:GetSpellID()
--- on active CDM viewer frames (DoTs/HoTs/active buffs) can return a secret
--- number flagged by Blizzard's secure infrastructure. Doing `id > 0` on a
--- secret value taints us. issecretvalue detects the flag without touching
--- the value, and type() reads the type tag (also safe).
 local function _IsUsableSID(id)
     if type(id) ~= "number" then return false end
-    if issecretvalue and issecretvalue(id) then return false end
     return id > 0 and id == math.floor(id)
 end
 
@@ -116,7 +110,6 @@ ns.ResolveVariantValue = ResolveVariantValue
 ns.IsVariantOf         = IsVariantOf
 
 -- Per-cooldownID cache of the last CLEAN frame:GetSpellID(). On an ACTIVE
--- buff/HoT/DoT viewer frame GetSpellID()/GetAuraSpellID() return secret values,
 -- so while the aura is up we cannot read the live talent form (e.g. 432496
 -- Holy Bulwark) -- resolution would otherwise degrade to the generic
 -- cooldownInfo.spellID (e.g. 137029 Holy Paladin, a spec aura with a generic
@@ -155,7 +148,6 @@ local function GetCanonicalSpellIDForFrame(frame)
     if type(fnGetSpellID) == "function" then
         local sid = fnGetSpellID(frame)
         if _IsUsableSID(sid) then
-            -- Clean read: cache it by cooldownID so an active (secret) read of
             -- this same frame later still resolves to the live talent form.
             local cdid = frame.cooldownID
             if type(cdid) == "number" then _cleanSidByCDID[cdid] = sid end
@@ -172,7 +164,6 @@ local function GetCanonicalSpellIDForFrame(frame)
         if _IsUsableSID(sid) then return sid end
     end
 
-    -- 1c. Active-frame fallback: GetSpellID/GetAuraSpellID returned secret/nil
     -- (the aura is up). Reuse the clean GetSpellID captured for this cooldownID
     -- while the frame was inactive, instead of degrading to the generic
     -- cooldownInfo.spellID below.

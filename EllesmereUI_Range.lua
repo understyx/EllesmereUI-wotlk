@@ -153,7 +153,6 @@ end
 
 -- One rung's answer: first non-nil IsSpellInRange among its spells, checked
 -- through the live override (a base id a talent replaced answers nil).
--- Secret results are skipped -- fail-open to nil, never an error.
 local function RungInRange(rung, unit)
     local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
     local spells = rung.spells
@@ -161,7 +160,7 @@ local function RungInRange(rung, unit)
         local sid = spells[i]
         local live = (FindOvr and FindOvr(sid)) or sid
         local res = C_Spell.IsSpellInRange(live, unit)
-        if not (issecretvalue and issecretvalue(res)) and res ~= nil then
+        if res ~= nil then
             return res
         end
     end
@@ -169,34 +168,25 @@ local function RungInRange(rung, unit)
 end
 
 -- One item rung's answer: true if any id answers in-range, false only on an
--- explicit out-of-range answer, nil when every id is secret/inapplicable.
+-- explicit out-of-range answer, nil when every id is inapplicable.
 local function ItemEntryInRange(entry, unit)
     local ids = entry.ids
     if ids then
         local sawFalse = false
         for i = 1, #ids do
             local res = ItemInRange(ids[i], unit)
-            if not (issecretvalue and issecretvalue(res)) then
-                if res == true or res == 1 then return true end
-                if res == false or res == 0 then sawFalse = true end
-            end
+            if res == true or res == 1 then return true end
+            if res == false or res == 0 then sawFalse = true end
         end
         if sawFalse then return false end
         return nil
     end
     local res = ItemInRange(entry.id, unit)
-    if issecretvalue and issecretvalue(res) then return nil end
     if res == 1 then return true end
     if res == 0 then return false end
     return res
 end
 
--- In combat (and in protected instances, where protected-function
--- restrictions persist between pulls) C_Item.IsItemInRange is a PROTECTED
--- call against units the player cannot attack -- calling it there is an
--- ADDON_ACTION_BLOCKED, not a secret result, so it must be gated up front.
--- Hostile checks stay legal. Fails toward skipping the walk: a restricted
--- query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
     if not modernItemInRange then return true end
     if not (InCombatLockdown()
@@ -204,7 +194,6 @@ local function ItemChecksAllowed(unit)
         return true
     end
     local can = UnitCanAttack("player", unit)
-    if issecretvalue and issecretvalue(can) then return false end
     return can == true
 end
 
@@ -313,7 +302,7 @@ function EllesmereUI.Range_BeyondCutoff(unit, cutoff)
         local sid = RG.probes[i]
         local live = (FindOvr and FindOvr(sid)) or sid
         local res = C_Spell.IsSpellInRange(live, unit)
-        if not (issecretvalue and issecretvalue(res)) and res ~= nil then
+        if res ~= nil then
             return res == false
         end
     end
@@ -334,11 +323,7 @@ function EllesmereUI.Range_DebugDump(unit, out)
             if unit then
                 local live = (FindOvr and FindOvr(sid)) or sid
                 local raw = C_Spell.IsSpellInRange and C_Spell.IsSpellInRange(live, unit)
-                if issecretvalue and issecretvalue(raw) then
-                    res = "SECRET"
-                else
-                    res = tostring(raw)
-                end
+                res = tostring(raw)
             end
             out(("rung %d: %syd spell=%s -> %s"):format(i, tostring(rung.range), tostring(sid), res))
         end

@@ -37,8 +37,7 @@ local DISPLAY_MODE_ORDER  = { "text_nd", "text_dn", "icon", "bar" }
 local _previewOnHideRegistered = false
 
 local CLASS_ORDER = {
-    "DEATHKNIGHT", "DEMONHUNTER", "DRUID", "EVOKER", "HUNTER",
-    "MAGE", "MONK", "PALADIN", "PRIEST", "ROGUE",
+    "DEATHKNIGHT", "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE",
     "SHAMAN", "WARLOCK", "WARRIOR",
 }
 
@@ -57,21 +56,13 @@ local MOVEMENT_PRESETS = {
     { class = "DEATHKNIGHT", ids = { 48265 } },            -- Death's Advance
     { class = "DEATHKNIGHT", ids = { 212552 } },           -- Wraith Walk
     { class = "DEATHKNIGHT", ids = { 444347, 444010 } },   -- Death Charge (both ids share the name)
-    { class = "DEMONHUNTER", ids = { 195072 } },           -- Fel Rush
-    { class = "DEMONHUNTER", ids = { 189110 } },           -- Infernal Strike
-    { class = "DEMONHUNTER", ids = { 1234796 } },
     { class = "DRUID", ids = { 102401, 102417 } },         -- Wild Charge
     { class = "DRUID", ids = { 1850 } },                   -- Dash
     { class = "DRUID", ids = { 252216 } },                 -- Tiger Dash
     { class = "DRUID", ids = { 106898, 77761, 77764 } },   -- Stampeding Roar (base + bear/cat form casts)
-    { class = "EVOKER", ids = { 358267 } },                -- Hover
     { class = "HUNTER", ids = { 186257 } },                -- Aspect of the Cheetah
     { class = "HUNTER", ids = { 781 } },                   -- Disengage
     { class = "MAGE", ids = { 1953, 212653 } },            -- Blink / Shimmer
-    { class = "MONK", ids = { 109132, 115008 } },          -- Roll / Chi Torpedo
-    { class = "MONK", ids = { 119085 } },
-    { class = "MONK", ids = { 361138 } },
-    { class = "MONK", ids = { 101545 } },                  -- Flying Serpent Kick
     { class = "PALADIN", ids = { 190784 } },               -- Divine Steed
     { class = "PRIEST", ids = { 121536 } },                -- Angelic Feather
     { class = "PRIEST", ids = { 73325 } },                 -- Leap of Faith

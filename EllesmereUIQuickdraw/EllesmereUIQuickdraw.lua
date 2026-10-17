@@ -916,16 +916,6 @@ local function CyclePosBack(btn, idx, slot)
     if pos and CycleSteps(slot.kind) then slot.cyclePos = pos end
 end
 
--- "Summon Random Favorite Mount", used only to DRAW the entry -- its icon and
--- its localized name. Firing does not cast it: the spell is neither in the
--- spellbook nor a journal mount, so CastSpellByName resolves it to nothing
--- and the release fires nothing. The roll is made by
--- C_MountJournal.SummonByID(0), which is ordinary API -- the Mount Journal's
--- own button calls it straight from an insecure click handler
--- (Blizzard_MountCollection.lua:998) -- so the kind fires through
--- FireInsecure the way a battle pet does.
-local RANDOM_FAVORITE_MOUNT = 150544
-
 local function MarkerIcon(id)
     return "Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. id
 end
@@ -1021,19 +1011,13 @@ end
 -- for a player who has released as well, and a released player is exactly who
 -- needs resurrecting.
 --
--- Identity APIs can answer SECRET booleans in restricted content, and this
--- runs EVERY FRAME from IconState while a menu holding a live-icon entry is
--- open -- truthiness on a secret throws, and a throw here storms the whole
--- OnUpdate. Every read is issecretvalue-guarded FIRST and a secret fails to
--- false: an unknowable corpse keeps the current branch, and the next
--- readable frame corrects the picture.
 function Rez.HasDeadTarget()
     local exists = UnitExists("target")
-    if issecretvalue(exists) or not exists then return false end
+    if not exists then return false end
     local friend = UnitIsFriend("player", "target")
-    if issecretvalue(friend) or not friend then return false end
+    if not friend then return false end
     local dead = UnitIsDeadOrGhost("target")
-    if issecretvalue(dead) or not dead then return false end
+    if not dead then return false end
     return true
 end
 
@@ -1203,8 +1187,7 @@ end
 -- kind -> attribute triple for the secure button, plus an optional 4th value:
 -- a sibling attribute key that must be cleared because the same action type
 -- would otherwise read it in preference. Returns nil for the kinds with no
--- secure action type at all (battlepet, spec, randommount), which
--- FireInsecure handles instead.
+-- secure action type at all (spec), which FireInsecure handles instead.
 --
 -- p is the palette's appearance view, for the one kind whose action depends on
 -- a setting rather than only on the slot (worldmarker). It is the view of the
@@ -1243,27 +1226,6 @@ local function ResolveAction(slot, p)
     elseif k == "macrotext" then
         if type(slot.macrotext) ~= "string" or slot.macrotext == "" then return nil end
         return "macro", "macrotext", slot.macrotext, "macro"
-
-    elseif k == "mount" then
-        -- C_MountJournal.SummonByID is protected, so the mount is summoned
-        -- through its own summon spell instead.
-        --
-        -- By NAME, not by id: SECURE_ACTIONS.spell routes a numeric value to
-        -- CastSpellByID and a string to CastSpellByName
-        -- (SecureTemplates.lua:387-395). Mount summon spells do not live in the
-        -- spellbook, and CastSpellByID does nothing for them; CastSpellByName is
-        -- the path a plain "/cast <mount>" macro takes, which does work.
-        local mountName, spellID = nil, slot.spellID
-        if slot.id and C_MountJournal and C_MountJournal.GetMountInfoByID then
-            mountName, spellID = C_MountJournal.GetMountInfoByID(slot.id)
-            spellID = slot.spellID or spellID
-        end
-        -- The spell's own name over the journal's display name: it is what
-        -- CastSpellByName resolves against.
-        local info = type(spellID) == "number" and C_Spell.GetSpellInfo(spellID)
-        local castName = (info and info.name) or mountName
-        if type(castName) ~= "string" or castName == "" then return nil end
-        return "spell", "spell", castName
 
     elseif k == "raidtarget" then
         -- Fired as the /tm slash command rather than through
@@ -1368,36 +1330,13 @@ local function ResolveAction(slot, p)
 end
 ns.ResolveAction = ResolveAction
 
--- The kinds with no secure action type at all. None of these calls is
--- protected -- summoning a battle pet or a mount and changing specialization
--- are all ordinary API -- so all are safe straight from PostClick.
+-- Specialization changes use the ordinary API from PostClick.
 --
 -- WHICH cell reaches here is the snippet's answer rather than the live view's
 -- selection; see OnPostClick.
 local function FireInsecure(slot)
     if not slot then return end
-    if slot.kind == "battlepet" and slot.guid and C_PetJournal then
-        C_PetJournal.SummonPetByGUID(slot.guid)
-
-    elseif slot.kind == "randommount" and C_MountJournal then
-        -- The Mount Journal button's own call
-        -- (Blizzard_MountCollection.lua:998); 0 means "a random favorite".
-        -- Refused by the game itself in combat, where no mount can be
-        -- summoned anyway.
-        C_MountJournal.SummonByID(0)
-
-    elseif slot.kind == "lastmount" and C_MountJournal then
-        -- The same call with the mount the player last rode, tracked rather
-        -- than stored on the slot -- the whole point of the entry is that it
-        -- changes on its own. Nothing tracked yet (a fresh profile, or a
-        -- session where the player has not mounted) falls back to the random
-        -- favorite rather than doing nothing: an entry that answers a press
-        -- with silence reads as broken.
-        local pf = P()
-        local id = pf and pf.lastMountID
-        C_MountJournal.SummonByID(type(id) == "number" and id or 0)
-
-    elseif slot.kind == "spec" then
+    if slot.kind == "spec" then
         local index = SpecIndexFor(slot)
         -- Refused in combat by the game itself, with its own error message.
         -- Nothing to defer to PLAYER_REGEN_ENABLED: a spec change the user
@@ -1507,38 +1446,6 @@ local function SlotDisplay(slot)
         -- same as a spec this character does not have.
         return QUESTION_MARK, "Dynamic Rez"
 
-    elseif k == "mount" then
-        if type(slot.id) ~= "number" then return QUESTION_MARK, slot.name end
-        if not (C_MountJournal and C_MountJournal.GetMountInfoByID) then
-            return QUESTION_MARK, slot.name or "Mount"
-        end
-        local name, _, icon = C_MountJournal.GetMountInfoByID(slot.id)
-        return icon or QUESTION_MARK, name or slot.name
-
-    elseif k == "lastmount" then
-        -- Whatever is tracked right now, so the entry shows the mount it would
-        -- actually summon. Before anything is tracked it shows what it would
-        -- fall back to, which is the random favorite (see FireInsecure), under
-        -- a name that says what the entry IS rather than what it is standing
-        -- in for.
-        local pf = P()
-        local id = pf and pf.lastMountID
-        if type(id) == "number" and C_MountJournal
-           and C_MountJournal.GetMountInfoByID then
-            local name, _, icon = C_MountJournal.GetMountInfoByID(id)
-            if name then return icon or QUESTION_MARK, name end
-        end
-        local info = C_Spell.GetSpellInfo(RANDOM_FAVORITE_MOUNT)
-        return (info and info.iconID) or QUESTION_MARK, "Last Used Mount"
-
-    elseif k == "randommount" then
-        local info = C_Spell.GetSpellInfo(RANDOM_FAVORITE_MOUNT)
-        -- The client's own caption for the Mount Journal button, so the entry
-        -- reads the same on a localized client as the thing it summons.
-        return (info and info.iconID) or QUESTION_MARK,
-               MOUNT_JOURNAL_SUMMON_RANDOM_FAVORITE_MOUNT
-                   or (info and info.name) or "Random Favorite Mount"
-
     elseif k == "spec" then
         local index = SpecIndexFor(slot)
         if index then
@@ -1556,14 +1463,6 @@ local function SlotDisplay(slot)
             end
         end
         return QUESTION_MARK, slot.name
-
-    elseif k == "battlepet" then
-        if type(slot.guid) ~= "string" then return QUESTION_MARK, slot.name end
-        if not (C_PetJournal and C_PetJournal.GetPetInfoByPetID) then
-            return QUESTION_MARK, slot.name or "Battle Pet"
-        end
-        local _, _, _, _, _, _, _, name, icon = C_PetJournal.GetPetInfoByPetID(slot.guid)
-        return icon or QUESTION_MARK, name or slot.name
 
     elseif k == "raidtarget" then
         local id = tonumber(slot.id) or 0
@@ -1612,28 +1511,6 @@ local function SlotDisplay(slot)
 end
 ns.SlotDisplay = SlotDisplay
 
--- Cooldown source per kind. Returns start, duration, enable -- handed to
--- CooldownFrame_Set verbatim, never compared or arithmetic'd, so secret
--- cooldown values stay untouched.
--- Returns EITHER a duration object (spells, mounts) OR start, duration, enable
--- (items). Two shapes because only spells have a secret-safe getter.
---
--- Spell cooldowns must not go through C_Spell.GetSpellCooldown: it is flagged
--- SecretWhenCooldownsRestricted (SpellDocumentation.lua:252), so once cooldowns
--- are restricted its startTime and duration come back as SECRET numbers. Our
--- execution is an addon's and therefore tainted, and CooldownFrame_Set opens with
--- `start > 0 and duration > 0` (Cooldown.lua:3) -- comparing a secret from
--- tainted execution throws. C_Spell.GetSpellCooldownDuration returns an opaque
--- duration object instead: it is AllowedWhenTainted, and it goes straight into
--- the widget C-side, so nothing here ever reads a secret.
---
--- Items keep the plain numeric path -- C_Item.GetItemCooldown carries no secret
--- flag and there is no duration-object equivalent for items.
---
--- The spellID an entry's live state is read from, for the kinds that HAVE one.
--- A Dynamic Rez answers the branch it would take right now, so its cooldown
--- swipe, its charge count and its usability tint all describe the one spell its
--- icon is drawn from -- three separate resolutions could disagree.
 local function SlotSpellID(slot)
     if not slot then return nil end
     if slot.kind == "spell" then
@@ -1647,18 +1524,8 @@ end
 local function SlotCooldown(slot)
     if not slot then return nil end
     local k = slot.kind
-    if k == "spell" or k == "mount" or k == "dynamicrez" then
-        local id
-        if k == "mount" then
-            -- No falling back to slot.id here: that is a mountID, and looking
-            -- a mountID up as a spellID reports some unrelated spell's cooldown.
-            id = slot.spellID
-            if not id and C_MountJournal and C_MountJournal.GetMountInfoByID then
-                id = select(2, C_MountJournal.GetMountInfoByID(slot.id))
-            end
-        else
-            id = SlotSpellID(slot)
-        end
+    if k == "spell" or k == "dynamicrez" then
+        local id = SlotSpellID(slot)
         if id and C_Spell.GetSpellCooldownDuration then
             -- Parenthesised, so only the duration comes back: 12.1 returns a
             -- second value that would land in this function's `start` slot and
@@ -1673,25 +1540,6 @@ local function SlotCooldown(slot)
     return nil
 end
 
--- WHETHER an entry writes a number in its corner, and WHAT that number is --
--- deliberately two returns rather than one nilable value. Two things earn a
--- number: a stack of items, and a spell's charges.
---
--- The charge count must never be looked at, not even for truth or for nil.
--- C_Spell.GetSpellCharges is flagged SecretWhenCooldownsRestricted
--- (SpellDocumentation.lua:234), so currentCharges comes back a SECRET number
--- once restrictions are in effect, and touching one from tainted execution
--- throws -- the same wall the spell cooldown hit. So the caller is told
--- separately that there IS a count, and the count itself only ever reaches
--- SetText, which swallows a secret; Blizzard's own action button hands the
--- identical kind of value to the identical call (ActionButton.lua:810).
---
--- What is safe to test is the TABLE the call returns, which is not itself
--- secret: it comes back as nothing for a spell that has no charges at all.
---
--- Neither item call carries a secret flag, so those may be compared -- and
--- have to be, because a count only means something on a stackable item. A
--- Hearthstone writing "1" in its corner is noise.
 local function SlotCount(slot)
     if not slot then return false end
     local k = slot.kind
@@ -1728,26 +1576,6 @@ local USABILITY_TINT = {
     UNUSABLE   = { 0.45, 0.45, 0.45, true },
 }
 
--- Which of those states an entry is in, or nil for an entry that is fine and
--- for a kind with nothing to say.
---
--- Every call here is secret-SAFE, and that was checked rather than assumed:
--- C_Spell.IsSpellUsable, C_Spell.IsSpellInRange, C_Item.IsUsableItem,
--- C_Item.ItemHasRange and C_Item.IsItemInRange all carry no
--- SecretWhenCooldownsRestricted flag in the generated documentation, unlike
--- the cooldown and charge getters two functions up. So these results may be
--- branched on. Do not add a kind here without checking its getter the same
--- way -- a mount's usability, for one, has to come from the Mount Journal
--- rather than from its summon spell, which is not in the spellbook and
--- answers unusable for every mount.
---
--- Out of range OUTRANKS the other two, matching every action bar: a spell you
--- cannot reach is the thing to say first, and it is the state a step forward
--- fixes.
---
--- Macros, markers and palettes answer nil. A macro's usability is whatever its
--- body resolves to, which is not knowable from here, and tinting one gray on a
--- guess is worse than saying nothing.
 local function SlotUsability(slot)
     if not slot then return nil end
     local k = slot.kind
@@ -1799,21 +1627,6 @@ local function SlotFromCursor()
         if not name then return nil end
         return { kind = "macro", id = a, name = name }
 
-    elseif cursorType == "mount" and C_MountJournal
-           and C_MountJournal.GetMountInfoByID then
-        -- Position 2 is the mountID: Blizzard reads it exactly this way at
-        -- SharedUIPanelTemplates.lua:1827. Guessing at other positions is
-        -- unsafe here because display indices and mountIDs are both small
-        -- integers, so a wrong guess resolves to a real but unrelated mount.
-        local mountID = tonumber(a)
-        if not mountID then return nil end
-        local name, spellID = C_MountJournal.GetMountInfoByID(mountID)
-        if not name then return nil end
-        return { kind = "mount", id = mountID, spellID = spellID, name = name }
-
-    elseif cursorType == "battlepet" then
-        if not a then return nil end
-        return { kind = "battlepet", guid = a }
     end
 
     return nil
@@ -2106,19 +1919,8 @@ local function CreateSlotWidget(view, index)
     w.bhost:SetFrameLevel(w:GetFrameLevel() + 5)
     EllesmereUI.PP.CreateBorder(w.bhost, 0, 0, 0, 0.9, 2, "OVERLAY", 7)
 
-    -- Stack size or charges, in the corner an action button writes them in.
-    -- Its text may be a SECRET value (see SlotCount), so it is SHOWN and
-    -- HIDDEN rather than written and cleared: a FontString carrying secret
-    -- text refuses text access to tainted callers, and a refused clear would
-    -- leave the previous entry's number standing.
     w.count = w:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     w.count:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", -1, 2)
-    -- Held on BOTH sides, which is the whole width clamp: anchored by one
-    -- corner alone a wide count grows until it runs off the icon it belongs
-    -- to, and a three-digit stack did. The text cannot be measured to shrink
-    -- it instead -- it may be a secret value, and a secret FontString refuses
-    -- text access to a tainted caller -- so the width is decided in advance
-    -- and the client fits the number into it.
     w.count:SetPoint("BOTTOMLEFT", w, "BOTTOMLEFT", 1, 2)
     w.count:SetJustifyH("RIGHT")
     -- One line whatever it holds: a count wide enough to need the clamp above
@@ -5106,51 +4908,6 @@ function PaletteView:Layout(paletteIndex)
     hub.hint:SetText("")
 end
 
--- Redraw the cells whose icon can move, if anything they follow has moved since
--- the last time this asked.
---
--- The palette fires on the RELEASE, and both of these kinds decide what they
--- cast at that moment: a macro's conditionals are evaluated then, and a Dynamic
--- Rez picks its branch then. So the player can press a modifier, pull a boss or
--- click a corpse at any point during the hold and change what the entry under
--- the cursor is going to do. Without this the palette keeps drawing whichever
--- branch happened to be current when it opened, and the only way to find out
--- that it swapped is to fire it.
---
--- A latched menu makes this matter more than a hold does: it stays up across a
--- pull, which is exactly the transition the rez branches on.
---
--- ICON only, deliberately. The label stays the name the paint gave it -- for a
--- macro that is the macro's own name, which is what Blizzard's action buttons
--- show and what the player recognises -- and the usability tint stays where the
--- paint left it, for the reason PaintCell gives: a colour that moves under a
--- settled hand reads as a flicker.
---
--- Five C calls per frame for a palette holding one of these kinds, none for one
--- that is not (the list is empty and this returns on the first line), and
--- textures are touched only on the frames the state actually changes -- one
--- press of shift, not one per frame it stays down.
--- The pip that says this world marker is down right now, so an entry says
--- whether pressing it places the marker or picks it back up before it is
--- pressed. Blizzard's own manager draws the same distinction, swapping its
--- button art between "applied" and "available"
--- (Mainline/Blizzard_CompactRaidFrameManager.lua:1107-1112).
---
--- Read on every open, which is where nearly all of its value is: firing an
--- entry closes the menu (see the release handler), so a press never updates a
--- pip the presser can still see.
---
--- IsRaidMarkerActive is unrestricted and answers a plain bool -- it is neither
--- protected nor a secret value, unlike GetRaidTargetIndex beside it in the
--- documentation -- so this reads the same in combat as out of it.
---
--- Every other kind hides the pip rather than leaving it alone: one widget is
--- reused for whatever the next open puts in it, and a stale pip would claim a
--- spell was a marker that is on the ground.
---
--- A method rather than a local function, like MarkerPip's caller and
--- RefreshMarkerPips below: the main chunk is at Lua's ceiling of 200 locals
--- and has no room for another name.
 function PaletteView:MarkerPip(w, slot, iconSize)
     local pip = w.markerPip
     if not pip then return end
@@ -8928,46 +8685,6 @@ function SetEventsEnabled(on)
         EQD:RegisterEvent("RAID_TARGET_UPDATE", function()
             if liveView and liveView:GetFrame():IsShown() then
                 liveView:RefreshMarkerPips()
-            end
-        end)
-        -- What the "Last Used Mount" entry summons. Blizzard records no such
-        -- thing -- the whole C_MountJournal surface answers only what is
-        -- summoned RIGHT NOW -- so it is observed. Every successful player cast
-        -- is offered to GetMountFromSpell, which answers with a mountID for a
-        -- mount summon and nil for everything else, so the filter and the
-        -- answer are one call; Blizzard's own mount UI watches this same event
-        -- (Blizzard_MountCollection.lua:1022). Documented
-        -- SecretArguments = "AllowedWhenTainted", so a tainted addon may call
-        -- it (MountJournalDocumentation.lua:249-262).
-        --
-        -- Ignored outright in combat. This fires for every cast the player
-        -- makes, and a payload read there may be a secret value; nothing is
-        -- missed by skipping it, because no mount can be summoned in combat
-        -- anyway.
-        --
-        -- Stored on the profile, so the entry is not blank at the start of a
-        -- session. A profile shared between characters shares the memory too,
-        -- and the game refuses a summon the character cannot make, with its own
-        -- message -- the same answer a mount entry picked on another character
-        -- already gives.
-        --
-        -- Inline for the reason the registration above it is: the main chunk is
-        -- at Lua's ceiling of 200 locals.
-        EQD:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, _, unit, _, spellID)
-            if unit ~= "player" or InCombatLockdown() then return end
-            if type(spellID) ~= "number" or not C_MountJournal
-               or not C_MountJournal.GetMountFromSpell then
-                return
-            end
-            local mountID = C_MountJournal.GetMountFromSpell(spellID)
-            local pf = P()
-            if mountID and pf and pf.lastMountID ~= mountID then
-                pf.lastMountID = mountID
-                -- Only a palette actually holding one of these has anything to
-                -- redraw, and RequestPush coalesces and defers like every other
-                -- push, so the cost of a mount cast is one comparison for
-                -- everyone else.
-                RequestPush()
             end
         end)
     else

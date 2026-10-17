@@ -370,10 +370,6 @@ C_ActionBar.GetActionDisplayCount = function(action)
     return GetActionCount(action)
 end
 
-C_ActionBar.IsAssistedCombatAction = function(action)
-    return false
-end
-
 C_ActionBar.EnableActionRangeCheck = function(slot, enable)
     -- No-op fallback
 end
@@ -2332,10 +2328,6 @@ end
 
 if not _G.GetSpeed then
     _G.GetSpeed = function() return 0 end
-end
-
-if not _G.issecretvalue then
-    _G.issecretvalue = function(val) return false end
 end
 
 if not _G.BreakUpLargeNumbers then

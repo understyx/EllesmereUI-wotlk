@@ -50,11 +50,9 @@ local ADDON_FRAMES = {
     ["Blizzard_AuctionHouseUI"]                    = { "AuctionHouseFrame" },
     ["Blizzard_BlackMarketUI"]                     = { "BlackMarketFrame" },
     ["Blizzard_Calendar"]                          = { "CalendarFrame", "CalendarViewEventFrame" },
-    ["Blizzard_ChallengesUI"]                      = { "ChallengesKeystoneFrame" },
     ["Blizzard_ChromieTimeUI"]                     = { "ChromieTimeFrame" },
     ["Blizzard_ClassTalentUI"]                     = { "ClassTalentFrame" },
     ["Blizzard_Collections"]                       = { "CollectionsJournal", "WardrobeFrame" },
-    ["Blizzard_Communities"]                       = { "CommunitiesFrame" },
     ["Blizzard_CooldownViewer"]                    = { "CooldownViewerSettings" },
     ["Blizzard_EncounterJournal"]                  = { "EncounterJournal" },
     ["Blizzard_ExpansionLandingPage"]              = { "ExpansionLandingPage" },
@@ -96,9 +94,9 @@ local EXTRA_DRAG_TARGETS = {
 }
 
 -- Blizzard windows that normally dock beside CharacterFrame (Item Upgrade,
--- Transmog, Item Socketing, Merchant -- covers vendors like the Crest
--- Exchange -- plus Friends, Guild/Communities, and Professions, which
--- normally sit to CharacterFrame's left with CharacterFrame staying put).
+-- Transmog, Item Socketing, and Merchant -- covering vendors like the Crest
+-- Exchange -- plus Friends and Professions, which normally sit to
+-- CharacterFrame's left with CharacterFrame staying put).
 -- See the docking hook in HookFrame for why and how.
 --
 -- PVEFrame is deliberately NOT here: EllesmereUIBlizzardSkin_GroupFinder.lua
@@ -117,7 +115,6 @@ local DOCKING_COMPANIONS = {
     ItemSocketingFrame = true,
     MerchantFrame = true,
     FriendsFrame = true,
-    CommunitiesFrame = true,
     ProfessionsFrame = true,
     ProfessionsBookFrame = true,
     WorldMapFrame = true,
@@ -161,18 +158,6 @@ local function SaveScale(name, scale)
     EllesmereUIDB.shifterScales[name] = scale
 end
 
--------------------------------------------------------------------------------
---  Secure repositioning (for PROTECTED frames)
---
---  A plain frame:SetPoint() / StartMoving() / SetMovable() called from insecure
---  addon code TAINTS the frame's execution. That is invisible on most panels,
---  but PVEFrame parents the LFGList applicant viewer, which does secret-value
---  comparisons in 12.0 -- a tainted tree throws "attempt to compare a secret
---  number" there. So protected frames are NEVER touched with those calls; we
---  run ClearAllPoints/SetPoint inside a SecureHandler restricted-environment
---  snippet instead, which executes securely and never taints the frame.
---  Parented to UIParent so self:GetParent() inside the snippet IS UIParent.
--------------------------------------------------------------------------------
 local securePositioner = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 local function SecureSetPoint(frame, point, relPoint, x, y)
     if InCombatLockdown() then return false end
@@ -652,9 +637,6 @@ local function HookFrame(frame, name)
             end
         end
         frame:HookScript("OnHide", function()
-            -- Strata writes are INSECURE: on a protected frame (PVEFrame)
-            -- they taint its whole tree, exactly like the SetMovable call
-            -- that caused the original secret-value incident. Skip them.
             if not frame:IsProtected() then frame:SetFrameStrata(defaultStrata) end
         end)
         frame:HookScript("OnShow", function()
@@ -947,22 +929,6 @@ local function RegisterLootUnlockElements()
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIQoL")
 end
 
--------------------------------------------------------------------------------
---  Blizzard Top Bar Event Text (UIWidgetTopCenterContainerFrame) via an
---  Unlock Mode mover -- the loot-window recipe (hidden proxy + mover +
---  ignoreFramePositionManager + SetPoint/OnShow re-assert, no mouse state
---  ever touched) with ONE substitution: every position write on the live
---  frame runs through SecureSetPoint. The container hosts encounter and
---  scenario status-bar widgets whose Blizzard code compares SECRET values in
---  instanced combat; an insecure ClearAllPoints/SetPoint would taint that
---  tree and throw "attempt to compare a secret number" (the PVEFrame
---  lesson). The plain-SetPoint shortcut the loot windows use is safe there
---  only because their subtrees never touch secrets.
---
---  SecureSetPoint bails in combat, and Blizzard re-anchors this container
---  exactly then (widgets spawn mid-fight) -- missed re-asserts set a dirty
---  flag and re-apply on PLAYER_REGEN_ENABLED.
--------------------------------------------------------------------------------
 local TOPBAR_NAME = "UIWidgetTopCenterContainerFrame"
 local TOPBAR_KEY, TOPBAR_LABEL = "EUI_TopBarEventText", "Top Bar Event Text"
 local TOPBAR_DEFW, TOPBAR_DEFH, TOPBAR_DEFY = 400, 60, -120

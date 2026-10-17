@@ -331,7 +331,6 @@ end
 -------------------------------------------------------------------------------
 local function _sname(id) return (id and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or "?" end
 local function _safe(v)
-    if issecretvalue and issecretvalue(v) then return "<secret>" end
     return tostring(v)
 end
 

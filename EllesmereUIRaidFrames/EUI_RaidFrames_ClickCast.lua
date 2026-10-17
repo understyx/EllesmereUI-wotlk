@@ -68,65 +68,30 @@ local ACTION_ICONS = {
 
 -- Dispel spells by class (friendly dispels only)
 local DISPEL_SPELLS = {
-    { id = 240166, name = "Purify",        class = "PRIEST" },
-    { id = 218164, name = "Detox",         class = "MONK" },
-    { id = 4987,   name = "Cleanse",       class = "PALADIN" },  -- Holy
-    { id = 213644, name = "Cleanse Toxins", class = "PALADIN" }, -- Prot & Ret (Cleanse is Holy-only)
-    { id = 88423,  name = "Nature's Cure", class = "DRUID" },  -- Resto
-    { id = 2782,   name = "Remove Corruption", class = "DRUID" }, -- Guardian, Feral & Balance
-    { id = 254420, name = "Purify Spirit", class = "SHAMAN" },  -- Resto
-    { id = 51886,  name = "Cleanse Spirit", class = "SHAMAN" }, -- Ele & Enh
-    { id = 360823, name = "Naturalize",    class = "EVOKER" },  -- Pres
-    { id = 365585, name = "Expunge",       class = "EVOKER" },  -- Aug & Dev
-    { id = 89808,  name = "Singe Magic",   class = "WARLOCK" }, -- Warlock
-    { id = 475,    name = "Remove Curse",  class = "MAGE" },  -- All specs (Curse only)
+    { id = 527,   name = "Dispel Magic", class = "PRIEST" },
+    { id = 4987,  name = "Cleanse", class = "PALADIN" },
+    { id = 2782,  name = "Remove Curse", class = "DRUID" },
+    { id = 51886, name = "Cleanse Spirit", class = "SHAMAN" },
+    { id = 475,   name = "Remove Curse", class = "MAGE" },
+    { id = 19505, name = "Devour Magic", class = "WARLOCK" },
 }
 
 -- External defensive spells by class
 local EXTERNAL_SPELLS = {
-    { id = 33206,  name = "Pain Suppression",      class = "PRIEST" },
-    { id = 255312, name = "Guardian Spirit",        class = "PRIEST" },
-    { id = 102342, name = "Ironbark",              class = "DRUID" },
-    { id = 6940,   name = "Blessing of Sacrifice",  class = "PALADIN" },
-    { id = 357170, name = "Time Dilation",          class = "EVOKER" },
-    { id = 343744, name = "Life Cocoon",            class = "MONK" },
+    { id = 33206, name = "Pain Suppression", class = "PRIEST" },
+    { id = 47788, name = "Guardian Spirit", class = "PRIEST" },
+    { id = 6940,  name = "Hand of Sacrifice", class = "PALADIN" },
 }
 
 -- Resurrection spells by class: single (ooc), group (ooc), battle (combat)
 local REZ_BY_CLASS = {
-    PRIEST      = { single = 2006,   group = 212036 },
-    PALADIN     = { single = 7328,   group = 212056, battle = 391054 },
-    SHAMAN      = { single = 2008,   group = 212048 },
-    DRUID       = { single = 50769,  group = 212040, battle = 20484 },
-    MONK        = { single = 115178, group = 212051 },
-    EVOKER      = { single = 361227, group = 361178 },
+    PRIEST      = { single = 2006 },
+    PALADIN     = { single = 7328 },
+    SHAMAN      = { single = 2008 },
+    DRUID       = { single = 50769, battle = 20484 },
     DEATHKNIGHT = { battle = 61999 },
     WARLOCK     = { battle = 20707 },
 }
-
-if IS_WRATH then
-    DISPEL_SPELLS = {
-        { id = 527,   name = "Dispel Magic", class = "PRIEST" },
-        { id = 4987,  name = "Cleanse", class = "PALADIN" },
-        { id = 2782,  name = "Remove Curse", class = "DRUID" },
-        { id = 51886, name = "Cleanse Spirit", class = "SHAMAN" },
-        { id = 475,   name = "Remove Curse", class = "MAGE" },
-        { id = 19505, name = "Devour Magic", class = "WARLOCK" },
-    }
-    EXTERNAL_SPELLS = {
-        { id = 33206, name = "Pain Suppression", class = "PRIEST" },
-        { id = 47788, name = "Guardian Spirit", class = "PRIEST" },
-        { id = 6940,  name = "Hand of Sacrifice", class = "PALADIN" },
-    }
-    REZ_BY_CLASS = {
-        PRIEST      = { single = 2006 },
-        PALADIN     = { single = 7328 },
-        SHAMAN      = { single = 2008 },
-        DRUID       = { single = 50769, battle = 20484 },
-        DEATHKNIGHT = { battle = 61999 },
-        WARLOCK     = { battle = 20707 },
-    }
-end
 
 -- Build a lookup set of spell IDs in these collections
 local PRESET_SPELL_IDS = {}
@@ -885,13 +850,8 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     if actionType == "togglemenu" and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY
         and EllesmereUI.GetSecureMenuProxy then
         local proxy = EllesmereUI.GetSecureMenuProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "click", oocOnly)
+        frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
         return
     end
     if actionType == "togglemenu" and EllesmereUI.AttachLegacyUnitMenu then
@@ -906,13 +866,8 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     if actionType == "target" and (suffix ~= "1" or prefix ~= "")
         and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY and EllesmereUI.GetSecureTargetProxy then
         local proxy = EllesmereUI.GetSecureTargetProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "click", oocOnly)
+        frame:SetAttribute(prefix .. "clickbutton" .. suffix, proxy)
         return
     end
     -- Raw action type. Only menu/target honor oocOnly via the combat driver;
@@ -945,13 +900,8 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
     if actionType == "togglemenu" and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY
         and EllesmereUI.GetSecureMenuProxy then
         local proxy = EllesmereUI.GetSecureMenuProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute("clickbutton-" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "click", oocOnly)
+        frame:SetAttribute("clickbutton-" .. suffix, proxy)
         return
     end
     if actionType == "togglemenu" and EllesmereUI.AttachLegacyUnitMenu then
@@ -963,13 +913,8 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
     if actionType == "target" and EllesmereUI.USE_SECURE_UNIT_MENU_PROXY
         and EllesmereUI.GetSecureTargetProxy then
         local proxy = EllesmereUI.GetSecureTargetProxy(frame)
-        if EllesmereUI.IS_121 then
-            SetGatedType(frame, typeAttr, "macro", oocOnly)
-            frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
-        else
-            SetGatedType(frame, typeAttr, "click", oocOnly)
-            frame:SetAttribute("clickbutton-" .. suffix, proxy)
-        end
+        SetGatedType(frame, typeAttr, "click", oocOnly)
+        frame:SetAttribute("clickbutton-" .. suffix, proxy)
         return
     end
     -- Only menu/target honor oocOnly via the combat driver; spell/macro carry

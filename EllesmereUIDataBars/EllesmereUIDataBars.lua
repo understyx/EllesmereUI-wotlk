@@ -203,7 +203,7 @@ ns.BLOCK_DEFAULTS = {
     travel     = { randomizeHs = true },
     micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, charStatsTooltip = false, socialTooltip = false, mainMenuSpacing = 4, iconSpacing = 2,
                    menu = true, guild = true, social = true, char = true, spell = true, ach = true, quest = true, lfg = true,
-                   pvp = true, journal = false, pet = false, shop = false, help = true },
+                   pvp = true, pet = false, shop = false, help = true },
     currency   = { currencyId = nil, showIcon = true },
     audio      = { channel = "master" },
     spacer     = {},
@@ -958,15 +958,9 @@ do
         forceInteractive = false
     end
 
-    -- Secret text must never enter a row: SetText would display it, but
-    -- Tip_Show sizes the tooltip from GetStringWidth, which returns a SECRET
-    -- number for secret-fed FontStrings, and the max-width compare errors.
-    -- Rows carrying a secret are dropped at this single chokepoint, so the
-    -- tooltip shortens in restricted content instead of erroring. Add
-    -- functions return true when the row was actually added.
+    -- Add functions return true when the row was actually added.
     function ns.Tip_AddLine(text, r, g, b)
         if not tip then return end
-        if text ~= nil and issecretvalue(text) then return end
         -- Localize: fixed UI strings (click hints, labels) resolve through the
         -- shared EllesmereUI locale; dynamic content (names, numbers, strings
         -- the game already localized) has no key and falls back unchanged.
@@ -998,8 +992,6 @@ do
 
     function ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb)
         if not tip then return end
-        if (left ~= nil and issecretvalue(left))
-        or (right ~= nil and issecretvalue(right)) then return end
         left = EllesmereUI.L(left); right = EllesmereUI.L(right)   -- see Tip_AddLine
         dataCount = dataCount + 1
         local d = data[dataCount]
@@ -1026,11 +1018,7 @@ do
     -- The array is copied, so callers may reuse one buffer for every row.
     function ns.Tip_AddColumns(left, tokens, lr, lg, lb)
         if not tip then return end
-        if left ~= nil and issecretvalue(left) then return end
         local n = (tokens and #tokens) or 0
-        for i = 1, n do
-            if issecretvalue(tokens[i]) then return end
-        end
         dataCount = dataCount + 1
         local d = data[dataCount]
         if not d then d = {}; data[dataCount] = d end
@@ -1057,8 +1045,7 @@ do
 
     -- Click-to-cast row: identical to Tip_AddDouble, but Tip_Show overlays a
     -- secure spell button over it and keeps the tip alive while hovered.
-    -- spellID MUST be a static integer spell ID (never an API-derived name or
-    -- secret-capable value -- same contract as the QoL teleport prompt).
+    -- spellID must be a static integer, never a localized spell name.
     -- Degrades to a plain double line in combat.
     function ns.Tip_AddActionDouble(left, right, spellID, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and spellID then
@@ -2409,7 +2396,7 @@ do
     local VIS_EVENTS = {
         "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
         "PLAYER_TARGET_CHANGED", "GROUP_ROSTER_UPDATE",
-        "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_CAN_GLIDE_CHANGED",
+        "PLAYER_MOUNT_DISPLAY_CHANGED",
         "ZONE_CHANGED_NEW_AREA", "UPDATE_SHAPESHIFT_FORM",
         "PLAYER_ENTERING_WORLD",
     }
@@ -2497,9 +2484,6 @@ do
                 visFrame:SetScript("OnEvent", OnVisEvent)
             end
             for _, e in ipairs(VIS_EVENTS) do visFrame:RegisterEvent(e) end
-            if EllesmereUI._hasGlidingEvent then
-                visFrame:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
-            end
             _inCombat = InCombatLockdown() and true or false
         elseif visFrame then
             visFrame:UnregisterAllEvents()
@@ -3081,7 +3065,6 @@ local function RemoveRetiredBlocks(profile)
             elseif block.type == "micromenu" then
                 local settings = block.settings or {}
                 block.settings = settings
-                settings.journal = false
                 settings.pet = false
                 settings.shop = false
             end

@@ -22,15 +22,6 @@ end
 -------------------------------------------------------------------------------
 --  Skin generation
 --
---  Blizzard fires AuraContainer:UpdateGridLayout continuously while buff timers
---  tick, and every fire used to re-skin every visible button from scratch: the
---  full border chain (ApplySecretSafeBorderStyle -> ApplyBorderStyle ->
---  PP.UpdateBorder -> SnapBorderTextures) plus a font resolve and SetFont per
---  button, every frame, even standing still doing nothing. SkinAuraButton
---  already set an ffd._paSkinned flag for exactly this -- but nothing ever read
---  it, so it never short-circuited anything. Profiling attributed the cost to
---  the PARENT addon, because that is where the border and font code lives.
---
 --  A button stamped with the current generation is already styled correctly and
 --  is skipped. The settings that feed the skin are compared ONCE per refresh
 --  rather than per button, so a change from any source -- options, a profile
@@ -174,7 +165,6 @@ local function SkinAuraButton(btn, isDebuff)
             local style = pa and pa.durationFormat
             if not style or style == "blizzard" then return end
             if type(timeLeft) ~= "number" then return end
-            if issecretvalue and issecretvalue(timeLeft) then return end
             if timeLeft <= 0 then return end
             fs:SetText(FormatCompactDuration(timeLeft, style))
         end)
@@ -219,16 +209,11 @@ local function SkinAuraButton(btn, isDebuff)
         ffd._paBorder = border
     end
     border:SetFrameLevel(cfg.borderBehind and math.max(0, btn:GetFrameLevel() - 1) or (btn:GetFrameLevel() + 10))
-    -- Never derive this frame's dimensions through SetAllPoints(anchorFrame):
-    -- Blizzard aura dimensions are secret on Midnight, and BackdropTemplate's
-    -- SetBackdrop then attempts arithmetic on that secret width. AuraContainer
-    -- applies the user's icon size as scale over Blizzard's native 32px button.
-    -- Its visible icon is 30px, so this public constant avoids both the secret
-    -- geometry read and the one-pixel gap left by sizing to the whole button.
+    -- Use the visible icon bounds rather than the full native button bounds.
     border:ClearAllPoints()
     border:SetPoint("CENTER", anchorFrame, "CENTER", 0, 0)
     border:SetSize(BLIZZARD_AURA_ICON_SIZE, BLIZZARD_AURA_ICON_SIZE)
-    EllesmereUI.ApplySecretSafeBorderStyle(border, ffd,
+    EllesmereUI.ApplyBorderStyle(border,
         (bs > 0 and not skipBorder) and bs or 0,
         cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, cfg.borderA or 1,
         cfg.borderTexture or "solid",
@@ -280,54 +265,6 @@ local function RequestRefresh()
     refreshPending = true
     C_Timer.After(0, DoPendingRefresh)
 end
-
--------------------------------------------------------------------------------
---  Scale helper (applies iconSize via SetScale on AuraContainer)
--------------------------------------------------------------------------------
-local _appliedBuffScale, _appliedDebuffScale
-
-local function ApplyExpandButtonSetting()
-    local cfg = PA()
-    local button = BuffFrame and BuffFrame.CollapseAndExpandButton
-    if not (cfg and button) then return end
-    local show = cfg.showExpandButton ~= false
-    -- Purely visual: hide the expand/collapse button when the user opts to.
-    -- We deliberately do NOT write BuffFrame.isExpanded or call BuffFrame:Update
-    -- / UpdateGridLayout / RefreshConsolidationFrameVisibility from addon code.
-    -- Driving Blizzard's aura machinery from addon context runs it under our
-    -- taint, so Blizzard's own UpdateExpirationTime compares the secret
-    -- expirationTime and errors on every aura update -- 2000+ errors and heavy
-    -- lag in raid combat -- and that tainted Update also throws before our
-    -- border re-skin hook runs, so the icon borders revert on reload. Auras keep
-    -- Blizzard's native expand state (default is expanded, so all auras show);
-    -- when hidden, the button also stays hidden via the deferred
-    -- RefreshConsolidationFrameVisibility hook installed at init.
-    if not show then
-        button:Hide()
-    end
-end
-
-local function ApplyScale()
-    local cfg = PA()
-    if not cfg or not cfg.enabled then return end
-    local nativeSize = 32
-    local scale = (cfg.iconSize or nativeSize) / nativeSize
-
-    if BuffFrame and BuffFrame.AuraContainer then
-        if _appliedBuffScale ~= scale then
-            BuffFrame.AuraContainer:SetScale(scale)
-            _appliedBuffScale = scale
-        end
-    end
-    if DebuffFrame and DebuffFrame.AuraContainer then
-        if _appliedDebuffScale ~= scale then
-            DebuffFrame.AuraContainer:SetScale(scale)
-            _appliedDebuffScale = scale
-        end
-    end
-    ApplyExpandButtonSetting()
-end
-ns.ApplyPlayerAuraScale = ApplyScale
 
 -------------------------------------------------------------------------------
 --  Unlock Mode positioning
@@ -634,62 +571,6 @@ local function ED()
     return db and db.profile and db.profile.externalDefensives
 end
 
--- Countdown formatters for the EDF cooldown widgets. SetCountdownFormatter
--- takes an ENGINE formatter object (C_StringUtil.CreateNumericRuleFormatter),
--- never a Lua function -- passing a closure throws "bad argument #2", which
--- aborted EDF_StyleButton partway and left the button permanently unstyled and
--- its count FontString font-less. Engine-side formatting is also what makes
--- secret durations render at all, the same reason the Cooldown Manager's
--- threshold text uses this API.
---
--- Only the sub-hour range is styled per format; externals are all short, and
--- the hour/day breakpoints exist purely as a tail. Thresholds sit just above
--- each unit boundary so an UP-rounded value in (59, 60] routes into the next
--- breakpoint instead of reading "60" for a tick.
-local EDF_formatters = {}
-local EDF_fmtUnsupported = false
-
-local function EDF_FormatterFor(style)
-    if EDF_fmtUnsupported or not style or style == "blizzard" then return nil end
-    local cached = EDF_formatters[style]
-    if cached ~= nil then return cached or nil end
-    if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
-        and Enum.NumericRuleFormatRounding) then
-        EDF_fmtUnsupported = true
-        return nil
-    end
-    local Up = Enum.NumericRuleFormatRounding.Up
-    local points = { { threshold = 0, format = "%d", rounding = Up, step = 1 } }
-    if style == "colon" then
-        points[#points + 1] = {
-            threshold = 59.0001, format = "%d:%02d", rounding = Up, step = 1,
-            components = { { div = 60 }, { mod = 60 } },
-        }
-    elseif style ~= "seconds" then
-        -- "compact": minutes above a minute. "seconds" deliberately has no
-        -- minute breakpoint, so it keeps counting raw seconds ("152").
-        points[#points + 1] = {
-            threshold = 59.0001, format = "%dm", rounding = Up, step = 1,
-            components = { { div = 60 } },
-        }
-    end
-    points[#points + 1] = {
-        threshold = 3599.0001, format = "%dh", rounding = Up, step = 1,
-        components = { { div = 3600 } },
-    }
-    points[#points + 1] = {
-        threshold = 86399.0001, format = "%dd", rounding = Up, step = 1,
-        components = { { div = 86400 } },
-    }
-    local f = C_StringUtil.CreateNumericRuleFormatter()
-    if not pcall(f.SetBreakpoints, f, points) then
-        EDF_formatters[style] = false
-        return nil
-    end
-    EDF_formatters[style] = f
-    return f
-end
-
 local function EDF_StyleButton(btn, cfg)
     local size = cfg.iconSize or 32
     btn:SetSize(size, size)
@@ -711,12 +592,6 @@ local function EDF_StyleButton(btn, cfg)
     end
     -- SetCountdownFont takes the NAME of a named font object, not the object.
     if edfFont and cd.SetCountdownFont then cd:SetCountdownFont("EUI_EDF_CountdownFont") end
-    -- Custom duration formats via the engine formatter (nil-guarded: on
-    -- clients without it the dropdown falls back to the native format).
-    if cd.SetCountdownFormatter then
-        cd:SetCountdownFormatter(EDF_FormatterFor(cfg.durationFormat))
-    end
-
     if btn._count then
         local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames") or STANDARD_TEXT_FONT
         EllesmereUI.ApplyIconTextFont(btn._count, fontPath, cfg.textSize or 11, "unitFrames")
@@ -787,8 +662,7 @@ local function EDF_ArmButton(btn, iid)
         if durObj and cd.SetCooldownFromDurationObject then
             cd:SetCooldownFromDurationObject(durObj)
             -- Permanent/no-duration auras return a degenerate (0,0) duration
-            -- whose armed cooldown strobes; mask with alpha, never branch on
-            -- the (possibly secret) IsZero.
+            -- whose armed cooldown strobes; mask it with alpha.
             if durObj.IsZero and cd.SetAlphaFromBoolean then
                 cd:SetAlphaFromBoolean(durObj:IsZero(), 0, 1)
             elseif cd.SetAlpha then
@@ -1010,38 +884,8 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
             local cfg = PA()
             if not cfg or not cfg.enabled then return end
 
-            -- Apply scale
-            ApplyScale()
-
             -- Initial skin pass
             RefreshAll()
-
-            -- Hook aura updates to catch new/changed buttons
-            if BuffFrame and BuffFrame.AuraContainer then
-                hooksecurefunc(BuffFrame.AuraContainer, "UpdateGridLayout", function()
-                    RequestRefresh()
-                end)
-                if BuffFrame.RefreshConsolidationFrameVisibility then
-                    hooksecurefunc(BuffFrame, "RefreshConsolidationFrameVisibility", function()
-                        -- Deferred: this can fire inside Blizzard's secure
-                        -- buff-system refresh (incl. Edit Mode's passes);
-                        -- hiding inline there taints the rest of that
-                        -- execution.
-                        C_Timer.After(0, function()
-                            local cfgNow = PA()
-                            if cfgNow and cfgNow.showExpandButton == false
-                                and BuffFrame.CollapseAndExpandButton then
-                                BuffFrame.CollapseAndExpandButton:Hide()
-                            end
-                        end)
-                    end)
-                end
-            end
-            if DebuffFrame and DebuffFrame.AuraContainer then
-                hooksecurefunc(DebuffFrame.AuraContainer, "UpdateGridLayout", function()
-                    RequestRefresh()
-                end)
-            end
 
         end)
     end
