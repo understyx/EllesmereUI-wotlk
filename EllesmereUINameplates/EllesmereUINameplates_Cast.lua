@@ -559,6 +559,14 @@ end
 --------------------------------------------------------------------------------
 -- Event Frame for UNIT_SPELLCAST & CLEU (Direct 3.3.5 Argument Unpacking)
 --------------------------------------------------------------------------------
+local CAST_SUBEVENTS = {
+    SPELL_CAST_START = true,
+    SPELL_CAST_SUCCESS = true,
+    SPELL_CAST_FAILED = true,
+    SPELL_INTERRUPT = true,
+    UNIT_DIED = true,
+}
+
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_START")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_DELAYED")
@@ -579,7 +587,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
               destGUID, destName, destFlags,
               spellId, spellName, spellSchool = ...
 
-        if not ns.MatchTracker then return end
+        -- Most raid CLEU traffic is damage/heal/aura from players without a
+        -- plate; bail before the per-plate name scan below.
+        if not CAST_SUBEVENTS[subEvent] or not ns.MatchTracker then return end
 
         -- Cast events belong to the source. SPELL_INTERRUPT belongs to the
         -- interrupted destination, and UNIT_DIED has no source GUID at all.

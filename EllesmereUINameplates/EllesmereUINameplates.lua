@@ -1163,6 +1163,27 @@ function PlateMethods:ApplyTarget()
     ns.NT_Apply(self)
 end
 
+-- File-level so the 20 Hz driver does not allocate a closure per plate.
+local function SetSlot(slot, aura)
+    slot.icon:SetTexture(aura.icon)
+    if aura.count and aura.count > 1 then
+        slot.countText:SetText(aura.count)
+        if slot.countEnabled ~= false then slot.countText:Show() else slot.countText:Hide() end
+    else
+        slot.countText:SetText("")
+        slot.countText:Hide()
+    end
+    if aura.expirationTime and aura.expirationTime < math.huge then
+        local rem = max(0, aura.expirationTime - GetTime())
+        slot.durationText:SetFormattedText(rem < 10 and "%.1f" or "%.0f", rem)
+        if slot.durationEnabled ~= false then slot.durationText:Show() else slot.durationText:Hide() end
+    else
+        slot.durationText:SetText("")
+        slot.durationText:Hide()
+    end
+    slot:Show()
+end
+
 function PlateMethods:UpdateAuras()
     if not ns.AuraTracker or not self.debuffSlots then return end
     local db = DB()
@@ -1170,26 +1191,6 @@ function PlateMethods:UpdateAuras()
     local helpful = ns.AuraTracker:GetAurasForPlate(self, "HELPFUL")
     local playerGUID = UnitGUID("player")
     local petGUID = UnitGUID("pet")
-
-    local function SetSlot(slot, aura)
-        slot.icon:SetTexture(aura.icon)
-        if aura.count and aura.count > 1 then
-            slot.countText:SetText(aura.count)
-            if slot.countEnabled ~= false then slot.countText:Show() else slot.countText:Hide() end
-        else
-            slot.countText:SetText("")
-            slot.countText:Hide()
-        end
-        if aura.expirationTime and aura.expirationTime < math.huge then
-            local rem = max(0, aura.expirationTime - GetTime())
-            slot.durationText:SetFormattedText(rem < 10 and "%.1f" or "%.0f", rem)
-            if slot.durationEnabled ~= false then slot.durationText:Show() else slot.durationText:Hide() end
-        else
-            slot.durationText:SetText("")
-            slot.durationText:Hide()
-        end
-        slot:Show()
-    end
 
     local debuffCount, ccCount, buffCount = 0, 0, 0
     local maxDebuffs = min(db.maxDebuffs or 5, #self.debuffSlots)
@@ -1649,16 +1650,21 @@ local function IsNameplate(frame)
 end
 
 local lastChildren = 0
+-- Walk the children as varargs: one GetChildren() call per change instead of
+-- one per child, and no packing table.
+local function ScanChildren(child, ...)
+    if not child then return end
+    if not plates[child] and IsNameplate(child) then
+        SkinPlate(child)
+    end
+    return ScanChildren(...)
+end
+
 local function ScanWorldFrame()
-    local current = select("#", WorldFrame:GetChildren())
+    local current = WorldFrame:GetNumChildren()
     if current ~= lastChildren then
         lastChildren = current
-        for i = 1, current do
-            local child = select(i, WorldFrame:GetChildren())
-            if child and not plates[child] and IsNameplate(child) then
-                SkinPlate(child)
-            end
-        end
+        ScanChildren(WorldFrame:GetChildren())
     end
 end
 
@@ -1672,6 +1678,19 @@ local depthSortScratch = {}
 -- get deterministic, non-overlapping bands. Within a native-level tie, a lower
 -- screen anchor is treated as nearer; that matches the projected ordering of
 -- ordinary ground units and, importantly, produces one whole-plate winner.
+local function CompareDepth(a, b)
+    local aNative = a.depthNativeLevel or 0
+    local bNative = b.depthNativeLevel or 0
+    if aNative ~= bNative then return aNative < bNative end
+
+    local aY = a.depthScreenY
+    local bY = b.depthScreenY
+    if aY and bY and aY ~= bY then return aY > bY end
+    if aY ~= nil and bY == nil then return false end
+    if aY == nil and bY ~= nil then return true end
+    return (a.depthSortID or 0) < (b.depthSortID or 0)
+end
+
 local function UpdatePlateDepthRanks()
     local count = 0
     for _, plate in pairs(plates) do
@@ -1685,18 +1704,7 @@ local function UpdatePlateDepthRanks()
     end
     for i = count + 1, #depthSortScratch do depthSortScratch[i] = nil end
 
-    table.sort(depthSortScratch, function(a, b)
-        local aNative = a.depthNativeLevel or 0
-        local bNative = b.depthNativeLevel or 0
-        if aNative ~= bNative then return aNative < bNative end
-
-        local aY = a.depthScreenY
-        local bY = b.depthScreenY
-        if aY and bY and aY ~= bY then return aY > bY end
-        if aY ~= nil and bY == nil then return false end
-        if aY == nil and bY ~= nil then return true end
-        return (a.depthSortID or 0) < (b.depthSortID or 0)
-    end)
+    table.sort(depthSortScratch, CompareDepth)
 
     for rank = 1, count do
         depthSortScratch[rank].depthRank = rank

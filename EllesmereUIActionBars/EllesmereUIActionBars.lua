@@ -11049,9 +11049,30 @@ function EAB:FinishSetup()
             end
         end
     end
+    -- Cooldown-only path: safe during combat, no taint risk. Coalesced to
+    -- one pass per frame through a prebuilt callback so pet cooldown storms
+    -- do not allocate a closure per event.
+    local _petCooldownQueued = false
+    local function FlushPetCooldowns()
+        _petCooldownQueued = false
+        for i = 1, NUM_PET_ACTION_SLOTS do
+            local btn = _G["PetActionButton" .. i]
+            if btn and btn.cooldown then
+                local start, duration, enable = GetPetActionCooldown(i)
+                CooldownFrame_Set(btn.cooldown, start, duration, enable)
+            end
+        end
+    end
     local function UpdatePetBar(_, event, unit)
         if event == "UNIT_AURA" and unit ~= "pet" then return end
         if event == "UNIT_PET" and unit ~= "player" then return end
+        if event == "PET_BAR_UPDATE_COOLDOWN" then
+            if not _petCooldownQueued then
+                _petCooldownQueued = true
+                C_Timer_After(0, FlushPetCooldowns)
+            end
+            return
+        end
         -- UNIT_AURA fires very frequently; throttle to one update per frame
         if event == "UNIT_AURA" or event == "PET_BAR_UPDATE_USABLE" then
             if _petUpdateQueued then return end
@@ -11059,18 +11080,6 @@ function EAB:FinishSetup()
         end
         C_Timer_After(0, function()
             _petUpdateQueued = false
-            if event == "PET_BAR_UPDATE_COOLDOWN" then
-                -- Cooldown-only path: safe during combat, no taint risk.
-                -- Update each button's cooldown frame directly.
-                for i = 1, NUM_PET_ACTION_SLOTS do
-                    local btn = _G["PetActionButton" .. i]
-                    if btn and btn.cooldown then
-                        local start, duration, enable = GetPetActionCooldown(i)
-                        CooldownFrame_Set(btn.cooldown, start, duration, enable)
-                    end
-                end
-                return
-            end
             if InCombatLockdown() then
                 -- Combat-safe path: update textures and visual state per-button
                 -- without touching protected frame operations (Show/Hide/SetParent).

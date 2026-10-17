@@ -90,6 +90,9 @@ end
 --------------------------------------------------------------------------------
 -- UnitAura Authoritative Polling (for verified units)
 --------------------------------------------------------------------------------
+-- Scratch set reused across polls; boss targets carry 40+ auras.
+local pollSeen = {}
+
 local function PollUnitAuras(unit, guid)
     if not unit or not guid or not UnitExists(unit) then return end
 
@@ -100,7 +103,8 @@ local function PollUnitAuras(unit, guid)
     end
 
     local now = GetTime()
-    local seen = {}
+    local seen = pollSeen
+    wipe(seen)
 
     -- Scan Debuffs
     local index = 1
@@ -187,6 +191,14 @@ end
 -- Plate Aura Query Helper
 --------------------------------------------------------------------------------
 -- Returns an array of active auras for a plate, sorted by expiration time
+local function CompareAuraExpiry(a, b)
+    local ae = a.expirationTime or math.huge
+    local be = b.expirationTime or math.huge
+    if ae ~= be then return ae < be end
+    if a.spellId ~= b.spellId then return (a.spellId or 0) < (b.spellId or 0) end
+    return (a.name or "") < (b.name or "")
+end
+
 local tempAuraLists = {
     HARMFUL = {},
     HELPFUL = {},
@@ -225,13 +237,7 @@ function AuraTracker:GetAurasForPlate(plate, filterType)
         tempAuraList[i] = nil
     end
 
-    table.sort(tempAuraList, function(a, b)
-        local ae = a.expirationTime or math.huge
-        local be = b.expirationTime or math.huge
-        if ae ~= be then return ae < be end
-        if a.spellId ~= b.spellId then return (a.spellId or 0) < (b.spellId or 0) end
-        return (a.name or "") < (b.name or "")
-    end)
+    table.sort(tempAuraList, CompareAuraExpiry)
 
     return tempAuraList, n
 end
