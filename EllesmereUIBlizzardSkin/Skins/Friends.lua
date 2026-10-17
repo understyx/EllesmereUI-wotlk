@@ -92,6 +92,26 @@ local function LayoutRowColumns(rowPrefix, fields, headerPrefix, count)
 	end
 end
 
+-- Every social page puts its action buttons in one full-width row with equal
+-- widths, so the buttons don't jump around when switching tabs.
+local BUTTON_ROW_BOTTOM = 34
+local BUTTON_GAP = 3
+local function LayoutButtonRow(frame, buttons)
+	local present = {}
+	for _, button in ipairs(buttons) do
+		if button then present[#present + 1] = button end
+	end
+	if #present == 0 then return end
+	local left = WSkin.Retail.geometry.bodyInset
+	local width = (BodyWidth(frame) - BUTTON_GAP * (#present - 1)) / #present
+	for index, button in ipairs(present) do
+		button:ClearAllPoints()
+		WSkin:Width(button, width)
+		Point(button, "BOTTOMLEFT", frame, "BOTTOMLEFT",
+			left + (index - 1) * (width + BUTTON_GAP), BUTTON_ROW_BOTTOM)
+	end
+end
+
 local function LayoutFooterTabs(tabs, owner)
 	if not tabs or #tabs == 0 then return end
 	local geometry = WSkin.Retail.geometry
@@ -259,12 +279,8 @@ local function LayoutFriendsContent(frame)
 			math.max(120, BodyWidth(frame) - 70 - 11))
 	end
 
-	ClearPoints(_G.FriendsFrameAddFriendButton, _G.FriendsFrameSendMessageButton,
-		_G.FriendsFrameIgnorePlayerButton, _G.FriendsFrameUnsquelchButton)
-	Point(_G.FriendsFrameAddFriendButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", left, 34)
-	Point(_G.FriendsFrameSendMessageButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
-	Point(_G.FriendsFrameIgnorePlayerButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", left, 34)
-	Point(_G.FriendsFrameUnsquelchButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
+	LayoutButtonRow(frame, { _G.FriendsFrameAddFriendButton, _G.FriendsFrameSendMessageButton })
+	LayoutButtonRow(frame, { _G.FriendsFrameIgnorePlayerButton, _G.FriendsFrameUnsquelchButton })
 end
 
 local function LayoutWhoContent(frame)
@@ -300,6 +316,8 @@ local function LayoutWhoContent(frame)
 			Point(_G.WhoFrameTotals, "BOTTOMLEFT", _G.WhoFrame or frame, "BOTTOMLEFT", left, 86)
 		end
 	end
+	LayoutButtonRow(frame, { _G.WhoFrameWhoButton, _G.WhoFrameAddFriendButton,
+		_G.WhoFrameGroupInviteButton })
 end
 
 local function LayoutGuildContent(frame)
@@ -332,13 +350,12 @@ local function LayoutGuildContent(frame)
 	if _G.GuildFrameTotals then
 		ClearPoints(_G.GuildFrameTotals)
 		Point(_G.GuildFrameTotals, "TOPLEFT", frame, "TOPLEFT", left, -320)
-		WSkin:Width(_G.GuildFrameTotals, BodyWidth(frame))
+		-- Native width 0 auto-sizes to the text; GuildFrameOnlineTotals anchors
+		-- to its right edge, so a fixed width pushes "(N Online)" off the frame.
+		_G.GuildFrameTotals:SetWidth(0)
 	end
-	ClearPoints(_G.GuildFrameControlButton, _G.GuildFrameAddMemberButton,
-		_G.GuildFrameGuildInformationButton)
-	Point(_G.GuildFrameControlButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
-	Point(_G.GuildFrameAddMemberButton, "RIGHT", _G.GuildFrameControlButton, "LEFT", -3, 0)
-	Point(_G.GuildFrameGuildInformationButton, "RIGHT", _G.GuildFrameAddMemberButton, "LEFT", -3, 0)
+	LayoutButtonRow(frame, { _G.GuildFrameGuildInformationButton, _G.GuildFrameAddMemberButton,
+		_G.GuildFrameControlButton })
 end
 
 local function LayoutChannelContent(frame)
@@ -376,12 +393,28 @@ end
 
 local function LayoutRaidContent(frame)
 	local left = WSkin.Retail.geometry.bodyInset
+	-- Native 3.3.5 keeps Convert to Raid / Raid Info in a row at the top and
+	-- the Raid Browser button under its description text.
+	local top = WSkin.Retail.geometry.headerHeight + WSkin.Retail.spacing.sm
 	ClearPoints(_G.RaidFrameConvertToRaidButton, _G.RaidFrameRaidInfoButton)
-	Point(_G.RaidFrameConvertToRaidButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", left, 34)
-	Point(_G.RaidFrameRaidInfoButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
-	if _G.RaidFrameNotInRaidRaidBrowserButton then
-		ClearPoints(_G.RaidFrameNotInRaidRaidBrowserButton)
-		Point(_G.RaidFrameNotInRaidRaidBrowserButton, "BOTTOM", frame, "BOTTOM", 0, 34)
+	Point(_G.RaidFrameConvertToRaidButton, "TOPLEFT", frame, "TOPLEFT", left, -top)
+	Point(_G.RaidFrameRaidInfoButton, "TOPRIGHT", frame, "TOPRIGHT", -left, -top)
+	-- The native description text is 300 wide at x=29 for the 384px art rect;
+	-- span it across the body instead so it centres in the wider shell.
+	local raidDescription = _G.RaidFrameRaidDescription
+	if raidDescription then
+		ClearPoints(raidDescription)
+		WSkin:Width(raidDescription, BodyWidth(frame))
+		Point(raidDescription, "TOPLEFT", frame, "TOPLEFT", left, -(top + 21 + WSkin.Retail.spacing.lg))
+	end
+	if _G.RaidFrameRaidBrowserDescription then
+		WSkin:Width(_G.RaidFrameRaidBrowserDescription, BodyWidth(frame))
+	end
+	local browser = _G.RaidFrameNotInRaidRaidBrowserButton
+	local description = _G.RaidFrameRaidBrowserDescription
+	if browser and description then
+		ClearPoints(browser)
+		Point(browser, "TOP", description, "BOTTOM", 0, -10)
 	end
 end
 

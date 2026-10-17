@@ -5,6 +5,8 @@
 --  are exported by CharacterSheet and loaded before this file.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
+-- This file loads before the toolkit (see the .toc), so this is nil at load
+-- time; SkinInspectSheet re-resolves it before use.
 local WSkin = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
 local skinned = false
 
@@ -556,6 +558,7 @@ local function CalculateAverageItemLevel()
 end
 
 local function SkinInspectSheet()
+    WSkin = _G.EllesmereUIBlizzardSkin or WSkin
     if skinned then return end
     skinned = true
 
