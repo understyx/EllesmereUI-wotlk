@@ -33,11 +33,10 @@ if IS_STANDALONE then return end
 
 local PP = EllesmereUI.PanelPP
 local MakeBorder = EllesmereUI.MakeBorder
-local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN
-
--- The override system's gold (editing-session accent), matching the golden
--- setting borders and the gold unlock-mode variant.
-local GOLD_R, GOLD_G, GOLD_B = 1, 0.82, 0.30
+local STYLE = EllesmereUI.Style
+local STYLE_TOKENS = STYLE.Tokens
+local STYLE_COLORS = STYLE_TOKENS.colors
+local STYLE_TYPE = STYLE_TOKENS.type
 
 -- Modern class-icon sprite (same sheet the override cards use) plus the
 -- conditional-override icons (battleground = horde, dungeons).
@@ -84,7 +83,7 @@ end
 -------------------------------------------------------------------------------
 local function ShowSpecOverridesPopup()
     local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
-    local EG = ELLESMERE_GREEN
+    local accentR, accentG, accentB = STYLE.GetAccent()
     local POPUP_W, POPUP_H = 470, 384
     local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
 
@@ -111,26 +110,13 @@ local function ShowSpecOverridesPopup()
 
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetTexture(0.06, 0.08, 0.10, 1)
-
-    -- 1 physical-pixel white border (alpha 0.15), scale-derived so each edge
-    -- stays exactly one physical pixel. Four edge textures, snap disabled.
-    local onePhys = 1 / (popup:GetEffectiveScale() or 1)
-    local BRD_A = 0.15
-    local function MakeEdge()
-        local t = popup:CreateTexture(nil, "BORDER")
-        t:SetTexture(1, 1, 1, BRD_A)
-        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-        return t
-    end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(onePhys)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(onePhys)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(onePhys)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(onePhys)
+    bg:SetTexture(unpack(STYLE_COLORS.panel))
+    local border = STYLE_COLORS.border
+    MakeBorder(popup, border[1], border[2], border[3], border[4], PP)
 
     -- Decorative header visual: two mini override-group cards, mimicking the
     -- overrides dropdown. Left = a SPEC group (tank class glyphs) glowing
-    -- GOLD (the editing accent); right = a CONDITIONAL group (battleground +
+    -- ACCENT (the editing color); right = a CONDITIONAL group (battleground +
     -- dungeon icons) sitting idle. Both systems in one glance.
     local CARD_W, CARD_H, CARD_GAP = 158, 56, 18
     local MIDLINE = -54
@@ -146,7 +132,7 @@ local function ShowSpecOverridesPopup()
             (i - 1.5) * (CARD_W + CARD_GAP), MIDLINE)
         local cbg = card:CreateTexture(nil, "BACKGROUND")
         cbg:SetAllPoints()
-        cbg:SetTexture(0.12, 0.13, 0.15, 1)
+        cbg:SetTexture(unpack(STYLE_COLORS.card))
 
         -- Icon row, centered: class glyphs (spec card) or conditional icons.
         local ICON = 24
@@ -168,42 +154,42 @@ local function ShowSpecOverridesPopup()
             if not g.gold then tex:SetAlpha(0.65) end
         end
 
-        -- Stand-in name line under the icons; the gold card's line carries
+        -- Stand-in name line under the icons; the accent card's line carries
         -- the accent (the "currently editing" read).
         local line = card:CreateTexture(nil, "ARTWORK")
         if g.gold then
-            line:SetTexture(GOLD_R, GOLD_G, GOLD_B, 0.75)
+            line:SetTexture(accentR, accentG, accentB, 0.75)
         else
-            line:SetTexture(1, 1, 1, 0.20)
+            line:SetTexture(border[1], border[2], border[3], border[4])
         end
         PP.Size(line, 64, 4)
         PP.Point(line, "BOTTOM", card, "BOTTOM", 0, 7)
 
         if g.gold then
-            MakeBorder(card, GOLD_R, GOLD_G, GOLD_B, 0.85, PP)
+            MakeBorder(card, accentR, accentG, accentB, 0.85, PP)
         else
-            MakeBorder(card, 1, 1, 1, 0.10, PP)
+            MakeBorder(card, border[1], border[2], border[3], border[4], PP)
         end
     end
 
     -- Eyebrow
     local eyebrow = popup:CreateFontString(nil, "OVERLAY")
     eyebrow:SetFont(FONT, 13, "")
-    eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
+    eyebrow:SetTextColor(accentR, accentG, accentB, STYLE_TYPE.section.alpha)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -104)
     eyebrow:SetText(EllesmereUI.L("NEW SYSTEM"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 25, "")
-    title:SetTextColor(1, 1, 1, 1)
+    title:SetTextColor(1, 1, 1, STYLE_TYPE.title.alpha)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
     title:SetText(EllesmereUI.L("Settings Overrides"))
 
     -- Description
     local desc = popup:CreateFontString(nil, "OVERLAY")
     desc:SetFont(FONT, 15, "")
-    desc:SetTextColor(1, 1, 1, 0.5)
+    desc:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     desc:SetWidth(POPUP_W - 80)
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
@@ -220,7 +206,7 @@ local function ShowSpecOverridesPopup()
     for i, text in ipairs(BULLETS) do
         local bl = popup:CreateFontString(nil, "OVERLAY")
         bl:SetFont(FONT, 14, "")
-        bl:SetTextColor(1, 1, 1, 0.72)
+        bl:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
         bl:SetJustifyH("LEFT")
         if i == 1 then
             PP.Point(bl, "TOPLEFT", popup, "TOPLEFT", 72, -218)
@@ -229,7 +215,7 @@ local function ShowSpecOverridesPopup()
         end
         bl:SetText(EllesmereUI.L(text))
         local dot = popup:CreateTexture(nil, "OVERLAY")
-        dot:SetTexture(EG.r, EG.g, EG.b, 1)
+        dot:SetTexture(accentR, accentG, accentB, 1)
         PP.Size(dot, 5, 5)
         PP.Point(dot, "RIGHT", bl, "LEFT", -10, 0)
         prev = bl
@@ -270,27 +256,28 @@ local function ShowSpecOverridesPopup()
         PP.Size(btn, BTN_W, BTN_H)
         local bbg = btn:CreateTexture(nil, "BACKGROUND")
         bbg:SetAllPoints()
-        bbg:SetTexture(0.06, 0.08, 0.10, 0.92)
-        local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PP)
+        bbg:SetTexture(unpack(STYLE_COLORS.button))
+        local borderAlpha = secondary and STYLE_COLORS.border[4] or STYLE_TYPE.button.alpha
+        local brd = MakeBorder(btn, r, g, b, borderAlpha, PP)
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(FONT, 15, "")
         PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
-        lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
+        lbl:SetTextColor(r, g, b, secondary and STYLE_TYPE.secondary.alpha or STYLE_TYPE.button.alpha)
         lbl:SetText(EllesmereUI.L(text))
         btn:SetScript("OnEnter", function()
-            lbl:SetTextColor(r, g, b, 1)
-            brd:SetColor(r, g, b, secondary and 0.8 or 1)
+            lbl:SetTextColor(r, g, b, STYLE_TYPE.title.alpha)
+            brd:SetColor(r, g, b, secondary and STYLE_TYPE.row.alpha or STYLE_TYPE.title.alpha)
         end)
         btn:SetScript("OnLeave", function()
-            lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-            brd:SetColor(r, g, b, secondary and 0.35 or 0.9)
+            lbl:SetTextColor(r, g, b, secondary and STYLE_TYPE.secondary.alpha or STYLE_TYPE.button.alpha)
+            brd:SetColor(r, g, b, secondary and STYLE_COLORS.border[4] or STYLE_TYPE.button.alpha)
         end)
         return btn
     end
 
     -- Primary "Show Me" on the left, secondary "Got It" on the right,
     -- centered as a pair around the popup's bottom center.
-    local showBtn = MakeActionButton("Show Me", EG.r, EG.g, EG.b, false)
+    local showBtn = MakeActionButton("Show Me", accentR, accentG, accentB, false)
     PP.Point(showBtn, "BOTTOMRIGHT", popup, "BOTTOM", -BTN_GAP / 2, 40)
     showBtn:SetScript("OnClick", function() Finish(true) end)
 
@@ -301,7 +288,7 @@ local function ShowSpecOverridesPopup()
     -- Footnote
     local footnote = popup:CreateFontString(nil, "OVERLAY")
     footnote:SetFont(FONT, 12, "")
-    footnote:SetTextColor(1, 1, 1, 0.35)
+    footnote:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)

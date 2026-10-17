@@ -3,6 +3,10 @@
 --  Enhanced Bags System for EllesmereUI
 --  Sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
+local STYLE_TOKENS = EllesmereUI.Style.Tokens
+local STYLE_COLORS = STYLE_TOKENS.colors
+local STYLE_TYPE = STYLE_TOKENS.type
+
 EUI_Bags = EllesmereUI.SafeCreateFrame("Frame", "EUI_MainBagFrame", UIParent)
 EUI_Bags:Hide()
 -- Auto-size (grow-to-fit) state. Reset on close so the next open sizes itself
@@ -176,6 +180,7 @@ local function SetBagFont(fs, size)
     fs:SetFont(GetFont(), size, GetOutline())
 end
 local function GetAccentRGB()
+    if EUI.Style and EUI.Style.GetAccent then return EUI.Style.GetAccent() end
     if EUI.GetAccentColor then return EUI.GetAccentColor() end
     return 0.047, 0.824, 0.616
 end
@@ -745,38 +750,41 @@ local function CreateHeader()
     header:SetHeight(HEADER_H)
     header.bg = header:CreateTexture(nil, "BACKGROUND")
     header.bg:SetAllPoints()
-    header.bg:SetTexture(0, 0, 0, 0.5)
+    header.bg:SetTexture(unpack(STYLE_COLORS.header))
 
     -- Title
     header.title = header:CreateFontString(nil, "OVERLAY")
-    SetBagFont(header.title, 13)
+    SetBagFont(header.title, STYLE_TYPE.title.size)
     header.title:SetPoint("LEFT", header, "LEFT", 8, 0)
     header.title:SetText(EllesmereUI.L("Inventory"))
-    header.title:SetTextColor(1, 1, 1)
+    header.title:SetTextColor(1, 1, 1, STYLE_TYPE.title.alpha)
 
     -- Item count (updated by RefreshInventory)
     header.itemCount = header:CreateFontString(nil, "OVERLAY")
-    SetBagFont(header.itemCount, 11)
+    SetBagFont(header.itemCount, STYLE_TYPE.row.size)
     header.itemCount:SetPoint("LEFT", header.title, "RIGHT", 8, 0)
-    header.itemCount:SetTextColor(0.6, 0.6, 0.6)
+    header.itemCount:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
 
     -- Search box
     local search = EllesmereUI.SafeCreateFrame("EditBox", "EUI_BagSearchBox", header)
     search:SetSize(160, 22)
     search:SetPoint("RIGHT", -35, 0)
-    search:SetFont(GetFont(), 12, GetOutline())
+    search:SetFont(GetFont(), STYLE_TYPE.value.size, GetOutline())
     search:SetAutoFocus(false)
     search:SetTextInsets(5, 26, 0, 0)
     search.bg = search:CreateTexture(nil, "BACKGROUND")
     search.bg:SetAllPoints()
-    search.bg:SetTexture(0.02, 0.02, 0.02, 1)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(search, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
+    search.bg:SetTexture(unpack(STYLE_COLORS.input))
+    if EUI and EUI.PanelPP then
+        local border = STYLE_COLORS.border
+        EUI.PanelPP.CreateBorder(search, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
+    end
 
     local placeholder = search:CreateFontString(nil, "OVERLAY")
-    SetBagFont(placeholder, 11)
+    SetBagFont(placeholder, STYLE_TYPE.row.size)
     placeholder:SetPoint("LEFT", search, "LEFT", 5, 0)
     placeholder:SetText(EllesmereUI.L("Search..."))
-    placeholder:SetTextColor(0.4, 0.4, 0.4)
+    placeholder:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     EUI_Bags._searchBox = search
 
     -- Sort Button (icon)
@@ -1422,7 +1430,7 @@ local function CreateHeader()
     SetBagFont(clear.tex, 14)
     clear.tex:SetText("x")
     clear.tex:SetPoint("CENTER", 0, 1)
-    clear.tex:SetTextColor(0.8, 0.8, 0.8)
+    clear.tex:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
     clear:Hide()
     clear:SetScript("OnClick", function() search:SetText(""); search:ClearFocus(); C_Container.SetItemSearch("") end)
 
@@ -1462,7 +1470,7 @@ local function CreateHeader()
     hdrSep:SetHeight(px)
     hdrSep:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
     hdrSep:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
-    hdrSep:SetTexture(0.15, 0.15, 0.15, 1)
+    hdrSep:SetTexture(unpack(STYLE_COLORS.border))
 
     EUI_Bags.Header = header
     EUI_Bags._bagsBtn = bagsBtn
@@ -1579,9 +1587,12 @@ local function GetGoldTooltip()
     if _goldTT then return _goldTT end
     local f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     f:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\ChatFrame\\ChatFrameBackground", edgeSize = 1 })
-    f:SetBackdropColor(0.06, 0.06, 0.06, 0.90)
-    f:SetBackdropBorderColor(0.25, 0.25, 0.25, 1)
+    })
+    f:SetBackdropColor(unpack(STYLE_COLORS.panel))
+    local border = STYLE_COLORS.border
+    if EUI and EUI.MakeBorder then
+        EUI.MakeBorder(f, border[1], border[2], border[3], border[4], EUI.PanelPP)
+    end
     f:SetFrameStrata("TOOLTIP")
     f:Hide()
 
@@ -1598,14 +1609,14 @@ local function GetGoldTooltip()
     f._fadeOutAG = fadeOutAG; f._fadeOut = fadeOut
 
     local title = f:CreateFontString(nil, "OVERLAY")
-    title:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
-    title:SetTextColor(0.80, 0.80, 0.80, 1)
+    title:SetFont("Fonts\\FRIZQT__.TTF", STYLE_TYPE.row.size, "")
+    title:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
     title:SetPoint("TOP", f, "TOP", 0, -GOLD_PAD)
     title:SetText(EllesmereUI.L("Gold Summary"))
     f._title = title
 
     local hint = f:CreateFontString(nil, "OVERLAY")
-    hint:SetFont("Fonts\\FRIZQT__.TTF", 10, "")
+    hint:SetFont("Fonts\\FRIZQT__.TTF", STYLE_TYPE.secondary.size, "")
     hint:SetTextColor(1, 0.4, 0.4, 1)
     hint:SetText(EllesmereUI.L("Ctrl + Right-Click: Reset all data"))
     f._hint = hint
@@ -1623,18 +1634,18 @@ local function EnsureGoldRows(count)
             _goldTTRows[i] = {}
             for col = 0, 1 do
                 local fs = tt:CreateFontString(nil, "OVERLAY")
-                fs:SetFont(fontPath, 11, fontFlags)
+                fs:SetFont(fontPath, STYLE_TYPE.row.size, fontFlags)
                 fs:SetJustifyH(col == 0 and "LEFT" or "RIGHT")
                 _goldTTRows[i][col] = fs
             end
         end
     end
     -- Update fonts on all rows
-    tt._title:SetFont(fontPath, 11, fontFlags)
-    tt._hint:SetFont(fontPath, 10, fontFlags)
+    tt._title:SetFont(fontPath, STYLE_TYPE.row.size, fontFlags)
+    tt._hint:SetFont(fontPath, STYLE_TYPE.secondary.size, fontFlags)
     for i = 1, count do
         for col = 0, 1 do
-            _goldTTRows[i][col]:SetFont(fontPath, 11, fontFlags)
+            _goldTTRows[i][col]:SetFont(fontPath, STYLE_TYPE.row.size, fontFlags)
         end
     end
 end
@@ -1674,7 +1685,7 @@ local function ShowGoldTooltip(anchor)
         local hex = string.format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
         nameFS:SetText("|cff" .. hex .. StripRealm(entry.id) .. "|r")
         goldFS:SetText(FormatGoldOnly(entry.data.gold))
-        goldFS:SetTextColor(1, 1, 1, 1)
+        goldFS:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
         nameFS:Show(); goldFS:Show()
         local nw = nameFS:GetStringWidth() or 0
         local gw = goldFS:GetStringWidth() or 0
@@ -1754,7 +1765,7 @@ local function CreateFooter()
     footer:SetHeight(FOOTER_H)
     footer.bg = footer:CreateTexture(nil, "BACKGROUND", nil, 1)
     footer.bg:SetAllPoints()
-    footer.bg:SetTexture(0, 0, 0, 0.35)
+    footer.bg:SetTexture(unpack(STYLE_COLORS.body))
 
     -- Currency displays are created dynamically from Blizzard's tracked currencies
     if not EUI_Bags._currencyPool then
@@ -1770,7 +1781,7 @@ local function CreateFooter()
         local btn = _G["EUI_BagMoneyFrame" .. suffix]
         if btn then
             local txt = btn:GetFontString()
-            if txt then SetBagFont(txt, 11) end
+            if txt then SetBagFont(txt, STYLE_TYPE.row.size) end
         end
     end
 
@@ -1801,7 +1812,7 @@ local function CreateFooter()
     ftrSep:SetHeight(px)
     ftrSep:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
     ftrSep:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
-    ftrSep:SetTexture(0.15, 0.15, 0.15, 1)
+    ftrSep:SetTexture(unpack(STYLE_COLORS.border))
 
     EUI_Bags.Footer, EUI_Bags.Money = footer, money
 end
@@ -1830,8 +1841,8 @@ local function UpdateCurrencyDisplays(footerWidth)
     -- Ensure enough display/hitbox objects exist
     for i = #pool.displays + 1, #tracked do
         local display = footer:CreateFontString(nil, "OVERLAY")
-        SetBagFont(display, 11)
-        display:SetTextColor(1, 1, 1)
+        SetBagFont(display, STYLE_TYPE.row.size)
+        display:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
         pool.displays[i] = display
 
         local hb = EllesmereUI.SafeCreateFrame("Frame", nil, footer)
@@ -1962,6 +1973,11 @@ local function SetInsetBorderColor(btn, cr, cg, cb, ca)
         btn._brdL:SetTexture(cr, cg, cb, ca)
         btn._brdR:SetTexture(cr, cg, cb, ca)
     end
+end
+
+local function SetDefaultInsetBorderColor(btn, alpha)
+    local border = STYLE_COLORS.border
+    SetInsetBorderColor(btn, border[1], border[2], border[3], alpha or border[4])
 end
 
 -- Set border thickness in pixels (e.g. 1 physical px normally, 2 for quest
@@ -2217,7 +2233,8 @@ local function GetOrCreateSlot(idx)
         pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.tga")
         pt:SetTexCoord(0, 1, 0, 1)
         pt:ClearAllPoints(); pt:SetAllPoints(btn)
-        pt:SetVertexColor(0.973, 0.839, 0.604, 1)
+        local ar, ag, ab = GetAccentRGB()
+        pt:SetVertexColor(ar, ag, ab, 1)
     end
 
     if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
@@ -2240,7 +2257,7 @@ local function GetOrCreateSlot(idx)
     end
 
     CreateInsetBorder(btn)
-    SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
+    SetDefaultInsetBorderColor(btn)
 
     -- Text overlay frame: sits above Cooldown so count/ilvl aren't covered by swipe
     local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
@@ -2260,7 +2277,7 @@ local function GetOrCreateSlot(idx)
     if not btn.ItemLevelText then
         btn.ItemLevelText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
         btn.ItemLevelText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
-        btn.ItemLevelText:SetTextColor(1, 1, 1, 1)
+        btn.ItemLevelText:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     end
     local fontSize = BP().itemlevelFontSize or 12
     local fontPath = GetFont()
@@ -2271,7 +2288,7 @@ local function GetOrCreateSlot(idx)
     if not btn.KeystoneText then
         btn.KeystoneText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
         btn.KeystoneText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
-        btn.KeystoneText:SetTextColor(1, 1, 1, 1)
+        btn.KeystoneText:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     end
     btn.KeystoneText:SetFont(fontPath, countSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     btn.KeystoneText:SetText("")
@@ -2279,7 +2296,7 @@ local function GetOrCreateSlot(idx)
     if not btn.KeystoneDungeonText then
         btn.KeystoneDungeonText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
         btn.KeystoneDungeonText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 2)
-        btn.KeystoneDungeonText:SetTextColor(1, 1, 1, 1)
+        btn.KeystoneDungeonText:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
         btn.KeystoneDungeonText:SetJustifyH("RIGHT")
     end
     btn.KeystoneDungeonText:SetFont(fontPath, math.max(countSize - 2, 7), (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
@@ -2289,7 +2306,7 @@ local function GetOrCreateSlot(idx)
     if not btn.BindTypeText then
         btn.BindTypeText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
         btn.BindTypeText:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 2)
-        btn.BindTypeText:SetTextColor(1, 1, 1, 1)
+        btn.BindTypeText:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     end
     local bindTypeFontSize = BP().bagBindTypeFontSize or 11
     btn.BindTypeText:SetFont(fontPath, bindTypeFontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
@@ -2313,9 +2330,9 @@ local function GetOrCreateBagSlot(idx)
     btn.Count = btn:CreateFontString(nil, "OVERLAY")
     EllesmereUI.ApplyIconTextFont(btn.Count, GetFont(), BP().bagCountFontSize or 11, "bags")
     btn.Count:SetPoint("BOTTOMRIGHT", -2, 2)
-    btn.Count:SetTextColor(1, 1, 1)
+    btn.Count:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     CreateInsetBorder(btn)
-    SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
+    SetDefaultInsetBorderColor(btn)
 
     -- Equip, unequip, or swap a bag and then re-poll the slot art after the
     -- server confirms the inventory change. BAG_UPDATE can precede that
@@ -2409,7 +2426,7 @@ function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
     if bindType == Enum.ItemBind.OnEquip then
         local c = ITEM_QUALITY_COLORS[quality]
         fs:SetText(EllesmereUI.L("BoE"))
-        if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1) end
+        if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha) end
     else
         fs:SetText("")
     end
@@ -2534,7 +2551,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                 btn.KeystoneText:SetTextColor(data._ksR or 1, data._ksG or 1, data._ksB or 1, 1)
                 if btn.KeystoneDungeonText then
                     btn.KeystoneDungeonText:SetText(data._ksAbbrev or "")
-                    btn.KeystoneDungeonText:SetTextColor(1, 1, 1, 1)
+                    btn.KeystoneDungeonText:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
                 end
             else
                 btn.KeystoneText:SetText("")
@@ -2613,7 +2630,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             if c then
                 SetInsetBorderColor(btn, c.r, c.g, c.b, filtered and 0.2 or 1)
             else
-                SetInsetBorderColor(btn, 0.25, 0.25, 0.25, filtered and 0.2 or 1)
+                SetDefaultInsetBorderColor(btn, filtered and 0.2 or STYLE_COLORS.border[4])
             end
         end
         -- Quest marker atlas (created lazily, reused). Only shown for items that
@@ -2665,13 +2682,13 @@ local function GetOrCreatePinOverlay()
     ov.plus:SetFont(GetFont(), 18, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     ov.plus:SetPoint("CENTER", 0, 0)
     ov.plus:SetText("+")
-    ov.plus:SetTextColor(1, 1, 1, 0.5)
+    ov.plus:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     ov:SetScript("OnEnter", function(self)
-        self.plus:SetTextColor(1, 1, 1, 1)
+        self.plus:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
         if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Pin an Item") end
     end)
     ov:SetScript("OnLeave", function(self)
-        self.plus:SetTextColor(1, 1, 1, 0.5)
+        self.plus:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
         if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
     end)
     ov:RegisterForDrag("LeftButton")
@@ -2730,13 +2747,13 @@ local function GetOrCreateAssignOverlay()
     ov.plus:SetFont(GetFont(), 18, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     ov.plus:SetPoint("CENTER", 0, 0)
     ov.plus:SetText("+")
-    ov.plus:SetTextColor(1, 1, 1, 0.5)
+    ov.plus:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     ov:SetScript("OnEnter", function(self)
-        self.plus:SetTextColor(1, 1, 1, 1)
+        self.plus:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
         if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Assign an item to this category") end
     end)
     ov:SetScript("OnLeave", function(self)
-        self.plus:SetTextColor(1, 1, 1, 0.5)
+        self.plus:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
         if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
     end)
     local function DoAssign(self)
@@ -3153,15 +3170,15 @@ local function EnsureDragGhost()
     g:EnableMouse(false)
     g.bg = g:CreateTexture(nil, "BACKGROUND")
     g.bg:SetAllPoints()
-    g.bg:SetTexture(0.08, 0.08, 0.08, 0.9)
+    g.bg:SetTexture(unpack(STYLE_COLORS.button))
     g.icon = g:CreateTexture(nil, "ARTWORK")
     g.icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
     g.icon:SetPoint("LEFT", 8, 0)
     g.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     g.label = g:CreateFontString(nil, "OVERLAY")
-    SetBagFont(g.label, 11)
+    SetBagFont(g.label, STYLE_TYPE.row.size)
     g.label:SetPoint("LEFT", g.icon, "RIGHT", 6, 0)
-    g.label:SetTextColor(1, 1, 1)
+    g.label:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
     g:Hide()
     _dragGhost = g
     return g
@@ -3171,9 +3188,9 @@ local function EnsureInsertLine()
     if _dragInsertLine then return _dragInsertLine end
     local sidebar = EUI_Bags._sidebar
     if not sidebar then return nil end
-    local eg = EUI.ELLESMERE_GREEN or { r = 0.047, g = 0.824, b = 0.616 }
+    local ar, ag, ab = GetAccentRGB()
     local line = sidebar:CreateTexture(nil, "OVERLAY", nil, 7)
-    line:SetTexture(eg.r, eg.g, eg.b, 0.9)
+    line:SetTexture(ar, ag, ab, STYLE_TYPE.section.alpha)
     local PP = EUI and EUI.PP
     local px = (PP and PP.mult) or 1
     line:SetHeight(px * 2)
@@ -3186,18 +3203,18 @@ local function EnsureGroupHighlight()
     if _dragGroupHL then return _dragGroupHL end
     local sidebar = EUI_Bags._sidebar
     if not sidebar then return nil end
-    local eg = EUI.ELLESMERE_GREEN or { r = 0.047, g = 0.824, b = 0.616 }
+    local ar, ag, ab = GetAccentRGB()
     local hl = EllesmereUI.SafeCreateFrame("Frame", nil, sidebar)
     hl:SetFrameLevel(sidebar:GetFrameLevel() + 10)
     hl.bg = hl:CreateTexture(nil, "OVERLAY", nil, 6)
     hl.bg:SetAllPoints()
-    hl.bg:SetTexture(eg.r, eg.g, eg.b, 0.15)
+    hl.bg:SetTexture(ar, ag, ab, STYLE_COLORS.border[4])
     -- Accent border
     local PP = EUI and EUI.PP
     local px = (PP and PP.mult) or 1
     local function MakeLine(point1, rel1, point2, rel2, w, h)
         local t = hl:CreateTexture(nil, "OVERLAY", nil, 7)
-        t:SetTexture(eg.r, eg.g, eg.b, 0.6)
+        t:SetTexture(ar, ag, ab, STYLE_TYPE.secondary.alpha)
         t:SetPoint(point1, hl, rel1, 0, 0)
         t:SetPoint(point2, hl, rel2, 0, 0)
         if w then t:SetWidth(w) end
@@ -3771,7 +3788,7 @@ local function CreateSidebar()
     sidebar:SetWidth(GetSidebarWidth())
     sidebar.bg = sidebar:CreateTexture(nil, "BACKGROUND", nil, 2)
     sidebar.bg:SetAllPoints()
-    sidebar.bg:SetTexture(0, 0, 0, 0.25)
+    sidebar.bg:SetTexture(unpack(STYLE_COLORS.body))
 
     -- Right-edge separator
     local PP = EUI and EUI.PP
@@ -3780,7 +3797,7 @@ local function CreateSidebar()
     sidebar.sep:SetWidth(px)
     sidebar.sep:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
     sidebar.sep:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
-    sidebar.sep:SetTexture(0.15, 0.15, 0.15, 1)
+    sidebar.sep:SetTexture(unpack(STYLE_COLORS.border))
 
     -- Sidebar header: "Categories" label + collapse arrow
     local SIDEBAR_HDR_H = 24
@@ -3790,10 +3807,10 @@ local function CreateSidebar()
     sidebarHdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
 
     sidebarHdr._label = sidebarHdr:CreateFontString(nil, "OVERLAY")
-    SetBagFont(sidebarHdr._label, 10)
+    SetBagFont(sidebarHdr._label, STYLE_TYPE.secondary.size)
     sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
     sidebarHdr._label:SetText(EllesmereUI.L("Categories"))
-    sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
+    sidebarHdr._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
 
     local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.tga"
     local collapseBtn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarHdr)
@@ -4136,15 +4153,15 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
             btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             btn._label = btn:CreateFontString(nil, "OVERLAY")
-            SetBagFont(btn._label, 11)
+            SetBagFont(btn._label, STYLE_TYPE.row.size)
             btn._label:SetJustifyH("LEFT")
             btn._label:SetWordWrap(false)
             btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 6, 0)
             btn._label:SetPoint("RIGHT", btn, "RIGHT", -30, 0)
             btn._count = btn:CreateFontString(nil, "OVERLAY")
-            SetBagFont(btn._count, 10)
+            SetBagFont(btn._count, STYLE_TYPE.secondary.size)
             btn._count:SetJustifyH("RIGHT")
-            btn._count:SetTextColor(0.5, 0.5, 0.5)
+            btn._count:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
             btn._count:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
 
             btn:SetScript("OnEnter", function(self)
@@ -4229,7 +4246,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         local px = (PP and PP.mult) or 1
         local div = (sidebarChild or sidebar):CreateTexture(nil, "ARTWORK")
         div:SetHeight(px)
-        div:SetTexture(0.2, 0.2, 0.2, 1)
+        div:SetTexture(unpack(STYLE_COLORS.border))
         sidebar._catDivider = div
     end
 
@@ -4293,7 +4310,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         else
             btn._label:Show()
             btn._label:SetText(entry.name)
-            btn._label:SetTextColor(1, 1, 1, isSelected and 1 or 0.75)
+            btn._label:SetTextColor(1, 1, 1, isSelected and STYLE_TYPE.value.alpha or STYLE_TYPE.row.alpha)
 
             btn._count:Show()
             btn._count:SetText(tostring(entry.count))
@@ -4344,21 +4361,21 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._icon:SetTexCoord(0, 1, 0, 1)
             btn._icon:SetAlpha(0.5)
             btn._label = btn:CreateFontString(nil, "OVERLAY")
-            SetBagFont(btn._label, 11)
+            SetBagFont(btn._label, STYLE_TYPE.row.size)
             btn._label:SetJustifyH("LEFT")
             btn._label:SetWordWrap(false)
             btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 6, 0)
             btn._label:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
             btn._label:SetText(EllesmereUI.L("Add Category"))
-            btn._label:SetTextColor(1, 1, 1, 0.4)
+            btn._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
             btn:SetScript("OnEnter", function(self)
                 self._bg:SetTexture(1, 1, 1, 0.06)
-                self._label:SetTextColor(1, 1, 1, 0.8)
+                self._label:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
                 self._icon:SetAlpha(0.8)
             end)
             btn:SetScript("OnLeave", function(self)
                 self._bg:SetTexture(1, 1, 1, 0)
-                self._label:SetTextColor(1, 1, 1, 0.4)
+                self._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                 self._icon:SetAlpha(0.5)
             end)
             btn:SetScript("OnClick", function(self)
@@ -4371,15 +4388,18 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     popup:EnableMouse(true)
                     local bg = popup:CreateTexture(nil, "BACKGROUND")
                     bg:SetAllPoints()
-                    bg:SetTexture(0.067, 0.067, 0.067, 0.95)
+                    bg:SetTexture(unpack(STYLE_COLORS.panel))
                     local PP = EUI and EUI.PP
-                    if PP and PP.CreateBorder then PP.CreateBorder(popup, 0.2, 0.2, 0.2, 1) end
+                    if PP and PP.CreateBorder then
+                        local border = STYLE_COLORS.border
+                        PP.CreateBorder(popup, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width)
+                    end
 
                     -- Title
                     local title = popup:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(title, 13)
+                    SetBagFont(title, STYLE_TYPE.section.size)
                     title:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -10)
-                    title:SetTextColor(1, 1, 1, 0.9)
+                    title:SetTextColor(1, 1, 1, STYLE_TYPE.section.alpha)
                     title:SetText(EllesmereUI.L("New Custom Category"))
 
                     -- Name editbox
@@ -4387,23 +4407,26 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     eb:SetSize(220, 22)
                     eb:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -30)
                     eb:SetAutoFocus(false)
-                    eb:SetFont(GetFont(), 12, "")
-                    eb:SetTextColor(1, 1, 1, 1)
+                    eb:SetFont(GetFont(), STYLE_TYPE.value.size, "")
+                    eb:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
                     eb:SetTextInsets(6, 6, 0, 0)
                     eb:SetMaxLetters(30)
                     local ebBg = eb:CreateTexture(nil, "BACKGROUND")
                     ebBg:SetAllPoints()
-                    ebBg:SetTexture(0.1, 0.1, 0.1, 1)
-                    if PP and PP.CreateBorder then PP.CreateBorder(eb, 0.15, 0.15, 0.15, 1) end
+                    ebBg:SetTexture(unpack(STYLE_COLORS.input))
+                    if PP and PP.CreateBorder then
+                        local border = STYLE_COLORS.border
+                        PP.CreateBorder(eb, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width)
+                    end
                     eb:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
                     eb:SetScript("OnEnterPressed", function(s) s:ClearFocus() end)
                     popup._nameEB = eb
 
                     -- Icon label
                     local iconLbl = popup:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(iconLbl, 11)
+                    SetBagFont(iconLbl, STYLE_TYPE.secondary.size)
                     iconLbl:SetPoint("TOPLEFT", eb, "BOTTOMLEFT", 0, -8)
-                    iconLbl:SetTextColor(0.7, 0.7, 0.7, 1)
+                    iconLbl:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     iconLbl:SetText(EllesmereUI.L("Icon:"))
 
                     -- Wrath-compatible named textures. Modern FileDataIDs show
@@ -4487,9 +4510,9 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     -- Custom icon ID label + preview + editbox
                     local lastRow = math.ceil(#ICON_IDS / ICONS_PER_ROW)
                     local customLbl = popup:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(customLbl, 11)
+                    SetBagFont(customLbl, STYLE_TYPE.row.size)
                     customLbl:SetPoint("TOPLEFT", iconLbl, "BOTTOMLEFT", 0, -(4 + lastRow * (ICON_SZ + ICON_PAD) + 6))
-                    customLbl:SetTextColor(0.7, 0.7, 0.7, 1)
+                    customLbl:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     customLbl:SetText(EllesmereUI.L("Custom Icon:"))
 
                     -- Preview icon to the left of the editbox
@@ -4524,15 +4547,18 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     browseBtn:SetPoint("LEFT", preview, "RIGHT", 8, 0)
                     local brBg = browseBtn:CreateTexture(nil, "BACKGROUND")
                     brBg:SetAllPoints()
-                    brBg:SetTexture(0.1, 0.1, 0.1, 1)
-                    if PP and PP.CreateBorder then PP.CreateBorder(browseBtn, 0.15, 0.15, 0.15, 1) end
+                    brBg:SetTexture(unpack(STYLE_COLORS.button))
+                    if PP and PP.CreateBorder then
+                        local border = STYLE_COLORS.border
+                        PP.CreateBorder(browseBtn, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width)
+                    end
                     local brLbl = browseBtn:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(brLbl, 11)
+                    SetBagFont(brLbl, STYLE_TYPE.button.size)
                     brLbl:SetPoint("CENTER")
-                    brLbl:SetTextColor(1, 1, 1, 0.8)
+                    brLbl:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                     brLbl:SetText(EllesmereUI.L("Browse..."))
                     browseBtn:SetScript("OnEnter", function() brBg:SetTexture(0.18, 0.18, 0.18, 1) end)
-                    browseBtn:SetScript("OnLeave", function() brBg:SetTexture(0.1, 0.1, 0.1, 1) end)
+                    browseBtn:SetScript("OnLeave", function() brBg:SetTexture(unpack(STYLE_COLORS.button)) end)
                     browseBtn:SetScript("OnClick", function()
                         EllesmereUI.ShowIconPicker({
                             title   = "Category Icon",
@@ -4552,15 +4578,18 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     createBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOMLEFT", 10, 10)
                     local cBtnBg = createBtn:CreateTexture(nil, "BACKGROUND")
                     cBtnBg:SetAllPoints()
-                    cBtnBg:SetTexture(0.15, 0.15, 0.15, 1)
-                    if PP and PP.CreateBorder then PP.CreateBorder(createBtn, 0.25, 0.25, 0.25, 1) end
+                    cBtnBg:SetTexture(unpack(STYLE_COLORS.button))
+                    if PP and PP.CreateBorder then
+                        local border = STYLE_COLORS.border
+                        PP.CreateBorder(createBtn, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width)
+                    end
                     local cBtnLbl = createBtn:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(cBtnLbl, 12)
+                    SetBagFont(cBtnLbl, STYLE_TYPE.button.size)
                     cBtnLbl:SetPoint("CENTER")
-                    cBtnLbl:SetTextColor(1, 1, 1, 0.9)
+                    cBtnLbl:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                     cBtnLbl:SetText(EllesmereUI.L("Create"))
                     createBtn:SetScript("OnEnter", function() cBtnBg:SetTexture(0.2, 0.2, 0.2, 1) end)
-                    createBtn:SetScript("OnLeave", function() cBtnBg:SetTexture(0.15, 0.15, 0.15, 1) end)
+                    createBtn:SetScript("OnLeave", function() cBtnBg:SetTexture(unpack(STYLE_COLORS.button)) end)
                     -- Red flash validation for empty fields
                     local function MakeFlashBorder(parent)
                         local fb = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
@@ -4568,13 +4597,14 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         fb:SetPoint("BOTTOMRIGHT", 1, -1)
                         fb:SetFrameLevel(parent:GetFrameLevel() + 5)
                         local edges = {}
+                        local edgePx = (PP and PP.mult) or 1
                         local function MakeEdge(p1, p2, isHoriz)
                             local t = fb:CreateTexture(nil, "OVERLAY")
                             t:SetTexture(0.9, 0.15, 0.15, 0)
                             if isHoriz then
-                                t:SetPoint(p1); t:SetPoint(p2); t:SetHeight(1)
+                                t:SetPoint(p1); t:SetPoint(p2); t:SetHeight(edgePx)
                             else
-                                t:SetPoint(p1); t:SetPoint(p2); t:SetWidth(1)
+                                t:SetPoint(p1); t:SetPoint(p2); t:SetWidth(edgePx)
                             end
                             edges[#edges + 1] = t
                         end
@@ -4681,14 +4711,14 @@ local function GetOrCreateCatHeader(idx)
     local f = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     f:SetHeight(20)
     f._label = f:CreateFontString(nil, "OVERLAY")
-    SetBagFont(f._label, 11)
+    SetBagFont(f._label, STYLE_TYPE.row.size)
     f._label:SetPoint("LEFT", f, "LEFT", 0, 0)
-    f._label:SetTextColor(0.7, 0.7, 0.7)
+    f._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     f._label:SetJustifyH("LEFT")
     f._hint = f:CreateFontString(nil, "OVERLAY")
-    SetBagFont(f._hint, 10)
+    SetBagFont(f._hint, STYLE_TYPE.secondary.size)
     f._hint:SetPoint("LEFT", f._label, "RIGHT", 4, 0)
-    f._hint:SetTextColor(0.7, 0.7, 0.7, 0.9)
+    f._hint:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     f._hint:SetJustifyH("LEFT")
     f._hint:SetText("")
     local PP = EUI and EUI.PP
@@ -4697,7 +4727,7 @@ local function GetOrCreateCatHeader(idx)
     f._line:SetHeight(px)
     f._line:SetPoint("LEFT", f._hint, "RIGHT", 6, 0)
     f._line:SetPoint("RIGHT", f, "RIGHT", -SPACING, 0)
-    f._line:SetTexture(0.7, 0.7, 0.7, 0.2)
+    f._line:SetTexture(unpack(STYLE_COLORS.border))
     _catHeaders[idx] = f
     return f
 end
@@ -4710,9 +4740,9 @@ local function GetOrCreateExpSubHeader(idx)
     local f = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     f:SetHeight(16)
     f._label = f:CreateFontString(nil, "OVERLAY")
-    SetBagFont(f._label, 9)
+    SetBagFont(f._label, STYLE_TYPE.secondary.size)
     f._label:SetPoint("LEFT", f, "LEFT", 0, 0)
-    f._label:SetTextColor(0.55, 0.55, 0.55)
+    f._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     f._label:SetJustifyH("LEFT")
     _expSubHeaders[idx] = f
     return f
@@ -4756,12 +4786,12 @@ local function CreateBagScrollFrame()
     trackBg:SetPoint("TOP", track, "TOP", 0, 0)
     trackBg:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
     trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
-    trackBg:SetTexture(1, 1, 1, 0.06)
+    trackBg:SetTexture(unpack(STYLE_COLORS.track))
 
     -- Thumb
     local thumb = track:CreateTexture(nil, "ARTWORK")
     thumb:SetWidth(SCROLLBAR_W)
-    thumb:SetTexture(1, 1, 1, 0.25)
+    thumb:SetTexture(unpack(STYLE_COLORS.thumb))
     thumb:Hide()
 
     local _isDragging = false
@@ -4826,7 +4856,7 @@ local function CreateBagScrollFrame()
         if not _isDragging then self:Hide(); return end
         if not IsMouseButtonDown("LeftButton") then
             _isDragging = false; self:Hide()
-            thumb:SetTexture(1, 1, 1, 0.25)
+            thumb:SetTexture(unpack(STYLE_COLORS.thumb))
             return
         end
         local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
@@ -4878,9 +4908,9 @@ local function CreateBagScrollFrame()
     end)
 
     -- Hover effect on thumb
-    track:SetScript("OnEnter", function() thumb:SetTexture(1, 1, 1, 0.4) end)
+    track:SetScript("OnEnter", function() thumb:SetTexture(unpack(STYLE_COLORS.thumb)) end)
     track:SetScript("OnLeave", function()
-        if not _isDragging then thumb:SetTexture(1, 1, 1, 0.25) end
+        if not _isDragging then thumb:SetTexture(unpack(STYLE_COLORS.thumb)) end
     end)
 
     EUI_Bags._scrollFrame = sf
@@ -5316,8 +5346,8 @@ function EUI_Bags:RefreshInventory()
         -- OneBag/MultiBag warning label (created once, reused)
         if not EUI_Bags._oneBagWarning then
             local warn = child:CreateFontString(nil, "OVERLAY")
-            SetBagFont(warn, 9)
-            warn:SetTextColor(0.5, 0.5, 0.5, 0.9)
+            SetBagFont(warn, STYLE_TYPE.secondary.size)
+            warn:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
             warn:SetJustifyH("LEFT")
             EUI_Bags._oneBagWarning = warn
         end
@@ -5361,16 +5391,16 @@ function EUI_Bags:RefreshInventory()
                 local hb = EllesmereUI.SafeCreateFrame("Button", nil, pinHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
-                SetBagFont(hb._fs, 9)
+                SetBagFont(hb._fs, STYLE_TYPE.secondary.size)
                 hb._fs:SetAllPoints()
                 hb._fs:SetText(EllesmereUI.L("Hide"))
-                hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                hb._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                 hb:SetScript("OnEnter", function(self)
-                    self._fs:SetTextColor(1, 1, 1, 0.9)
+                    self._fs:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                     if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Pinned Items. Re-show in settings.") end
                 end)
                 hb:SetScript("OnLeave", function(self)
-                    self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    self._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
                 end)
                 pinHdr._hideBtn = hb
@@ -5455,16 +5485,16 @@ function EUI_Bags:RefreshInventory()
                 local hb = EllesmereUI.SafeCreateFrame("Button", nil, recHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
-                SetBagFont(hb._fs, 9)
+                SetBagFont(hb._fs, STYLE_TYPE.secondary.size)
                 hb._fs:SetAllPoints()
                 hb._fs:SetText(EllesmereUI.L("Hide"))
-                hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                hb._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                 hb:SetScript("OnEnter", function(self)
-                    self._fs:SetTextColor(1, 1, 1, 0.9)
+                    self._fs:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                     if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Recent Items. Re-show in settings.") end
                 end)
                 hb:SetScript("OnLeave", function(self)
-                    self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    self._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
                 end)
                 recHdr._hideBtn = hb
@@ -5662,18 +5692,18 @@ function EUI_Bags:RefreshInventory()
                     local hb = EllesmereUI.SafeCreateFrame("Button", nil, hdr)
                     hb:SetSize(30, 16)
                     hb._fs = hb:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(hb._fs, 9)
+                    SetBagFont(hb._fs, STYLE_TYPE.secondary.size)
                     hb._fs:SetAllPoints()
                     hb._fs:SetText(EllesmereUI.L("Hide"))
-                    hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    hb._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     hb:SetScript("OnEnter", function(self)
-                        self._fs:SetTextColor(1, 1, 1, 0.9)
+                        self._fs:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                         if EUI.ShowWidgetTooltip then
                             EUI.ShowWidgetTooltip(self, self._tooltip)
                         end
                     end)
                     hb:SetScript("OnLeave", function(self)
-                        self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                        self._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                         if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
                     end)
                     hb:SetScript("OnClick", function(self)
@@ -6006,14 +6036,14 @@ function EUI_Bags:RefreshInventory()
                     local delBtn = EllesmereUI.SafeCreateFrame("Button", nil, ef)
                     delBtn:SetHeight(20)
                     delBtn._fs = delBtn:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(delBtn._fs, 10)
+                    SetBagFont(delBtn._fs, STYLE_TYPE.secondary.size)
                     delBtn._fs:SetPoint("RIGHT", ef, "RIGHT", 0, 0)
                     delBtn._fs:SetText(EllesmereUI.L("Delete"))
-                    delBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    delBtn._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     delBtn:SetWidth(delBtn._fs:GetStringWidth() + 4)
                     delBtn:SetAllPoints(delBtn._fs)
                     delBtn:SetScript("OnEnter", function(s) s._fs:SetTextColor(1, 0.3, 0.3, 1) end)
-                    delBtn:SetScript("OnLeave", function(s) s._fs:SetTextColor(0.5, 0.5, 0.5, 0.7) end)
+                    delBtn:SetScript("OnLeave", function(s) s._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha) end)
                     delBtn:SetScript("OnClick", function()
                         local ci = selectedCategoryIndex
                         if ci and ci > 0 and EUI_CategoryManager then
@@ -6034,23 +6064,23 @@ function EUI_Bags:RefreshInventory()
                     ef._delBtn = delBtn
 
                     local divider = ef:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(divider, 10)
+                    SetBagFont(divider, STYLE_TYPE.secondary.size)
                     divider:SetPoint("RIGHT", delBtn._fs, "LEFT", -6, 0)
                     divider:SetText("|")
-                    divider:SetTextColor(0.3, 0.3, 0.3, 0.7)
+                    divider:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     ef._divider = divider
 
                     local editBtn = EllesmereUI.SafeCreateFrame("Button", nil, ef)
                     editBtn:SetHeight(20)
                     editBtn._fs = editBtn:CreateFontString(nil, "OVERLAY")
-                    SetBagFont(editBtn._fs, 10)
+                    SetBagFont(editBtn._fs, STYLE_TYPE.secondary.size)
                     editBtn._fs:SetPoint("RIGHT", divider, "LEFT", -6, 0)
                     editBtn._fs:SetText(EllesmereUI.L("Edit"))
-                    editBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    editBtn._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     editBtn:SetWidth(editBtn._fs:GetStringWidth() + 4)
                     editBtn:SetAllPoints(editBtn._fs)
-                    editBtn:SetScript("OnEnter", function(s) s._fs:SetTextColor(1, 1, 1, 1) end)
-                    editBtn:SetScript("OnLeave", function(s) s._fs:SetTextColor(0.5, 0.5, 0.5, 0.7) end)
+                    editBtn:SetScript("OnEnter", function(s) s._fs:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha) end)
+                    editBtn:SetScript("OnLeave", function(s) s._fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha) end)
                     editBtn:SetScript("OnClick", function()
                         local ci = selectedCategoryIndex
                         if ci and ci > 0 and EUI_CategoryManager and EUI then
@@ -6383,10 +6413,11 @@ local function StartAddon()
     -- Dark overlay on top of the atlas (25% black)
     EUI_Bags.bgOverlay = EUI_Bags:CreateTexture(nil, "BACKGROUND", nil, 1)
     EUI_Bags.bgOverlay:SetAllPoints()
-    EUI_Bags.bgOverlay:SetTexture(0, 0, 0, 0.25)
+    EUI_Bags.bgOverlay:SetTexture(unpack(STYLE_COLORS.body))
 
     if EUI and EUI.PanelPP then
-        EUI.PanelPP.CreateBorder(EUI_Bags, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
+        local border = STYLE_COLORS.border
+        EUI.PanelPP.CreateBorder(EUI_Bags, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
     end
 
     EUI_Bags:HookScript("OnShow", function()
@@ -6442,8 +6473,11 @@ local function StartAddon()
     EUI_BagsWindow:EnableMouse(true)
     EUI_BagsWindow.bg = EUI_BagsWindow:CreateTexture(nil, "BACKGROUND")
     EUI_BagsWindow.bg:SetAllPoints()
-    EUI_BagsWindow.bg:SetTexture(0.02, 0.02, 0.02, 0.95)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsWindow, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
+    EUI_BagsWindow.bg:SetTexture(unpack(STYLE_COLORS.panel))
+    if EUI and EUI.PanelPP then
+        local border = STYLE_COLORS.border
+        EUI.PanelPP.CreateBorder(EUI_BagsWindow, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
+    end
     EllesmereUI.RegisterEscapeClose(EUI_BagsWindow)
 
     -- Hook Blizzard bag toggles

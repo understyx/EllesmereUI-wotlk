@@ -14,6 +14,15 @@
 local addonName, ns = ...
 local EUI = _G.EllesmereUI
 if not EUI then return end
+local STYLE_TOKENS = EUI.Style.Tokens
+local STYLE_COLORS = STYLE_TOKENS.colors
+local STYLE_TYPE = STYLE_TOKENS.type
+local function GetAccentRGB()
+    if EUI.Style and EUI.Style.GetAccent then return EUI.Style.GetAccent() end
+    if EUI.GetAccentColor then return EUI.GetAccentColor() end
+    local accent = EUI.ELLESMERE_GREEN
+    return accent and accent.r or 0.05, accent and accent.g or 0.82, accent and accent.b or 0.62
+end
 local IS_WRATH = (select(4, GetBuildInfo()) or 0) <= 30300
 
 ns.ECHAT = ns.ECHAT or {}
@@ -301,8 +310,8 @@ local BG_R, BG_G, BG_B, BG_A = 0.03, 0.045, 0.05, 0.70
 local EDIT_BG_R, EDIT_BG_G, EDIT_BG_B = 0.05, 0.065, 0.08
 
 local function GetInnerBorderColor(cfg)
-    if cfg.innerBorderColorMode == "accent" and EllesmereUI.GetAccentColor then
-        local r, g, b = EllesmereUI.GetAccentColor()
+    if cfg.innerBorderColorMode == "accent" then
+        local r, g, b = GetAccentRGB()
         local c = cfg.innerBorderColor
         return r, g, b, (c and c.a) or 0.06
     end
@@ -586,7 +595,7 @@ function ECHAT.ApplyExtendedBackground()
             local mode = cfg.panelBorderColorMode or "custom"
             local color
             if mode == "accent" then
-                local r, g, b = EllesmereUI.GetAccentColor()
+                local r, g, b = GetAccentRGB()
                 color = { r=r, g=g, b=b }
             elseif mode == "class" then
                 local _, class = UnitClass("player")
@@ -1002,8 +1011,8 @@ function ECHAT.ApplyIconColor()
     local sb = cf1 and CFD(cf1).sidebar
     if not sb then return end
     local r, g, b
-    if cfg.iconUseAccent and EllesmereUI.GetAccentColor then
-        r, g, b = EllesmereUI.GetAccentColor()
+    if cfg.iconUseAccent then
+        r, g, b = GetAccentRGB()
     else
         r, g, b = cfg.iconR or 1, cfg.iconG or 1, cfg.iconB or 1
     end
@@ -1024,45 +1033,45 @@ function ECHAT.ApplyIconColor()
             btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
             local label = ICON_LABELS[key]
             if key == "friendsBtn" and fc then
-                fc:SetTextColor(r, g, b, 0.5)
+                fc:SetTextColor(r, g, b, STYLE_TYPE.secondary.alpha)
                 btn:SetScript("OnEnter", function(self)
                     btn._icon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
-                    fc:SetTextColor(r, g, b, 0.9)
+                    fc:SetTextColor(r, g, b, STYLE_TYPE.button.alpha)
                     if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
                         EUI.ShowWidgetTooltip(self, label)
                     end
                 end)
                 btn:SetScript("OnLeave", function()
                     btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
-                    fc:SetTextColor(r, g, b, 0.5)
+                    fc:SetTextColor(r, g, b, STYLE_TYPE.secondary.alpha)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
                 end)
             elseif key == "guildBtn" and gc then
-                gc:SetTextColor(r, g, b, 0.5)
+                gc:SetTextColor(r, g, b, STYLE_TYPE.secondary.alpha)
                 btn:SetScript("OnEnter", function(self)
                     btn._icon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
-                    gc:SetTextColor(r, g, b, 0.9)
+                    gc:SetTextColor(r, g, b, STYLE_TYPE.button.alpha)
                     if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
                         EUI.ShowWidgetTooltip(self, label)
                     end
                 end)
                 btn:SetScript("OnLeave", function()
                     btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
-                    gc:SetTextColor(r, g, b, 0.5)
+                    gc:SetTextColor(r, g, b, STYLE_TYPE.secondary.alpha)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
                 end)
             elseif key == "durabilityBtn" and dp then
-                dp:SetTextColor(r, g, b, 0.5)
+                dp:SetTextColor(r, g, b, STYLE_TYPE.secondary.alpha)
                 btn:SetScript("OnEnter", function(self)
                     btn._icon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
-                    dp:SetTextColor(r, g, b, 0.9)
+                    dp:SetTextColor(r, g, b, STYLE_TYPE.button.alpha)
                     if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
                         EUI.ShowWidgetTooltip(self, label)
                     end
                 end)
                 btn:SetScript("OnLeave", function()
                     btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
-                    dp:SetTextColor(r, g, b, 0.5)
+                    dp:SetTextColor(r, g, b, STYLE_TYPE.secondary.alpha)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
                 end)
             else
@@ -1692,9 +1701,10 @@ local function ShowCopyPopup(text)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
 
-        local bg = EUI.SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 0.95)
+        local bg = EUI.SolidTex(popup, "BACKGROUND", unpack(STYLE_COLORS.panel))
         bg:SetAllPoints()
-        EUI.MakeBorder(popup, 1, 1, 1, 0.15, EUI.PanelPP)
+        local border = STYLE_COLORS.border
+        EUI.MakeBorder(popup, border[1], border[2], border[3], border[4], EUI.PanelPP)
 
         -- Scrolling multiline edit box with selection support.
         local textBox = CreateCopyTextBox(popup)
@@ -1702,8 +1712,8 @@ local function ShowCopyPopup(text)
         textBox:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 60)
 
         local editBox = textBox:GetEditBox()
-        editBox:SetFont(GetFont(), 12, EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("chat") or "")
-        editBox:SetTextColor(1, 1, 1, 0.75)
+        editBox:SetFont(GetFont(), STYLE_TYPE.value.size, EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("chat") or "")
+        editBox:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
         editBox:SetScript("OnEscapePressed", function(self)
             self:ClearFocus()
             dimmer:Hide()
@@ -1869,8 +1879,9 @@ end
 local _urlSubstitution
 local function _GetUrlSubstitution()
     if not _urlSubstitution then
-        local eg = EUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.61 }
-        local hex = string.format("|cff%02x%02x%02x", eg.r * 255, eg.g * 255, eg.b * 255)
+        local r, g, b = GetAccentRGB()
+        local hex = string.format("|cff%02x%02x%02x",
+            math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
         _urlSubstitution = hex .. "|H" .. addonName .. "url:%1|h[%1]|h|r"
     end
     return _urlSubstitution
@@ -1927,28 +1938,30 @@ local function ShowUrlPopup(url)
 
         local bg = urlPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetTexture(0.06, 0.08, 0.10, 0.97)
+        bg:SetTexture(unpack(STYLE_COLORS.panel))
         if PP and PP.CreateBorder then
-            PP.CreateBorder(urlPopup, 1, 1, 1, 0.15, 1, "OVERLAY", 7)
+            local border = STYLE_COLORS.border
+            PP.CreateBorder(urlPopup, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
         end
 
         local hint = urlPopup:CreateFontString(nil, "OVERLAY")
-        hint:SetFont(GetFont(), 8, "")
-        hint:SetTextColor(1, 1, 1, 0.5)
+        hint:SetFont(GetFont(), STYLE_TYPE.secondary.size, "")
+        hint:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
         hint:SetPoint("TOP", urlPopup, "TOP", 0, -6)
         hint:SetText(EllesmereUI.L("Ctrl+C to copy, Escape to close"))
 
         local eb = EllesmereUI.SafeCreateFrame("EditBox", nil, urlPopup)
         eb:SetSize(300, 16)
         eb:SetPoint("TOP", hint, "BOTTOM", 0, -4)
-        eb:SetFont(GetFont(), 11, "")
+        eb:SetFont(GetFont(), STYLE_TYPE.row.size, "")
         eb:SetAutoFocus(false)
         eb:SetJustifyH("CENTER")
         local ebBg = eb:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetTexture(0.10, 0.12, 0.16, 1)
+        ebBg:SetTexture(unpack(STYLE_COLORS.input))
         ebBg:SetPoint("TOPLEFT", -6, 4); ebBg:SetPoint("BOTTOMRIGHT", 6, -4)
         if PP and PP.CreateBorder then
-            PP.CreateBorder(eb, 1, 1, 1, 0.02, 1, "OVERLAY", 7)
+            local border = STYLE_COLORS.border
+            PP.CreateBorder(eb, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
         end
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); HideUrlPopup() end)
         eb:SetScript("OnMouseUp", function(self) self:HighlightText() end)
@@ -2176,11 +2189,11 @@ local function UpdateTabStyle(tab)
         local mode = cfg.activeUnderlineColorMode or "accent"
         local r, g, b, a
         if mode == "accent" then
-            r, g, b = EllesmereUI.GetAccentColor(); a = 1
+            r, g, b = GetAccentRGB(); a = 1
         elseif mode == "border" then
             local borderMode = cfg.panelBorderColorMode or "custom"
             if borderMode == "accent" then
-                r, g, b = EllesmereUI.GetAccentColor()
+                r, g, b = GetAccentRGB()
             elseif borderMode == "class" then
                 local _, class = UnitClass("player")
                 local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
@@ -2272,7 +2285,7 @@ function ECHAT.ApplyTabBorders()
     local mode = B("ColorMode", "custom")
     local r, g, b
     if mode == "accent" then
-        r, g, b = EllesmereUI.GetAccentColor()
+        r, g, b = GetAccentRGB()
     elseif mode == "class" then
         local _, class = UnitClass("player")
         local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
@@ -2927,19 +2940,19 @@ local function SkinChatFrame(cf)
             ChainAnchor(friendsBtn)
 
             friendsCount = sidebar:CreateFontString(nil, "OVERLAY")
-            friendsCount:SetFont(GetFont(), 9, "")
-            friendsCount:SetTextColor(1, 1, 1, 0.5)
+            friendsCount:SetFont(GetFont(), STYLE_TYPE.secondary.size, "")
+            friendsCount:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
             friendsCount:SetPoint("TOP", friendsBtn, "BOTTOM", 0, 7)
             friendsCount:SetText("0")
 
             friendsBtn:HookScript("OnEnter", function(self)
-                friendsCount:SetTextColor(1, 1, 1, 0.9)
+                friendsCount:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                 if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
                     EUI.ShowWidgetTooltip(self, "Friends")
                 end
             end)
             friendsBtn:HookScript("OnLeave", function()
-                friendsCount:SetTextColor(1, 1, 1, 0.5)
+                friendsCount:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                 if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
             end)
 
@@ -2966,19 +2979,19 @@ local function SkinChatFrame(cf)
             ChainAnchor(guildBtn)
 
             guildCount = sidebar:CreateFontString(nil, "OVERLAY")
-            guildCount:SetFont(GetFont(), 9, "")
-            guildCount:SetTextColor(1, 1, 1, 0.5)
+            guildCount:SetFont(GetFont(), STYLE_TYPE.secondary.size, "")
+            guildCount:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
             guildCount:SetPoint("TOP", guildBtn, "BOTTOM", 0, 7)
             guildCount:SetText("0")
 
             guildBtn:HookScript("OnEnter", function(self)
-                guildCount:SetTextColor(1, 1, 1, 0.9)
+                guildCount:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                 if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
                     EUI.ShowWidgetTooltip(self, "Guild")
                 end
             end)
             guildBtn:HookScript("OnLeave", function()
-                guildCount:SetTextColor(1, 1, 1, 0.5)
+                guildCount:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                 if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
             end)
 
@@ -3012,19 +3025,19 @@ local function SkinChatFrame(cf)
             ChainAnchor(durabilityBtn)
 
             durabilityPct = sidebar:CreateFontString(nil, "OVERLAY")
-            durabilityPct:SetFont(GetFont(), 9, "")
-            durabilityPct:SetTextColor(1, 1, 1, 0.5)
+            durabilityPct:SetFont(GetFont(), STYLE_TYPE.secondary.size, "")
+            durabilityPct:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
             durabilityPct:SetPoint("TOP", durabilityBtn, "BOTTOM", 0, 0)
             durabilityPct:SetText("100%")
 
             durabilityBtn:HookScript("OnEnter", function(self)
-                durabilityPct:SetTextColor(1, 1, 1, 0.9)
+                durabilityPct:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                 if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
                     EUI.ShowWidgetTooltip(self, "Equipment Durability")
                 end
             end)
             durabilityBtn:HookScript("OnLeave", function()
-                durabilityPct:SetTextColor(1, 1, 1, 0.5)
+                durabilityPct:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                 if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
             end)
 
@@ -3377,7 +3390,7 @@ local function SkinChatFrame(cf)
                         local eg = EUI.ELLESMERE_GREEN or EG
                         fs:SetTextColor(eg.r, eg.g, eg.b, 1)
                     else
-                        fs:SetTextColor(1, 1, 1, 0.5)
+                        fs:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
                     end
                 end
             end
@@ -3398,7 +3411,7 @@ local function SkinChatFrame(cf)
                         -- Restyle the text
                         local fs = btn:GetFontString()
                         if fs then
-                            fs:SetFont(GetFont(), 12, "")
+                            fs:SetFont(GetFont(), STYLE_TYPE.value.size, "")
                         end
                         -- Update colors on click
                         btn:HookScript("OnClick", UpdateCLFilterColors)
@@ -4173,11 +4186,11 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local bg = overlay:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
-                bg:SetTexture(0.04, 0.06, 0.07, 0.95)
+                bg:SetTexture(unpack(STYLE_COLORS.panel))
 
                 local msg = overlay:CreateFontString(nil, "OVERLAY")
-                msg:SetFont(GetFont(), 12, "")
-                msg:SetTextColor(1, 1, 1, 0.85)
+                msg:SetFont(GetFont(), STYLE_TYPE.value.size, "")
+                msg:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
                 msg:SetPoint("CENTER", overlay, "CENTER", 0, 16)
                 msg:SetWidth(overlay:GetWidth() - 40)
                 msg:SetJustifyH("CENTER")
@@ -4190,20 +4203,21 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local btnBg = btn:CreateTexture(nil, "BACKGROUND")
                 btnBg:SetAllPoints()
-                btnBg:SetTexture(0.12, 0.14, 0.18, 1)
+                btnBg:SetTexture(unpack(STYLE_COLORS.button))
 
                 local btnHL = btn:CreateTexture(nil, "HIGHLIGHT")
                 btnHL:SetAllPoints()
                 btnHL:SetTexture(1, 1, 1, 0.06)
 
                 local btnText = btn:CreateFontString(nil, "OVERLAY")
-                btnText:SetFont(GetFont(), 11, "")
-                btnText:SetTextColor(1, 1, 1, 0.8)
+                btnText:SetFont(GetFont(), STYLE_TYPE.button.size, "")
+                btnText:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                 btnText:SetPoint("CENTER")
                 btnText:SetText(EllesmereUI.L("Okay"))
 
                 if PP and PP.CreateBorder then
-                    PP.CreateBorder(btn, 1, 1, 1, 0.08, 1, "OVERLAY", 7)
+                    local border = STYLE_COLORS.border
+                    PP.CreateBorder(btn, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
                 end
 
                 btn:SetScript("OnClick", function()

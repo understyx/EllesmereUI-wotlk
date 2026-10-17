@@ -13,6 +13,8 @@ local EQT = ns.EQT
 if _G.ObjectiveTrackerFrame or not _G.WatchFrame then return end
 
 local WatchFrame = _G.WatchFrame
+local STYLE_TOKENS = EllesmereUI.Style.Tokens
+local STYLE_TYPE = STYLE_TOKENS.type
 local hiddenParent = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIQTWrathHiddenParent", UIParent)
 hiddenParent:Hide()
 
@@ -26,6 +28,9 @@ local resizeQueued
 local relayoutQueued
 
 local function GetAccent()
+    if EllesmereUI and EllesmereUI.Style and EllesmereUI.Style.GetAccent then
+        return EllesmereUI.Style.GetAccent()
+    end
     local color = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
     if color then return color.r, color.g, color.b end
     return 0.047, 0.824, 0.624
@@ -81,7 +86,7 @@ local function GetOutline()
     return ""
 end
 
-local function StyleFont(fontString, size, r, g, b)
+local function StyleFont(fontString, size, r, g, b, alpha)
     if not fontString then return end
     if EllesmereUI.PrimeFontShadow then
         local useShadow = EllesmereUI.GetFontUseShadow
@@ -90,7 +95,10 @@ local function StyleFont(fontString, size, r, g, b)
     end
     local ok = pcall(fontString.SetFont, fontString, GetFont(), size, GetOutline())
     if not ok then fontString:SetFont("Fonts\\FRIZQT__.TTF", size, GetOutline()) end
-    if fontString.SetTextColor then fontString:SetTextColor(r, g, b) end
+    if fontString.SetTextColor then
+        if alpha then fontString:SetTextColor(r, g, b, alpha)
+        else fontString:SetTextColor(r, g, b) end
+    end
 end
 
 local function IsShown(frame)
@@ -134,6 +142,7 @@ local function StyleLine(line, isTitle, completed)
     if not line then return end
     local size
     local r, g, b
+    local alpha
     if isTitle then
         size = EQT.Cfg("titleFontSize") or 12
         r, g, b = GetTitleColor()
@@ -142,11 +151,14 @@ local function StyleLine(line, isTitle, completed)
         r, g, b = GetCompletedColor()
     else
         size = EQT.Cfg("objectiveFontSize") or 10
-        r, g, b = 0.72, 0.72, 0.72
+        r, g, b = 1, 1, 1
+        -- The objective line uses the shared row emphasis; font size and
+        -- configured title/completion colors remain user-controlled.
+        alpha = STYLE_TYPE.row.alpha
     end
-    StyleFont(line.text, size, r, g, b)
+    StyleFont(line.text, size, r, g, b, alpha)
     if line.dash and not isTitle then
-        StyleFont(line.dash, size, r, g, b)
+        StyleFont(line.dash, size, r, g, b, alpha)
     end
 end
 

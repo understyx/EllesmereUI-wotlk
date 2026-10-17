@@ -4,6 +4,9 @@
 --  Visually matches the Bags module with sidebar, search, and sorting
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
+local STYLE_TOKENS = EUI.Style.Tokens
+local STYLE_COLORS = STYLE_TOKENS.colors
+local STYLE_TYPE = STYLE_TOKENS.type
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -22,7 +25,7 @@ end
 -------------------------------------------------------------------------------
 local SLOT_SIZE, SPACING = 34, 4
 local HEADER_H    = 35
-local FOOTER_H    = 32
+local FOOTER_H    = 28 -- Match the sibling Bags window footer.
 local SIDEBAR_W   = 160
 local SIDEBAR_W_COLLAPSED = 32
 local SIDEBAR_BTN_H   = 26
@@ -59,6 +62,7 @@ local function IsGearItem(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
 end
 local function GetAccentRGB()
+    if EUI.Style and EUI.Style.GetAccent then return EUI.Style.GetAccent() end
     if EUI.GetAccentColor then return EUI.GetAccentColor() end
     return 0.05, 0.82, 0.62
 end
@@ -88,6 +92,11 @@ local function SetInsetBorderColor(btn, cr, cg, cb, ca)
         btn._brdL:SetTexture(cr, cg, cb, ca)
         btn._brdR:SetTexture(cr, cg, cb, ca)
     end
+end
+
+local function SetDefaultInsetBorderColor(btn, alpha)
+    local border = STYLE_COLORS.border
+    SetInsetBorderColor(btn, border[1], border[2], border[3], alpha or border[4])
 end
 
 -------------------------------------------------------------------------------
@@ -205,8 +214,11 @@ bgAtlas:SetAllPoints()
 bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
 local bgOverlay = EUI_Bank:CreateTexture(nil, "BACKGROUND", nil, 1)
 bgOverlay:SetAllPoints()
-bgOverlay:SetTexture(0, 0, 0, 0.25)
-if EUI.MakeBorder then EUI.MakeBorder(EUI_Bank, 1, 1, 1, 0.15, EUI.PP) end
+bgOverlay:SetTexture(unpack(STYLE_COLORS.body))
+if EUI.MakeBorder then
+    local border = STYLE_COLORS.border
+    EUI.MakeBorder(EUI_Bank, border[1], border[2], border[3], border[4], EUI.PP)
+end
 
 -------------------------------------------------------------------------------
 --  Header
@@ -216,37 +228,40 @@ header:SetPoint("TOPLEFT", EUI_Bank, "TOPLEFT", 0, 0)
 header:SetPoint("TOPRIGHT", EUI_Bank, "TOPRIGHT", 0, 0)
 header:SetHeight(HEADER_H)
 local hdrBg = header:CreateTexture(nil, "BACKGROUND", nil, 1)
-hdrBg:SetAllPoints(); hdrBg:SetTexture(0, 0, 0, 0.5)
+hdrBg:SetAllPoints(); hdrBg:SetTexture(unpack(STYLE_COLORS.header))
 
 local title = header:CreateFontString(nil, "OVERLAY")
-SetBankFont(title, 13)
+SetBankFont(title, STYLE_TYPE.title.size)
 title:SetPoint("LEFT", header, "LEFT", 8, 0)
-title:SetTextColor(1, 1, 1)
+title:SetTextColor(1, 1, 1, STYLE_TYPE.title.alpha)
 title:SetText(EllesmereUI.L("Bank"))
 
 local itemCount = header:CreateFontString(nil, "OVERLAY")
-SetBankFont(itemCount, 11)
+SetBankFont(itemCount, STYLE_TYPE.row.size)
 itemCount:SetPoint("LEFT", title, "RIGHT", 8, 0)
-itemCount:SetTextColor(0.6, 0.6, 0.6)
+itemCount:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
 EUI_Bank._headerItemCount = itemCount
 
 -- Search box
 local bankSearch = EllesmereUI.SafeCreateFrame("EditBox", "EUI_BankSearchBox", header)
 bankSearch:SetSize(160, 22)
 bankSearch:SetPoint("RIGHT", header, "RIGHT", -35, 0)
-bankSearch:SetFont(GetFont(), 12, "")
+bankSearch:SetFont(GetFont(), STYLE_TYPE.value.size, "")
 bankSearch:SetAutoFocus(false)
 bankSearch:SetTextInsets(5, 26, 0, 0)
 local searchBg = bankSearch:CreateTexture(nil, "BACKGROUND")
 searchBg:SetAllPoints()
-searchBg:SetTexture(0.02, 0.02, 0.02, 1)
-if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(bankSearch, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
+searchBg:SetTexture(unpack(STYLE_COLORS.input))
+if EUI and EUI.PanelPP then
+    local border = STYLE_COLORS.border
+    EUI.PanelPP.CreateBorder(bankSearch, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
+end
 
 local searchPlaceholder = bankSearch:CreateFontString(nil, "OVERLAY")
-SetBankFont(searchPlaceholder, 11)
+SetBankFont(searchPlaceholder, STYLE_TYPE.row.size)
 searchPlaceholder:SetPoint("LEFT", bankSearch, "LEFT", 5, 0)
 searchPlaceholder:SetText(EllesmereUI.L("Search..."))
-searchPlaceholder:SetTextColor(0.4, 0.4, 0.4)
+searchPlaceholder:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
 EUI_Bank._searchBox = bankSearch
 
 -- Search clear button
@@ -257,7 +272,7 @@ searchClear.tex = searchClear:CreateFontString(nil, "OVERLAY")
 SetBankFont(searchClear.tex, 14)
 searchClear.tex:SetText("x")
 searchClear.tex:SetPoint("CENTER", 0, 1)
-searchClear.tex:SetTextColor(0.8, 0.8, 0.8)
+searchClear.tex:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
 searchClear:Hide()
 searchClear:SetScript("OnClick", function()
     bankSearch:SetText("")
@@ -339,7 +354,7 @@ do
     hdrSep:SetHeight(px)
     hdrSep:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
     hdrSep:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
-    hdrSep:SetTexture(0.15, 0.15, 0.15, 1)
+    hdrSep:SetTexture(unpack(STYLE_COLORS.border))
 end
 
 -------------------------------------------------------------------------------
@@ -351,7 +366,7 @@ do
     footer:SetPoint("BOTTOMRIGHT", EUI_Bank, "BOTTOMRIGHT", 0, 0)
     footer:SetHeight(FOOTER_H)
     local ftrBg = footer:CreateTexture(nil, "BACKGROUND", nil, 1)
-    ftrBg:SetAllPoints(); ftrBg:SetTexture(0, 0, 0, 0.35)
+    ftrBg:SetAllPoints(); ftrBg:SetTexture(unpack(STYLE_COLORS.body))
 
     -- Top-edge separator
     local PP = EUI and EUI.PP
@@ -360,7 +375,7 @@ do
     ftrSep:SetHeight(px)
     ftrSep:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
     ftrSep:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
-    ftrSep:SetTexture(0.15, 0.15, 0.15, 1)
+    ftrSep:SetTexture(unpack(STYLE_COLORS.border))
 
     -- Shared formatting
     local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:14:14:0:0|t"
@@ -371,9 +386,9 @@ do
     end
 
     local playerGold = footer:CreateFontString(nil, "OVERLAY")
-    SetBankFont(playerGold, 11)
+    SetBankFont(playerGold, STYLE_TYPE.row.size)
     playerGold:SetPoint("LEFT", footer, "LEFT", 10, 0)
-    playerGold:SetTextColor(1, 1, 1)
+    playerGold:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
 
     local playerHitbox = EllesmereUI.SafeCreateFrame("Frame", nil, footer)
     playerHitbox:SetPoint("TOPLEFT", playerGold, "TOPLEFT", -4, 4)
@@ -435,8 +450,11 @@ local function EnsureBankTabConfigFrame()
     bgAtlasBTC:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
     local bgOverlayBTC = EUI_BankTabConfigFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
     bgOverlayBTC:SetAllPoints()
-    bgOverlayBTC:SetTexture(0, 0, 0, 0.25)
-    if EUI.MakeBorder then EUI.MakeBorder(EUI_BankTabConfigFrame, 1, 1, 1, 0.15, EUI.PP) end
+    bgOverlayBTC:SetTexture(unpack(STYLE_COLORS.body))
+    if EUI.MakeBorder then
+        local border = STYLE_COLORS.border
+        EUI.MakeBorder(EUI_BankTabConfigFrame, border[1], border[2], border[3], border[4], EUI.PP)
+    end
 
     -- Header
     local headerBTC = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BankTabConfigFrame)
@@ -444,12 +462,12 @@ local function EnsureBankTabConfigFrame()
     headerBTC:SetPoint("TOPRIGHT", EUI_BankTabConfigFrame, "TOPRIGHT", 0, 0)
     headerBTC:SetHeight(HEADER_H)
     local hdrBgBTC = headerBTC:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hdrBgBTC:SetAllPoints(); hdrBgBTC:SetTexture(0, 0, 0, 0.5)
+    hdrBgBTC:SetAllPoints(); hdrBgBTC:SetTexture(unpack(STYLE_COLORS.header))
 
     local titleBTC = headerBTC:CreateFontString(nil, "OVERLAY")
-    SetBankFont(titleBTC, 13)
+    SetBankFont(titleBTC, STYLE_TYPE.title.size)
     titleBTC:SetPoint("LEFT", headerBTC, "LEFT", 8, 0)
-    titleBTC:SetTextColor(1, 1, 1)
+    titleBTC:SetTextColor(1, 1, 1, STYLE_TYPE.title.alpha)
     titleBTC:SetText(EllesmereUI.L("Edit Tab Settings"))
 
     -- Footer
@@ -458,7 +476,7 @@ local function EnsureBankTabConfigFrame()
     footerBTC:SetPoint("BOTTOMRIGHT", EUI_BankTabConfigFrame, "BOTTOMRIGHT", 0, 0)
     footerBTC:SetHeight(FOOTER_H)
     local ftrBgBTC = footerBTC:CreateTexture(nil, "BACKGROUND", nil, 1)
-    ftrBgBTC:SetAllPoints(); ftrBgBTC:SetTexture(0, 0, 0, 0.35)
+    ftrBgBTC:SetAllPoints(); ftrBgBTC:SetTexture(unpack(STYLE_COLORS.body))
 
     -- Top-edge separator
     local PP = EUI and EUI.PP
@@ -467,7 +485,7 @@ local function EnsureBankTabConfigFrame()
     ftrSepBTC:SetHeight(px)
     ftrSepBTC:SetPoint("TOPLEFT", footerBTC, "TOPLEFT", 0, 0)
     ftrSepBTC:SetPoint("TOPRIGHT", footerBTC, "TOPRIGHT", 0, 0)
-    ftrSepBTC:SetTexture(0.15, 0.15, 0.15, 1)
+    ftrSepBTC:SetTexture(unpack(STYLE_COLORS.border))
 
     -------------------------------------------------------------------------------
     -- Content for Bank Tab Settings Frame
@@ -486,9 +504,9 @@ local function EnsureBankTabConfigFrame()
 
     -- Bank Tab Name Label
     local bankTabNameLabel = bodyBTC:CreateFontString(nil, "OVERLAY")
-    SetBankFont(bankTabNameLabel, 10)
+    SetBankFont(bankTabNameLabel, STYLE_TYPE.secondary.size)
     bankTabNameLabel:SetPoint("TOPLEFT", bodyBTC, "TOPLEFT", PADDING_X, -PADDING_Y)
-    bankTabNameLabel:SetTextColor(1, 1, 1, 1)
+    bankTabNameLabel:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     bankTabNameLabel:SetText(CHARACTER_BANK_TAB_NAME_PROMPT)
     contentHeight = contentHeight + bankTabNameLabel:GetStringHeight() + PADDING_Y
 
@@ -496,13 +514,16 @@ local function EnsureBankTabConfigFrame()
     local bankTabNameEditBox = EllesmereUI.SafeCreateFrame("EditBox", "EUI_BankFrame_TabSettingsMenu_NameBox", bodyBTC)
     bankTabNameEditBox:SetSize(170, WIDGET_HEIGHT)
     bankTabNameEditBox:SetPoint("TOPLEFT", bankTabNameLabel, "BOTTOMLEFT", 0, -PADDING_Y / 2)
-    SetBankFont(bankTabNameEditBox, 10)
+    SetBankFont(bankTabNameEditBox, STYLE_TYPE.secondary.size)
     bankTabNameEditBox:SetAutoFocus(false)
     bankTabNameEditBox:SetTextInsets(5, 5, 0, 0)
     local bankTabNameBg = bankTabNameEditBox:CreateTexture(nil, "BACKGROUND")
     bankTabNameBg:SetAllPoints()
-    bankTabNameBg:SetTexture(0.02, 0.02, 0.02, 1)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(bankTabNameEditBox, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
+    bankTabNameBg:SetTexture(unpack(STYLE_COLORS.input))
+    if EUI and EUI.PanelPP then
+        local border = STYLE_COLORS.border
+        EUI.PanelPP.CreateBorder(bankTabNameEditBox, border[1], border[2], border[3], border[4], STYLE_TOKENS.border.width, "OVERLAY", 7)
+    end
     contentHeight = contentHeight + bankTabNameEditBox:GetHeight() + (PADDING_Y / 2)
 
     -- Tab Icon Preview Visual
@@ -512,9 +533,9 @@ local function EnsureBankTabConfigFrame()
 
     -- Assign To Tab Label
     local assignToTabLabel = bodyBTC:CreateFontString(nil, "OVERLAY")
-    SetBankFont(assignToTabLabel, 10)
+    SetBankFont(assignToTabLabel, STYLE_TYPE.secondary.size)
     assignToTabLabel:SetPoint("TOPLEFT", bankTabNameEditBox, "BOTTOMLEFT", 0, -PADDING_Y / 2)
-    assignToTabLabel:SetTextColor(1, 1, 1, 1)
+    assignToTabLabel:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     assignToTabLabel:SetText(BAG_FILTER_ASSIGN_TO)
     contentHeight = contentHeight + assignToTabLabel:GetStringHeight() + (PADDING_Y / 2)
 
@@ -547,7 +568,7 @@ local function EnsureBankTabConfigFrame()
         PP.Point(box, "LEFT", btn, "LEFT", 0, 0)
 
         local label = EUI.MakeFont(btn, 14, nil, EUI.TEXT_WHITE.r, EUI.TEXT_WHITE.g, EUI.TEXT_WHITE.b)
-        SetBankFont(label, 10)
+        SetBankFont(label, STYLE_TYPE.secondary.size)
         label:SetPoint("LEFT", box, "RIGHT", 8, 0)
         label:SetText(option.text)
 
@@ -613,23 +634,23 @@ local function EnsureBankTabConfigFrame()
     saveBTCBtn:EnableMouse(true)
 
     local saveBtnLabel = saveBTCBtn:CreateFontString(nil, "OVERLAY")
-    SetBankFont(saveBtnLabel, 10)
+    SetBankFont(saveBtnLabel, STYLE_TYPE.button.size)
     saveBtnLabel:SetPoint("CENTER", saveBTCBtn, "CENTER", 0, 0)
-    saveBtnLabel:SetTextColor(ar, ag, ab, 0.9)
+    saveBtnLabel:SetTextColor(ar, ag, ab, STYLE_TYPE.button.alpha)
     saveBTCBtn._label = saveBtnLabel
 
     saveBTCBtn:SetScript("OnEnter", function(self)
         local r, g, b = GetAccentRGB()
-        self._label:SetTextColor(r, g, b, 1)
-        self._border:SetColor(r, g, b, 1)
+        self._label:SetTextColor(r, g, b, STYLE_TYPE.title.alpha)
+        self._border:SetColor(r, g, b, STYLE_TYPE.title.alpha)
     end)
     saveBTCBtn:SetScript("OnLeave", function(self)
         local r, g, b = GetAccentRGB()
-        self._label:SetTextColor(r, g, b, 0.9)
-        self._border:SetColor(r, g, b, 0.9)
+        self._label:SetTextColor(r, g, b, STYLE_TYPE.button.alpha)
+        self._border:SetColor(r, g, b, STYLE_TYPE.button.alpha)
     end)
     saveBTCBtn._label:SetText(EllesmereUI.L("Save"))
-    if EUI.MakeBorder then saveBTCBtn._border = EUI.MakeBorder(saveBTCBtn, ar, ag, ab, 0.9, EUI.PP) end
+    if EUI.MakeBorder then saveBTCBtn._border = EUI.MakeBorder(saveBTCBtn, ar, ag, ab, STYLE_TYPE.button.alpha, EUI.PP) end
 
     saveBTCBtn:SetScript("OnClick", function()
         local parent = EUI_BankTabConfigFrame
@@ -651,22 +672,25 @@ local function EnsureBankTabConfigFrame()
     cancelBTCBtn:EnableMouse(true)
 
     local cancelBtnLabel = cancelBTCBtn:CreateFontString(nil, "OVERLAY")
-    SetBankFont(cancelBtnLabel, 10)
+    SetBankFont(cancelBtnLabel, STYLE_TYPE.button.size)
     cancelBtnLabel:SetPoint("CENTER", cancelBTCBtn, "CENTER", 0, 0)
-    cancelBtnLabel:SetTextColor(1, 1, 1, 0.7)
+    cancelBtnLabel:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     cancelBTCBtn._label = cancelBtnLabel
 
     cancelBTCBtn:SetScript("OnEnter", function(self)
-        self._label:SetTextColor(1, 1, 1, 0.9)
-        self._border:SetColor(1, 1, 1, 0.6)
+        self._label:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
+        self._border:SetColor(1, 1, 1, STYLE_TYPE.row.alpha)
     end)
     cancelBTCBtn:SetScript("OnLeave", function(self)
-        self._label:SetTextColor(1, 1, 1, 0.7)
-        self._border:SetColor(1, 1, 1, 0.5)
+        self._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
+        self._border:SetColor(1, 1, 1, STYLE_COLORS.border[4])
     end)
     cancelBTCBtn._label:SetText(EllesmereUI.L("Cancel"))
     cancelBTCBtn:SetScript("OnClick", function() EUI_BankTabConfigFrame:Hide() end)
-    if EUI.MakeBorder then cancelBTCBtn._border = EUI.MakeBorder(cancelBTCBtn, 1, 1, 1, 0.5, EUI.PP) end
+    if EUI.MakeBorder then
+        local border = STYLE_COLORS.border
+        cancelBTCBtn._border = EUI.MakeBorder(cancelBTCBtn, border[1], border[2], border[3], border[4], EUI.PP)
+    end
 
     function EUI_BankTabConfigFrame:OpenBankTabSettings(tabData, tabId)
         self:Hide()
@@ -706,7 +730,7 @@ sidebar:SetPoint("TOPLEFT", EUI_Bank, "TOPLEFT", 0, -HEADER_H)
 sidebar:SetPoint("BOTTOMLEFT", EUI_Bank, "BOTTOMLEFT", 0, FOOTER_H)
 sidebar:SetWidth(GetBankSidebarWidth())
 local sidebarBg = sidebar:CreateTexture(nil, "BACKGROUND", nil, 2)
-sidebarBg:SetAllPoints(); sidebarBg:SetTexture(0, 0, 0, 0.25)
+sidebarBg:SetAllPoints(); sidebarBg:SetTexture(unpack(STYLE_COLORS.body))
 
 -- Right-edge separator
 do
@@ -716,7 +740,7 @@ do
     sidebarSep:SetWidth(px)
     sidebarSep:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
     sidebarSep:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
-    sidebarSep:SetTexture(0.15, 0.15, 0.15, 1)
+    sidebarSep:SetTexture(unpack(STYLE_COLORS.border))
 end
 
 -- Secure purchase buttons: inherit BankPanelPurchaseButtonScriptTemplate so
@@ -751,10 +775,10 @@ sidebarHdr:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 0, 0)
 sidebarHdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
 
 sidebarHdr._label = sidebarHdr:CreateFontString(nil, "OVERLAY")
-SetBankFont(sidebarHdr._label, 10)
+SetBankFont(sidebarHdr._label, STYLE_TYPE.secondary.size)
 sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
 sidebarHdr._label:SetText(EllesmereUI.L("Tabs"))
-sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
+sidebarHdr._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
 
 local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.tga"
 local collapseBtn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarHdr)
@@ -859,12 +883,12 @@ trackBg:SetWidth(SCROLLBAR_W)
 trackBg:SetPoint("TOP", track, "TOP", 0, 0)
 trackBg:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
 trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
-trackBg:SetTexture(1, 1, 1, 0.06)
+trackBg:SetTexture(unpack(STYLE_COLORS.track))
 
 -- Thumb
 local thumb = track:CreateTexture(nil, "ARTWORK")
 thumb:SetWidth(SCROLLBAR_W)
-thumb:SetTexture(1, 1, 1, 0.25)
+thumb:SetTexture(unpack(STYLE_COLORS.thumb))
 thumb:Hide()
 
 local _isDragging = false
@@ -925,7 +949,7 @@ dragUpdate:SetScript("OnUpdate", function(self)
     if not _isDragging then self:Hide(); return end
     if not IsMouseButtonDown("LeftButton") then
         _isDragging = false; self:Hide()
-        thumb:SetTexture(1, 1, 1, 0.25)
+        thumb:SetTexture(unpack(STYLE_COLORS.thumb))
         return
     end
     local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
@@ -977,9 +1001,9 @@ track:SetScript("OnMouseUp", function()
 end)
 
 -- Hover effect on thumb
-track:SetScript("OnEnter", function() thumb:SetTexture(1, 1, 1, 0.4) end)
+    track:SetScript("OnEnter", function() thumb:SetTexture(unpack(STYLE_COLORS.thumb)) end)
 track:SetScript("OnLeave", function()
-    if not _isDragging then thumb:SetTexture(1, 1, 1, 0.25) end
+    if not _isDragging then thumb:SetTexture(unpack(STYLE_COLORS.thumb)) end
 end)
 
 EUI_Bank._scrollFrame = sf
@@ -1253,7 +1277,8 @@ local function GetOrCreateBankSlot(idx)
         pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.tga")
         pt:SetTexCoord(0, 1, 0, 1)
         pt:ClearAllPoints(); pt:SetAllPoints(btn)
-        pt:SetVertexColor(0.973, 0.839, 0.604, 1)
+        local ar, ag, ab = GetAccentRGB()
+        pt:SetVertexColor(ar, ag, ab, 1)
     end
     if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
     if btn.IconBorder then btn.IconBorder:SetAlpha(0) end
@@ -1264,7 +1289,7 @@ local function GetOrCreateBankSlot(idx)
     end
 
     CreateInsetBorder(btn)
-    SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
+    SetDefaultInsetBorderColor(btn)
 
     -- Text overlay above cooldown
     local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
@@ -1286,7 +1311,7 @@ local function GetOrCreateBankSlot(idx)
     if not btn.ItemLevelText then
         btn.ItemLevelText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
         btn.ItemLevelText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
-        btn.ItemLevelText:SetTextColor(1, 1, 1, 1)
+        btn.ItemLevelText:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     end
     btn.ItemLevelText:SetFont(GetFont(), ilvlSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     btn.ItemLevelText:SetText("")
@@ -1295,7 +1320,7 @@ local function GetOrCreateBankSlot(idx)
     if not btn.BindTypeText then
         btn.BindTypeText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
         btn.BindTypeText:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 2)
-        btn.BindTypeText:SetTextColor(1, 1, 1, 1)
+        btn.BindTypeText:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     end
     local bindTypeFontSize = BP().bagBindTypeFontSize or 11
     btn.BindTypeText:SetFont(GetFont(), bindTypeFontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
@@ -1322,9 +1347,9 @@ local function GetOrCreateBankHeader(idx)
     local f = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
     f:SetHeight(20)
     f._label = f:CreateFontString(nil, "OVERLAY")
-    SetBankFont(f._label, 11)
+    SetBankFont(f._label, STYLE_TYPE.row.size)
     f._label:SetPoint("LEFT", f, "LEFT", 0, 0)
-    f._label:SetTextColor(0.7, 0.7, 0.7)
+    f._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     f._label:SetJustifyH("LEFT")
     local PP = EUI and EUI.PP
     local px = (PP and PP.mult) or 1
@@ -1332,7 +1357,7 @@ local function GetOrCreateBankHeader(idx)
     f._line:SetHeight(px)
     f._line:SetPoint("LEFT", f._label, "RIGHT", 6, 0)
     f._line:SetPoint("RIGHT", f, "RIGHT", -SPACING, 0)
-    f._line:SetTexture(0.7, 0.7, 0.7, 0.2)
+    f._line:SetTexture(unpack(STYLE_COLORS.border))
     _bankHeaders[idx] = f
     return f
 end
@@ -1658,7 +1683,7 @@ function EUI_Bank:RefreshBank()
             if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
             local c = ITEM_QUALITY_COLORS[quality]
             if c then SetInsetBorderColor(btn, c.r, c.g, c.b, 1)
-            else SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1) end
+            else SetDefaultInsetBorderColor(btn) end
 
             -- One gear check + one GetItemInfo fetch shared by the bind-type
             -- and item-level texts
@@ -1808,14 +1833,14 @@ function BuildBankSidebar()
         btn._icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
         btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         btn._label = btn:CreateFontString(nil, "OVERLAY")
-        SetBankFont(btn._label, 11)
+        SetBankFont(btn._label, STYLE_TYPE.row.size)
         btn._label:SetJustifyH("LEFT"); btn._label:SetWordWrap(false)
         btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 6, 0)
         btn._label:SetPoint("RIGHT", btn, "RIGHT", -30, 0)
         btn._count = btn:CreateFontString(nil, "OVERLAY")
-        SetBankFont(btn._count, 10)
+        SetBankFont(btn._count, STYLE_TYPE.secondary.size)
         btn._count:SetJustifyH("RIGHT")
-        btn._count:SetTextColor(0.5, 0.5, 0.5)
+        btn._count:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
         btn._count:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
         btn:SetScript("OnEnter", function(self)
             local tabData = self._viewIdx and self._viewIdx > 0 and _allTabs[self._viewIdx]
@@ -1896,7 +1921,7 @@ function BuildBankSidebar()
         else
             btn._label:Show()
             btn._label:SetText(locLabel)
-            btn._label:SetTextColor(1, 1, 1, 0.6)
+            btn._label:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
             btn._count:Hide()
         end
         btn:SetAlpha(0.6)
@@ -1943,7 +1968,7 @@ function BuildBankSidebar()
         else
             btn._label:Show()
             btn._label:SetText(name)
-            btn._label:SetTextColor(1, 1, 1, isSelected and 1 or 0.75)
+            btn._label:SetTextColor(1, 1, 1, isSelected and STYLE_TYPE.value.alpha or STYLE_TYPE.row.alpha)
             btn._count:Show()
             btn._count:SetText(tostring(count))
         end
@@ -1995,7 +2020,7 @@ function BuildBankSidebar()
             local px = (PP and PP.mult) or 1
             local div = sidebarChild:CreateTexture(nil, "ARTWORK")
             div:SetHeight(px)
-            div:SetTexture(0.2, 0.2, 0.2, 1)
+            div:SetTexture(unpack(STYLE_COLORS.border))
             sidebarChild[key] = div
         end
         y = y - 4

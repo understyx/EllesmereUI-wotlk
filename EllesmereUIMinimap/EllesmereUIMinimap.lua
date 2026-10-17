@@ -3,6 +3,10 @@
 --  Custom minimap skin and layout for EllesmereUI.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
+local STYLE = EllesmereUI.Style
+local STYLE_TOKENS = STYLE.Tokens
+local STYLE_COLORS = STYLE_TOKENS.colors
+local STYLE_TYPE = STYLE_TOKENS.type
 
 local EBS = EllesmereUI.Lite.NewAddon("EllesmereUIMinimap")
 
@@ -49,7 +53,12 @@ do
     })
 end
 
-local EG = EllesmereUI.ELLESMERE_GREEN
+local function GetLiveAccent()
+    if STYLE.GetAccent then return STYLE.GetAccent() end
+    local accent = EllesmereUI.ELLESMERE_GREEN
+    if accent then return accent.r, accent.g, accent.b end
+    return 0.05, 0.82, 0.62
+end
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
@@ -185,7 +194,8 @@ local function GetBorderColor(cfg)
         -- Flag name is legacy ("useClassColor") but both minimap and friends
         -- now use the live EllesmereUI accent color when it's set. The flag
         -- name is kept as-is for backwards compat with stored SV data.
-        return EG.r, EG.g, EG.b, 1
+        local r, g, b = GetLiveAccent()
+        return r, g, b, 1
     end
     return cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA or 1
 end
@@ -201,7 +211,8 @@ local function GetBorderStyleColor(cfg)
         if cc then return cc.r, cc.g, cc.b, cfg.borderA or 1 end
     end
     if cfg.useClassColor then
-        return EG.r, EG.g, EG.b, cfg.borderA or 1
+        local r, g, b = GetLiveAccent()
+        return r, g, b, cfg.borderA or 1
     end
     local c = cfg.borderColor
     if c then return c.r, c.g, c.b, cfg.borderA or 1 end
@@ -594,11 +605,10 @@ local function EnsureFlyoutPanel()
         flyoutPanel:SetFrameStrata("DIALOG")
         flyoutPanel:SetBackdrop({
             bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeSize = 1,
         })
-        flyoutPanel:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
-        flyoutPanel:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        flyoutPanel:SetBackdropColor(unpack(STYLE_COLORS.panel))
+        local border = STYLE_COLORS.border
+        EllesmereUI.MakeBorder(flyoutPanel, border[1], border[2], border[3], border[4], EllesmereUI.PanelPP)
         -- Anchored per Grow Tooltip/Popup on every open (see ShowFlyoutPanel)
         flyoutPanel:SetClampedToScreen(true)
         flyoutOwnedFrames[flyoutPanel] = true
@@ -798,7 +808,7 @@ local function CreateFlyoutToggle()
     -- Black background to match indicator icons
     local bg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
     bg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
-    bg:SetBackdropColor(0, 0, 0, 0.8)
+    bg:SetBackdropColor(unpack(STYLE_COLORS.panel))
     bg:SetAllPoints(btn)
     bg:SetFrameLevel(btn:GetFrameLevel() - 1)
     btn._bg = bg
@@ -856,7 +866,7 @@ end
 local function GetDescColor(mp)
     local r, g, b
     if mp and mp.fpsUseAccent then
-        r, g, b = EG.r, EG.g, EG.b
+        r, g, b = GetLiveAccent()
     else
         local c = mp and mp.fpsColor
         if c then r, g, b = c.r or 1, c.g or 1, c.b or 1 else r, g, b = 1, 1, 1 end
@@ -1007,9 +1017,9 @@ local function UpdateLocation()
     local mp = EBS.db and EBS.db.profile.minimap
     if mp and mp.zoneReactiveColor then
         local r, g, b = GetZoneReactionColor()
-        locationFrame:SetTextColor(r, g, b, 0.9)
+        locationFrame:SetTextColor(r, g, b, STYLE_TYPE.section.alpha)
     else
-        locationFrame:SetTextColor(1, 1, 1, 0.9)
+        locationFrame:SetTextColor(1, 1, 1, STYLE_TYPE.section.alpha)
     end
     local text
     if mp and mp.zoneShowSubZone then
@@ -1402,7 +1412,7 @@ local function CreateIndicatorBtn(name, parent, upAtlas, overAtlas, downAtlas, o
     -- Black background
     local bg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
     bg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
-    bg:SetBackdropColor(0, 0, 0, 0.8)
+    bg:SetBackdropColor(unpack(STYLE_COLORS.panel))
     bg:SetAllPoints(btn)
     bg:SetFrameLevel(btn:GetFrameLevel() - 1)
     btn._bg = bg
@@ -1665,8 +1675,9 @@ local function GetFTTMenu()
     m:Hide()
     local bg = m:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetTexture(0.067, 0.067, 0.067, 0.95)
-    EllesmereUI.MakeBorder(m, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+    bg:SetTexture(unpack(STYLE_COLORS.panel))
+    local border = STYLE_COLORS.border
+    EllesmereUI.MakeBorder(m, border[1], border[2], border[3], border[4], EllesmereUI.PanelPP)
 
     local function MakeItem(text, yOff, onClick)
         local b = EllesmereUI.SafeCreateFrame("Button", nil, m)
@@ -1679,7 +1690,7 @@ local function GetFTTMenu()
         b:SetPoint("TOPRIGHT", m, "TOPRIGHT", -PAD, yOff)
         b:SetHeight(RH)
         local hl = b:CreateTexture(nil, "BACKGROUND")
-        hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.10); hl:Hide()
+        hl:SetAllPoints(); hl:SetTexture(1, 1, 1, STYLE_COLORS.border[4]); hl:Hide()
         b:SetScript("OnEnter", function() hl:Show() end)
         b:SetScript("OnLeave", function() hl:Hide() end)
         b:SetScript("OnClick", function()
@@ -1687,7 +1698,7 @@ local function GetFTTMenu()
             m:Hide()
         end)
         local fs = b:CreateFontString(nil, "OVERLAY")
-        fs:SetFont(FTT_FONT(), 11, "")
+        fs:SetFont(FTT_FONT(), STYLE_TYPE.button.size, "")
         fs:SetJustifyH("LEFT")
         fs:SetPoint("LEFT", b, "LEFT", 6, 0)
         fs:SetText(text)
@@ -1739,8 +1750,9 @@ local function GetFriendsTT()
     f:Hide()
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetTexture(0.067, 0.067, 0.067, 0.92)
-    EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+    bg:SetTexture(unpack(STYLE_COLORS.panel))
+    local border = STYLE_COLORS.border
+    EllesmereUI.MakeBorder(f, border[1], border[2], border[3], border[4], EllesmereUI.PanelPP)
     -- Mouseover Extra Buttons: hovering this tooltip counts as hovering the
     -- button stack, so crossing onto it must not hide the extra buttons.
     -- MO_OverAny reads the frame via EBS (this local is do-block scoped) and
@@ -1767,7 +1779,7 @@ local function EnsureFTTRow(idx)
     btn:SetHeight(FTT_ROW_H)
     local hl = btn:CreateTexture(nil, "BACKGROUND")
     hl:SetAllPoints()
-    hl:SetTexture(1, 1, 1, 0.08)
+    hl:SetTexture(1, 1, 1, STYLE_COLORS.border[4])
     hl:Hide()
     btn._hl = hl
     btn:SetScript("OnEnter", function(self)
@@ -1790,11 +1802,11 @@ local function EnsureFTTRow(idx)
         end
     end)
     local nameFS = btn:CreateFontString(nil, "OVERLAY")
-    nameFS:SetFont(FTT_FONT(), 10, "")
+    nameFS:SetFont(FTT_FONT(), STYLE_TYPE.secondary.size, "")
     nameFS:SetJustifyH("LEFT")
     nameFS:SetPoint("LEFT", btn, "LEFT", 0, 0)
     local zoneFS = btn:CreateFontString(nil, "OVERLAY")
-    zoneFS:SetFont(FTT_FONT(), 10, "")
+    zoneFS:SetFont(FTT_FONT(), STYLE_TYPE.secondary.size, "")
     zoneFS:SetJustifyH("RIGHT")
     zoneFS:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
     _friendsTTRows[idx] = { button = btn, name = nameFS, zone = zoneFS }
@@ -1813,9 +1825,9 @@ local function EnsureFTTHeader(idx)
     if _friendsTTHeaders[idx] then return _friendsTTHeaders[idx] end
     local tt = GetFriendsTT()
     local fs = tt:CreateFontString(nil, "OVERLAY")
-    fs:SetFont(FTT_FONT(), 12, "")
+    fs:SetFont(FTT_FONT(), STYLE_TYPE.value.size, "")
     fs:SetJustifyH("CENTER")
-    fs:SetTextColor(1, 1, 1, 0.9)
+    fs:SetTextColor(1, 1, 1, STYLE_TYPE.section.alpha)
     _friendsTTHeaders[idx] = fs
     return fs
 end
@@ -1824,7 +1836,7 @@ local function EnsureFTTDivider(idx)
     if _friendsTTDividers[idx] then return _friendsTTDividers[idx] end
     local tt = GetFriendsTT()
     local tex = tt:CreateTexture(nil, "ARTWORK")
-    tex:SetTexture(1, 1, 1, 0.12)
+    tex:SetTexture(unpack(STYLE_COLORS.border))
     local PP = EllesmereUI.PP
     if PP and PP.Snap then
         tex:SetHeight(PP.Snap(1))
@@ -1854,11 +1866,11 @@ function ShowFriendsTooltip(anchor)
     -- Refresh fonts to match current global font setting
     local font = FTT_FONT()
     for i = 1, #_friendsTTRows do
-        _friendsTTRows[i].name:SetFont(font, 10, "")
-        _friendsTTRows[i].zone:SetFont(font, 10, "")
+        _friendsTTRows[i].name:SetFont(font, STYLE_TYPE.secondary.size, "")
+        _friendsTTRows[i].zone:SetFont(font, STYLE_TYPE.secondary.size, "")
     end
     for i = 1, #_friendsTTHeaders do
-        _friendsTTHeaders[i]:SetFont(font, 12, "")
+        _friendsTTHeaders[i]:SetFont(font, STYLE_TYPE.value.size, "")
     end
 
     -- Hide all pooled elements and clear stale entry refs
@@ -1878,7 +1890,7 @@ function ShowFriendsTooltip(anchor)
 
     if total == 0 then
         local row = EnsureFTTRow(1)
-        row.name:SetFont(font, 10, "")
+        row.name:SetFont(font, STYLE_TYPE.secondary.size, "")
         row.name:SetText("|cff888888" .. EllesmereUI.L("No friends online") .. "|r")
         row.zone:SetText("")
         tt:SetSize(FTT_PAD * 2 + 140, FTT_PAD + FTT_ROW_H + FTT_PAD)
@@ -1924,9 +1936,10 @@ function ShowFriendsTooltip(anchor)
         curY = curY - 5  -- spacing above header
         hdrIdx = hdrIdx + 1
         local hdr = EnsureFTTHeader(hdrIdx)
-        hdr:SetFont(font, 12, "")
-        local ac = EllesmereUI.ELLESMERE_GREEN or EllesmereUI._accentColor
-        local acHex = ac and format("%02x%02x%02x", (ac.r or 0.05) * 255, (ac.g or 0.82) * 255, (ac.b or 0.62) * 255) or "0cd29f"
+        hdr:SetFont(font, STYLE_TYPE.value.size, "")
+        local ar, ag, ab = GetLiveAccent()
+        local acHex = format("%02x%02x%02x",
+            math.floor(ar * 255 + 0.5), math.floor(ag * 255 + 0.5), math.floor(ab * 255 + 0.5))
         hdr:SetText(EllesmereUI.L(sec.title) .. " (|cff" .. acHex .. #sec.list .. "|r)")
         hdr:ClearAllPoints()
         hdr:SetPoint("TOP", tt, "TOP", 0, curY)
@@ -1939,8 +1952,8 @@ function ShowFriendsTooltip(anchor)
             local e = sec.list[i]
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
-            row.name:SetFont(font, 10, "")
-            row.zone:SetFont(font, 10, "")
+            row.name:SetFont(font, STYLE_TYPE.secondary.size, "")
+            row.zone:SetFont(font, STYLE_TYPE.secondary.size, "")
 
             local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
             local colored = e.name
@@ -1962,7 +1975,7 @@ function ShowFriendsTooltip(anchor)
                 colored = colored .. " |cffb0b0b0" .. lvl .. "|r"
             end
             row.name:SetText(colored)
-            row.name:SetTextColor(1, 1, 1, 0.85)
+            row.name:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
 
             local zone = e.zone or ""
             if zone ~= "" then
@@ -1991,7 +2004,7 @@ function ShowFriendsTooltip(anchor)
         if maxRows > 0 and #sec.list > maxRows then
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
-            row.name:SetFont(font, 10, "")
+            row.name:SetFont(font, STYLE_TYPE.secondary.size, "")
             row.name:SetText("|cff888888" .. EllesmereUI.Lf("...and %d more", #sec.list - maxRows) .. "|r")
             row.zone:SetText("")
             row.button._entry = nil
@@ -2043,8 +2056,9 @@ local function GetCalendarTT()
     f:Hide()
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetTexture(0.067, 0.067, 0.067, 0.92)
-    EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+    bg:SetTexture(unpack(STYLE_COLORS.panel))
+    local border = STYLE_COLORS.border
+    EllesmereUI.MakeBorder(f, border[1], border[2], border[3], border[4], EllesmereUI.PanelPP)
     _calendarTT = f
     return f
 end
@@ -2053,10 +2067,10 @@ local function EnsureCalendarTTRow(idx)
     if _calendarTTRows[idx] then return _calendarTTRows[idx] end
     local tt = GetCalendarTT()
     local leftFS = tt:CreateFontString(nil, "OVERLAY")
-    leftFS:SetFont(FTT_FONT(), 10, "")
+    leftFS:SetFont(FTT_FONT(), STYLE_TYPE.secondary.size, "")
     leftFS:SetJustifyH("LEFT")
     local rightFS = tt:CreateFontString(nil, "OVERLAY")
-    rightFS:SetFont(FTT_FONT(), 10, "")
+    rightFS:SetFont(FTT_FONT(), STYLE_TYPE.secondary.size, "")
     rightFS:SetJustifyH("RIGHT")
     _calendarTTRows[idx] = { left = leftFS, right = rightFS }
     return _calendarTTRows[idx]
@@ -2066,13 +2080,13 @@ local function EnsureCalendarTTFooter(idx)
     if _calendarTTFooters[idx] then return _calendarTTFooters[idx] end
     local tt = GetCalendarTT()
     local leftFS = tt:CreateFontString(nil, "OVERLAY")
-    leftFS:SetFont(FTT_FONT(), 10, "")
+    leftFS:SetFont(FTT_FONT(), STYLE_TYPE.secondary.size, "")
     leftFS:SetJustifyH("LEFT")
-    leftFS:SetTextColor(1, 1, 1, 0.65)
+    leftFS:SetTextColor(1, 1, 1, STYLE_TYPE.secondary.alpha)
     local rightFS = tt:CreateFontString(nil, "OVERLAY")
-    rightFS:SetFont(FTT_FONT(), 10, "")
+    rightFS:SetFont(FTT_FONT(), STYLE_TYPE.secondary.size, "")
     rightFS:SetJustifyH("RIGHT")
-    rightFS:SetTextColor(1, 1, 1, 0.80)
+    rightFS:SetTextColor(1, 1, 1, STYLE_TYPE.row.alpha)
     _calendarTTFooters[idx] = { left = leftFS, right = rightFS }
     return _calendarTTFooters[idx]
 end
@@ -2081,9 +2095,9 @@ local function EnsureCalendarTTTitle()
     if _calendarTTTitle then return _calendarTTTitle end
     local tt = GetCalendarTT()
     local fs = tt:CreateFontString(nil, "OVERLAY")
-    fs:SetFont(FTT_FONT(), 12, "")
+    fs:SetFont(FTT_FONT(), STYLE_TYPE.value.size, "")
     fs:SetJustifyH("CENTER")
-    fs:SetTextColor(1, 1, 1, 0.90)
+    fs:SetTextColor(1, 1, 1, STYLE_TYPE.section.alpha)
     _calendarTTTitle = fs
     return fs
 end
@@ -2130,7 +2144,7 @@ local function ShowCalendarTooltip(anchor, lockoutEntries)
     end
 
     local title = EnsureCalendarTTTitle()
-    title:SetFont(font, 12, "")
+    title:SetFont(font, STYLE_TYPE.value.size, "")
     title:SetText(EllesmereUI.L("Calendar"))
 
     local footerData = {
@@ -2148,8 +2162,8 @@ local function ShowCalendarTooltip(anchor, lockoutEntries)
 
     for i, entry in ipairs(lockoutEntries) do
         local row = EnsureCalendarTTRow(i)
-        row.left:SetFont(font, 10, "")
-        row.right:SetFont(font, 10, "")
+        row.left:SetFont(font, STYLE_TYPE.secondary.size, "")
+        row.right:SetFont(font, STYLE_TYPE.secondary.size, "")
         row.left:SetText(entry.left)
         row.right:SetText(entry.right or "")
         row.left:ClearAllPoints()
@@ -2171,8 +2185,8 @@ local function ShowCalendarTooltip(anchor, lockoutEntries)
 
     for i, fd in ipairs(footerData) do
         local footer = EnsureCalendarTTFooter(i)
-        footer.left:SetFont(font, 10, "")
-        footer.right:SetFont(font, 10, "")
+        footer.left:SetFont(font, STYLE_TYPE.secondary.size, "")
+        footer.right:SetFont(font, STYLE_TYPE.secondary.size, "")
         footer.left:SetText(fd.left)
         footer.right:SetText(fd.right)
         footer.left:ClearAllPoints()
@@ -2341,9 +2355,10 @@ local function BuildCustomIndicators(minimap)
     -- than one atlas per date. Crop its 50x50 cell and draw the date on top,
     -- matching GameTimeFrame's native treatment of the same texture.
     _customIndicators.calendar._dayText = _customIndicators.calendar:CreateFontString(nil, "OVERLAY")
-    _customIndicators.calendar._dayText:SetFont(FTT_FONT(), 9, "OUTLINE")
+    _customIndicators.calendar._dayText:SetFont(FTT_FONT(), STYLE_TYPE.secondary.size, "OUTLINE")
     _customIndicators.calendar._dayText:SetPoint("CENTER", _customIndicators.calendar._icon, "CENTER", 0, -1)
-    _customIndicators.calendar._dayText:SetTextColor(1, 0.82, 0, 1)
+    local ar, ag, ab = GetLiveAccent()
+    _customIndicators.calendar._dayText:SetTextColor(ar, ag, ab, 1)
     _customIndicators.calendar._refreshCalendarArt = function(self)
         if not self._icon then return end
         local hour, minute = GetGameTime()
@@ -2837,7 +2852,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                 if not GetFFD(btn).ungroupBg then
                     local ubg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
                     ubg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
-                    ubg:SetBackdropColor(0, 0, 0, 0.8)
+                    ubg:SetBackdropColor(unpack(STYLE_COLORS.panel))
                     ubg:SetAllPoints(btn)
                     GetFFD(btn).ungroupBg = ubg
                 end
@@ -3681,9 +3696,9 @@ local function ApplyMinimap()
         end
         if not clockFrame then
             clockFrame = clockBg:CreateFontString(nil, "OVERLAY")
-            ApplyMinimapFont(clockFrame, 10)
+            ApplyMinimapFont(clockFrame, STYLE_TYPE.secondary.size)
             clockFrame:SetPoint("CENTER", clockBg, "CENTER", 0, 0)
-            clockFrame:SetTextColor(1, 1, 1, 0.9)
+            clockFrame:SetTextColor(1, 1, 1, STYLE_TYPE.section.alpha)
         end
         -- Background style + anchor position
         local cxOff = p.clockOffsetX or 0
@@ -3795,9 +3810,9 @@ local function ApplyMinimap()
         end
         if not locationFrame then
             locationFrame = locationBg:CreateFontString(nil, "OVERLAY")
-            ApplyMinimapFont(locationFrame, 10)
+            ApplyMinimapFont(locationFrame, STYLE_TYPE.secondary.size)
             locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
-            locationFrame:SetTextColor(1, 1, 1, 0.9)
+            locationFrame:SetTextColor(1, 1, 1, STYLE_TYPE.section.alpha)
         end
         -- Background style + anchor position
         local lxOff = p.locationOffsetX or 0
@@ -3834,7 +3849,7 @@ local function ApplyMinimap()
     -- Coordinates -- mode (never/hover/always) + anchor position around the map
     if not coordFrame then
         coordFrame = minimap:CreateFontString(nil, "OVERLAY")
-        coordFrame:SetTextColor(1, 1, 1, 0.9)
+        coordFrame:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
     end
     local coordsMode, coordsPos = GetCoordsModePos(p)
     local cpAnchor = MAP_POS_ANCHORS[coordsPos] or MAP_POS_ANCHORS.topLeft
@@ -3844,7 +3859,7 @@ local function ApplyMinimap()
     coordFrame:SetPoint(cpAnchor[1], minimap, cpAnchor[2], cpAnchor[3] + cpx, cpAnchor[4] + cpy)
     -- FontStrings do not expose SetScale on legacy clients (notably 3.3.5).
     -- Scale the font itself so the option behaves consistently on both APIs.
-    ApplyMinimapFont(coordFrame, 11 * (p and p.coordsScale or 1.0))
+    ApplyMinimapFont(coordFrame, STYLE_TYPE.row.size * (p and p.coordsScale or 1.0))
     _G._EBS_CoordFrame = coordFrame
     if not coordTicker then
         coordTicker = EllesmereUI.SafeCreateFrame("Frame")  -- kept for Show/Hide API
@@ -3882,7 +3897,7 @@ local function ApplyMinimap()
             local function MakeFS(size)
                 local fs = fpsBg:CreateFontString(nil, "OVERLAY")
                 ApplyMinimapFont(fs, size)
-                fs:SetTextColor(1, 1, 1, 1)
+                fs:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
                 return fs
             end
             local DIV_W = (PP.Snap and PP.Snap(1)) or 1
@@ -4019,7 +4034,7 @@ local function ApplyMinimap()
         if not diffTextFrame then
             diffTextFrame = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
             local fs = minimap:CreateFontString(nil, "OVERLAY")
-            fs:SetTextColor(1, 1, 1, 1)
+            fs:SetTextColor(1, 1, 1, STYLE_TYPE.value.alpha)
             diffTextFrame._text = fs
             -- Difficulty ID -> suffix letter; count prefix rules alongside.
             local SUFFIX = {
@@ -4297,11 +4312,10 @@ do
         menuFrame:SetFrameStrata("TOOLTIP")
         menuFrame:SetBackdrop({
             bgFile   = "Interface\\Buttons\\WHITE8X8",
-            edgeFile = "Interface\\Buttons\\WHITE8X8",
-            edgeSize = 1,
         })
-        menuFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
-        menuFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        menuFrame:SetBackdropColor(unpack(STYLE_COLORS.panel))
+        local border = STYLE_COLORS.border
+        EllesmereUI.MakeBorder(menuFrame, border[1], border[2], border[3], border[4], EllesmereUI.PanelPP)
         menuFrame:EnableMouse(true)
 
         -- Close when clicking elsewhere
@@ -4318,8 +4332,8 @@ do
                 local div = menuFrame:CreateTexture(nil, "ARTWORK")
                 div:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 8, y - 4)
                 div:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -8, y - 4)
-                div:SetHeight(1)
-                div:SetTexture(0.3, 0.3, 0.3, 0.6)
+                div:SetHeight((PP and PP.mult) or 1)
+                div:SetTexture(unpack(STYLE_COLORS.border))
                 y = y - DIVIDER_H
             elseif item.fn then
                 -- Plain button (no secure template needed)
@@ -4330,13 +4344,13 @@ do
 
                 local hl = btn:CreateTexture(nil, "HIGHLIGHT")
                 hl:SetAllPoints()
-                hl:SetTexture(1, 1, 1, 0.08)
+                hl:SetTexture(1, 1, 1, STYLE_COLORS.border[4])
 
                 local label = btn:CreateFontString(nil, "OVERLAY")
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(label, true) end
-                label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
+                label:SetFont("Fonts\\FRIZQT__.TTF", STYLE_TYPE.button.size, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
-                label:SetTextColor(0.9, 0.9, 0.9)
+                label:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                 label:SetText(EllesmereUI.L(item.text))
 
                 local itemFn = item.fn
@@ -4379,13 +4393,13 @@ do
 
                 local hl = btn:CreateTexture(nil, "HIGHLIGHT")
                 hl:SetAllPoints()
-                hl:SetTexture(1, 1, 1, 0.08)
+                hl:SetTexture(1, 1, 1, STYLE_COLORS.border[4])
 
                 local label = btn:CreateFontString(nil, "OVERLAY")
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(label, true) end
-                label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
+                label:SetFont("Fonts\\FRIZQT__.TTF", STYLE_TYPE.button.size, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
-                label:SetTextColor(0.9, 0.9, 0.9)
+                label:SetTextColor(1, 1, 1, STYLE_TYPE.button.alpha)
                 label:SetText(EllesmereUI.L(item.text))
 
                 btn:HookScript("OnClick", function() C_Timer.After(0, function() SetMenuVisible(false) end) end)
