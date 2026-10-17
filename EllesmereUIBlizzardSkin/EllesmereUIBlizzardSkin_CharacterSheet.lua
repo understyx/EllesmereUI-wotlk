@@ -1655,8 +1655,17 @@ local function SkinCharacterSheet()
             if state.iconBorder then state.iconBorder:Show() end
         end
 
-        local itemID = button.location and _G.EquipmentManager_GetItemInfoByLocation
-            and _G.EquipmentManager_GetItemInfoByLocation(button.location)
+        -- Special flyout entries (place in bags / ignore slot) carry sentinel
+        -- locations with no item; Blizzard's lookup calls GetItemInfo(nil) on
+        -- them and errors. Skip those and guard the rest.
+        local location = button.location
+        local firstSpecial = _G.PDFITEMFLYOUT_FIRST_SPECIAL_LOCATION
+        local itemID
+        if location and _G.EquipmentManager_GetItemInfoByLocation
+           and not (firstSpecial and location >= firstSpecial) then
+            local ok, id = pcall(_G.EquipmentManager_GetItemInfoByLocation, location)
+            if ok then itemID = id end
+        end
         local quality
         if itemID then
             local _, _, itemQuality = GetItemInfo(itemID)
