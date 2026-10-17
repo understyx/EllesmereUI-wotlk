@@ -71,6 +71,27 @@ local function LayoutColumns(frame, prefixes, count, left, top, width)
 	end
 end
 
+local function LayoutRowColumns(rowPrefix, fields, headerPrefix, count)
+	for i = 1, count do
+		local row = _G[rowPrefix .. i]
+		if row then
+			local offset = 0
+			for column, field in ipairs(fields) do
+				local header = _G[headerPrefix .. column]
+				local text = _G[rowPrefix .. i .. field]
+				if header then
+					if text then
+						text:ClearAllPoints()
+						Point(text, "LEFT", row, "LEFT", offset, -2)
+						WSkin:Width(text, header:GetWidth())
+					end
+					offset = offset + header:GetWidth()
+				end
+			end
+		end
+	end
+end
+
 local function LayoutFooterTabs(tabs, owner)
 	if not tabs or #tabs == 0 then return end
 	local geometry = WSkin.Retail.geometry
@@ -120,8 +141,8 @@ local function StyleSocialRows()
 		{ "FriendsFrameFriendsScrollFrameButton", Count(_G.FRIENDS_FRIENDS_TO_DISPLAY, 12) },
 		{ "FriendsFrameIgnoreButton", Count(_G.IGNORES_TO_DISPLAY, 19) },
 		{ "WhoFrameButton", Count(_G.WHOS_TO_DISPLAY, 17) },
-		{ "GuildFrameButton", Count(_G.GUILDMEMBERS_TO_DISPLAY, 14) },
-		{ "GuildFrameGuildStatusButton", Count(_G.GUILDMEMBERS_TO_DISPLAY, 14) },
+		{ "GuildFrameButton", Count(_G.GUILDMEMBERS_TO_DISPLAY, 13) },
+		{ "GuildFrameGuildStatusButton", Count(_G.GUILDMEMBERS_TO_DISPLAY, 13) },
 	}
 	for _, group in ipairs(groups) do
 		for i = 1, group[2] do
@@ -212,7 +233,7 @@ local function LayoutFriendsContent(frame)
 	PlaceScroll(friendsScroll, _G.FriendsFrameFriendsScrollFrameScrollBar, frame,
 		left, 92, width, friendsScroll and friendsScroll:GetHeight() or 307)
 	PlaceScroll(ignoreScroll, _G.FriendsFrameIgnoreScrollFrameScrollBar, frame,
-		left, 92, width, ignoreScroll and ignoreScroll:GetHeight() or 307)
+		left, 92, width, ignoreScroll and ignoreScroll:GetHeight() or 309)
 
 	for i = 1, Count(_G.FRIENDS_FRIENDS_TO_DISPLAY, 12) do
 		local button = _G["FriendsFrameFriendsScrollFrameButton" .. i]
@@ -251,14 +272,17 @@ local function LayoutWhoContent(frame)
 	local left = geometry.bodyInset
 	local width = ScrollContentWidth(frame)
 	LayoutColumns(_G.WhoFrame, { "WhoFrameColumnHeader" }, 4, left, 70, width)
+	-- Native Who list is 287px tall and displays 17 rows at 16px each.
 	PlaceScroll(_G.WhoListScrollFrame, _G.WhoListScrollFrameScrollBar, frame,
-		left, 71, width, 284)
+		left, 96, width, 287)
 	for i = 1, Count(_G.WHOS_TO_DISPLAY, 17) do
 		local button = _G["WhoFrameButton" .. i]
 		if button then WSkin:Width(button, width) end
 	end
 	ClearPoints(_G.WhoFrameButton1)
-	Point(_G.WhoFrameButton1, "TOPLEFT", _G.WhoFrame or frame, "TOPLEFT", left, -75)
+	Point(_G.WhoFrameButton1, "TOPLEFT", _G.WhoFrame or frame, "TOPLEFT", left, -95)
+	LayoutRowColumns("WhoFrameButton", { "Name", "Variable", "Level", "Class" },
+		"WhoFrameColumnHeader", Count(_G.WHOS_TO_DISPLAY, 17))
 	if _G.WhoFrameEditBox then
 		WSkin:Size(_G.WhoFrameEditBox, BodyWidth(frame), 18)
 		ClearPoints(_G.WhoFrameEditBox)
@@ -267,7 +291,14 @@ local function LayoutWhoContent(frame)
 	if _G.WhoFrameTotals then
 		WSkin:Width(_G.WhoFrameTotals, BodyWidth(frame))
 		ClearPoints(_G.WhoFrameTotals)
-		Point(_G.WhoFrameTotals, "TOPLEFT", _G.WhoFrame or frame, "TOPLEFT", left, -320)
+		-- Anchor under the last result row: the skinned FriendsFrame is shorter
+		-- than native, so native bottom-relative offsets land on the rows.
+		local lastRow = _G["WhoFrameButton" .. Count(_G.WHOS_TO_DISPLAY, 17)]
+		if lastRow then
+			Point(_G.WhoFrameTotals, "TOPLEFT", lastRow, "BOTTOMLEFT", 0, -2)
+		else
+			Point(_G.WhoFrameTotals, "BOTTOMLEFT", _G.WhoFrame or frame, "BOTTOMLEFT", left, 86)
+		end
 	end
 end
 
@@ -277,9 +308,10 @@ local function LayoutGuildContent(frame)
 	local width = ScrollContentWidth(frame)
 	LayoutColumns(_G.GuildFrame, { "GuildFrameColumnHeader", "GuildFrameGuildStatusColumnHeader" },
 		4, left, 70, width)
+	-- Thirteen 16px buttons fit in 220px; the native 237px viewport overlaps the totals.
 	PlaceScroll(_G.GuildListScrollFrame, _G.GuildListScrollFrameScrollBar, frame,
 		left, 89, width, 220)
-	for i = 1, Count(_G.GUILDMEMBERS_TO_DISPLAY, 14) do
+	for i = 1, Count(_G.GUILDMEMBERS_TO_DISPLAY, 13) do
 		local member = _G["GuildFrameButton" .. i]
 		local status = _G["GuildFrameGuildStatusButton" .. i]
 		if member then WSkin:Width(member, width) end
@@ -288,6 +320,11 @@ local function LayoutGuildContent(frame)
 	ClearPoints(_G.GuildFrameButton1, _G.GuildFrameGuildStatusButton1)
 	Point(_G.GuildFrameButton1, "TOPLEFT", _G.GuildFrame or frame, "TOPLEFT", left, -93)
 	Point(_G.GuildFrameGuildStatusButton1, "TOPLEFT", _G.GuildFrame or frame, "TOPLEFT", left, -93)
+	local count = Count(_G.GUILDMEMBERS_TO_DISPLAY, 13)
+	LayoutRowColumns("GuildFrameButton", { "Name", "Zone", "Level", "Class" },
+		"GuildFrameColumnHeader", count)
+	LayoutRowColumns("GuildFrameGuildStatusButton", { "Name", "Rank", "Note", "Online" },
+		"GuildFrameGuildStatusColumnHeader", count)
 	if _G.GuildFrameGuildListToggleButton then
 		ClearPoints(_G.GuildFrameGuildListToggleButton)
 		Point(_G.GuildFrameGuildListToggleButton, "TOPRIGHT", frame, "TOPRIGHT", -left, -69)
@@ -626,6 +663,24 @@ local function SkinSocial()
 		hooksecurefunc("WhoList_Update", function()
 			LayoutWhoContent(frame)
 			StyleSocialRows()
+		end)
+	end
+	if type(_G.WhoFrameColumn_SetWidth) == "function" then
+		hooksecurefunc("WhoFrameColumn_SetWidth", function(header, width)
+			if not header or type(width) ~= "number" then return end
+			columnWidths[header] = math.max(1, width)
+			local name = header.GetName and header:GetName()
+			if name and name:find("^WhoFrameColumnHeader") then
+				LayoutWhoContent(frame)
+			elseif name and (name:find("^GuildFrameColumnHeader")
+				or name:find("^GuildFrameGuildStatusColumnHeader")) then
+				LayoutGuildContent(frame)
+			end
+		end)
+	end
+	if type(_G.WhoFrameDropDownButton_OnClick) == "function" then
+		hooksecurefunc("WhoFrameDropDownButton_OnClick", function()
+			LayoutWhoContent(frame)
 		end)
 	end
 	if type(_G.GuildStatus_Update) == "function" then
