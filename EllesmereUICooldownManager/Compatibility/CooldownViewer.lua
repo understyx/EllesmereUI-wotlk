@@ -1382,36 +1382,61 @@ local function RefreshSmartGroupAuraCache(fullRefresh)
     RebuildSmartGroupSelections()
 end
 
+-- The player/target caches are rebuilt on every coalesced aura change, which
+-- on a raid boss is 30-40 debuffs plus the player's buffs several times a
+-- second. Consumers copy fields out of these records immediately (state
+-- refresh, LearnPlayerDebuffAura) and never keep them, so the records and
+-- candidate lists are pooled across rebuilds instead of reallocated.
+local auraRecordPool, auraRecordCount = {}, 0
+local function AcquireAuraRecord(duration, expirationTime, count, spellID, icon, name)
+    auraRecordCount = auraRecordCount + 1
+    local record = auraRecordPool[auraRecordCount]
+    if not record then
+        record = {}
+        auraRecordPool[auraRecordCount] = record
+    end
+    record.duration = duration
+    record.expirationTime = expirationTime
+    record.count = count
+    record.spellID = spellID
+    record.icon = icon
+    record.name = name
+    return record
+end
+
+local targetDebuffCandidates = {}
+local candidateListPool, candidateListCount = {}, 0
+local explicitlyOwned = {}
+
 local function UpdateAuraCache(fullSmartGroupRefresh)
     wipe(cachedPlayerAuras)
     wipe(cachedPlayerAurasByName)
     wipe(cachedTargetDebuffs)
     wipe(cachedTargetDebuffsAnySource)
     wipe(cachedTargetDebuffsAnySourceByName)
-    local targetDebuffCandidates = {}
-    local explicitlyOwned = {}
+    auraRecordCount = 0
+    for i = 1, candidateListCount do wipe(candidateListPool[i]) end
+    candidateListCount = 0
+    wipe(targetDebuffCandidates)
+    wipe(explicitlyOwned)
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HELPFUL")
         if not name then break end
         if spellID then
-            cachedPlayerAuras[spellID] = { duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0 }
+            cachedPlayerAuras[spellID] = AcquireAuraRecord(duration or 0, expirationTime or 0, count or 0)
         end
-        cachedPlayerAurasByName[name] = {
-            duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0,
-            spellID = spellID, icon = icon, name = name,
-        }
+        cachedPlayerAurasByName[name] = AcquireAuraRecord(
+            duration or 0, expirationTime or 0, count or 0, spellID, icon, name)
     end
     for i = 1, 40 do
         local name, rank, icon, count, debuffType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellID = UnitAura("player", i, "HARMFUL")
         if not name then break end
         if spellID then
-            cachedPlayerAuras[spellID] = { duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0 }
+            cachedPlayerAuras[spellID] = AcquireAuraRecord(duration or 0, expirationTime or 0, count or 0)
         end
         if not cachedPlayerAurasByName[name] then
-            cachedPlayerAurasByName[name] = {
-                duration = duration or 0, expirationTime = expirationTime or 0, count = count or 0,
-                spellID = spellID, icon = icon, name = name,
-            }
+            cachedPlayerAurasByName[name] = AcquireAuraRecord(
+                duration or 0, expirationTime or 0, count or 0, spellID, icon, name)
         end
     end
     if UnitExists("target") then
@@ -1423,19 +1448,18 @@ local function UpdateAuraCache(fullSmartGroupRefresh)
                 UnitAura("target", i, "HARMFUL")
             if not name then break end
             if spellID or name then
-                local aura = {
-                    duration = duration or 0,
-                    expirationTime = expirationTime or 0,
-                    count = count or 0,
-                    spellID = spellID,
-                    icon = icon,
-                    name = name,
-                }
+                local aura = AcquireAuraRecord(duration or 0, expirationTime or 0,
+                    count or 0, spellID, icon, name)
                 if spellID then
                     cachedTargetDebuffsAnySource[spellID] = aura
                     local candidates = targetDebuffCandidates[spellID]
                     if not candidates then
-                        candidates = {}
+                        candidateListCount = candidateListCount + 1
+                        candidates = candidateListPool[candidateListCount]
+                        if not candidates then
+                            candidates = {}
+                            candidateListPool[candidateListCount] = candidates
+                        end
                         targetDebuffCandidates[spellID] = candidates
                     end
                     candidates[#candidates + 1] = aura
@@ -1467,14 +1491,8 @@ local function UpdateAuraCache(fullSmartGroupRefresh)
                 UnitAura("target", i, "HARMFUL|PLAYER")
             if not name then break end
             if spellID and not explicitlyOwned[spellID] then
-                local aura = {
-                    duration = duration or 0,
-                    expirationTime = expirationTime or 0,
-                    count = count or 0,
-                    spellID = spellID,
-                    icon = icon,
-                    name = name,
-                }
+                local aura = AcquireAuraRecord(duration or 0, expirationTime or 0,
+                    count or 0, spellID, icon, name)
                 cachedTargetDebuffs[spellID] = aura
                 LearnPlayerDebuffAura(targetGUID, spellID, aura)
             end
@@ -1498,14 +1516,10 @@ local function UpdateAuraCache(fullSmartGroupRefresh)
                         -- The target's unfiltered list can briefly lag the CLEU
                         -- event (or be capped). Keep the known timer alive until
                         -- a later scan supplies authoritative aura fields.
-                        cachedTargetDebuffs[spellID] = {
-                            duration = entry.duration,
-                            expirationTime = entry.expirationTime,
-                            count = 0,
-                            spellID = spellID,
-                            icon = GetSpellTexture and GetSpellTexture(spellID),
-                            name = entry.spellName or (GetSpellInfo and GetSpellInfo(spellID)),
-                        }
+                        cachedTargetDebuffs[spellID] = AcquireAuraRecord(
+                            entry.duration, entry.expirationTime, 0, spellID,
+                            GetSpellTexture and GetSpellTexture(spellID),
+                            entry.spellName or (GetSpellInfo and GetSpellInfo(spellID)))
                     end
                 end
             end
