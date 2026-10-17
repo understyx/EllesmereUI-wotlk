@@ -19,6 +19,72 @@ local function ClearPoints(...)
 	end
 end
 
+local columnWidths = setmetatable({}, { __mode = "k" })
+
+local function BodyWidth(frame)
+	return math.max(0, frame:GetWidth() - (2 * WSkin.Retail.geometry.bodyInset))
+end
+
+local function ScrollContentWidth(frame)
+	local geometry = WSkin.Retail.geometry
+	return math.max(0, BodyWidth(frame) - geometry.scrollbarWidth - 4)
+end
+
+local function PlaceScroll(scroll, scrollbar, frame, left, top, width, height)
+	if not scroll then return end
+	ClearPoints(scroll, scrollbar)
+	WSkin:Size(scroll, width, height or scroll:GetHeight())
+	Point(scroll, "TOPLEFT", frame, "TOPLEFT", left, -top)
+	if scrollbar then
+		Point(scrollbar, "TOPLEFT", scroll, "TOPRIGHT", 4, -19)
+		Point(scrollbar, "BOTTOMLEFT", scroll, "BOTTOMRIGHT", 4, 19)
+	end
+end
+
+local function LayoutColumns(frame, prefixes, count, left, top, width)
+	for _, prefix in ipairs(prefixes) do
+		local headers, total = {}, 0
+		for i = 1, count do
+			local header = _G[prefix .. i]
+			if header then
+				headers[#headers + 1] = header
+				local original = columnWidths[header]
+				if not original then
+					original = math.max(1, header:GetWidth())
+					columnWidths[header] = original
+				end
+				total = total + original
+			end
+		end
+		local previous
+		for _, header in ipairs(headers) do
+			local headerWidth = width * columnWidths[header] / math.max(1, total)
+			header:ClearAllPoints()
+			WSkin:Width(header, headerWidth)
+			if previous then
+				Point(header, "LEFT", previous, "RIGHT", 0, 0)
+			else
+				Point(header, "TOPLEFT", frame, "TOPLEFT", left, -top)
+			end
+			previous = header
+		end
+	end
+end
+
+local function LayoutFooterTabs(tabs, owner)
+	if not tabs or #tabs == 0 then return end
+	local geometry = WSkin.Retail.geometry
+	local gap = geometry.tabGap or 1
+	local usableWidth = owner:GetWidth() - gap * (#tabs - 1)
+	local tabWidth = usableWidth / #tabs
+	for index, tab in ipairs(tabs) do
+		tab:ClearAllPoints()
+		WSkin:Size(tab, tabWidth, geometry.tabHeight)
+		Point(tab, "TOPLEFT", owner, "BOTTOMLEFT",
+			(index - 1) * (tabWidth + gap), geometry.tabHeight)
+	end
+end
+
 local function Each(names, handler, ...)
 	for _, name in ipairs(names) do
 		local object = type(name) == "string" and _G[name] or name
@@ -105,7 +171,7 @@ local function StyleSocialTabs()
 	end
 	local selected = type(_G.PanelTemplates_GetSelectedTab) == "function"
 		and _G.PanelTemplates_GetSelectedTab(frame) or frame.selectedTab or 1
-	WSkin:LayoutRetailTabRow(mainTabs, frame)
+	LayoutFooterTabs(mainTabs, frame)
 	for _, tab in ipairs(mainTabs) do
 		WSkin:UpdateRetailTab(tab, tab:GetID() == selected)
 	end
@@ -123,12 +189,12 @@ local function StyleSocialTabs()
 	local headerSelected = header and type(_G.PanelTemplates_GetSelectedTab) == "function"
 		and _G.PanelTemplates_GetSelectedTab(header) or (header and header.selectedTab) or 1
 	if #headerTabs > 0 then
-		local width = (frame:GetWidth() - 28) / #headerTabs
+		local width = BodyWidth(frame) / #headerTabs
 		for i, tab in ipairs(headerTabs) do
 			tab:ClearAllPoints()
 			WSkin:Size(tab, width, WSkin.Retail.geometry.tabHeight)
 			if i == 1 then
-				WSkin:Point(tab, "TOPLEFT", frame, "TOPLEFT", 14, -60)
+				WSkin:Point(tab, "TOPLEFT", frame, "TOPLEFT", WSkin.Retail.geometry.bodyInset, -60)
 			else
 				WSkin:Point(tab, "LEFT", headerTabs[i - 1], "RIGHT", 0, 0)
 			end
@@ -137,9 +203,163 @@ local function StyleSocialTabs()
 	end
 end
 
+local function LayoutFriendsContent(frame)
+	local geometry = WSkin.Retail.geometry
+	local left = geometry.bodyInset
+	local width = ScrollContentWidth(frame)
+	local friendsScroll = _G.FriendsFrameFriendsScrollFrame
+	local ignoreScroll = _G.FriendsFrameIgnoreScrollFrame
+	PlaceScroll(friendsScroll, _G.FriendsFrameFriendsScrollFrameScrollBar, frame,
+		left, 92, width, friendsScroll and friendsScroll:GetHeight() or 307)
+	PlaceScroll(ignoreScroll, _G.FriendsFrameIgnoreScrollFrameScrollBar, frame,
+		left, 92, width, ignoreScroll and ignoreScroll:GetHeight() or 307)
+
+	for i = 1, Count(_G.FRIENDS_FRIENDS_TO_DISPLAY, 12) do
+		local button = _G["FriendsFrameFriendsScrollFrameButton" .. i]
+		if button then WSkin:Width(button, width) end
+	end
+	for i = 1, Count(_G.IGNORES_TO_DISPLAY, 19) do
+		local button = _G["FriendsFrameIgnoreButton" .. i]
+		if button then WSkin:Width(button, width) end
+	end
+	ClearPoints(_G.FriendsFrameIgnoreButton1)
+	Point(_G.FriendsFrameIgnoreButton1, "TOPLEFT", frame, "TOPLEFT", left, -95)
+
+	local status = _G.FriendsFrameStatusDropDown
+	if status and status.GetTop and frame.GetTop then
+		local frameTop, statusTop = frame:GetTop(), status:GetTop()
+		if frameTop and statusTop then
+			status:ClearAllPoints()
+			Point(status, "TOPLEFT", frame, "TOPLEFT", left, -(frameTop - statusTop))
+		end
+	end
+	if _G.FriendsFrameBroadcastInput then
+		WSkin:Width(_G.FriendsFrameBroadcastInput,
+			math.max(120, BodyWidth(frame) - 70 - 11))
+	end
+
+	ClearPoints(_G.FriendsFrameAddFriendButton, _G.FriendsFrameSendMessageButton,
+		_G.FriendsFrameIgnorePlayerButton, _G.FriendsFrameUnsquelchButton)
+	Point(_G.FriendsFrameAddFriendButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", left, 34)
+	Point(_G.FriendsFrameSendMessageButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
+	Point(_G.FriendsFrameIgnorePlayerButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", left, 34)
+	Point(_G.FriendsFrameUnsquelchButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
+end
+
+local function LayoutWhoContent(frame)
+	local geometry = WSkin.Retail.geometry
+	local left = geometry.bodyInset
+	local width = ScrollContentWidth(frame)
+	LayoutColumns(_G.WhoFrame, { "WhoFrameColumnHeader" }, 4, left, 70, width)
+	PlaceScroll(_G.WhoListScrollFrame, _G.WhoListScrollFrameScrollBar, frame,
+		left, 71, width, 284)
+	for i = 1, Count(_G.WHOS_TO_DISPLAY, 17) do
+		local button = _G["WhoFrameButton" .. i]
+		if button then WSkin:Width(button, width) end
+	end
+	ClearPoints(_G.WhoFrameButton1)
+	Point(_G.WhoFrameButton1, "TOPLEFT", _G.WhoFrame or frame, "TOPLEFT", left, -75)
+	if _G.WhoFrameEditBox then
+		WSkin:Size(_G.WhoFrameEditBox, BodyWidth(frame), 18)
+		ClearPoints(_G.WhoFrameEditBox)
+		Point(_G.WhoFrameEditBox, "BOTTOM", _G.WhoFrame or frame, "BOTTOM", 0, 64)
+	end
+	if _G.WhoFrameTotals then
+		WSkin:Width(_G.WhoFrameTotals, BodyWidth(frame))
+		ClearPoints(_G.WhoFrameTotals)
+		Point(_G.WhoFrameTotals, "TOPLEFT", _G.WhoFrame or frame, "TOPLEFT", left, -320)
+	end
+end
+
+local function LayoutGuildContent(frame)
+	local geometry = WSkin.Retail.geometry
+	local left = geometry.bodyInset
+	local width = ScrollContentWidth(frame)
+	LayoutColumns(_G.GuildFrame, { "GuildFrameColumnHeader", "GuildFrameGuildStatusColumnHeader" },
+		4, left, 70, width)
+	PlaceScroll(_G.GuildListScrollFrame, _G.GuildListScrollFrameScrollBar, frame,
+		left, 89, width, 220)
+	for i = 1, Count(_G.GUILDMEMBERS_TO_DISPLAY, 14) do
+		local member = _G["GuildFrameButton" .. i]
+		local status = _G["GuildFrameGuildStatusButton" .. i]
+		if member then WSkin:Width(member, width) end
+		if status then WSkin:Width(status, width) end
+	end
+	ClearPoints(_G.GuildFrameButton1, _G.GuildFrameGuildStatusButton1)
+	Point(_G.GuildFrameButton1, "TOPLEFT", _G.GuildFrame or frame, "TOPLEFT", left, -93)
+	Point(_G.GuildFrameGuildStatusButton1, "TOPLEFT", _G.GuildFrame or frame, "TOPLEFT", left, -93)
+	if _G.GuildFrameGuildListToggleButton then
+		ClearPoints(_G.GuildFrameGuildListToggleButton)
+		Point(_G.GuildFrameGuildListToggleButton, "TOPRIGHT", frame, "TOPRIGHT", -left, -69)
+	end
+	if _G.GuildFrameTotals then
+		ClearPoints(_G.GuildFrameTotals)
+		Point(_G.GuildFrameTotals, "TOPLEFT", frame, "TOPLEFT", left, -320)
+		WSkin:Width(_G.GuildFrameTotals, BodyWidth(frame))
+	end
+	ClearPoints(_G.GuildFrameControlButton, _G.GuildFrameAddMemberButton,
+		_G.GuildFrameGuildInformationButton)
+	Point(_G.GuildFrameControlButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
+	Point(_G.GuildFrameAddMemberButton, "RIGHT", _G.GuildFrameControlButton, "LEFT", -3, 0)
+	Point(_G.GuildFrameGuildInformationButton, "RIGHT", _G.GuildFrameAddMemberButton, "LEFT", -3, 0)
+end
+
+local function LayoutChannelContent(frame)
+	local geometry = WSkin.Retail.geometry
+	local left = geometry.bodyInset
+	local available = BodyWidth(frame) - (2 * (geometry.scrollbarWidth + 4)) - 8
+	local channelList, roster = _G.ChannelListScrollFrame, _G.ChannelRosterScrollFrame
+	if not channelList or not roster then return end
+	local listWidth = math.max(100, channelList:GetWidth())
+	local rosterWidth = math.max(80, roster:GetWidth())
+	local ratio = listWidth / (listWidth + rosterWidth)
+	local newListWidth = available * ratio
+	local newRosterWidth = available - newListWidth
+	local channelHeight = channelList:GetHeight()
+	local rosterHeight = roster:GetHeight()
+	local paneGap = 8
+	local rightLeft = left + newListWidth + geometry.scrollbarWidth + 4 + paneGap
+	PlaceScroll(channelList, _G.ChannelListScrollFrameScrollBar, frame,
+		left, 92, newListWidth, channelHeight)
+	PlaceScroll(roster, _G.ChannelRosterScrollFrameScrollBar, frame,
+		rightLeft, 92, newRosterWidth, rosterHeight)
+	for i = 1, Count(_G.MAX_DISPLAY_CHANNEL_BUTTONS, 20) do
+		local button = _G["ChannelButton" .. i]
+		if button then WSkin:Width(button, newListWidth) end
+	end
+	for i = 1, 22 do
+		local button = _G["ChannelMemberButton" .. i]
+		if button then WSkin:Width(button, newRosterWidth) end
+	end
+	if _G.ChannelFrameNewButton then
+		ClearPoints(_G.ChannelFrameNewButton)
+		Point(_G.ChannelFrameNewButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", left, 34)
+	end
+end
+
+local function LayoutRaidContent(frame)
+	local left = WSkin.Retail.geometry.bodyInset
+	ClearPoints(_G.RaidFrameConvertToRaidButton, _G.RaidFrameRaidInfoButton)
+	Point(_G.RaidFrameConvertToRaidButton, "BOTTOMLEFT", frame, "BOTTOMLEFT", left, 34)
+	Point(_G.RaidFrameRaidInfoButton, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 34)
+	if _G.RaidFrameNotInRaidRaidBrowserButton then
+		ClearPoints(_G.RaidFrameNotInRaidRaidBrowserButton)
+		Point(_G.RaidFrameNotInRaidRaidBrowserButton, "BOTTOM", frame, "BOTTOM", 0, 34)
+	end
+end
+
+local function LayoutSocialContent(frame)
+	LayoutFriendsContent(frame)
+	LayoutWhoContent(frame)
+	LayoutGuildContent(frame)
+	LayoutChannelContent(frame)
+	LayoutRaidContent(frame)
+end
+
 local function RefreshSocialStyle()
 	local frame = _G.FriendsFrame
 	if not frame then return end
+	LayoutSocialContent(frame)
 	WSkin:SetRetailPageTitle(frame, nil, _G.FriendsFrameTitleText)
 	StyleSocialTabs()
 	StyleSocialRows()
@@ -403,16 +623,28 @@ local function SkinSocial()
 		hooksecurefunc("FriendsFrame_Update", RefreshSocialStyle)
 	end
 	if type(_G.WhoList_Update) == "function" then
-		hooksecurefunc("WhoList_Update", StyleSocialRows)
+		hooksecurefunc("WhoList_Update", function()
+			LayoutWhoContent(frame)
+			StyleSocialRows()
+		end)
 	end
 	if type(_G.GuildStatus_Update) == "function" then
-		hooksecurefunc("GuildStatus_Update", StyleSocialRows)
+		hooksecurefunc("GuildStatus_Update", function()
+			LayoutGuildContent(frame)
+			StyleSocialRows()
+		end)
 	end
 	if type(_G.GuildRoster_Update) == "function" then
-		hooksecurefunc("GuildRoster_Update", StyleSocialRows)
+		hooksecurefunc("GuildRoster_Update", function()
+			LayoutGuildContent(frame)
+			StyleSocialRows()
+		end)
 	end
 	if type(_G.ChannelList_Update) == "function" then
-		hooksecurefunc("ChannelList_Update", StyleChannelRows)
+		hooksecurefunc("ChannelList_Update", function()
+			LayoutChannelContent(frame)
+			StyleChannelRows()
+		end)
 	end
 	StyleChannelRows()
 	RefreshSocialStyle()

@@ -63,10 +63,35 @@ local function StyleRow(row, selected, header, alternate)
     end
 end
 
+local function HideNativeTree(object, seen, root)
+    if not object or not object.GetObjectType then return end
+    seen = seen or {}
+    if seen[object] then return end
+    seen[object] = true
+    if root then
+        if object.SetAlpha then object:SetAlpha(0) end
+        if object.EnableMouse then object:EnableMouse(false) end
+    end
+    if object.GetRegions then
+        for index = 1, object:GetNumRegions() do
+            local region = select(index, object:GetRegions())
+            if region and region.IsObjectType and region:IsObjectType("Texture") then
+                region:SetAlpha(0)
+                region:Hide()
+            elseif region and region.IsObjectType and region:IsObjectType("FontString") then
+                region:SetAlpha(0)
+            end
+        end
+    end
+    if object.GetChildren then
+        for index = 1, object:GetNumChildren() do
+            HideNativeTree(select(index, object:GetChildren()), seen, false)
+        end
+    end
+end
+
 local function HideNative(object)
-    if not object then return end
-    if object.SetAlpha then object:SetAlpha(0) end
-    if object.EnableMouse then object:EnableMouse(false) end
+    HideNativeTree(object, nil, true)
 end
 
 local function SuppressNative(kind)

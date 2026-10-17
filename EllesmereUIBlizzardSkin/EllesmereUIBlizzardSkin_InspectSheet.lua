@@ -611,70 +611,6 @@ local function SkinInspectSheet()
     if InspectFrameInset and InspectFrameInset.Bg then InspectFrameInset.Bg:SetAlpha(0) end
 
 
-    local nativeTextures = {}
-    for i = 1, select("#", frame:GetRegions()) do
-        local region = select(i, frame:GetRegions())
-        if region and region.IsObjectType and region:IsObjectType("Texture") then
-            nativeTextures[#nativeTextures + 1] = region
-        end
-    end
-    local function HideFrameTextures()
-        for _, region in ipairs(nativeTextures) do region:SetAlpha(0) end
-    end
-    if WSkin and WSkin.SkinRetailWindow then
-        WSkin:SkinRetailWindow(frame, {
-            shellOnFrame = true,
-            strip = false,
-            pageSurface = false,
-            headerBand = WSkin.Retail.geometry.twoLineHeaderHeight,
-            titleRegion = _G.InspectNameText or _G.InspectFrameTitleText,
-            titlePosition = { point = "TOP", y = -7 },
-            closeButton = frame.CloseButton or _G.InspectFrameCloseButton,
-            artRegions = {
-                { object = frame, action = HideFrameTextures },
-                frame.NineSlice, frame.Background, frame.TitleBg, frame.TopTileStreaks,
-                frame.Portrait, frame.Bg, _G.InspectFramePortrait,
-                _G.InspectFrameBg,
-            },
-            rehideOnShow = true,
-        })
-    end
-    -- Create the same character-bg backing used by Character, once the
-    -- load-on-demand model widget exists. Its anchors follow the legacy slots.
-    local function TryCreateModelBg()
-        if GetFFD(frame).modelBgFrame then return end
-        local myModel = _G.InspectModelFrame
-        if not myModel or not (WSkin and WSkin.CreateRetailModelBacking) then return end
-        local headSlot = _G.InspectHeadSlot
-        local handsSlot = _G.InspectHandsSlot
-        local backing, texture = WSkin:CreateRetailModelBacking(frame, myModel, {
-            leftAnchor = headSlot or myModel,
-            leftPoint = "TOPLEFT",
-            leftRelativePoint = "TOPLEFT",
-            leftOffsetX = -8,
-            leftOffsetY = 10,
-            rightAnchor = handsSlot,
-            rightPoint = "RIGHT",
-            rightRelativePoint = "RIGHT",
-            bottomAnchor = myModel,
-            bottomPoint = "BOTTOM",
-            bottomRelativePoint = "BOTTOM",
-            bottomOffsetY = -18,
-        })
-        GetFFD(frame).modelBg = texture
-        GetFFD(frame).modelBgFrame = backing
-    end
-    TryCreateModelBg()
-    -- Retry on show in case Blizzard has not created the model widget yet.
-    -- Staggered retries preserve the existing load-on-demand timing behavior.
-    if not GetFFD(frame)._modelBgHooked then
-        GetFFD(frame)._modelBgHooked = true
-        frame:HookScript("OnShow", function()
-            C_Timer.After(0, TryCreateModelBg)
-            C_Timer.After(0.2, TryCreateModelBg)
-            C_Timer.After(0.5, TryCreateModelBg)
-        end)
-    end
 
     -- Hide portrait (separate handling to ensure it's fully hidden)
     if InspectFramePortrait then
@@ -786,12 +722,16 @@ local function SkinInspectSheet()
         end
     end
 
-    -- Hide unnamed decoration frames in main InspectFrame
+    -- Hide unnamed decoration frames in main InspectFrame. The shared shell,
+    -- model backing, and close button are applied after this native cleanup and
+    -- remain excluded on later OnShow re-skins.
     local numChildren = frame:GetNumChildren()
     for i = 1, numChildren do
         local child = select(i, frame:GetChildren())
         if child and not child:GetName() and child:GetObjectType() == "Frame"
-           and not (IsForeign and IsForeign(child, frame)) then
+           and not (IsForeign and IsForeign(child, frame))
+           and not (WSkin and WSkin.IsRetailShellChild and WSkin:IsRetailShellChild(frame, child))
+           and child ~= GetFFD(frame).modelBgFrame then
             -- Only hide if it's not one of our known frames and not the TitleFrame or title parent
             local isTitleFrame = (frame.TitleFrame and child == frame.TitleFrame)
             local isTitleParent = (_G.inspectFrameTitleText and child == _G.inspectFrameTitleText:GetParent())
@@ -800,6 +740,82 @@ local function SkinInspectSheet()
                 child:Hide()
             end
         end
+    end
+
+
+    -- Apply the shell after native unnamed-child cleanup. The old shell was
+    -- created before this sweep, which hid its pixel border and could hide its
+    -- close button/model backing on this load-on-demand frame.
+    local frameState = GetFFD(frame)
+    if not frameState._inspectNativeTextures then
+        frameState._inspectNativeTextures = {}
+        for i = 1, select("#", frame:GetRegions()) do
+            local region = select(i, frame:GetRegions())
+            if region and region.IsObjectType and region:IsObjectType("Texture") then
+                frameState._inspectNativeTextures[#frameState._inspectNativeTextures + 1] = region
+            end
+        end
+    end
+    -- The skin runs again on InspectFrame's later OnShow events. Capture only
+    -- Blizzard's original regions once; otherwise this list would also catch
+    -- the shell textures created by the first pass and hide the shell itself.
+    local nativeTextures = frameState._inspectNativeTextures
+    local function HideFrameTextures()
+        for _, region in ipairs(nativeTextures) do region:SetAlpha(0) end
+    end
+    if WSkin and WSkin.SkinRetailWindow then
+        WSkin:SkinRetailWindow(frame, {
+            shellOnFrame = true,
+            strip = false,
+            pageSurface = false,
+            headerBand = WSkin.Retail.geometry.twoLineHeaderHeight,
+            titleRegion = _G.InspectNameText or _G.InspectFrameTitleText,
+            titlePosition = { point = "TOP", y = -7 },
+            closeButton = frame.CloseButton or _G.InspectFrameCloseButton,
+            artRegions = {
+                { object = frame, action = HideFrameTextures },
+                frame.NineSlice, frame.Background, frame.TitleBg, frame.TopTileStreaks,
+                frame.Portrait, frame.Bg, _G.InspectFramePortrait,
+                _G.InspectFrameBg,
+            },
+            rehideOnShow = true,
+        })
+    end
+    -- Create the same character-bg backing used by Character, once the
+    -- load-on-demand model widget exists. Its anchors follow the legacy slots.
+    local function TryCreateModelBg()
+        if GetFFD(frame).modelBgFrame then return end
+        local myModel = _G.InspectModelFrame
+        if not myModel or not (WSkin and WSkin.CreateRetailModelBacking) then return end
+        local headSlot = _G.InspectHeadSlot
+        local handsSlot = _G.InspectHandsSlot
+        local backing, texture = WSkin:CreateRetailModelBacking(frame, myModel, {
+            leftAnchor = headSlot or myModel,
+            leftPoint = "TOPLEFT",
+            leftRelativePoint = "TOPLEFT",
+            leftOffsetX = -8,
+            leftOffsetY = 10,
+            rightAnchor = handsSlot,
+            rightPoint = "RIGHT",
+            rightRelativePoint = "RIGHT",
+            bottomAnchor = myModel,
+            bottomPoint = "BOTTOM",
+            bottomRelativePoint = "BOTTOM",
+            bottomOffsetY = -18,
+        })
+        GetFFD(frame).modelBg = texture
+        GetFFD(frame).modelBgFrame = backing
+    end
+    TryCreateModelBg()
+    -- Retry on show in case Blizzard has not created the model widget yet.
+    -- Staggered retries preserve the existing load-on-demand timing behavior.
+    if not GetFFD(frame)._modelBgHooked then
+        GetFFD(frame)._modelBgHooked = true
+        frame:HookScript("OnShow", function()
+            C_Timer.After(0, TryCreateModelBg)
+            C_Timer.After(0.2, TryCreateModelBg)
+            C_Timer.After(0.5, TryCreateModelBg)
+        end)
     end
 
     local function SetInspectSurface(f)

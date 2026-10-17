@@ -1601,37 +1601,130 @@ local function SkinCharacterSheet()
     statsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 345,  40)
     statsPanel:SetFrameLevel(frame:GetFrameLevel() + 50)
 
-    -- Blizzard's paper-doll item flyout is parented to the character sheet at
-    -- its default frame level.  The custom stats sidebar is intentionally at
-    -- level 50, so flyout icons that extend over it otherwise render beneath
-    -- the category labels.  Raise both the flyout container and its recycled
-    -- buttons whenever Blizzard populates it.
-    local flyoutLevel = statsPanel:GetFrameLevel() + 10
-    local function RaisePaperDollFlyoutButton(button)
-        if button and button.SetFrameLevel then
-            button:SetFrameLevel(flyoutLevel + 1)
+    -- Character.lua owns this flyout for Blizzard's stock sheet, but exits
+    -- early when the custom CharacterSheet is active. Style it here and raise
+    -- recycled children above the model, stats, equipment, and socket panel.
+    -- Secure item buttons are never mutated in combat; a single retry frame
+    -- applies deferred visuals after combat ends.
+    local flyoutRetry = EllesmereUI.SafeCreateFrame("Frame")
+    local function DeferFlyoutSkin()
+        flyoutRetry:RegisterEvent("PLAYER_REGEN_ENABLED")
+    end
+    local function CanStyleFlyoutObject(object)
+        if not object then return false end
+        if InCombatLockdown() then
+            if object.IsProtected and object:IsProtected() then
+                DeferFlyoutSkin()
+                return false
+            end
         end
+        return true
+    end
+    local function HideFlyoutNativeArt(button, keepIcon, state)
+        for index = 1, button:GetNumRegions() do
+            local region = select(index, button:GetRegions())
+            if region and region.IsObjectType and region:IsObjectType("Texture")
+               and region ~= keepIcon and region ~= state.highlight
+               and region ~= state.pushed and region ~= state.iconBorder then
+                region:SetAlpha(0)
+                region:Hide()
+            end
+        end
+    end
+    local function StylePaperDollFlyoutButton(button)
+        if not CanStyleFlyoutObject(button) then return end
+        local state = GetFFD(button)
+        local name = button.GetName and button:GetName()
+        local icon = name and _G[name .. "IconTexture"]
+        if not state.flyoutSkinned then
+            if button.SetNormalTexture then button:SetNormalTexture("") end
+            if button.SetHighlightTexture then button:SetHighlightTexture("") end
+            if button.SetPushedTexture then button:SetPushedTexture("") end
+            if button.SetDisabledTexture then button:SetDisabledTexture("") end
+            WSkin:ApplyRetailSurface(button, "input")
+            WSkin:StyleButton(button)
+            state.highlight = button.GetHighlightTexture and button:GetHighlightTexture()
+            state.pushed = button.GetPushedTexture and button:GetPushedTexture()
+            state.flyoutSkinned = true
+        end
+        HideFlyoutNativeArt(button, icon, state)
+        if icon then
+            WSkin:SetInside(icon, button, 2, 2)
+            icon:SetTexCoord(unpack(WSkin.TexCoords))
+            state.iconBorder = WSkin:ApplyRetailIcon(icon, button)
+            if state.iconBorder then state.iconBorder:Show() end
+        end
+
+        local itemID = button.location and _G.EquipmentManager_GetItemInfoByLocation
+            and _G.EquipmentManager_GetItemInfoByLocation(button.location)
+        local quality
+        if itemID then
+            local _, _, itemQuality = GetItemInfo(itemID)
+            quality = itemQuality
+        end
+        if quality and GetItemQualityColor and button.SetBackdropBorderColor then
+            button:SetBackdropBorderColor(GetItemQualityColor(quality))
+        else
+            local border = EllesmereUI.Style and EllesmereUI.Style.Tokens.colors.border
+            if border and button.SetBackdropBorderColor then
+                button:SetBackdropBorderColor(unpack(border))
+            end
+        end
+    end
+    local function FlyoutFrameLevel()
+        local level = frame:GetFrameLevel() + 100
+        for _, target in pairs({
+            statsPanel, GetFFD(frame).modelScene, GetFFD(frame).socketContainer,
+            _G.EUI_CharSheet_SocketPanel,
+        }) do
+            if target and target.GetFrameLevel then
+                level = math.max(level, target:GetFrameLevel() + 50)
+            end
+        end
+        return level
     end
     local function RaisePaperDollFlyout()
         local flyout = _G.PaperDollFrameItemFlyout
         local buttons = _G.PaperDollFrameItemFlyoutButtons
-        if flyout and flyout.SetFrameLevel then
-            flyout:SetFrameLevel(flyoutLevel)
+        local level = FlyoutFrameLevel()
+        if flyout and CanStyleFlyoutObject(flyout) then
+            flyout:SetFrameStrata("DIALOG")
+            flyout:SetFrameLevel(level)
         end
-        if buttons and buttons.SetFrameLevel then
-            buttons:SetFrameLevel(flyoutLevel)
-        end
-        if buttons and buttons.GetChildren then
-            for i = 1, select("#", buttons:GetChildren()) do
-                RaisePaperDollFlyoutButton(select(i, buttons:GetChildren()))
+        if buttons and CanStyleFlyoutObject(buttons) then
+            WSkin:StripTextures(buttons)
+            WSkin:ApplyRetailSurface(buttons, "panel")
+            buttons:EnableMouse(false)
+            buttons:SetFrameStrata("DIALOG")
+            buttons:SetFrameLevel(level + 1)
+            for index = 1, select("#", buttons:GetChildren()) do
+                local button = select(index, buttons:GetChildren())
+                if button and button.GetObjectType and button:GetObjectType() == "Button" then
+                    StylePaperDollFlyoutButton(button)
+                    if CanStyleFlyoutObject(button) then button:SetFrameStrata("DIALOG"); button:SetFrameLevel(level + 2) end
+                end
             end
         end
+        if _G.PaperDollFrameItemFlyoutHighlight and CanStyleFlyoutObject(_G.PaperDollFrameItemFlyoutHighlight) then
+            _G.PaperDollFrameItemFlyoutHighlight:Hide()
+        end
     end
+    flyoutRetry:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        local flyout = _G.PaperDollFrameItemFlyout
+        if flyout and flyout:IsShown() then RaisePaperDollFlyout() end
+    end)
     if _G.PaperDollFrameItemFlyout_Show then
         hooksecurefunc("PaperDollFrameItemFlyout_Show", RaisePaperDollFlyout)
     end
     if _G.PaperDollFrameItemFlyout_DisplayButton then
-        hooksecurefunc("PaperDollFrameItemFlyout_DisplayButton", RaisePaperDollFlyoutButton)
+        hooksecurefunc("PaperDollFrameItemFlyout_DisplayButton", function(button)
+            StylePaperDollFlyoutButton(button)
+            if CanStyleFlyoutObject(button) then
+                button:SetFrameStrata("DIALOG")
+                button:SetFrameLevel(FlyoutFrameLevel() + 2)
+            end
+        end)
     end
     RaisePaperDollFlyout()
 

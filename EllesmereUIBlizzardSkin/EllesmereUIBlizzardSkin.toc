@@ -36,6 +36,7 @@ Skins\GuildBank.lua
 Skins\Mail.lua
 Skins\AuctionHouse.lua
 Skins\Friends.lua
+Skins\ItemSocketing.lua
 Skins\PvP.lua
 Skins\WrathFrames.lua
 

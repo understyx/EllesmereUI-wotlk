@@ -603,7 +603,7 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 		local pixel = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
 		if options.border ~= false and pixel and pixel.CreateBorder then
 			local color = WSkin.Retail.colors.border
-			pixel.CreateBorder(frame, color[1], color[2], color[3], color[4], WSkin.Retail.border.width, "OVERLAY", 7)
+			state.windowBorder = pixel.CreateBorder(frame, color[1], color[2], color[3], color[4], WSkin.Retail.border.width, "OVERLAY", 7)
 		end
 	end
 
@@ -629,9 +629,19 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 		local geometry = WSkin.Retail.geometry
 		Point(closeButton, "TOPRIGHT", frame, "TOPRIGHT", -geometry.closeOffset, -geometry.closeOffset)
 		Size(closeButton, geometry.closeTarget, geometry.closeTarget)
+		state.windowCloseButton = closeButton
 	end
 	state.windowShell = true
 	return state
+end
+
+-- Some legacy windows sweep unnamed child frames to remove native chrome.
+-- Keep shell-owned border/model/close children out of those sweeps.
+function WSkin:IsRetailShellChild(frame, child)
+	if not frame or not child then return false end
+	local state = RetailState(frame)
+	return child == state.windowBorder or child == state.modelBacking
+		or child == (state.windowShell and state.windowCloseButton)
 end
 
 -- Own the repeated 3.3.5 window setup in one place. Shells can sit on the
