@@ -199,6 +199,17 @@ local function CreateCheck(parent, labelText)
     return check
 end
 
+local function SetRowIconShown(row, shown)
+    -- Hide the icon together with the toolkit border behind it; a bare
+    -- border left on icon-less rows stacks into a light vertical stripe.
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.SetRetailIconShown then
+        skin:SetRetailIconShown(row.icon, shown)
+    else
+        row.icon:SetShown(shown and true or false)
+    end
+end
+
 local function CreateRow(parent, index, rowHeight)
     rowHeight = rowHeight or ROW_HEIGHT
     local row = EllesmereUI.SafeCreateFrame("Button", nil, parent)
@@ -551,7 +562,7 @@ local function BuildReputation(pane)
                 row.glyph:SetText(isCollapsed and "+" or "-")
                 row.glyph:ClearAllPoints()
                 row.glyph:SetPoint("RIGHT", -10, 0)
-                row.icon:Hide()
+                SetRowIconShown(row, false)
                 -- CreateRow initially places the thin Skills-style bar relative
                 -- to row.name. Break that relationship before anchoring the
                 -- reputation name back to the bar, or WoW rejects the cycle.
@@ -754,7 +765,7 @@ local function BuildSkills(pane)
                 row.glyph:SetText(isExpanded and "-" or "+")
                 row.glyph:ClearAllPoints()
                 row.glyph:SetPoint("RIGHT", -10, 0)
-                row.icon:Hide()
+                SetRowIconShown(row, false)
                 row.name:ClearAllPoints()
                 row.name:SetPoint("LEFT", 16, 0)
                 row.name:SetPoint("RIGHT", isHeader and -36 or -90, 0)
@@ -884,7 +895,7 @@ local function BuildCurrency(pane)
                 row.glyph:SetText(isExpanded and "-" or "+")
                 row.glyph:ClearAllPoints()
                 row.glyph:SetPoint("RIGHT", -10, 0)
-                row.icon:SetShown(not isHeader)
+                SetRowIconShown(row, not isHeader)
                 if not isHeader then
                     if extraCurrencyType == 1 and not icon then icon = "Interface\\PVPFrame\\PVP-ArenaPoints-Icon" end
                     if extraCurrencyType == 2 and not icon then
