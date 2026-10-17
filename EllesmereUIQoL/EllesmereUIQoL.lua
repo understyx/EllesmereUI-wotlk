@@ -2971,27 +2971,33 @@ do
         PlayDeathSound()
     end
 
+    -- Poll state lives in upvalues so each tick reuses one visitor and one
+    -- seen set instead of allocating both per poll.
+    local seen = {}
+    local newlyDeadName, newlyDeadClass, newlyDeadCount
+    local function VisitUnit(u)
+        local guid = UnitGUID(u)
+        if not guid then return end
+        seen[guid] = true
+        if not UnitIsConnected(u) then return end
+        local dead = (UnitIsDeadOrGhost(u) and not UnitIsFeignDeath(u)) and true or false
+        -- prev == false means we previously saw this unit alive; a nil prev
+        -- (first sighting / just (re)joined) primes the state silently so we
+        -- never announce someone who was already dead when we started.
+        if deadState[guid] == false and dead then
+            local _, classToken = UnitClass(u)
+            newlyDeadName = UnitName(u)
+            newlyDeadClass = classToken
+            newlyDeadCount = (newlyDeadCount or 0) + 1
+        end
+        deadState[guid] = dead
+    end
+
     local function Poll()
         if not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths) then return end
-        local seen = {}
-        local newlyDeadName, newlyDeadClass, newlyDeadCount
-        ForEachGroupUnit(function(u)
-            local guid = UnitGUID(u)
-            if not guid then return end
-            seen[guid] = true
-            if not UnitIsConnected(u) then return end
-            local dead = (UnitIsDeadOrGhost(u) and not UnitIsFeignDeath(u)) and true or false
-            -- prev == false means we previously saw this unit alive; a nil prev
-            -- (first sighting / just (re)joined) primes the state silently so we
-            -- never announce someone who was already dead when we started.
-            if deadState[guid] == false and dead then
-                local _, classToken = UnitClass(u)
-                newlyDeadName = UnitName(u)
-                newlyDeadClass = classToken
-                newlyDeadCount = (newlyDeadCount or 0) + 1
-            end
-            deadState[guid] = dead
-        end)
+        wipe(seen)
+        newlyDeadName, newlyDeadClass, newlyDeadCount = nil, nil, nil
+        ForEachGroupUnit(VisitUnit)
         for guid in pairs(deadState) do
             if not seen[guid] then deadState[guid] = nil end
         end

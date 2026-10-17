@@ -1159,10 +1159,29 @@ local function PlayerCanDispel(dispelType)
     return false
 end
 
-local function AuraMatchesLegacyFilter(aura, filter, unit)
-    for rawToken in string.gmatch(filter or "", "[^|]+") do
+-- Filter strings come from a small fixed set of call sites, but are tested
+-- once per aura on every raid UNIT_AURA. Parse each one once instead of
+-- allocating a gmatch iterator and substrings per aura.
+local parsedFilters = {}
+local function ParseFilter(filter)
+    local parsed = parsedFilters[filter]
+    if parsed then return parsed end
+    parsed = { n = 0 }
+    for rawToken in string.gmatch(filter, "[^|]+") do
         local negated = string.sub(rawToken, 1, 1) == "!"
-        local token = negated and string.sub(rawToken, 2) or rawToken
+        parsed.n = parsed.n + 1
+        parsed[parsed.n * 2 - 1] = negated and string.sub(rawToken, 2) or rawToken
+        parsed[parsed.n * 2] = negated
+    end
+    parsedFilters[filter] = parsed
+    return parsed
+end
+
+local function AuraMatchesLegacyFilter(aura, filter, unit)
+    local parsed = ParseFilter(filter or "")
+    for ti = 1, parsed.n do
+        local token = parsed[ti * 2 - 1]
+        local negated = parsed[ti * 2]
         local matches
         if token == "HELPFUL" then
             matches = aura.isHelpful == true
@@ -1252,10 +1271,14 @@ C_UnitAuras.GetAuraDataByIndex = function(unit, index, filter)
     return BuildAuraSnapshot(unit, filter)[index]
 end
 
+local unitAuraLookupFilters = {"HELPFUL", "HARMFUL"}
+local helpfulOnlyFilters = {"HELPFUL"}
+local harmfulOnlyFilters = {"HARMFUL"}
+
 C_UnitAuras.GetPlayerAuraBySpellID = function(spellID)
     local nameToFind = GetSpellInfo(spellID)
     if not nameToFind then return nil end
-    for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+    for _, filter in ipairs(unitAuraLookupFilters) do
         for _, aura in ipairs(BuildAuraSnapshot("player", filter)) do
             if aura.name == nameToFind or aura.spellId == spellID then
                 return aura
@@ -1269,7 +1292,6 @@ end
 -- reminder systems use it for party/raid members and hostile targets.  Match
 -- by localized spell name as well as ID so a query for one rank also finds a
 -- different rank of the same WotLK spell.
-local unitAuraLookupFilters = {"HELPFUL", "HARMFUL"}
 C_UnitAuras.GetUnitAuraBySpellID = function(unit, spellID)
     if not unit then return nil end
     local nameToFind = GetSpellInfo(spellID)
@@ -1299,12 +1321,12 @@ end
 
 C_UnitAuras.GetAuraDataBySpellName = function(unit, name, filter)
     if not unit or not name then return nil end
-    local scanFilters = {"HELPFUL", "HARMFUL"}
+    local scanFilters = unitAuraLookupFilters
     if filter then
         if string.find(filter, "HELPFUL") then
-            scanFilters = {"HELPFUL"}
+            scanFilters = helpfulOnlyFilters
         elseif string.find(filter, "HARMFUL") then
-            scanFilters = {"HARMFUL"}
+            scanFilters = harmfulOnlyFilters
         end
     end
     for _, f in ipairs(scanFilters) do
@@ -1345,6 +1367,7 @@ C_UnitAuras.GetAuraApplicationDisplayCount = function(unit, iid, minimum, maximu
     return tostring(count)
 end
 
+local dispelColorCache = {}
 C_UnitAuras.GetAuraDispelTypeColor = function(unitOrDispelType, iid, curve)
     local dispelType
     if type(unitOrDispelType) == "string" and not iid then
@@ -1353,11 +1376,16 @@ C_UnitAuras.GetAuraDispelTypeColor = function(unitOrDispelType, iid, curve)
         local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unitOrDispelType, iid)
         dispelType = aura and aura.dispelType
     end
-    local color = dispelType and DebuffTypeColor[dispelType]
-    if color then
-        return CreateColor(color.r, color.g, color.b)
+    -- Callers only read the result, so one shared object per type avoids a
+    -- fresh ColorMixin per debuff per raid-frame refresh.
+    local key = dispelType and DebuffTypeColor[dispelType] and dispelType or false
+    local cached = dispelColorCache[key]
+    if not cached then
+        local color = key and DebuffTypeColor[key]
+        cached = color and CreateColor(color.r, color.g, color.b) or CreateColor(1, 1, 1)
+        dispelColorCache[key] = cached
     end
-    return CreateColor(1, 1, 1)
+    return cached
 end
 
 C_UA.GetAuraDataByIndex = C_UnitAuras.GetAuraDataByIndex

@@ -7176,11 +7176,11 @@ function ns.SetCastTimerText(f, now, totalDurMode, totalSuffix, latSuffix)
         if tenths ~= f._timerTenths then
             f._timerTenths = tenths
             if totalDurMode then
-                f._timerText:SetText(format("%.1f", shown) .. (totalSuffix or ""))
+                f._timerText:SetFormattedText("%.1f%s", shown, totalSuffix or "")
             elseif latSuffix then
-                f._timerText:SetText(format("%.1f", shown) .. latSuffix)
+                f._timerText:SetFormattedText("%.1f%s", shown, latSuffix)
             else
-                f._timerText:SetText(format("%.1f", shown))
+                f._timerText:SetFormattedText("%.1f", shown)
             end
         end
     elseif f._timerTenths ~= -1 then
