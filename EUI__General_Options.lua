@@ -405,6 +405,161 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.6.4-wotlk",
+        heroes = {
+            {
+                -- Static on purpose: the port touches every module and has no
+                -- single setting to open.
+                module = "General",
+                title  = "Wrath of the Lich King Port",
+                desc   = "EllesmereUI now runs on the 3.3.5a client. A compatibility layer fills in the modern APIs, and every module has been reworked for Wrath classes, spells, talents and specs.",
+            },
+            {
+                module = "Nameplates",
+                title  = "Native 3.3.5 Nameplate Engine",
+                desc   = "Nameplates are rebuilt on a NotPlater-based engine made for Wrath, with correct depth ordering between plates, clean borders, and Blizzard's elite dragon art hidden.",
+                nav    = { module = "EllesmereUINameplates", page = "Display" },
+            },
+            {
+                module = "Cooldown Manager",
+                title  = "Wrath Spells and Default Layouts",
+                desc   = "Every class's cooldowns, procs and tier set bonuses are tracked. Each spec and role starts from a curated Core, Highlight, Buffs and Utility layout based on Iqui's WeakAuras packs.",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
+            },
+            {
+                -- Page-only nav: lands on the window card list collapsed,
+                -- the right landing for an entry covering many windows.
+                module = "Blizz UI Enhanced",
+                title  = "Restyled Blizzard Windows",
+                desc   = "Character, Inspect, Talents, Spellbook, Social, Group Finder, PvP, Achievements, Quests, Mail, Merchant, Auction House, Guild Bank, Loot and Socketing now share one style.",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
+            },
+            {
+                module = "PallyPower",
+                title  = "Built-in PallyPower",
+                desc   = "Blessing assignments, buff monitoring and raid sync from PallyPower Improved, restyled to match the suite and movable in Unlock Mode.",
+                nav    = { module = "EllesmereUIPallyPower", page = "Assignments" },
+            },
+            {
+                module = "Raid Cooldowns",
+                title  = "Raid Cooldown Tracker",
+                desc   = "Track raid and group cooldowns in configurable groups, with announcements, requests, and an icon style showing swipe, timer and caster name.",
+                nav    = { module = "EllesmereUIRaidCooldowns", page = "General" },
+            },
+        },
+        features = {
+            {
+                module = "Swingbars",
+                title  = "Swing Timers",
+                desc   = "Melee and Auto Shot swing timers",
+                nav    = { module = "EllesmereUISwingBars", page = "Swingbars" },
+            },
+            {
+                module = "Quality of Life",
+                title  = "Paladin Auras",
+                desc   = "See which aura each Paladin is running",
+                nav    = { module = "EllesmereUIQoL", page = "Paladin Auras" },
+            },
+            {
+                module = "Quality of Life",
+                title  = "Buff Removal",
+                desc   = "Cancel unwanted buffs by context, with blacklists",
+                nav    = { module = "EllesmereUIQoL", page = "Buff Removal" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Raid Debuff Picker",
+                desc   = "Per-instance boss debuffs, grouped by boss",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Auras" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Defensives Icon Picker",
+                desc   = "Choose custom defensives from an icon grid",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Auras" },
+            },
+            {
+                module = "Cooldown Manager",
+                title  = "DoT Snapshot Tracking",
+                desc   = "See when a reapplied DoT would hit harder",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
+            },
+            {
+                module = "Cooldown Manager",
+                title  = "Group Buff Tracking",
+                desc   = "Beacon of Light and Earth Shield on any group member",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
+            },
+            {
+                module = "Cooldown Manager",
+                title  = "Active and Missing Visibility",
+                desc   = "Show aura icons only while up, or only while missing",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
+            },
+            {
+                module = "Resource Bars",
+                title  = "Hot Streak Tracker",
+                desc   = "Fire Mage Hot Streak as a class resource",
+                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars" },
+            },
+            {
+                module = "Auras, Buffs & Consumables",
+                title  = "Wrath Reminders",
+                desc   = "Wrath raid buffs, flasks, food, poisons and imbues",
+                nav    = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables" },
+            },
+            {
+                module = "Damage Meters",
+                title  = "Skada Data Source",
+                desc   = "Meters read Skada's data, with EUI mode icons",
+                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters" },
+            },
+            {
+                -- Static: Quick Bind is a mode, not a settings row.
+                module = "Action Bars",
+                title  = "Keybinding Scope Switch",
+                desc   = "Quick Bind can save per character or account-wide",
+            },
+            {
+                module = "Blizz UI Enhanced",
+                title  = "Enchant, Gem and Glyph Info",
+                desc   = "Character sheet enchants and sockets, inspect glyphs",
+            },
+            {
+                module = "General",
+                title  = "Tank and DPS Role Detection",
+                desc   = "Death Knight and Feral roles follow your talents",
+            },
+            {
+                module = "General",
+                title  = "Icon Picker",
+                desc   = "Search macro and spell icons for custom icons",
+            },
+            {
+                module = "Unit Frames",
+                title  = "Incoming Heals and Absorbs",
+                desc   = "Heal prediction and shield bars on Wrath",
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Mouseover fading and the possess and vehicle bar paging now work on Wrath, and the stance bar no longer shows empty overflow slots." },
+            { module = "Auras, Buffs & Consumables", text = "The Death Knight presence reminder now follows your role: tanks are reminded about Frost Presence, damage dealers about Blood or Unholy. Pet reminders no longer fire while mounted." },
+            { module = "Bags", text = "Sorting respects soul bags, quivers, herb bags and other specialty bags, and main bank slots show their tooltips again." },
+            { module = "Blizz UI Enhanced", text = "Tooltip skins, Inspect talent icons and legacy popups display correctly on Wrath. The merchant window now opens in grid view unless list mode is turned on." },
+            { module = "Chat", text = "Custom docked windows such as Loot or Trade now line up with the General and Combat Log tabs, and the URL copy popup works again." },
+            { module = "Cooldown Manager", text = "Trinket procs no longer leave empty slots or overlap other buffs, and changing a spell's rank no longer drops it from your bars." },
+            { module = "Cooldown Manager", text = "Drain Soul glows when the target is at or below 25% health, and execute spells desaturate and restore reliably." },
+            { module = "General", text = "Large performance pass: aura scans, timers, nameplates, raid frames, action bars and the Cooldown Manager create far less garbage in combat." },
+            { module = "General", text = "Raid roles assigned by the leader are now read correctly on 3.3.5, so raid frame power bars show for the right roles again." },
+            { module = "General", text = "Simplified Chinese translation is complete, including the new Wrath-only modules." },
+            { module = "Minimap", text = "Minimap indicators render correctly on Wrath." },
+            { module = "Nameplates", text = "Aura icons and borders from far plates no longer draw over the health bar of a nearer plate." },
+            { module = "Nameplates", text = "Threat glow is no longer confused with the mouseover highlight, and friendly name-only plates hide their border and auras." },
+            { module = "Profiles", text = "The Spec Override popup no longer opens behind other windows, and the Override Role menu shows the active choice." },
+            { module = "Raid Frames", text = "Range fading updates reliably, and Buff Manager indicators fill in right after login instead of needing a reload." },
+        },
+    },
+    {
         version = "8.6.4",
         -- No hero tier this patch. `_BuildWhatsNewPage` skips the hero block
         -- entirely when `heroes` is absent, and this is NOT a mini patch (mini
