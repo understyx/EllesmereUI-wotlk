@@ -300,6 +300,33 @@ local function RetailState(object)
 	return state
 end
 
+local function ApplyWindowArt(frame, artRegions)
+	if not artRegions then return end
+	for _, entry in ipairs(artRegions) do
+		local object, action
+		if type(entry) == "table" and entry.object then
+			object, action = entry.object, entry.action
+		else
+			object, action = entry, "strip"
+		end
+		if type(object) == "string" then object = _G[object] end
+		if object then
+			if type(action) == "function" then
+				action(object, frame)
+			elseif action == "hide" then
+				if object.Hide then object:Hide() end
+			elseif action == "fade" then
+				if object.SetAlpha then object:SetAlpha(0)
+				else StripTextures(object, false, true) end
+			elseif action == "kill" then
+				Kill(object)
+			else
+				StripTextures(object, action == "stripKill", action == "stripFade")
+			end
+		end
+	end
+end
+
 local function RetailAccent()
 	if style and style.GetAccent then return style.GetAccent() end
 	local accent = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
@@ -479,7 +506,7 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 		UpdateTexCoords()
 
 		local pixel = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
-		if pixel and pixel.CreateBorder then
+		if options.border ~= false and pixel and pixel.CreateBorder then
 			local color = WSkin.Retail.colors.border
 			pixel.CreateBorder(frame, color[1], color[2], color[3], color[4], WSkin.Retail.border.width, "OVERLAY", 7)
 		end
@@ -510,6 +537,122 @@ function WSkin:CreateRetailWindowShell(frame, title, titleRegion, closeButton, o
 	end
 	state.windowShell = true
 	return state
+end
+
+-- Own the repeated 3.3.5 window setup in one place. Shells can sit on the
+-- native frame or on the smaller visible art rectangle exposed by a backdrop.
+function WSkin:SkinRetailWindow(frame, desc)
+	if type(frame) == "string" then frame = _G[frame] end
+	if not frame then return end
+	desc = desc or {}
+	local ownerState = RetailState(frame)
+	local wrapper = ownerState.retailWindow
+	local shell
+	local createdBackdrop = false
+
+	if not wrapper then
+		if desc.strip ~= false then self:StripTextures(frame, desc.killTextures ~= false) end
+		shell = desc.shellFrame
+		if type(shell) == "string" then shell = _G[shell] end
+		if not shell then
+			if desc.shellOnFrame then
+				shell = frame
+			elseif desc.createBackdrop ~= false then
+				self:CreateBackdrop(frame, desc.template or "Transparent")
+				shell = frame.backdrop
+				createdBackdrop = true
+			else
+				shell = frame.backdrop or frame
+			end
+		end
+		if not shell then return end
+		wrapper = { shell = shell, createdBackdrop = createdBackdrop, desc = desc }
+		ownerState.retailWindow = wrapper
+	else
+		shell = wrapper.shell
+		createdBackdrop = wrapper.createdBackdrop
+		desc = wrapper.desc
+	end
+
+	local insets = desc.insets
+	if insets == nil and createdBackdrop then
+		insets = WSkin.Retail.geometry.windowInsets
+	end
+	if insets and shell ~= frame then
+		shell:ClearAllPoints()
+		Point(shell, "TOPLEFT", frame, "TOPLEFT", insets.left, insets.top)
+		Point(shell, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", insets.right, insets.bottom)
+	end
+
+	ApplyWindowArt(frame, desc.artRegions)
+	if not wrapper.artHooksInstalled then
+		wrapper.artHooksInstalled = true
+		if desc.rehideOnShow and frame.HookScript then
+			frame:HookScript("OnShow", function()
+				ApplyWindowArt(frame, desc.artRegions)
+			end)
+		end
+		if desc.rehideHooks and hooksecurefunc then
+			for _, hookName in ipairs(desc.rehideHooks) do
+				if type(hookName) == "string" and type(_G[hookName]) == "function" then
+					hooksecurefunc(hookName, function()
+						ApplyWindowArt(frame, desc.artRegions)
+					end)
+				end
+			end
+		end
+	end
+
+	local pageSurface = desc.pageSurface
+	local shellOptions = {
+		content = pageSurface and true or false,
+		border = desc.border,
+		headerBand = desc.headerBand,
+	}
+	if type(pageSurface) == "table" then
+		shellOptions.contentTop = pageSurface.top
+		shellOptions.contentBottom = pageSurface.bottom
+		shellOptions.contentInset = pageSurface.inset
+	end
+	local titleRegion = desc.titleRegion
+	local closeButton = desc.closeButton
+	if type(titleRegion) == "string" then titleRegion = _G[titleRegion] end
+	if type(closeButton) == "string" then closeButton = _G[closeButton] end
+	local shellState = self:CreateRetailWindowShell(shell, desc.title, titleRegion, closeButton, shellOptions)
+	if desc.titleRegions then
+		for _, region in ipairs(desc.titleRegions) do
+			if type(region) == "string" then region = _G[region] end
+			if region and region ~= titleRegion then self:SetRetailPageTitle(shell, desc.title, region) end
+		end
+	end
+	if desc.titlePosition and titleRegion then
+		local position = desc.titlePosition
+		titleRegion:ClearAllPoints()
+		Point(titleRegion, position.point or "TOP", shell, position.relativePoint or position.point or "TOP",
+			position.x or 0, position.y or -WSkin.Retail.geometry.titleOffset)
+		if position.justify then titleRegion:SetJustifyH(position.justify) end
+	end
+
+	local hitRect = desc.hitRect
+	if hitRect == "full" then
+		if frame.SetHitRectInsets then frame:SetHitRectInsets(0, 0, 0, 0) end
+	elseif hitRect ~= false and shell ~= frame then
+		local hitFrame, hitBackdrop, clampRect = frame, shell, false
+		if type(hitRect) == "table" then
+			hitFrame = hitRect.frame or hitFrame
+			hitBackdrop = hitRect.backdrop or hitBackdrop
+			clampRect = hitRect.clamp and true or false
+		end
+		self:SetBackdropHitRect(hitFrame, hitBackdrop, clampRect)
+	end
+	if desc.extraHitRects then
+		for _, hit in ipairs(desc.extraHitRects) do
+			local hitFrame = type(hit.frame) == "string" and _G[hit.frame] or hit.frame
+			local hitBackdrop = type(hit.backdrop) == "string" and _G[hit.backdrop] or hit.backdrop
+			if hitFrame then self:SetBackdropHitRect(hitFrame, hitBackdrop or shell, hit.clamp and true or false) end
+		end
+	end
+	return shell, shellState
 end
 
 function WSkin:SetRetailPageTitle(frame, title, titleRegion)

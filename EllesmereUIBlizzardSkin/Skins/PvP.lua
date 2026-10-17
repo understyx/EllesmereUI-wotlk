@@ -25,20 +25,15 @@ local function Each(names, handler, ...)
 	end
 end
 
-local function SkinWindow(frame, closeButton, stripFrame)
+local function SkinWindow(frame, closeButton, stripFrame, extraHitRects)
 	if not frame then return end
-	if stripFrame ~= false then WSkin:StripTextures(frame, true) end
-	WSkin:CreateBackdrop(frame, "Transparent")
-	if not frame.backdrop then return end
-	frame.backdrop:ClearAllPoints()
-	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 11, -12)
-	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 76)
-	-- Shared window shell on the visible backdrop rect; Blizzard's content
-	-- layout stays anchored to the native frame.
-	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
+	local shell = WSkin:SkinRetailWindow(frame, {
+		closeButton = closeButton,
+		strip = stripFrame ~= false,
+		extraHitRects = extraHitRects,
+	})
 	WSkin:SetUIPanelWindowInfo(frame, "width")
-	WSkin:SetBackdropHitRect(frame)
-	return frame.backdrop
+	return shell
 end
 
 local function Buttons(names, primary)
@@ -66,7 +61,7 @@ local function TeamHover(team, hovered)
 		local ar, ag, ab = WSkin:GetRetailAccent()
 		backdrop:SetBackdropBorderColor(ar, ag, ab, 0.55)
 	else
-		backdrop:SetBackdropBorderColor(1, 1, 1, 0.06)
+		backdrop:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 	end
 end
 
@@ -74,20 +69,66 @@ local function WhiteText(region)
 	if region and region.SetTextColor then region:SetTextColor(1, 1, 1) end
 end
 
+local function SkinPVPTeamDetails()
+	if not _G.PVPTeamDetails then return end
+	WSkin:SkinRetailWindow(_G.PVPTeamDetails, {
+		shellOnFrame = true,
+		closeButton = _G.PVPTeamDetailsCloseButton,
+	})
+	Point(_G.PVPTeamDetails, "TOPLEFT", _G.PVPFrame, "TOPRIGHT", -33, -81)
+	for i = 1, 5 do
+		local header = _G["PVPTeamDetailsFrameColumnHeader" .. i]
+		WSkin:StripTextures(header)
+		WSkin:ApplyRetailSurface(header, "header")
+		WSkin:ApplyRetailRegionTypography(header, "secondary")
+	end
+	for i = 1, Count(_G.MAX_ARENA_TEAM_MEMBERS, 10) do WSkin:HandleButtonHighlight(_G["PVPTeamDetailsButton" .. i]) end
+	WSkin:HandleRetailButton(_G.PVPTeamDetailsAddTeamMember)
+	WSkin:HandleNextPrevButton(_G.PVPTeamDetailsToggleButton)
+	Point(_G.PVPTeamDetailsAddTeamMember, "TOPLEFT", _G.PVPTeamDetailsButton10, "BOTTOMLEFT", 5, -8)
+	Point(_G.PVPTeamDetailsToggleButton, "BOTTOMRIGHT", _G.PVPTeamDetails, "BOTTOMRIGHT", -20, 25)
+end
+
+local function SkinBattlefieldFrame()
+	if not _G.BattlefieldFrame then return end
+	SkinWindow(_G.BattlefieldFrame, _G.BattlefieldFrameCloseButton)
+	WSkin:StripTextures(_G.BattlefieldListScrollFrame)
+	WSkin:HandleRetailScrollBar(_G.BattlefieldListScrollFrameScrollBar)
+	WSkin:HandleRetailScrollBar(_G.BattlefieldFrameInfoScrollFrameScrollBar)
+	WhiteText(_G.BattlefieldFrameInfoScrollFrameChildFrameDescription)
+	WhiteText(_G.BattlefieldFrameInfoScrollFrameChildFrameRewardsInfoDescription)
+	Buttons({ "BattlefieldFrameGroupJoinButton", "BattlefieldFrameCancelButton" })
+	Buttons({ "BattlefieldFrameJoinButton" }, true)
+	for i = 1, Count(_G.BATTLEFIELD_ZONES_DISPLAYED, 5) do WSkin:HandleButtonHighlight(_G["BattlefieldZone" .. i]) end
+	Point(_G.BattlefieldFrameNameHeader, "TOPLEFT", _G.BattlefieldFrame, "TOPLEFT", 73, -57)
+	Point(_G.BattlefieldZone1, "TOPLEFT", _G.BattlefieldFrame, "TOPLEFT", 25, -80)
+	Point(_G.BattlefieldListScrollFrameScrollBar, "TOPLEFT", _G.BattlefieldListScrollFrame, "TOPRIGHT", 9, -23)
+	Point(_G.BattlefieldListScrollFrameScrollBar, "BOTTOMLEFT", _G.BattlefieldListScrollFrame, "BOTTOMRIGHT", 9, 23)
+	Point(_G.BattlefieldFrameInfoScrollFrame, "BOTTOMLEFT", _G.BattlefieldFrame, "BOTTOMLEFT", 21, 113)
+	Point(_G.BattlefieldFrameInfoScrollFrameScrollBar, "TOPLEFT", _G.BattlefieldFrameInfoScrollFrame, "TOPRIGHT", 7, -20)
+	Point(_G.BattlefieldFrameInfoScrollFrameScrollBar, "BOTTOMLEFT", _G.BattlefieldFrameInfoScrollFrame, "BOTTOMRIGHT", 7, 19)
+	if _G.BattlefieldFrameGroupJoinButton then WSkin:Width(_G.BattlefieldFrameGroupJoinButton, 127) end
+	ClearPoints(_G.BattlefieldFrameGroupJoinButton, _G.BattlefieldFrameJoinButton, _G.BattlefieldFrameCancelButton)
+	Point(_G.BattlefieldFrameCancelButton, "CENTER", _G.BattlefieldFrame, "TOPLEFT", 302, -417)
+	Point(_G.BattlefieldFrameJoinButton, "RIGHT", _G.BattlefieldFrameCancelButton, "LEFT", -3, 0)
+	Point(_G.BattlefieldFrameGroupJoinButton, "RIGHT", _G.BattlefieldFrameJoinButton, "LEFT", -3, 0)
+end
+
 local function SkinPvP()
 	if not WSkin:IsSkinEnabled("misc") or not _G.PVPParentFrame then return end
-	-- EllesmereUIBlizzardSkin_GroupFinder.lua owns the modern Wrath PvP shell
-	-- whenever that skin is enabled. Running this legacy callback as well would
-	-- insert a separate 80%-black backdrop below the same controls.
+	-- GroupFinder owns PVPParentFrame and queue children while enabled; this file owns separate dialogs.
 	if _G.EllesmereUI and _G.EllesmereUI._GroupFinderOwnsLegacyPvP
 		and (not EllesmereUIDB or EllesmereUIDB.reskinLFGMenu ~= false) then
+		SkinPVPTeamDetails()
+		SkinBattlefieldFrame()
 		return
 	end
 
-	local parentBackdrop = SkinWindow(_G.PVPParentFrame, _G.PVPParentFrameCloseButton, false)
+	local parentBackdrop = SkinWindow(_G.PVPParentFrame, _G.PVPParentFrameCloseButton, false, {
+		{ frame = _G.PVPFrame },
+		{ frame = _G.PVPBattlegroundFrame },
+	})
 	if not parentBackdrop then return end
-	WSkin:SetBackdropHitRect(_G.PVPFrame, parentBackdrop)
-	WSkin:SetBackdropHitRect(_G.PVPBattlegroundFrame, parentBackdrop)
 	for i = 1, 2 do
 		local tab = _G["PVPParentFrameTab" .. i]
 		if tab then
@@ -124,22 +165,7 @@ local function SkinPvP()
 		WSkin:Kill(_G["PVPTeam" .. i .. "Highlight"])
 	end
 
-	if _G.PVPTeamDetails then
-		WSkin:StripTextures(_G.PVPTeamDetails)
-		WSkin:CreateRetailWindowShell(_G.PVPTeamDetails, nil, nil, _G.PVPTeamDetailsCloseButton, { content = false })
-		Point(_G.PVPTeamDetails, "TOPLEFT", _G.PVPFrame, "TOPRIGHT", -33, -81)
-		for i = 1, 5 do
-			local header = _G["PVPTeamDetailsFrameColumnHeader" .. i]
-			WSkin:StripTextures(header)
-			WSkin:ApplyRetailSurface(header, "header")
-			WSkin:ApplyRetailRegionTypography(header, "secondary")
-		end
-		for i = 1, Count(_G.MAX_ARENA_TEAM_MEMBERS, 10) do WSkin:HandleButtonHighlight(_G["PVPTeamDetailsButton" .. i]) end
-		WSkin:HandleRetailButton(_G.PVPTeamDetailsAddTeamMember)
-		WSkin:HandleNextPrevButton(_G.PVPTeamDetailsToggleButton)
-		Point(_G.PVPTeamDetailsAddTeamMember, "TOPLEFT", _G.PVPTeamDetailsButton10, "BOTTOMLEFT", 5, -8)
-		Point(_G.PVPTeamDetailsToggleButton, "BOTTOMRIGHT", _G.PVPTeamDetails, "BOTTOMRIGHT", -20, 25)
-	end
+	SkinPVPTeamDetails()
 
 	WSkin:StripTextures(_G.PVPBattlegroundFrame, true)
 	WSkin:StripTextures(_G.PVPBattlegroundFrameTypeScrollFrame)
@@ -173,29 +199,7 @@ local function SkinPvP()
 		end
 	end
 
-	if _G.BattlefieldFrame then
-		SkinWindow(_G.BattlefieldFrame, _G.BattlefieldFrameCloseButton)
-		WSkin:StripTextures(_G.BattlefieldListScrollFrame)
-		WSkin:HandleRetailScrollBar(_G.BattlefieldListScrollFrameScrollBar)
-		WSkin:HandleRetailScrollBar(_G.BattlefieldFrameInfoScrollFrameScrollBar)
-		WhiteText(_G.BattlefieldFrameInfoScrollFrameChildFrameDescription)
-		WhiteText(_G.BattlefieldFrameInfoScrollFrameChildFrameRewardsInfoDescription)
-		Buttons({ "BattlefieldFrameGroupJoinButton", "BattlefieldFrameCancelButton" })
-		Buttons({ "BattlefieldFrameJoinButton" }, true)
-		for i = 1, Count(_G.BATTLEFIELD_ZONES_DISPLAYED, 5) do WSkin:HandleButtonHighlight(_G["BattlefieldZone" .. i]) end
-		Point(_G.BattlefieldFrameNameHeader, "TOPLEFT", _G.BattlefieldFrame, "TOPLEFT", 73, -57)
-		Point(_G.BattlefieldZone1, "TOPLEFT", _G.BattlefieldFrame, "TOPLEFT", 25, -80)
-		Point(_G.BattlefieldListScrollFrameScrollBar, "TOPLEFT", _G.BattlefieldListScrollFrame, "TOPRIGHT", 9, -23)
-		Point(_G.BattlefieldListScrollFrameScrollBar, "BOTTOMLEFT", _G.BattlefieldListScrollFrame, "BOTTOMRIGHT", 9, 23)
-		Point(_G.BattlefieldFrameInfoScrollFrame, "BOTTOMLEFT", _G.BattlefieldFrame, "BOTTOMLEFT", 21, 113)
-		Point(_G.BattlefieldFrameInfoScrollFrameScrollBar, "TOPLEFT", _G.BattlefieldFrameInfoScrollFrame, "TOPRIGHT", 7, -20)
-		Point(_G.BattlefieldFrameInfoScrollFrameScrollBar, "BOTTOMLEFT", _G.BattlefieldFrameInfoScrollFrame, "BOTTOMRIGHT", 7, 19)
-		if _G.BattlefieldFrameGroupJoinButton then WSkin:Width(_G.BattlefieldFrameGroupJoinButton, 127) end
-		ClearPoints(_G.BattlefieldFrameGroupJoinButton, _G.BattlefieldFrameJoinButton, _G.BattlefieldFrameCancelButton)
-		Point(_G.BattlefieldFrameCancelButton, "CENTER", _G.BattlefieldFrame, "TOPLEFT", 302, -417)
-		Point(_G.BattlefieldFrameJoinButton, "RIGHT", _G.BattlefieldFrameCancelButton, "LEFT", -3, 0)
-		Point(_G.BattlefieldFrameGroupJoinButton, "RIGHT", _G.BattlefieldFrameJoinButton, "LEFT", -3, 0)
-	end
+	SkinBattlefieldFrame()
 end
 
 WSkin:AddCallback("Skin_PvP", SkinPvP, "misc")

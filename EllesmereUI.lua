@@ -1530,6 +1530,10 @@ if not EllesmereUI.Style.Tokens then
             closeIcon = 14,
             closeOffset = 3,
             titleOffset = 6,
+            -- Common 3.3.5 native art rectangle used by the shared Blizzard
+            -- window shells. Individual frames may override this when their
+            -- visible art bounds differ.
+            windowInsets = { left = 11, top = -12, right = -32, bottom = 76 },
             selectionEdgeWidth = 2,
             scrollbarWidth = 8,
             scrollbarTrackWidth = 2,

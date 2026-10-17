@@ -172,18 +172,20 @@ local function SkinLootFrame()
 
 	if not data.skinned then
 		data.skinned = true
-		WSkin:StripTextures(frame)
-		HideTexture(_G.LootFramePortraitOverlay)
-		HideTexture(_G.LootFrameBg)
-		WSkin:CreateBackdrop(frame, "Transparent")
-		frame.backdrop:ClearAllPoints()
-		frame.backdrop:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -54)
-		frame.backdrop:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -77, 8)
-		WSkin:SetBackdropHitRect(frame, frame.backdrop, true)
-		-- Window shell on the visible backdrop; its top bar hosts the title
-		-- and the close button.
 		local close = _G.LootCloseButton or _G.LootFrameCloseButton
-		WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, close, { content = false })
+		local title = FindLootTitle(frame)
+		-- LootFrame has transparent margins around its visible native window art.
+		WSkin:SkinRetailWindow(frame, {
+			closeButton = close,
+			titleRegion = title,
+			titlePosition = { point = "TOPLEFT", relativePoint = "TOPLEFT", x = 8, y = -6, justify = "LEFT" },
+			insets = { left = 16, top = -54, right = -77, bottom = 8 },
+			hitRect = { clamp = true },
+			artRegions = {
+				{ object = _G.LootFramePortraitOverlay, action = "stripFade" },
+				{ object = _G.LootFrameBg, action = "stripFade" },
+			},
+		})
 
 		local up = _G.LootFrameUpButton
 		local down = _G.LootFrameDownButton
@@ -209,11 +211,9 @@ local function SkinLootFrame()
 			end
 		end)
 
-		data.title = FindLootTitle(frame)
+		data.title = title
 		if data.title then
 			WSkin:ApplyRetailTypography(data.title, "title")
-			data.title:ClearAllPoints()
-			data.title:SetPoint("TOPLEFT", frame.backdrop, "TOPLEFT", 8, -6)
 			data.title:SetWidth(130)
 			data.title:SetJustifyH("LEFT")
 			data.title:SetWordWrap(false)

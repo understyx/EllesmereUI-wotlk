@@ -331,15 +331,12 @@ WSkin:AddCallback("Skin_Merchant", function()
 	if not WSkin:IsSkinEnabled("merchant") then return end
 
 	local MerchantFrame = _G.MerchantFrame
-	WSkin:StripTextures(MerchantFrame, true)
-	WSkin:CreateBackdrop(MerchantFrame, "Transparent")
-	WSkin:Point(MerchantFrame.backdrop, "TOPLEFT", 11, -12)
-	WSkin:Point(MerchantFrame.backdrop, "BOTTOMRIGHT", -32, 76)
-	-- Shell on the visible backdrop rect; Blizzard's layout stays untouched.
-	WSkin:CreateRetailWindowShell(MerchantFrame.backdrop, nil, nil, MerchantFrameCloseButton, { content = false })
+	WSkin:SkinRetailWindow(MerchantFrame, {
+		closeButton = MerchantFrameCloseButton,
+		titleRegion = MerchantNameText,
+	})
 
 	WSkin:SetUIPanelWindowInfo(MerchantFrame, "width")
-	WSkin:SetBackdropHitRect(MerchantFrame)
 
 	MerchantFrame:EnableMouseWheel(true)
 	MerchantFrame:SetScript("OnMouseWheel", function(_, value)
@@ -447,7 +444,6 @@ WSkin:AddCallback("Skin_Merchant", function()
 	end)
 	MerchantFrame:HookScript("OnShow", LayoutMerchantTabs)
 
-	WSkin:SetRetailPageTitle(MerchantFrame.backdrop, nil, MerchantNameText)
 	WSkin:ApplyRetailTypography(MerchantPageText, "secondary")
 	WSkin:ApplyRetailTypography(MerchantRepairText, "secondary")
 

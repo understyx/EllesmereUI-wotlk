@@ -28,24 +28,20 @@ local function Strip(name, kill)
 	return object
 end
 
-local function SkinWindow(frame, closeButton, topLeftX, topLeftY, bottomRightX, bottomRightY)
+local function SkinWindow(frame, closeButton, insets)
 	frame = Object(frame)
 	if not frame then return end
 	if not skinned[frame] then
 		skinned[frame] = true
-		WSkin:StripTextures(frame)
-		WSkin:CreateBackdrop(frame, "Transparent")
-		frame.backdrop:ClearAllPoints()
-		frame.backdrop:SetPoint("TOPLEFT", frame, "TOPLEFT", topLeftX or 11, topLeftY or -12)
-		frame.backdrop:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bottomRightX or -32, bottomRightY or 76)
-		-- These windows keep Blizzard's layout, which is anchored against the
-		-- old artwork rect; the shared shell lives on that visible backdrop.
-		WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, Object(closeButton), { content = false })
 		local frameName = frame.GetName and frame:GetName()
 		local title = frameName and (_G[frameName .. "TitleText"] or _G[frameName .. "HeaderText"])
-		if title then WSkin:SetRetailPageTitle(frame.backdrop, nil, title) end
+		WSkin:SkinRetailWindow(frame, {
+			closeButton = Object(closeButton),
+			titleRegion = title,
+			insets = insets,
+			killTextures = false,
+		})
 		WSkin:SetUIPanelWindowInfo(frame, "width")
-		WSkin:SetBackdropHitRect(frame, frame.backdrop)
 	end
 	return frame
 end
@@ -186,7 +182,12 @@ local function SkinMacro()
 	if _G.MacroPopupFrame then
 		WSkin:HandleIconSelectionFrame(_G.MacroPopupFrame, _G.NUM_MACRO_ICONS_SHOWN or 20, "MacroPopupButton", "MacroPopup")
 		if _G.MacroPopupFrame.backdrop then
-			WSkin:CreateRetailWindowShell(_G.MacroPopupFrame.backdrop, nil, nil, nil, { content = false })
+			WSkin:SkinRetailWindow(_G.MacroPopupFrame, {
+				shellFrame = _G.MacroPopupFrame.backdrop,
+				createBackdrop = false,
+				strip = false,
+				insets = false,
+			})
 		end
 		Buttons({ "MacroPopupOkayButton", "MacroPopupCancelButton" })
 		StyleInput(_G.MacroPopupEditBox)
@@ -254,7 +255,8 @@ end
 -------------------------------------------------------------------------------
 local function SkinCalendar()
 	if not WSkin:IsSkinEnabled("calendar") or not _G.CalendarFrame then return end
-	SkinWindow("CalendarFrame", "CalendarCloseButton", 3, -7, -2, -4)
+	-- Calendar's 3.3.5 frame art extends almost to the native rect edges.
+	SkinWindow("CalendarFrame", "CalendarCloseButton", { left = 3, top = -7, right = -2, bottom = -4 })
 	WSkin:HandleNextPrevButton(_G.CalendarPrevMonthButton, "left")
 	WSkin:HandleNextPrevButton(_G.CalendarNextMonthButton, "right")
 	WSkin:HandleNextPrevButton(_G.CalendarFilterButton, "down")
@@ -290,19 +292,20 @@ end
 local function SkinSettings()
 	if not WSkin:IsSkinEnabled("settings") then return end
 	if _G.InterfaceOptionsFrame then
-		SkinWindow("InterfaceOptionsFrame", "InterfaceOptionsFrameCloseButton", 3, -7, -3, 3)
+		-- The options panels use a compact native visible art rectangle.
+		SkinWindow("InterfaceOptionsFrame", "InterfaceOptionsFrameCloseButton", { left = 3, top = -7, right = -3, bottom = 3 })
 		SkinTabs("InterfaceOptionsFrameTab", 2, "InterfaceOptionsFrame")
 		ScrollBars({ "InterfaceOptionsFrameCategoriesListScrollBar", "InterfaceOptionsFrameAddOnsListScrollBar" })
 		Buttons({ "InterfaceOptionsFrameDefaults", "InterfaceOptionsFrameCancel" })
 		Buttons({ "InterfaceOptionsFrameOkay" }, true)
 	end
 	if _G.VideoOptionsFrame then
-		SkinWindow("VideoOptionsFrame", "VideoOptionsFrameCloseButton", 3, -7, -3, 3)
+		SkinWindow("VideoOptionsFrame", "VideoOptionsFrameCloseButton", { left = 3, top = -7, right = -3, bottom = 3 })
 		Buttons({ "VideoOptionsFrameDefaults", "VideoOptionsFrameCancel" })
 		Buttons({ "VideoOptionsFrameOkay" }, true)
 	end
 	if _G.AudioOptionsFrame then
-		SkinWindow("AudioOptionsFrame", "AudioOptionsFrameCloseButton", 3, -7, -3, 3)
+		SkinWindow("AudioOptionsFrame", "AudioOptionsFrameCloseButton", { left = 3, top = -7, right = -3, bottom = 3 })
 		Buttons({ "AudioOptionsFrameDefaults", "AudioOptionsFrameCancel" })
 		Buttons({ "AudioOptionsFrameOkay" }, true)
 	end
@@ -310,7 +313,8 @@ end
 
 local function SkinAddonList()
 	if not WSkin:IsSkinEnabled("addonlist") or not _G.AddonList then return end
-	SkinWindow("AddonList", "AddonListCloseButton", 8, -12, -8, 8)
+	-- AddonList's 3.3.5 art has a wide visible footer and narrow side margins.
+	SkinWindow("AddonList", "AddonListCloseButton", { left = 8, top = -12, right = -8, bottom = 8 })
 	WSkin:HandleRetailScrollBar(_G.AddonListScrollFrameScrollBar)
 	DropDown("AddonCharacterDropDown")
 	Buttons({ "AddonListEnableAllButton", "AddonListDisableAllButton", "AddonListCancelButton" })
@@ -323,7 +327,8 @@ end
 -------------------------------------------------------------------------------
 local function SkinTrade()
 	if not WSkin:IsSkinEnabled("misc") or not _G.TradeFrame then return end
-	SkinWindow("TradeFrame", "TradeFrameCloseButton", 11, -12, -21, 49)
+	-- TradeFrame leaves a shorter native artwork footer for the trade slots.
+	SkinWindow("TradeFrame", "TradeFrameCloseButton", { left = 11, top = -12, right = -21, bottom = 49 })
 	EditBoxes({
 		"TradePlayerInputMoneyFrameGold", "TradePlayerInputMoneyFrameSilver", "TradePlayerInputMoneyFrameCopper",
 	})
@@ -350,14 +355,15 @@ end
 
 local function SkinTaxi()
 	if not WSkin:IsSkinEnabled("worldmap") or not _G.TaxiFrame then return end
-	SkinWindow("TaxiFrame", "TaxiCloseButton", 11, -12, -32, 76)
+	SkinWindow("TaxiFrame", "TaxiCloseButton")
 	if _G.TaxiPortrait then WSkin:Kill(_G.TaxiPortrait) end
 	Card("TaxiRouteMap")
 end
 
 local function SkinHelp()
 	if not WSkin:IsSkinEnabled("misc") or not _G.HelpFrame then return end
-	SkinWindow("HelpFrame", "HelpFrameCloseButton", 6, 0, -45, 14)
+	-- HelpFrame's visible art excludes its broad lower information footer.
+	SkinWindow("HelpFrame", "HelpFrameCloseButton", { left = 6, top = 0, right = -45, bottom = 14 })
 	Each({
 		"HelpFrameGMTalkOpenTicket", "HelpFrameGMTalkCancel",
 		"HelpFrameReportIssueOpenTicket", "HelpFrameReportIssueCancel",

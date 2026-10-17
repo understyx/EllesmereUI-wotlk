@@ -83,19 +83,15 @@ local function SkinGuildBank()
 
 	local frame = _G.GuildBankFrame
 	WSkin:Width(frame, 639)
-	WSkin:StripTextures(frame, true)
-	WSkin:CreateBackdrop(frame, "Transparent")
-	if not frame.backdrop then return end
-	frame.backdrop:ClearAllPoints()
-	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 11, -12)
-	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 8)
-	-- Keep Blizzard's top-based content layout and build the shared window
-	-- shell on the visible backdrop rect rather than resizing the frame.
 	local close = _G.GuildBankFrameCloseButton
 	if not close and frame.GetChildren then close = select(13, frame:GetChildren()) end
-	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, close, { content = false })
+	-- GuildBank's native visible panel extends lower than the common 384x512 art rect.
+	local _, shellState = WSkin:SkinRetailWindow(frame, {
+		closeButton = close,
+		insets = { left = 11, top = -12, right = 0, bottom = 8 },
+	})
+	if not shellState then return end
 	WSkin:SetUIPanelWindowInfo(frame, "width", nil, 35)
-	WSkin:SetBackdropHitRect(frame)
 
 	if not frame.inset then
 		frame.inset = CreateFrame("Frame", nil, frame)
@@ -208,7 +204,12 @@ local function SkinGuildBank()
 		local popup = _G.GuildBankPopupFrame
 		WSkin:HandleIconSelectionFrame(popup, Count(_G.NUM_GUILDBANK_ICONS_SHOWN, 20), "GuildBankPopupButton", "GuildBankPopup")
 		if popup.backdrop then
-			WSkin:CreateRetailWindowShell(popup.backdrop, nil, nil, nil, { content = false })
+			WSkin:SkinRetailWindow(popup, {
+				shellFrame = popup.backdrop,
+				createBackdrop = false,
+				strip = false,
+				insets = false,
+			})
 		end
 		Each({ "GuildBankPopupOkayButton", "GuildBankPopupCancelButton" }, WSkin.HandleRetailButton)
 		StyleInput(_G.GuildBankPopupEditBox)
@@ -216,7 +217,6 @@ local function SkinGuildBank()
 			local button = _G["GuildBankPopupButton" .. i]
 			if button then WSkin:ApplyRetailSurface(button, "input") end
 		end
-		WSkin:SetBackdropHitRect(popup)
 		WSkin:HandleRetailScrollBar(_G.GuildBankPopupScrollFrameScrollBar)
 		Point(_G.GuildBankPopupFrame, "TOPLEFT", frame, "TOPRIGHT", 24, 0)
 	end

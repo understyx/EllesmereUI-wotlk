@@ -28,14 +28,14 @@ end
 
 local function SkinPanel(frame, closeButton, left, top, right, bottom)
 	if not frame then return end
-	WSkin:StripTextures(frame, true)
-	WSkin:CreateBackdrop(frame, "Transparent")
-	if not frame.backdrop then return end
-	frame.backdrop:ClearAllPoints()
-	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", left or 4, top or -6)
-	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", right or -2, bottom or 0)
-	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
-	WSkin:SetBackdropHitRect(frame)
+	local insets
+	if left ~= nil or top ~= nil or right ~= nil or bottom ~= nil then
+		insets = {
+			left = left or 0, top = top or 0,
+			right = right or 0, bottom = bottom or 0,
+		}
+	end
+	WSkin:SkinRetailWindow(frame, { closeButton = closeButton, insets = insets })
 end
 
 local function Card(frame, kind)
@@ -155,14 +155,12 @@ local function SkinSocial()
 	-- before building the shell and keep all of Blizzard's top-based content in
 	-- exactly the same place.
 	WSkin:Height(frame, 467)
-	WSkin:CreateRetailWindowShell(
-		frame,
-		nil,
-		_G.FriendsFrameTitleText,
-		_G.FriendsFrameCloseButton,
-		{ content = false }
-	)
-	frame:SetHitRectInsets(0, 0, 0, 0)
+	WSkin:SkinRetailWindow(frame, {
+		shellOnFrame = true,
+		titleRegion = _G.FriendsFrameTitleText,
+		closeButton = _G.FriendsFrameCloseButton,
+		hitRect = "full",
+	})
 	WSkin:SetUIPanelWindowInfo(frame, "width", frame:GetWidth())
 
 	WSkin:HandleDropDownBox(_G.FriendsFrameStatusDropDown, 70)
@@ -292,6 +290,7 @@ local function SkinSocial()
 	Point(_G.GuildFrameAddMemberButton, "RIGHT", _G.GuildFrameControlButton, "LEFT", -3, 0)
 	Point(_G.GuildFrameGuildInformationButton, "RIGHT", _G.GuildFrameAddMemberButton, "LEFT", -3, 0)
 
+	-- GuildMemberDetail is a text-only dialog whose visible native rect fills the frame.
 	SkinPanel(_G.GuildMemberDetailFrame, _G.GuildMemberDetailCloseButton, 0, 0, 0, 0)
 	WSkin:HandleNextPrevButton(_G.GuildFramePromoteButton)
 	WSkin:HandleNextPrevButton(_G.GuildFrameDemoteButton)
@@ -311,6 +310,7 @@ local function SkinSocial()
 	WSkin:HandleRetailScrollBar(_G.GuildEventLogScrollFrameScrollBar)
 	WSkin:HandleRetailButton(_G.GuildEventLogCancelButton)
 
+	-- This popup's 3.3.5 visible content window ends before the native form footer.
 	SkinPanel(_G.GuildControlPopupFrame, nil, 4, -6, -27, 27)
 	WSkin:HandleDropDownBox(_G.GuildControlPopupFrameDropDown, 185)
 	StyleInput(_G.GuildControlPopupFrameDropDown)
@@ -351,9 +351,11 @@ local function SkinSocial()
 	WSkin:HandleRetailButton(_G.ChannelFrameNewButton, true)
 
 	if _G.ChannelFrameDaughterFrame then
-		WSkin:StripTextures(_G.ChannelFrameDaughterFrame)
-		WSkin:CreateRetailWindowShell(_G.ChannelFrameDaughterFrame, nil, _G.ChannelFrameDaughterFrameTitle,
-			_G.ChannelFrameDaughterFrameDetailCloseButton, { content = false })
+		WSkin:SkinRetailWindow(_G.ChannelFrameDaughterFrame, {
+			shellOnFrame = true,
+			titleRegion = _G.ChannelFrameDaughterFrameTitle,
+			closeButton = _G.ChannelFrameDaughterFrameDetailCloseButton,
+		})
 		for _, name in ipairs({ "ChannelFrameDaughterFrameChannelName", "ChannelFrameDaughterFrameChannelPassword" }) do
 			WSkin:HandleEditBox(_G[name])
 			StyleInput(_G[name])
@@ -371,6 +373,7 @@ local function SkinSocial()
 	WSkin:ApplyRetailRegionTypography(_G.RaidFrameNotInRaid, "row")
 
 	if _G.RaidInfoFrame then
+		-- RaidInfo is a text-only dialog; its visible 3.3.5 rect fills the frame.
 		SkinPanel(_G.RaidInfoFrame, _G.RaidInfoCloseButton, 0, 0, 0, 0)
 		WSkin:StripTextures(_G.RaidInfoInstanceLabel)
 		WSkin:StripTextures(_G.RaidInfoIDLabel)

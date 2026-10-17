@@ -238,16 +238,14 @@ WSkin:AddCallback("Skin_Spellbook", function()
 	local frame = _G.SpellBookFrame
 	if not frame then return end
 
-	WSkin:StripTextures(frame, true)
 	frame:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
-	WSkin:CreateRetailWindowShell(
-		frame,
-		_G.SPELLBOOK or "Spellbook",
-		_G.SpellBookTitleText,
-		_G.SpellBookCloseButton,
-		{ content = false }
-	)
-	frame:SetHitRectInsets(0, 0, 0, 0)
+	WSkin:SkinRetailWindow(frame, {
+		shellOnFrame = true,
+		title = _G.SPELLBOOK or "Spellbook",
+		titleRegion = _G.SpellBookTitleText,
+		closeButton = _G.SpellBookCloseButton,
+		hitRect = "full",
+	})
 	WSkin:SetUIPanelWindowInfo(frame, "width", frame:GetWidth())
 
 	WSkin:HandleCheckBox(_G.ShowAllSpellRanksCheckBox)

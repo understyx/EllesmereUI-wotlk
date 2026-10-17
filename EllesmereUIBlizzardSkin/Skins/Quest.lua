@@ -21,28 +21,25 @@ local GetQuestMoneyToGet = GetQuestMoneyToGet
 local MAX_NUM_ITEMS = MAX_NUM_ITEMS
 local MAX_REPUTATIONS = MAX_REPUTATIONS
 
--- Blizzard lays these windows out against their old artwork rect, so the
--- shared window shell is built on that visible backdrop, not the frame.
-local function Shell(frame, closeButton, titleRegion)
-	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
-	if titleRegion then WSkin:SetRetailPageTitle(frame.backdrop, nil, titleRegion) end
-end
-
 local function Surface(frame, kind)
 	if frame and frame.backdrop then WSkin:ApplyRetailSurface(frame.backdrop, kind or "card") end
+end
+
+local function AccentText(region)
+	if region and region.SetTextColor then region:SetTextColor(WSkin:GetRetailAccent()) end
 end
 
 WSkin:AddCallback("Skin_Quest", function()
 	if not WSkin:IsSkinEnabled("quest") then return end
 
-	WSkin:StripTextures(QuestLogFrame)
-	WSkin:CreateBackdrop(QuestLogFrame, "Transparent")
-	WSkin:Point(QuestLogFrame.backdrop, "TOPLEFT", 11, -12)
-	WSkin:Point(QuestLogFrame.backdrop, "BOTTOMRIGHT", -1, 11)
-	Shell(QuestLogFrame, QuestLogFrameCloseButton, _G.QuestLogTitleText)
+	-- QuestLog's visible 3.3.5 art reaches the frame's bottom and right edges.
+	WSkin:SkinRetailWindow(QuestLogFrame, {
+		closeButton = QuestLogFrameCloseButton,
+		titleRegion = _G.QuestLogTitleText,
+		insets = { left = 11, top = -12, right = -1, bottom = 11 },
+	})
 
 	WSkin:SetUIPanelWindowInfo(QuestLogFrame, "width")
-	WSkin:SetBackdropHitRect(QuestLogFrame)
 
 	WSkin:StripTextures(QuestLogCount)
 	WSkin:CreateBackdrop(QuestLogCount, "Transparent")
@@ -129,16 +126,16 @@ WSkin:AddCallback("Skin_Quest", function()
 	end
 
 	-- QuestLog Detail Frame
-	WSkin:StripTextures(QuestLogDetailFrame)
 	WSkin:Height(QuestLogDetailFrame, 513)
-	WSkin:CreateBackdrop(QuestLogDetailFrame, "Transparent")
-	WSkin:Point(QuestLogDetailFrame.backdrop, "TOPLEFT", 11, -12)
-	WSkin:Point(QuestLogDetailFrame.backdrop, "BOTTOMRIGHT", 2, 1)
-	Shell(QuestLogDetailFrame, QuestLogDetailFrameCloseButton, QuestLogDetailTitleText)
+	-- Detail's visible native art rect reaches the bottom and nearly the right edge.
+	WSkin:SkinRetailWindow(QuestLogDetailFrame, {
+		closeButton = QuestLogDetailFrameCloseButton,
+		titleRegion = QuestLogDetailTitleText,
+		insets = { left = 11, top = -12, right = 2, bottom = 1 },
+	})
 
 	WSkin:SetUIPanelWindowInfo(QuestLogDetailFrame, "height", nil, nil, true)
 	WSkin:SetUIPanelWindowInfo(QuestLogDetailFrame, "width")
-	WSkin:SetBackdropHitRect(QuestLogDetailFrame)
 
 
 	QuestLogDetailFrame:HookScript("OnShow", function()
@@ -154,14 +151,14 @@ WSkin:AddCallback("Skin_Quest", function()
 	end)
 
 	-- Quest Frame
-	WSkin:StripTextures(QuestFrame, true)
-	WSkin:CreateBackdrop(QuestFrame, "Transparent")
-	WSkin:Point(QuestFrame.backdrop, "TOPLEFT", 11, -12)
-	WSkin:Point(QuestFrame.backdrop, "BOTTOMRIGHT", -32, 0)
-	Shell(QuestFrame, QuestFrameCloseButton, QuestFrameNpcNameText)
+	-- QuestFrame's native 3.3.5 panel has no reserved footer margin.
+	WSkin:SkinRetailWindow(QuestFrame, {
+		closeButton = QuestFrameCloseButton,
+		titleRegion = QuestFrameNpcNameText,
+		insets = { left = 11, top = -12, right = -32, bottom = 0 },
+	})
 
 	WSkin:SetUIPanelWindowInfo(QuestFrame, "width")
-	WSkin:SetBackdropHitRect(QuestFrame)
 
 	WSkin:StripTextures(QuestFrameDetailPanel, true)
 	WSkin:StripTextures(QuestDetailScrollFrame, true)
@@ -210,8 +207,8 @@ WSkin:AddCallback("Skin_Quest", function()
 	WSkin:HandleRetailScrollBar(QuestGreetingScrollFrameScrollBar)
 
 	GreetingText:SetTextColor(1, 1, 1)
-	CurrentQuestsText:SetTextColor(1, 0.80, 0.10)
-	AvailableQuestsText:SetTextColor(1, 0.80, 0.10)
+	AccentText(CurrentQuestsText)
+	AccentText(AvailableQuestsText)
 
 	GreetingText.SetTextColor = function() end
 	CurrentQuestsText.SetTextColor = function() end
@@ -290,9 +287,9 @@ WSkin:AddCallback("Skin_Quest", function()
 	end
 
 	hooksecurefunc("QuestFrameProgressItems_Update", function()
-		QuestProgressTitleText:SetTextColor(1, 0.80, 0.10)
+		AccentText(QuestProgressTitleText)
 		QuestProgressText:SetTextColor(1, 1, 1)
-		QuestProgressRequiredItemsText:SetTextColor(1, 0.80, 0.10)
+		AccentText(QuestProgressRequiredItemsText)
 
 		local moneyToGet = GetQuestMoneyToGet()
 
@@ -300,7 +297,7 @@ WSkin:AddCallback("Skin_Quest", function()
 			if moneyToGet > GetMoney() then
 				QuestProgressRequiredMoneyText:SetTextColor(0.6, 0.6, 0.6)
 			else
-				QuestProgressRequiredMoneyText:SetTextColor(1, 0.80, 0.10)
+				AccentText(QuestProgressRequiredMoneyText)
 			end
 		end
 
@@ -317,9 +314,9 @@ WSkin:AddCallback("Skin_Quest", function()
 
 	hooksecurefunc("QuestInfoItem_OnClick", function(self)
 		if self.type == "choice" then
-			self:SetBackdropBorderColor(1, 0.80, 0.10)
-			self.backdrop:SetBackdropBorderColor(1, 0.80, 0.10)
-			_G[self:GetName().."Name"]:SetTextColor(1, 0.80, 0.10)
+			self:SetBackdropBorderColor(WSkin:GetRetailAccent())
+			self.backdrop:SetBackdropBorderColor(WSkin:GetRetailAccent())
+			AccentText(_G[self:GetName().."Name"])
 
 			local item, name, link
 
@@ -349,7 +346,7 @@ WSkin:AddCallback("Skin_Quest", function()
 				objective = _G["QuestInfoObjective"..numVisibleObjectives]
 
 				if finished then
-					objective:SetTextColor(1, 0.80, 0.10)
+					AccentText(objective)
 				else
 					objective:SetTextColor(0.6, 0.6, 0.6)
 				end
@@ -358,10 +355,10 @@ WSkin:AddCallback("Skin_Quest", function()
 	end
 
 	hooksecurefunc("QuestInfo_Display", function()
-		QuestInfoTitleHeader:SetTextColor(1, 0.80, 0.10)
-		QuestInfoDescriptionHeader:SetTextColor(1, 0.80, 0.10)
-		QuestInfoObjectivesHeader:SetTextColor(1, 0.80, 0.10)
-		QuestInfoRewardsHeader:SetTextColor(1, 0.80, 0.10)
+		AccentText(QuestInfoTitleHeader)
+		AccentText(QuestInfoDescriptionHeader)
+		AccentText(QuestInfoObjectivesHeader)
+		AccentText(QuestInfoRewardsHeader)
 
 		QuestInfoDescriptionText:SetTextColor(1, 1, 1)
 		QuestInfoObjectivesText:SetTextColor(1, 1, 1)
@@ -387,7 +384,7 @@ WSkin:AddCallback("Skin_Quest", function()
 			if requiredMoney > GetMoney() then
 				QuestInfoRequiredMoneyText:SetTextColor(0.6, 0.6, 0.6)
 			else
-				QuestInfoRequiredMoneyText:SetTextColor(1, 0.80, 0.10)
+				AccentText(QuestInfoRequiredMoneyText)
 			end
 		end
 
@@ -423,7 +420,7 @@ WSkin:AddCallback("Skin_Quest", function()
 			if requiredMoney > GetMoney() then
 				QuestInfoRequiredMoneyText:SetTextColor(0.6, 0.6, 0.6)
 			else
-				QuestInfoRequiredMoneyText:SetTextColor(1, 0.80, 0.10)
+				AccentText(QuestInfoRequiredMoneyText)
 			end
 		end
 	end)

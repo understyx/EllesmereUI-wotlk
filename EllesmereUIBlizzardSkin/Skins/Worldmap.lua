@@ -46,14 +46,13 @@ WSkin:AddCallback("Skin_WorldMap", function()
 
 	-- Strip only the map window's own ornamental border. The actual map tiles
 	-- live on child frames and remain completely Blizzard-controlled.
-	WSkin:StripTextures(frame, true)
-	local shellState = WSkin:CreateRetailWindowShell(
-		frame,
-		nil,
-		_G.WorldMapFrameTitle,
-		_G.WorldMapFrameCloseButton,
-		{ content = false }
-	)
+	local _, shellState = WSkin:SkinRetailWindow(frame, {
+		shellOnFrame = true,
+		titleRegion = _G.WorldMapFrameTitle,
+		closeButton = _G.WorldMapFrameCloseButton,
+		border = false,
+		hitRect = false,
+	})
 	frame:SetClampRectInsets(3, 0, 2, 1)
 
 	-- WorldMapFrame is a full-screen frame in the large views and a 593x437
@@ -65,7 +64,8 @@ WSkin:AddCallback("Skin_WorldMap", function()
 	if pixel and pixel.HideBorder then pixel.HideBorder(frame) end
 	local shellBorder = _G.CreateFrame("Frame", nil, frame)
 	if pixel and pixel.CreateBorder then
-		pixel.CreateBorder(shellBorder, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
+		local border = WSkin.Retail.colors.border
+		pixel.CreateBorder(shellBorder, border[1], border[2], border[3], border[4], WSkin.Retail.border.width, "OVERLAY", 7)
 	end
 
 	local function SetRect(object, topLeft, topLeftPoint, x1, y1, bottomRight, bottomRightPoint, x2, y2)
@@ -111,7 +111,7 @@ WSkin:AddCallback("Skin_WorldMap", function()
 
 	if _G.WorldMapDetailFrame then
 		WSkin:ApplyRetailSurface(_G.WorldMapDetailFrame, "body")
-		_G.WorldMapDetailFrame:SetBackdropBorderColor(1, 1, 1, 0.12)
+		_G.WorldMapDetailFrame:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 	end
 
 	local questDetail = _G.WorldMapQuestDetailScrollFrame
@@ -261,7 +261,7 @@ WSkin:AddCallback("Skin_WorldMap", function()
 	local function RefreshMapShell(mode)
 		if _G.WorldMapDetailFrame then
 			WSkin:ApplyRetailSurface(_G.WorldMapDetailFrame, "body")
-			_G.WorldMapDetailFrame:SetBackdropBorderColor(1, 1, 1, 0.12)
+			_G.WorldMapDetailFrame:SetBackdropBorderColor(unpack(WSkin.Retail.colors.border))
 		end
 		WSkin:SetRetailPageTitle(frame, nil, _G.WorldMapFrameTitle)
 		StyleMapTypography()

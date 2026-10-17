@@ -7,7 +7,6 @@
 -- reapplies the shared Retail-inspired visual language after native updates.
 -------------------------------------------------------------------------------
 local WSkin = _G.EllesmereUIBlizzardSkin
-local EUI = _G.EllesmereUI
 if not WSkin then return end
 
 local WHITE8X8 = "Interface\\Buttons\\WHITE8X8"
@@ -45,101 +44,38 @@ local function ApplyTypography(frame, tier, alpha)
     if frame then WSkin:ApplyRetailRegionTypography(frame, tier, alpha) end
 end
 
-local function SkinCloseButton(button, owner)
-    if not button or not owner then return end
-    local data = GetFFD(button)
-    for _, getter in ipairs({
-        "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture",
-    }) do
-        local texture = button[getter] and button[getter](button)
-        if texture and texture ~= data.closeTexture then texture:SetAlpha(0) end
-    end
-    FadeTextureRegions(button, data.closeTexture and { [data.closeTexture] = true } or nil)
-    if not data.closeTexture then
-        local texture = button:CreateTexture(nil, "OVERLAY")
-        texture:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
-        texture:SetPoint("CENTER")
-        texture:SetSize(14, 14)
-        texture:SetVertexColor(1, 1, 1, 0.75)
-        data.closeTexture = texture
-        button:HookScript("OnEnter", function()
-            texture:SetVertexColor(1, 1, 1, 1)
-        end)
-        button:HookScript("OnLeave", function()
-            texture:SetVertexColor(1, 1, 1, 0.75)
-        end)
-    end
-    button:ClearAllPoints()
-    button:SetPoint("TOPRIGHT", owner, "TOPRIGHT", -3, -3)
-    button:SetSize(24, 24)
-end
-
 local function SkinShell(frame)
     if not frame then return end
     local data = GetFFD(frame)
-
-    for _, name in ipairs({
-        "AchievementFrameBackground",
-        "AchievementFrameMetalBorderLeft", "AchievementFrameMetalBorderRight",
-        "AchievementFrameMetalBorderTop", "AchievementFrameMetalBorderBottom",
-        "AchievementFrameMetalBorderTopLeft", "AchievementFrameMetalBorderTopRight",
-        "AchievementFrameMetalBorderBottomLeft", "AchievementFrameMetalBorderBottomRight",
-        "AchievementFrameWoodBorderTopLeft", "AchievementFrameWoodBorderTopRight",
-        "AchievementFrameWoodBorderBottomLeft", "AchievementFrameWoodBorderBottomRight",
-        "AchievementFrameCategoriesBG", "AchievementFrameWaterMark",
-    }) do
-        Fade(_G[name])
-    end
     if frame.SetBackdrop then frame:SetBackdrop(nil) end
-
-    if not data.background then
-        local background = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-        background:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
-        background:SetAllPoints(frame)
-        data.background = background
-
-        local overlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        data.overlay = overlay
-        -- Shared retail shade: lifted header band over a near-black body.
-        data.topBar = WSkin:ApplyRetailShellShade(frame, overlay)
-
-        local baseLeft, baseRight, baseTop, baseBottom = 0.25, 1, 0, 0.75
-        local baseWidth, baseHeight = baseRight - baseLeft, baseBottom - baseTop
-        local imageAspect = 561 / 433
-        local function UpdateTexCoords()
-            local width, height = frame:GetSize()
-            if not width or not height or width == 0 or height == 0 then return end
-            local frameAspect = width / height
-            if frameAspect > imageAspect then
-                local visibleHeight = baseHeight * (imageAspect / frameAspect)
-                local trim = (baseHeight - visibleHeight) / 2
-                background:SetTexCoord(baseLeft, baseRight, baseTop + trim, baseBottom - trim)
-            else
-                local visibleWidth = baseWidth * (frameAspect / imageAspect)
-                local trim = (baseWidth - visibleWidth) / 2
-                background:SetTexCoord(baseLeft + trim, baseRight - trim, baseTop, baseBottom)
-            end
-        end
-        hooksecurefunc(frame, "SetSize", UpdateTexCoords)
-        hooksecurefunc(frame, "SetWidth", UpdateTexCoords)
-        hooksecurefunc(frame, "SetHeight", UpdateTexCoords)
-        UpdateTexCoords()
-
-        local border = EUI and (EUI.PanelPP or EUI.PP)
-        if border and border.CreateBorder then
-            border.CreateBorder(frame, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
-        end
-    end
-    data.background:Show()
-    data.overlay:Show()
-    data.topBar:Show()
+    WSkin:SkinRetailWindow(frame, {
+        shellOnFrame = true,
+        strip = false,
+        title = ACHIEVEMENTS or "Achievements",
+        titleRegion = _G.AchievementFrameHeaderTitle,
+        closeButton = _G.AchievementFrameCloseButton,
+        rehideOnShow = true,
+        artRegions = {
+            { object = "AchievementFrameBackground", action = "fade" },
+            { object = "AchievementFrameMetalBorderLeft", action = "fade" },
+            { object = "AchievementFrameMetalBorderRight", action = "fade" },
+            { object = "AchievementFrameMetalBorderTop", action = "fade" },
+            { object = "AchievementFrameMetalBorderBottom", action = "fade" },
+            { object = "AchievementFrameMetalBorderTopLeft", action = "fade" },
+            { object = "AchievementFrameMetalBorderTopRight", action = "fade" },
+            { object = "AchievementFrameMetalBorderBottomLeft", action = "fade" },
+            { object = "AchievementFrameMetalBorderBottomRight", action = "fade" },
+            { object = "AchievementFrameWoodBorderTopLeft", action = "fade" },
+            { object = "AchievementFrameWoodBorderTopRight", action = "fade" },
+            { object = "AchievementFrameWoodBorderBottomLeft", action = "fade" },
+            { object = "AchievementFrameWoodBorderBottomRight", action = "fade" },
+            { object = "AchievementFrameCategoriesBG", action = "fade" },
+            { object = "AchievementFrameWaterMark", action = "fade" },
+        },
+    })
 
     local header = _G.AchievementFrameHeader
     if header then FadeTextureRegions(header) end
-    local title = _G.AchievementFrameHeaderTitle
-    -- On 3.3.5 ACHIEVEMENT_TITLE is the "Achievement Points" header label;
-    -- the window name lives in ACHIEVEMENTS.
-    WSkin:SetRetailPageTitle(frame, ACHIEVEMENTS or "Achievements", title)
 
     if not data.pointsCard then
         local card = CreateFrame("Frame", nil, frame)
@@ -167,7 +103,6 @@ local function SkinShell(frame)
     Fade(_G.AchievementFrameHeaderRight)
     Fade(_G.AchievementFrameHeaderRightDDLInset)
 
-    SkinCloseButton(_G.AchievementFrameCloseButton, frame)
 end
 
 local function LayoutMainPanels()

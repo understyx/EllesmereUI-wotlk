@@ -261,11 +261,8 @@ local function UpdateTalentButtons()
 			if not talentButtonsSkinned[talent] then
 				talentButtonsSkinned[talent] = true
 				WSkin:StripTextures(talent)
-				WSkin:ApplyRetailSurface(talent, "card")
-				-- Keep Blizzard's 37px hit target/branch alignment, but make the
-				-- visible tile lighter and smaller than the original talent socket.
-				talent:SetBackdropColor(0.015, 0.020, 0.022, 0.35)
-				talent:SetBackdropBorderColor(1, 1, 1, 0.08)
+				-- Keep Blizzard's 37px hit target/branch alignment with the shared body surface.
+				WSkin:ApplyRetailSurface(talent, "body")
 				WSkin:StyleButton(talent)
 				local parent = talent.GetParent and talent:GetParent()
 				if parent and parent.GetFrameLevel then talent:SetFrameLevel(parent:GetFrameLevel() + 2) end
@@ -414,7 +411,7 @@ local function StyleGlyphSlot(slot)
 		data.iconWell = slot:CreateTexture(nil, "BACKGROUND", nil, 2)
 		data.iconWell:SetSize(46, 46)
 		data.iconWell:SetPoint("CENTER", data.iconBorder, "CENTER", 0, 0)
-		data.iconWell:SetTexture(0.012, 0.018, 0.021, 0.96)
+		data.iconWell:SetTexture(unpack(WSkin.Retail.colors.input))
 
 		data.emptyMark = slot:CreateFontString(nil, "OVERLAY")
 		data.emptyMark:SetPoint("CENTER", data.iconBorder, "CENTER", 0, 0)
@@ -461,6 +458,7 @@ local function StyleGlyphSlot(slot)
 	end
 
 	local ar, ag, ab = WSkin:GetRetailAccent()
+	local colors = WSkin.Retail.colors
 	local minor = glyphType == GLYPH_TYPE_MINOR
 	local glyphName
 	if glyphSpell and type(_G.GetSpellInfo) == "function" then
@@ -472,8 +470,8 @@ local function StyleGlyphSlot(slot)
 	data.typeLabel:SetTextColor(minor and 0.52 or ar, minor and 0.70 or ag, minor and 1.00 or ab, 0.90)
 
 	if not enabled then
-		slot:SetBackdropBorderColor(1, 1, 1, 0.05)
-		slot:SetBackdropColor(0.020, 0.026, 0.030, 0.42)
+		slot:SetBackdropBorderColor(unpack(colors.border))
+		slot:SetBackdropColor(colors.card[1], colors.card[2], colors.card[3], 0.42)
 		data.nameLabel:SetText(EllesmereUI.L("Locked slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, 0.34)
 		data.emptyMark:SetText("-")
@@ -481,7 +479,7 @@ local function StyleGlyphSlot(slot)
 		data.emptyMark:Show()
 	elseif minor then
 		slot:SetBackdropBorderColor(0.35, 0.58, 1.00, 0.42)
-		slot:SetBackdropColor(0.030, 0.043, 0.048, glyphSpell and 0.82 or 0.60)
+		slot:SetBackdropColor(colors.card[1], colors.card[2], colors.card[3], glyphSpell and 0.82 or 0.60)
 		data.nameLabel:SetText(glyphName or EllesmereUI.L("Empty slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, glyphSpell and 0.92 or 0.58)
 		data.emptyMark:SetText("+")
@@ -489,7 +487,7 @@ local function StyleGlyphSlot(slot)
 		if glyphSpell then data.emptyMark:Hide() else data.emptyMark:Show() end
 	else
 		slot:SetBackdropBorderColor(ar, ag, ab, 0.55)
-		slot:SetBackdropColor(0.030, 0.043, 0.048, glyphSpell and 0.82 or 0.60)
+		slot:SetBackdropColor(colors.card[1], colors.card[2], colors.card[3], glyphSpell and 0.82 or 0.60)
 		data.nameLabel:SetText(glyphName or EllesmereUI.L("Empty slot"))
 		data.nameLabel:SetTextColor(1, 1, 1, glyphSpell and 0.92 or 0.58)
 		data.emptyMark:SetText("+")
@@ -601,14 +599,12 @@ local function SkinTalents()
 	if not frame then return end
 
 	frame:SetHeight(FRAME_HEIGHT)
-	WSkin:StripTextures(frame, true)
-	WSkin:CreateRetailWindowShell(
-		frame,
-		_G.TALENTS or "Talents",
-		_G.PlayerTalentFrameTitleText,
-		_G.PlayerTalentFrameCloseButton,
-		{ content = false }
-	)
+	WSkin:SkinRetailWindow(frame, {
+		shellOnFrame = true,
+		title = _G.TALENTS or "Talents",
+		titleRegion = _G.PlayerTalentFrameTitleText,
+		closeButton = _G.PlayerTalentFrameCloseButton,
+	})
 	LayoutTalentFrame()
 	WSkin:SetUIPanelWindowInfo(frame, "width", frame:GetWidth())
 

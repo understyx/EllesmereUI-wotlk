@@ -26,18 +26,15 @@ local function Each(names, handler, ...)
 	end
 end
 
-local function SkinWindow(frame, closeButton)
+local function SkinWindow(frame, closeButton, titleRegion, titleRegions, extraHitRects)
 	if not frame then return end
-	WSkin:StripTextures(frame, true)
-	WSkin:CreateBackdrop(frame, "Transparent")
-	if not frame.backdrop then return end
-	frame.backdrop:ClearAllPoints()
-	Point(frame.backdrop, "TOPLEFT", frame, "TOPLEFT", 11, -12)
-	Point(frame.backdrop, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 76)
-	-- Blizzard lays the mail pages out against the old artwork rect, so the
-	-- shared window shell lives on that visible backdrop, not the full frame.
-	WSkin:CreateRetailWindowShell(frame.backdrop, nil, nil, closeButton, { content = false })
-	return frame.backdrop
+	local shell = WSkin:SkinRetailWindow(frame, {
+		closeButton = closeButton,
+		titleRegion = titleRegion,
+		titleRegions = titleRegions,
+		extraHitRects = extraHitRects,
+	})
+	return shell
 end
 
 local function StyleInput(frame)
@@ -89,11 +86,12 @@ end
 local function SkinMail()
 	if not WSkin:IsSkinEnabled("mail") or not _G.MailFrame then return end
 
-	local mailBackdrop = SkinWindow(_G.MailFrame, _G.InboxCloseButton)
+	local mailBackdrop = SkinWindow(_G.MailFrame, _G.InboxCloseButton, _G.InboxTitleText,
+		{ _G.InboxTitleText, _G.SendMailTitleText }, {
+			{ frame = _G.SendMailFrame, backdrop = _G.MailFrame.backdrop },
+		})
 	if not mailBackdrop then return end
 	WSkin:SetUIPanelWindowInfo(_G.MailFrame, "width")
-	WSkin:SetBackdropHitRect(_G.MailFrame)
-	WSkin:SetBackdropHitRect(_G.SendMailFrame, mailBackdrop)
 
 	if _G.MailFrame.EnableMouseWheel then
 		_G.MailFrame:EnableMouseWheel(true)
@@ -147,8 +145,6 @@ local function SkinMail()
 		end)
 	end
 
-	WSkin:SetRetailPageTitle(mailBackdrop, nil, _G.InboxTitleText)
-	WSkin:SetRetailPageTitle(mailBackdrop, nil, _G.SendMailTitleText)
 	WSkin:ApplyRetailTypography(_G.InboxCurrentPage, "secondary")
 	WSkin:HandleNextPrevButton(_G.InboxPrevPageButton, "left", nil, true)
 	WSkin:HandleNextPrevButton(_G.InboxNextPageButton, "right", nil, true)
@@ -233,7 +229,7 @@ local function SkinMail()
 	Point(_G.SendMailMailButton, "RIGHT", _G.SendMailCancelButton, "LEFT", -3, 0)
 
 	if not _G.OpenMailFrame then return end
-	SkinWindow(_G.OpenMailFrame, _G.OpenMailCloseButton)
+	SkinWindow(_G.OpenMailFrame, _G.OpenMailCloseButton, _G.OpenMailTitleText)
 	Point(_G.OpenMailFrame, "TOPLEFT", _G.InboxFrame, "TOPRIGHT", -44, 0)
 
 	local receiveCount = Count(_G.ATTACHMENTS_MAX_RECEIVE, 16)
@@ -255,7 +251,6 @@ local function SkinMail()
 		end)
 	end
 
-	WSkin:SetRetailPageTitle(_G.OpenMailFrame.backdrop, nil, _G.OpenMailTitleText)
 	Each({ "OpenMailReportSpamButton", "OpenMailDeleteButton", "OpenMailCancelButton" }, WSkin.HandleRetailButton)
 	WSkin:HandleRetailButton(_G.OpenMailReplyButton, true)
 	WSkin:StripTextures(_G.OpenMailScrollFrame, true)

@@ -11,18 +11,16 @@ WSkin:AddCallback("Skin_Gossip", function()
 	if not WSkin:IsSkinEnabled("gossip") then return end
 
 	-- Gossip
-	WSkin:Kill(GossipFramePortrait)
 	WSkin:StripTextures(GossipFrameGreetingPanel)
-
-	WSkin:CreateBackdrop(GossipFrame, "Transparent")
-	WSkin:Point(GossipFrame.backdrop, "TOPLEFT", 11, -12)
-	WSkin:Point(GossipFrame.backdrop, "BOTTOMRIGHT", -32, 0)
-	-- Shared window shell on the visible backdrop rect; Blizzard's content
-	-- layout is anchored to the native frame and stays where it is.
-	WSkin:CreateRetailWindowShell(GossipFrame.backdrop, nil, nil, GossipFrameCloseButton, { content = false })
+	-- Gossip's 3.3.5 panel has no reserved footer margin in its visible art rect.
+	WSkin:SkinRetailWindow(GossipFrame, {
+		closeButton = GossipFrameCloseButton,
+		titleRegion = GossipFrameNpcNameText,
+		insets = { left = 11, top = -12, right = -32, bottom = 0 },
+		artRegions = { { object = GossipFramePortrait, action = "kill" } },
+	})
 
 	WSkin:SetUIPanelWindowInfo(GossipFrame, "width")
-	WSkin:SetBackdropHitRect(GossipFrame)
 
 	GossipGreetingText:SetTextColor(1, 1, 1)
 
@@ -34,8 +32,6 @@ WSkin:AddCallback("Skin_Gossip", function()
 		WSkin:HandleButtonHighlight(button)
 		select(3, button:GetRegions()):SetTextColor(1, 1, 1)
 	end
-
-	WSkin:SetRetailPageTitle(GossipFrame.backdrop, nil, GossipFrameNpcNameText)
 
 	WSkin:Size(GossipGreetingScrollFrame, 304, 402)
 	WSkin:Point(GossipGreetingScrollFrame, "TOPLEFT", GossipFrame, "TOPLEFT", 19, -73)
@@ -57,14 +53,12 @@ WSkin:AddCallback("Skin_Gossip", function()
 
 	-- ItemText
 	WSkin:StripTextures(ItemTextScrollFrame)
-	WSkin:StripTextures(ItemTextFrame, true)
-	WSkin:CreateBackdrop(ItemTextFrame, "Transparent")
-	WSkin:Point(ItemTextFrame.backdrop, "TOPLEFT", 11, -12)
-	WSkin:Point(ItemTextFrame.backdrop, "BOTTOMRIGHT", -32, 76)
-	WSkin:CreateRetailWindowShell(ItemTextFrame.backdrop, nil, nil, ItemTextCloseButton, { content = false })
+	WSkin:SkinRetailWindow(ItemTextFrame, {
+		closeButton = ItemTextCloseButton,
+		titleRegion = ItemTextTitleText,
+	})
 
 	WSkin:SetUIPanelWindowInfo(ItemTextFrame, "width")
-	WSkin:SetBackdropHitRect(ItemTextFrame)
 
 	ItemTextPageText:SetTextColor(1, 1, 1)
 	ItemTextPageText.SetTextColor = function() end
@@ -74,7 +68,6 @@ WSkin:AddCallback("Skin_Gossip", function()
 
 	WSkin:HandleRetailScrollBar(ItemTextScrollFrameScrollBar)
 
-	WSkin:SetRetailPageTitle(ItemTextFrame.backdrop, nil, ItemTextTitleText)
 	WSkin:ApplyRetailTypography(ItemTextCurrentPage, "secondary")
 
 	WSkin:Point(ItemTextCurrentPage, "TOP", -15, -52)
