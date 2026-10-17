@@ -8834,7 +8834,8 @@ local function UpdateButtonRange(unit, btn)
     elseif UnitPhaseReason and UnitPhaseReason(unit) then
         ApplyRangeAlpha(btn, oorAlpha)
     elseif UnitIsDeadOrGhost(unit) then
-        ApplyRangeAlpha(btn, 1)
+        -- Corpses use the same ~40yd UnitInRange check as living units.
+        ApplyRangeAlpha(btn, UnitInRange(unit) and 1 or oorAlpha)
     elseif usesSpellRange then
         local r = C_Spell_IsSpellInRange(playerFriendlySpell, unit)
         if r == true then
@@ -8842,11 +8843,13 @@ local function UpdateButtonRange(unit, btn)
         elseif r == false then
             ApplyRangeAlpha(btn, oorAlpha)
         else
-            -- An unavailable spell-range result is treated as in range.
-            ApplyRangeAlpha(btn, 1)
+            -- nil: the spell has no range relationship to this unit (usually
+            -- a different zone), so fall back to the ~40yd UnitInRange check.
+            ApplyRangeAlpha(btn, UnitInRange(unit) and 1 or oorAlpha)
         end
     else
-        ApplyRangeAlpha(btn, 1)
+        -- Wrath's UnitInRange returns 1/nil (~40yd, group members only).
+        ApplyRangeAlpha(btn, UnitInRange(unit) and 1 or oorAlpha)
     end
 end
 ns._UpdateButtonRange = UpdateButtonRange
