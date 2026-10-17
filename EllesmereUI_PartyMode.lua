@@ -59,6 +59,16 @@ end
 --  Celebration / dim-lights state
 -------------------------------------------------------------------------------
 local celebrationTimer = nil
+
+local function GetPartyModeDuration()
+    local db = EllesmereUIDB
+    if not db then return 30 end
+    if db.partyModeTriggerDuration == nil then
+        db.partyModeTriggerDuration = db.partyModeMPlusDuration
+    end
+    db.partyModeMPlusDuration = nil
+    return db.partyModeTriggerDuration or 30
+end
 local randomTimer = nil
 local randomScheduledTimer = nil
 local randomCooldownTimer = nil
@@ -344,7 +354,7 @@ local function ScheduleRandomActivation()
         EllesmereUIDB.partyMode = true
         EllesmereUI_StartPartyMode()
         if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
+        local duration = GetPartyModeDuration()
         celebrationTimer = C_Timer.NewTimer(duration, function()
             celebrationTimer = nil
             if EllesmereUIDB then EllesmereUIDB.partyMode = false end
@@ -439,7 +449,6 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
             EllesmereUI_StartPartyMode()
         end
         -- Register events
-        self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
         self:RegisterEvent("ENCOUNTER_END")
         self:RegisterEvent("PVP_MATCH_COMPLETE")
         -- Start random trigger if enabled
@@ -466,38 +475,12 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         end
         _pmSatedPresent = present
 
-    elseif event == "CHALLENGE_MODE_COMPLETED" then
-        if not EllesmereUIDB or not EllesmereUIDB.partyModeTriggerKeystone then return end
-        -- Only trigger for timed keystones
-        local onTime = false
-        if C_ChallengeMode.GetChallengeCompletionInfo then
-            local info = C_ChallengeMode.GetChallengeCompletionInfo()
-            onTime = info and info.onTime
-        elseif C_ChallengeMode.GetCompletionInfo then
-            local _, _, _, ot = C_ChallengeMode.GetCompletionInfo()
-            onTime = ot
-        end
-        if not onTime then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
-
     elseif event == "ENCOUNTER_END" then
         local encounterID, encounterName, difficultyID, groupSize, success = ...
         if success ~= 1 then return end
         local diffMap = {
-            [16]  = "partyModeTriggerMythicBoss",
-            [233] = "partyModeTriggerMythicBoss",  -- flex Mythic (RaidMythicFlexible)
             [15]  = "partyModeTriggerHeroicBoss",
             [14]  = "partyModeTriggerNormalBoss",
-            [17]  = "partyModeTriggerLFRBoss",
-            [23]  = "partyModeTriggerMythic0",
         }
         local key = diffMap[difficultyID]
         if not key then return end
@@ -505,7 +488,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         EllesmereUIDB.partyMode = true
         EllesmereUI_StartPartyMode()
         if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
+        local duration = GetPartyModeDuration()
         celebrationTimer = C_Timer.NewTimer(duration, function()
             celebrationTimer = nil
             if EllesmereUIDB then EllesmereUIDB.partyMode = false end
@@ -533,7 +516,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         EllesmereUIDB.partyMode = true
         EllesmereUI_StartPartyMode()
         if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
+        local duration = GetPartyModeDuration()
         celebrationTimer = C_Timer.NewTimer(duration, function()
             celebrationTimer = nil
             if EllesmereUIDB then EllesmereUIDB.partyMode = false end

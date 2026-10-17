@@ -1,12 +1,12 @@
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_GroupFinder.lua
 --  Dark, minimal reskin of Blizzard's Group Finder window (PVEFrame): Dungeon
---  Finder, Premade Groups (LFGList), Raid Finder, and the Mythic+ panel, themed
+--  Finder, Premade Groups (LFGList), and the Wrath Raid Browser, themed
 --  to match the rest of EllesmereUI (CharacterSheet / Bags house style).
 --
 --  Scope: this file owns the PVEFrame WINDOW and everything docked inside it
---  (shell, bottom tabs, left category rail, the LFD / RaidFinder / LFGList /
---  Challenges panels and their widgets). Transient floating popups (the ready
+--  (shell, bottom tabs, left category rail, the LFD / Raid Browser / LFGList
+--  panels and their widgets). Transient floating popups (the ready
 --  dialog, the premade invite/application dialogs, the role-check popup) are
 --  owned by the separate "Reskin Queue Popup" feature and are NOT touched here.
 --
@@ -528,7 +528,7 @@ end
 local _gfLooksHooked = false
 -- The left rail zone (wash + divider) belongs only to tabs that HAVE a left
 -- category rail: Dungeons & Raids (GroupFinderFrame) and PvP (PVPUIFrame). It
--- is anchored to PVEFrame, so without this it persists onto the Mythic+ tab
+-- is anchored to PVEFrame, so without this it persists onto tabs without a rail
 -- (which has no rail). Gate its visibility on a rail-owning frame being shown.
 local function UpdateRailZone()
     local d = PVEFrame and FFD[PVEFrame]
@@ -1344,7 +1344,7 @@ local function Skin_LFGList()
         for _, k in ipairs({ "GroupDropdown", "ActivityDropdown", "PlayStyleDropdown" }) do
             if EC[k] then SkinDropdown(EC[k]) end
         end
-        for _, k in ipairs({ "ItemLevel", "MythicPlusRating", "PVPRating", "PvpItemLevel", "VoiceChat" }) do
+        for _, k in ipairs({ "ItemLevel", "PVPRating", "PvpItemLevel", "VoiceChat" }) do
             local req = EC[k]
             if req then
                 if req.EditBox then SkinEditBox(req.EditBox) end
@@ -1376,88 +1376,6 @@ local function Skin_LFGList()
     -- CancelButton (shown while you're applied/queued to that group), but that
     -- made the queued-state button read wrong, so it stays Blizzard's. We never
     -- read row data (secret in Midnight) or blanket-strip the row either.
-end
-
--- Raid Finder leftover art. Blizzard re-raises the role inset's backdrop from
--- a path that fires when the panel shows (none of our restrip hooks cover that
--- transition), so this runs from both the skin pass AND an OnShow refade.
-local _rbGuard = false
-local function FadeRaidFinderArt()
-    local ri = _G.RaidFinderFrameRoleInset
-    if ri then
-        FadeInset(ri)
-        -- Explicit by key too: survives the case where Bg is not a direct
-        -- region the sweep reaches.
-        if ri.Bg and ri.Bg.SetAlpha then ri.Bg:SetAlpha(0) end
-    end
-    if _G.RaidFinderFrameBottomInset then FadeInset(_G.RaidFinderFrameBottomInset) end
-    -- Role background (orange gradient behind the role buttons): Blizzard's
-    -- rewards updaters (RaidFinderQueueFrameRewards_UpdateFrame and the shared
-    -- LFGRewardsFrame_UpdateFrame) re-raise this art on every rewards/role/raid
-    -- update, which is why one-shot fades never stuck. This helper is hooked to
-    -- those updaters below, AND the art image itself is cleared so nothing
-    -- shows even if a raise path slips through.
-    local rb = _G.RaidFinderFrameRoleBackground
-    if rb and rb.SetAlpha then
-        _rbGuard = true
-        rb:SetAlpha(0)
-        _rbGuard = false
-        if rb.SetTexture then rb:SetTexture("") end
-        if rb.SetAtlas then rb:SetAtlas("") end
-        local rd = GetFFD(rb)
-        if not rd.alphaGuarded then
-            rd.alphaGuarded = true
-            hooksecurefunc(rb, "SetAlpha", function(t)
-                if _rbGuard then return end
-                _rbGuard = true
-                t:SetAlpha(0)
-                _rbGuard = false
-            end)
-        end
-    end
-    -- Questpaper scenic art behind the rewards list: re-textured by the same
-    -- updaters.
-    local qb = _G.RaidFinderQueueFrameBackground
-    if qb and qb.SetAlpha then qb:SetAlpha(0) end
-end
-
-local _rfShowHooked = false
-local function Skin_RaidFinder()
-    if RaidFinderFrame then SkinPanel(RaidFinderFrame, { noBg = true, noBorder = true }) end
-    FadeRaidFinderArt()
-    if RaidFinderFrame and not _rfShowHooked then
-        _rfShowHooked = true
-        RaidFinderFrame:HookScript("OnShow", FadeRaidFinderArt)
-    end
-    if RaidFinderQueueFrame then SkinPanel(RaidFinderQueueFrame, { noBg = true, noBorder = true }) end
-    if RaidFinderFrameFindRaidButton then
-        SkinButton(RaidFinderFrameFindRaidButton)
-        LiftButton(RaidFinderFrameFindRaidButton)
-    end
-    if _G.RaidFinderQueueFrameSelectionDropdown then SkinDropdown(_G.RaidFinderQueueFrameSelectionDropdown) end
-    local rfSB = (_G.RaidFinderQueueFrameScrollFrame and _G.RaidFinderQueueFrameScrollFrame.ScrollBar)
-        or _G.RaidFinderQueueFrameScrollFrameScrollBar
-    if rfSB then SkinScrollBar(rfSB) end
-end
-
-local function Skin_Challenges()
-    if not _G.ChallengesFrame then return end
-    local cf = _G.ChallengesFrame
-    SkinPanel(cf, { noBg = true, noBorder = true })
-    -- The M+ main-area scenic backdrop (ChallengesFrame.Background + an anon
-    -- BG texture) defeated every ALPHA approach we tried -- Blizzard re-raises
-    -- their alpha from paths we never caught. Disabling the whole BACKGROUND
-    -- draw LAYER kills them regardless of alpha (Blizzard would have to
-    -- re-ENABLE the layer to bring them back, which it doesn't). Re-asserted
-    -- each pass as a belt-and-braces against a future re-enable.
-    if cf.DisableDrawLayer then cf:DisableDrawLayer("BACKGROUND") end
-    if _G.ChallengesFrameInset then FadeInset(_G.ChallengesFrameInset) end
-    local kf = _G.ChallengesKeystoneFrame
-    if kf then
-        SkinPanel(kf, { inset = true })
-        if kf.StartButton then SkinButton(kf.StartButton) end
-        if kf.CloseButton then SkinCloseButton(kf.CloseButton) end
-    end
 end
 
 -- PvP tab (PVPUIFrame, Blizzard_PVPUI -- separate LoD addon): the D&R
@@ -1955,8 +1873,6 @@ local function RefreshAll()
     Skin_PVEFrame()
     Skin_GroupFinder()
     Skin_LFGList()
-    Skin_RaidFinder()
-    Skin_Challenges()
     Skin_PVP()
     SkinLegacyPVP()
     Restrip()
@@ -1987,19 +1903,14 @@ local function InstallHooks()
         -- every pick); here we only re-flatten art after the click.
         hooksecurefunc("LFGListCategorySelectionButton_OnClick", Restrip)
     end
-    -- Blizzard's rewards updaters re-apply the questpaper background (LFD /
-    -- Raid Finder / Scenario) and the Raid Finder role-row gradient on every
-    -- rewards/role/raid update; one-shot fades never stick against them, so
-    -- re-fade from the updaters themselves.
+    -- Blizzard's rewards updater can re-apply the questpaper background, so
+    -- fade it again when the rewards panel refreshes.
     if LFGRewardsFrame_UpdateFrame then
         hooksecurefunc("LFGRewardsFrame_UpdateFrame", function(_, _, background)
             if background and not issecretvalue(background) and background.SetAlpha then
                 background:SetAlpha(0)
             end
         end)
-    end
-    if RaidFinderQueueFrameRewards_UpdateFrame then
-        hooksecurefunc("RaidFinderQueueFrameRewards_UpdateFrame", FadeRaidFinderArt)
     end
 end
 
@@ -2088,7 +1999,7 @@ end
 -- Stock Blizzard has no docking relationship between CharacterFrame and
 -- PVEFrame (Dungeons & Raids); both anchor near the same default screen
 -- position, so opening one while the other is open overlaps them. Any addon
--- that docks its own panel to PVEFrame's edge (e.g. RaiderIO's Mythic+ panel)
+-- that docks its own panel to PVEFrame's edge (e.g. a third-party profile panel)
 -- is unaware of CharacterFrame, so it gets partially covered by CharacterFrame
 -- in turn. PVEFrame is PROTECTED (it parents the LFGList applicant viewer,
 -- which throws on tainted secret-value comparisons -- see
@@ -2104,8 +2015,7 @@ local function CharacterFrameIsUserPinned()
 end
 
 -- Third-party panels known to dock themselves beside PVEFrame with no
--- awareness of CharacterFrame (RaiderIO's Mythic+/profile panel, confirmed
--- via /fstack). Checked by name -- cheap and reliable -- instead of scanning
+-- awareness of CharacterFrame. Checked by name -- cheap and reliable -- instead of scanning
 -- every frame in the UI: that approach kept missing the actual frame, once
 -- matched CharacterFrame's own child and produced a circular anchor, and was
 -- slow enough on its own to cause a visible hitch. Add another name here if
@@ -2294,9 +2204,8 @@ EllesmereUI._GroupFinder_RefreshQoL = function()
 end
 
 -------------------------------------------------------------------------------
---  Boot orchestration. PVEFrame lives in Blizzard_GroupFinder (load-on-demand);
---  ChallengesFrame in Blizzard_ChallengesUI. Skin on each addon's ADDON_LOADED,
---  install repaint hooks once, and sweep at login.
+--  Boot orchestration. PVEFrame lives in Blizzard_GroupFinder (load-on-demand).
+--  Skin on its ADDON_LOADED event, install repaint hooks once, and sweep at login.
 -------------------------------------------------------------------------------
 local function DoSkinPass()
     if not Theme.bgR then ResolveTheme() end
@@ -2307,11 +2216,6 @@ end
 
 local ON_ADDON = {
     Blizzard_GroupFinder  = function() DoSkinPass() end,
-    Blizzard_ChallengesUI = function()
-        if not SkinEnabled() then return end
-        if not Theme.bgR then ResolveTheme() end
-        Skin_Challenges(); Restrip()
-    end,
     Blizzard_PVPUI = function()
         if not SkinEnabled() then return end
         if not Theme.bgR then ResolveTheme() end

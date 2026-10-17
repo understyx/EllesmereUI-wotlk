@@ -298,6 +298,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIChat",              display = "Chat",                 search_name = "EllesmereUI Chat"                    },
     { folder = "EllesmereUIDamageMeters",      display = "Damage Meters",        search_name = "EllesmereUI Damage Meters"           },
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
+    { folder = "EllesmereUIDBMSkin",           display = "DBM Timers",           search_name = "EllesmereUI DBM Deadly Boss Mods Timers" },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUISwingBars",         display = "Swingbars",            search_name = "EllesmereUI Swingbars Swing Timer"  },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
@@ -347,6 +348,7 @@ EllesmereUI.ADDON_GROUPS = {
         members = {
             "EllesmereUIBlizzardSkin",
             "EllesmereUIDamageMeters",
+            "EllesmereUIDBMSkin",
 
             "EllesmereUIQuestTracker",
             "EllesmereUIMinimap",
@@ -961,6 +963,11 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUISwingBars", {
     "position",
     "width",
     "barHeight",
+})
+
+EllesmereUI.RegisterSyncExclusions("EllesmereUIDBMSkin", {
+    "normalPosition",
+    "hugePosition",
 })
 
 -- Bags is the one auto-synced module: without this the bank window position
@@ -3893,6 +3900,7 @@ EllesmereUI._addonKeyToFolder = {
     blizzardSkin = "EllesmereUIBlizzardSkin",
     damageMeters = "EllesmereUIDamageMeters",
     dataBars     = "EllesmereUIDataBars",
+    dbmSkin      = "EllesmereUIDBMSkin",
     swingBars    = "EllesmereUISwingBars",
     raidFrames   = "EllesmereUIRaidFrames",
     bags         = "EllesmereUIBags",
@@ -10074,6 +10082,7 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
         EllesmereUISwingBars = true,
+        EllesmereUIDBMSkin = true,
         EllesmereUIQuickdraw = true,
         EllesmereUIPallyPower = true,
     }

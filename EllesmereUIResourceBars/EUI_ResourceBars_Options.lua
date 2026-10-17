@@ -5428,9 +5428,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Advanced: this popup edits the per-spec override (cfg()), which only
             -- applies while playing ctx.specID. Drop the spec-assignment chrome
-            -- (dropdown + Add Specs) and present a single implied-spec card set --
-            -- the base card plus any talent variants -- re-tagged to specIDs={0}.
-            -- Talent variants still work via the per-card "+" button.
+            -- (dropdown + Add Specs) and present a single implied-spec card set,
+            -- re-tagged to specIDs={0}.
             local advSingle = (ctx.advanced and ctx.specID) and true or nil
             if advSingle then
                 local c = cfg()
@@ -5446,8 +5445,8 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                     if not normalized then
-                        -- Keep only the cards relevant to this spec (its own + any
-                        -- All-Specs cards, incl. their talent variants), re-tagged.
+                        -- Keep only the cards relevant to this spec (its own and
+                        -- All-Specs cards), re-tagged.
                         local kept = {}
                         if ts then
                             for _, e in ipairs(ts) do
@@ -6038,82 +6037,6 @@ initFrame:SetScript("OnEvent", function(self)
 				end
 
 				----------------------------------------------------------------
-				-- Row: Talent gate (single-spec cards only)
-				----------------------------------------------------------------
-				local talentRow = DRow("Talent", ROWH)
-				talentRow._talentValues = { _menuOpts = { searchable = true, parent = thrPage } }
-				talentRow._talentOrder = {}
-				local talentDD = EllesmereUI.BuildDropdownControl(
-					talentRow, 170, talentRow:GetFrameLevel() + 2,
-					talentRow._talentValues, talentRow._talentOrder,
-					function()
-						local ent = CurEntry(); if not ent then return 0 end
-						return ent.talentSpellID or 0
-					end,
-					function(key)
-						local ent = CurEntry(); if not ent then return end
-						if key == 0 then
-							ent.talentSpellID = nil; ent.talentName = nil
-						else
-							ent.talentSpellID = key
-							ent.talentName = talentRow._talentValues[key]
-						end
-						RebuildClass()
-						if talentRow._talentDD and talentRow._talentDD._refreshLabel then
-							talentRow._talentDD._refreshLabel()
-						end
-						-- The dropdown lives in the detail pane (not inside a list
-						-- frame), so rebuilding the list won't churn the open menu --
-						-- refresh it to relabel + re-dim duplicate cards live.
-						RefreshSpecEntries()
-					end,
-					function(key)
-						local ent = CurEntry(); if not ent then return false end
-						local pp = DB(); if not pp then return false end
-						local specs = pp.secondary.thresholdSpecs; if not specs then return false end
-						local wantGate = (key ~= 0) and key or nil
-						for i, other in ipairs(specs) do
-							if i ~= _selectedIdx then
-								local og = other.talentSpellID
-								local sameGate = (wantGate == nil and og == nil)
-									or (wantGate ~= nil and og == wantGate)
-								if sameGate and ns.SpecsConflict(ent.specIDs, other.specIDs) then
-									return EllesmereUI.L("Already used by another card for this spec")
-								end
-							end
-						end
-						return false
-					end
-				)
-				talentDD:SetHeight(22)
-				talentDD:SetPoint("RIGHT", talentRow, "RIGHT", 0, 0)
-				talentRow._talentDD = talentDD
-				-- Keep the menu above the cog popups
-				talentDD:HookScript("OnClick", function()
-					local m = talentDD._ddMenu
-					if m then m:SetFrameStrata("TOOLTIP") end
-				end)
-				talentDD:HookScript("OnHide", function()
-					talentDD._invalidateMenu()
-				end)
-				-- Blocker: greys the picker for a spec whose class the player isn't
-				-- (its talents aren't in the player's loadout). Toggled in RefreshDetail.
-				local talentDis = EllesmereUI.SafeCreateFrame("Frame", nil, talentRow)
-				talentDis:SetPoint("TOPLEFT", talentDD, "TOPLEFT", 0, 0)
-				talentDis:SetPoint("BOTTOMRIGHT", talentDD, "BOTTOMRIGHT", 0, 0)
-				talentDis:SetFrameLevel(talentDD:GetFrameLevel() + 10)
-				talentDis:EnableMouse(true)
-				local talentDisTex = talentDis:CreateTexture(nil, "OVERLAY")
-				talentDisTex:SetAllPoints()
-				talentDisTex:SetTexture(0.06, 0.08, 0.10, 0.6)
-				talentDis:SetScript("OnEnter", function()
-					EllesmereUI.ShowWidgetTooltip(talentDis, EllesmereUI.L("Talent gating is only available while playing this spec's class"))
-				end)
-				talentDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-				talentDis:Hide()
-				talentRow._dis = talentDis
-
-				----------------------------------------------------------------
 				-- Row: Hash values ("Hash at X" + input + hint)
 				----------------------------------------------------------------
 				local hashRow = DRow(nil, ROWH)
@@ -6549,37 +6472,6 @@ initFrame:SetScript("OnEvent", function(self)
 					end
 					if isStagger and ent.thresholdMode == "value" then ent.thresholdMode = "percent" end
 
-					-- talent gate is single-spec only
-					local allowTalent
-					if advSingle then
-						allowTalent = true
-					else
-						local ids = ent.specIDs
-						allowTalent = (ids and #ids == 1 and ids[1] ~= 0) and true or false
-					end
-
-					-- Refill talent options from the active loadout + the entry's
-					-- saved gate (even if off-spec/off-loadout).
-					if allowTalent then
-						local loadoutTalents = (ns.GetLoadoutTalents()) or {}
-						local vals, ord = talentRow._talentValues, talentRow._talentOrder
-						wipe(ord)
-						for k in pairs(vals) do if k ~= "_menuOpts" then vals[k] = nil end end
-						vals[0] = EllesmereUI.L("No talent"); ord[#ord + 1] = 0
-						for _, t in ipairs(loadoutTalents) do
-							if vals[t.spellID] == nil then ord[#ord + 1] = t.spellID end
-							vals[t.spellID] = t.name
-						end
-						if ent.talentSpellID and vals[ent.talentSpellID] == nil then
-							vals[ent.talentSpellID] = ent.talentName
-								or (C_Spell.GetSpellName and C_Spell.GetSpellName(ent.talentSpellID))
-								or ("Spell " .. ent.talentSpellID)
-							ord[#ord + 1] = ent.talentSpellID
-						end
-						if talentDD._invalidateMenu then talentDD._invalidateMenu() end
-						if talentDD._refreshLabel then talentDD._refreshLabel() end
-					end
-
 					-- Hash row text
 					local hashWord
 					if isBar then
@@ -6621,21 +6513,7 @@ initFrame:SetScript("OnEvent", function(self)
 					end
 					threshRow._lbl:SetText(EllesmereUI.L("Threshold") .. ((isBar and not threshIsValue) and " %" or ""))
 
-					-- Talent gating only makes sense on your own class (talents come
-					-- from your loadout) -- block the picker for other classes' specs.
-					local talentClassOK = true
-					if allowTalent then
-						local specID = advSingle and ctx.specID or (ent.specIDs and ent.specIDs[1])
-						if specID and specID ~= 0 then
-							local _, _, _, _, _, classFile = ns.GetSpecializationInfoByID(specID)
-							local _, playerClass = UnitClass("player")
-							talentClassOK = (classFile == playerClass)
-						end
-						if not talentClassOK then talentRow._dis:Show() else talentRow._dis:Hide() end
-					end
-
 					-- Snap the toggles / swatches to the entry
-					if talentDD._refreshLabel then talentDD._refreshLabel() end
 					hashRow._swatchSnap()
 					threshEnableSnap(); threshSwatchSnap(); multiSnap(); buffSnap(); textInsteadSnap(); ceilingSnap()
 
@@ -6672,7 +6550,6 @@ initFrame:SetScript("OnEvent", function(self)
 						rf:Show()
 						yy = yy - (rf._rawH or ROWH) - ROWGAP
 					end
-					if allowTalent then place(talentRow) end
 					if not isGuardian and not isIgnorePain then place(hashRow) end
 					place(threshRow)
 					place(multiRow)
@@ -6780,51 +6657,11 @@ initFrame:SetScript("OnEvent", function(self)
                         delBtn:SetScript("OnLeave", function() delIcon:SetAlpha(0.4) end)
                         ef._delBtn = delBtn
 
-                        -- Add-variant button: duplicate this entry as a talent-gated
-                        -- sibling for the same spec. Sits left of the delete X.
-                        local varBtn = EllesmereUI.SafeCreateFrame("Button", nil, ef)
-                        PP.Size(varBtn, 84, 20)
-                        varBtn:SetPoint("RIGHT", delBtn, "LEFT", -10, 0)
-                        varBtn:SetFrameLevel(ef:GetFrameLevel() + 3)
-                        local varBg = varBtn:CreateTexture(nil, "BACKGROUND")
-                        varBg:SetAllPoints()
-                        varBg:SetTexture(0.12, 0.12, 0.12, 0.8)
-                        varBtn._border = EllesmereUI.MakeBorder(varBtn, 1, 1, 1, 0.08, PP)
-                        local varLbl = EllesmereUI.MakeFont(varBtn, 11, nil, 1, 1, 1)
-                        varLbl:SetText(EllesmereUI.L("Add Variant"))
-                        varLbl:SetAlpha(0.65)
-                        varLbl:SetPoint("CENTER")
-                        varBtn:SetScript("OnEnter", function(self)
-                            varBg:SetTexture(0.16, 0.16, 0.16, 0.9)
-                            varLbl:SetAlpha(0.9)
-                            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Add a talent variant of this entry"))
-                        end)
-                        varBtn:SetScript("OnLeave", function()
-                            varBg:SetTexture(0.12, 0.12, 0.12, 0.8)
-                            varLbl:SetAlpha(0.65)
-                            EllesmereUI.HideWidgetTooltip()
-                        end)
-                        varBtn:SetScript("OnClick", function()
-                            if not ef._entryIdx then return end
-                            local p2 = DB(); if not p2 then return end
-                            local specs = p2.secondary.thresholdSpecs
-                            local src = specs and specs[ef._entryIdx]; if not src then return end
-                            local copy = CopyThresholdEntry(src)
-                            copy.talentSpellID = nil
-                            copy.talentName = nil
-                            table.insert(specs, ef._entryIdx + 1, copy)
-                            _selectedIdx = ef._entryIdx + 1
-                            RefreshSpecEntries()
-                            if RefreshDetail then RefreshDetail() end
-                            RebuildClass()
-                        end)
-                        ef._varBtn = varBtn
-
                         -- spec/talent group label (class-colored)
                         local specLbl = EllesmereUI.MakeFont(ef, 14, nil, 1, 1, 1)
                         specLbl:SetAlpha(0.85)
                         specLbl:SetPoint("LEFT", ef, "LEFT", 12, 0)
-                        specLbl:SetPoint("RIGHT", varBtn, "LEFT", -8, 0)
+                        specLbl:SetPoint("RIGHT", delBtn, "LEFT", -8, 0)
                         specLbl:SetJustifyH("LEFT")
                         specLbl:SetWordWrap(false)
                         ef._specLbl = specLbl
@@ -6854,10 +6691,9 @@ initFrame:SetScript("OnEvent", function(self)
                     ef:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, curY)
                     ef._yOffset = -curY
 
-                    -- spec label (Advanced: the spec is implicit, so label the card
-                    -- by its talent gate -- "Default" for the base card)
+                    -- Advanced entries inherit their one spec from the page.
                     if advSingle then
-                        ef._specLbl:SetText(entry.talentName or EllesmereUI.L("Default"))
+                        ef._specLbl:SetText(EllesmereUI.L("Default"))
                     else
                         ef._specLbl:SetText(ns.EntryLabel(entry))
                     end
@@ -6878,23 +6714,6 @@ initFrame:SetScript("OnEvent", function(self)
                         else
                             ef._specLbl:SetTextColor(1, 1, 1, 1)
                         end
-                    end
-
-                    -- Talent variants are single-spec only ("All Specs"/multi-spec
-                    -- cards span specs, so a talent gate is meaningless). Hide the
-                    -- "Add variant" button there and strip any stale gate (legacy).
-                    local _allowTalent
-                    if advSingle then
-                        _allowTalent = true
-                    else
-                        local ids = entry.specIDs
-                        _allowTalent = (ids and #ids == 1 and ids[1] ~= 0) and true or false
-                    end
-                    if ef._varBtn then if _allowTalent then ef._varBtn:Show() else ef._varBtn:Hide() end end
-                    if not _allowTalent and entry.talentSpellID then
-                        entry.talentSpellID = nil
-                        entry.talentName = nil
-                        RebuildClass()
                     end
 
                     -- delete button
@@ -7026,7 +6845,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
 
             -- Spec/talent changes move which entry the resolver picks (the active
-            -- glow) and change the available loadout talents -- refresh the open
+            -- glow) -- refresh the open
             -- popup live. Keep the current selection (don't yank the user mid-edit).
             -- The event frame + accent callback are module-level singletons: this
             -- section builder re-runs on every options rebuild (Simple/Advanced,
@@ -7038,9 +6857,7 @@ initFrame:SetScript("OnEvent", function(self)
                            refresh = RefreshSpecEntries, refreshDetail = RefreshDetail }
             if not ns._thrEventsFrame then
                 local ev = EllesmereUI.SafeCreateFrame("Frame")
-                ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
                 ev:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
-                ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
                 ev:RegisterEvent("PLAYER_TALENT_UPDATE")
                 ev:SetScript("OnEvent", function(_, event)
                     local c = ns._thrCtx
@@ -7049,7 +6866,7 @@ initFrame:SetScript("OnEvent", function(self)
                         -- page rebuild would tear the open popup down).
                         if c.refresh then c.refresh() end
                         if c.refreshDetail then c.refreshDetail() end
-                    elseif (event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED")
+                    elseif event == "ACTIVE_TALENT_GROUP_CHANGED"
                            and EllesmereUI:IsShown() and EllesmereUI:GetActivePage() == PAGE_DISPLAY then
                         -- The display page (Simple/Advanced) is the open page. Redraw
 						-- correctly on spec swap

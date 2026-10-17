@@ -642,6 +642,51 @@ local function BuildReputation(pane)
     return panel
 end
 
+-- Skill categories hidden unless "Show All" is on. Header names come from the
+-- client's skill line DBC and are only known for enUS; other locales show
+-- everything. Values are child skills kept visible inside a hidden category.
+local HIDDEN_SKILL_CATEGORIES = {
+    ["Class Skills"] = { ["Lockpicking"] = true },
+    ["Armor Proficiencies"] = {},
+    ["Languages"] = {},
+}
+
+local function SkillsShowAll()
+    return EllesmereUIDB and EllesmereUIDB.characterSkillsShowAll == true
+end
+
+-- Fills `out` with the GetSkillLineInfo indices that should be listed.
+local function CollectVisibleSkills(out)
+    for i = #out, 1, -1 do out[i] = nil end
+    local total = GetNumSkillLines and (GetNumSkillLines() or 0) or 0
+    if not GetSkillLineInfo then return out end
+    local showAll = SkillsShowAll()
+    local keep, headerIndex, headerShown
+    for index = 1, total do
+        local name, isHeader, isExpanded = GetSkillLineInfo(index)
+        if isHeader then
+            keep = not showAll and HIDDEN_SKILL_CATEGORIES[name] or nil
+            headerShown = false
+            headerIndex = index
+            -- A collapsed hidden category stays reachable only if it can hold
+            -- kept children; otherwise there would be nothing to expand into.
+            if not keep or (not isExpanded and next(keep)) then
+                out[#out + 1] = index
+                headerShown = true
+            end
+        elseif not keep then
+            out[#out + 1] = index
+        elseif keep[name] then
+            if not headerShown then
+                out[#out + 1] = headerIndex
+                headerShown = true
+            end
+            out[#out + 1] = index
+        end
+    end
+    return out
+end
+
 local function BuildSkills(pane)
     local panel = CreateBase(pane, "skills", _G.SKILLS or EllesmereUI.L("Skills"))
     if panel.built then return panel end
@@ -650,18 +695,28 @@ local function BuildSkills(pane)
     panel.detail.empty:SetText(EllesmereUI.L("Select a skill to view its details"))
     panel.collapse = CreateTextButton(panel, _G.COLLAPSE_ALL_BUTTON or EllesmereUI.L("Collapse All"), 86)
     panel.collapse:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -6)
+    panel.showAll = CreateCheck(panel, EllesmereUI.L("Show All"))
+    panel.showAll:SetPoint("RIGHT", panel.collapse, "LEFT", -12, 0)
+    panel.showAll.callback = function(value)
+        if not EllesmereUIDB then return end
+        EllesmereUIDB.characterSkillsShowAll = value or nil
+        panel:Refresh()
+    end
+    panel.visibleSkills = {}
     panel.unlearn = CreateTextButton(panel.detail, _G.UNLEARN or EllesmereUI.L("Unlearn"), 68)
     panel.unlearn:SetPoint("BOTTOMRIGHT", -8, 7)
 
     function panel:Refresh()
         SuppressNative("skills")
+        self.showAll:SetChecked(SkillsShowAll())
         local total = GetNumSkillLines and (GetNumSkillLines() or 0) or 0
-        FinishRows(self, total)
+        local visible = CollectVisibleSkills(self.visibleSkills)
+        FinishRows(self, #visible)
         for rowNumber, row in ipairs(self.rows) do
-            local index = self.offset + rowNumber
+            local index = visible[self.offset + rowNumber]
             local name, isHeader, isExpanded, rank, temporary, modifier, maxRank,
                 isAbandonable, stepCost, rankCost, minLevel, costType, description
-            if index <= total and GetSkillLineInfo then
+            if index and GetSkillLineInfo then
                 name, isHeader, isExpanded, rank, temporary, modifier, maxRank,
                     isAbandonable, stepCost, rankCost, minLevel, costType, description = GetSkillLineInfo(index)
             end

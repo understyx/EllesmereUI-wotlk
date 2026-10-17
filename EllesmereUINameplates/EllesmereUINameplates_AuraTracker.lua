@@ -8,6 +8,10 @@ local UnitAura = UnitAura
 local UnitGUID = UnitGUID
 local GetSpellInfo = GetSpellInfo
 local CreateFrame = CreateFrame
+local UnitIsPlayer = UnitIsPlayer
+local UnitPlayerControlled = UnitPlayerControlled
+local strbyte = string.byte
+local band = bit.band
 
 local AuraTracker = {}
 ns.AuraTracker = AuraTracker
@@ -20,6 +24,12 @@ local guidAuras = {}
 
 -- Store of DR status: [guid] = { [drCategory] = { factor = 1.0, count = 0, resetTime = 0 } }
 local guidDR = {}
+
+-- GUIDs seen as player-owned pets/guardians (CLEU flags or a polled unit).
+-- Guardians like Shadowfiend or Feral Spirits carry creature GUIDs, so the
+-- GUID prefix alone misses them.
+local petGUIDs = {}
+local PET_FLAGS = (COMBATLOG_OBJECT_TYPE_PET or 0x1000) + (COMBATLOG_OBJECT_TYPE_GUARDIAN or 0x2000)
 
 local DR_RESET_TIME = 18 -- Standard WotLK DR reset window (seconds)
 
@@ -95,6 +105,9 @@ local pollSeen = {}
 
 local function PollUnitAuras(unit, guid)
     if not unit or not guid or not UnitExists(unit) then return end
+    if UnitPlayerControlled(unit) and not UnitIsPlayer(unit) then
+        petGUIDs[guid] = true
+    end
 
     local entries = guidAuras[guid]
     if not entries then
@@ -176,6 +189,14 @@ local function PollUnitAuras(unit, guid)
             entries[key] = nil
         end
     end
+end
+
+-- 3.3.5 GUIDs read "0xF14..." for pets (byte 3..5 = 'F','1','4').
+function AuraTracker:IsPetGUID(guid)
+    if not guid then return false end
+    if petGUIDs[guid] then return true end
+    local a, b, c = strbyte(guid, 3, 5)
+    return a == 70 and b == 49 and c == 52
 end
 
 function AuraTracker:OnPlateBound(plate, guid, unit)
@@ -272,9 +293,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         if not destGUID or not ns.MatchTracker then return end
 
         local plate = ns.MatchTracker:GetPlateByGUID(destGUID)
+        if destFlags and band(destFlags, PET_FLAGS) ~= 0 then
+            petGUIDs[destGUID] = true
+        end
         if subEvent == "UNIT_DIED" then
             guidAuras[destGUID] = nil
             guidDR[destGUID] = nil
+            petGUIDs[destGUID] = nil
             if plate and plate.UpdateAuras then plate:UpdateAuras() end
             return
         end

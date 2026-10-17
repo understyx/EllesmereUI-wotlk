@@ -932,13 +932,7 @@ local function BuildBarTypeSpecMap()
 end
 
 -- Resolve the active threshold spec entry for the current player spec.
--- Returns the matching entry from thresholdSpecs, or nil.
--- Priority (highest first):
---   1. spec match + talent gate active
---   2. spec match, no talent gate
---   3. All Specs (specID 0) + talent gate active
---   4. All Specs, no talent gate
--- Entries carrying a talent gate that is not active are skipped.
+-- A matching spec-specific card takes priority over the first All Specs card.
 -- Druid "form specific" power-bar threshold mode: entries are keyed by the
 -- form's power type (advanced mode only). Maps the resolved primary power type
 -- to the entry's formKey.
@@ -950,17 +944,14 @@ local ResolveThresholdSpecEntry
 do
 local FORM_THRESHOLD_KEY = { [PT.MANA] = "mana", [PT.RAGE] = "rage", [PT.ENERGY] = "energy" }
 
--- Spec ID and talent-gate state only change on spec/talent events, but
+-- The spec ID only changes on spec/talent events, but
 -- ResolveThresholdSpecEntry runs on hot paths (up to ~60fps via the Ironfur
--- bar). Cache both so the frame-loop doesn't re-query GetSpecialization or
--- IsPlayerSpell/IsSpellKnown every tick. Invalidated by InvalidateThresholdCaches
--- on the spec/talent events (see the event handler). The entry list itself is
--- still re-scanned live each call, so options edits are reflected immediately.
+-- bar). Cache it so the frame-loop doesn't re-query GetSpecialization every
+-- tick. The entry list itself is still re-scanned live each call, so options
+-- edits are reflected immediately.
 local _thrSpecID              -- nil = unknown, false = resolved-to-none, number = specID
-local _talentGateCache = {}   -- gate spellID -> bool
 local function InvalidateThresholdCaches()
     _thrSpecID = nil
-    wipe(_talentGateCache)
 end
 ns.InvalidateThresholdCaches = InvalidateThresholdCaches
 
@@ -972,16 +963,6 @@ local function ResolveSpecIDCached()
     return sid
 end
 _G._ERB_ResolveSpecIDCached = ResolveSpecIDCached
-
-local function IsTalentGateActive(gate)
-    local v = _talentGateCache[gate]
-    if v == nil then
-        v = ((IsPlayerSpell and IsPlayerSpell(gate))
-            or (IsSpellKnown and IsSpellKnown(gate))) and true or false
-        _talentGateCache[gate] = v
-    end
-    return v
-end
 
 ResolveThresholdSpecEntry = function(sp)
     local entries = sp.thresholdSpecs
@@ -1000,7 +981,7 @@ ResolveThresholdSpecEntry = function(sp)
     local specID = ResolveSpecIDCached()
     if not specID then return nil end
 
-    local specPlain, allTalent, allPlain
+    local specEntry, allEntry
     for _, entry in ipairs(entries) do
         if entry.specIDs then
             local matchSpec, matchAll = false, false
@@ -1009,24 +990,13 @@ ResolveThresholdSpecEntry = function(sp)
                 if sid == 0 then matchAll = true end
             end
             if matchSpec or matchAll then
-                local gate = entry.talentSpellID
-                if gate then
-                    if IsTalentGateActive(gate) then
-                        -- spec + active talent gate is the top tier: nothing can
-                        -- outrank it, so return as soon as it is found.
-                        if matchSpec then return entry end
-                        allTalent = allTalent or entry
-                    end
-                    -- gated but inactive: skip
-                else
-                    if matchSpec then specPlain = specPlain or entry
-                    else allPlain = allPlain or entry end
-                end
+                if matchSpec then specEntry = specEntry or entry
+                else allEntry = allEntry or entry end
             end
         end
     end
 
-    return specPlain or allTalent or allPlain
+    return specEntry or allEntry
 end
 end  -- do (threshold resolution)
 
@@ -8548,9 +8518,9 @@ local function ScheduleRosterApply()
     end)
 end
 
--- Talent/loadout changes fire TRAIT_CONFIG_UPDATED/PLAYER_TALENT_UPDATE in a
--- burst (a loadout swap applies many nodes at once). Coalesce into a single
--- out-of-combat rebuild instead of running the heavy BuildBars() per event.
+-- Talent changes may fire PLAYER_TALENT_UPDATE in a burst. Coalesce into a
+-- single out-of-combat rebuild instead of running the heavy BuildBars() per
+-- event.
 -- do-block + ns exposure so the pending flag/function use no main-chunk local
 -- slots (this file is at Lua's 200-local cap).
 do
@@ -8688,7 +8658,7 @@ local function OnEvent(self, event, ...)
     elseif event == "GROUP_ROSTER_UPDATE" then
         UpdateVisibility()
         ScheduleRosterApply()
-    elseif event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED" then
+    elseif event == "ACTIVE_TALENT_GROUP_CHANGED" then
         _essenceNextTick = nil
         _essenceLastCount = nil
         _essenceTickDur = 0
@@ -8707,11 +8677,9 @@ local function OnEvent(self, event, ...)
         UpdatePrimaryBar()
         UpdateSecondaryResource()
         UpdateVisibility()
-    elseif event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" then
-        -- A talent toggled or a loadout applied. Invalidate the talent-gate
-        -- caches immediately (cheap; hot paths re-resolve next tick) and
-        -- coalesce the heavy rebuild via a debounce so a burst of node events
-        -- rebuilds once, not once per event.
+    elseif event == "PLAYER_TALENT_UPDATE" then
+        -- Talent changes may affect resource maxima. Coalesce the rebuild so
+        -- multiple talent updates do not rebuild bars repeatedly.
         ns.InvalidateThresholdCaches()
         ns.ScheduleTalentApply()
     elseif event == "UPDATE_SHAPESHIFT_FORM" then
@@ -9014,8 +8982,6 @@ function ERB:OnEnable()
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
-    eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
     -- Visibility option events

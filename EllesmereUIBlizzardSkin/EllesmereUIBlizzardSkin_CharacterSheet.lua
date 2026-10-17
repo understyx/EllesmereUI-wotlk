@@ -15,20 +15,21 @@ local function GetFFD(frame)
     return d
 end
 
--- "gear" = the 16 slots with ilvl/enchants/sockets.
+-- "gear" = the 17 slots with ilvl/enchants/sockets.
 -- "all"  = gear + shirt + tabard (cosmetic), for full-character loops.
 local EUI_GEAR_SLOTS = {
     "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
     "CharacterChestSlot", "CharacterWaistSlot",   "CharacterLegsSlot",     "CharacterFeetSlot",
     "CharacterWristSlot","CharacterHandsSlot",   "CharacterFinger0Slot",  "CharacterFinger1Slot",
     "CharacterTrinket0Slot","CharacterTrinket1Slot","CharacterMainHandSlot","CharacterSecondaryHandSlot",
+    "CharacterRangedSlot",
 }
 local EUI_ALL_SLOTS = {
     "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
     "CharacterChestSlot", "CharacterShirtSlot",  "CharacterTabardSlot",  "CharacterWristSlot",
     "CharacterHandsSlot","CharacterWaistSlot",   "CharacterLegsSlot",     "CharacterFeetSlot",
     "CharacterTrinket0Slot","CharacterTrinket1Slot","CharacterFinger0Slot","CharacterFinger1Slot",
-    "CharacterMainHandSlot","CharacterSecondaryHandSlot",
+    "CharacterMainHandSlot","CharacterSecondaryHandSlot","CharacterRangedSlot",
 }
 
 -- Prefer EquipmentManager_EquipSet (cleaner from insecure code) over the
@@ -256,7 +257,6 @@ do
         if not EllesmereUIDB then EllesmereUIDB = {} end
         local defaults = {
             themedCharacterSheet         = true,
-            showMythicRating             = false,
             showItemLevel                = true,
             showUpgradeTrack             = true,
             showEnchants                 = true,
@@ -765,6 +765,35 @@ local function PreSkinCharacterSheet()
         _G.CharacterRangedSlot:ClearAllPoints()
         _G.CharacterRangedSlot:SetPoint("TOPLEFT", _G.CharacterSecondaryHandSlot, "TOPRIGHT", 12, 0)
     end
+    -- Ammo is shrunk to the ranged slot's item-level line and anchored next
+    -- to that label once it exists (see the slot label loop).
+    if _G.CharacterAmmoSlot then
+        _G.CharacterAmmoSlot:SetSize(20, 20)
+        if _G.CharacterAmmoSlotIconTexture then
+            _G.CharacterAmmoSlotIconTexture:ClearAllPoints()
+            _G.CharacterAmmoSlotIconTexture:SetAllPoints(_G.CharacterAmmoSlot)
+        end
+        local hl = _G.CharacterAmmoSlot.GetHighlightTexture and _G.CharacterAmmoSlot:GetHighlightTexture()
+        if hl then
+            hl:ClearAllPoints()
+            hl:SetAllPoints(_G.CharacterAmmoSlot)
+        end
+        -- Strip the stock ammo art (its bracket points at the stock spot). Keep the icon and the button state textures;
+        -- the rarity border comes from the themed slot loop.
+        local ammo = _G.CharacterAmmoSlot
+        local keep = {
+            [_G.CharacterAmmoSlotIconTexture or false] = true,
+            [ammo.GetHighlightTexture and ammo:GetHighlightTexture() or false] = true,
+            [ammo.GetPushedTexture and ammo:GetPushedTexture() or false] = true,
+            [ammo.GetCheckedTexture and ammo:GetCheckedTexture() or false] = true,
+        }
+        for _, r in ipairs({ammo:GetRegions()}) do
+            if r:GetObjectType() == "Texture" and not keep[r] then
+                r:SetTexture(nil)
+                r:Hide()
+            end
+        end
+    end
 
     -- Hide extra region borders on weapon slots
     for _, f in ipairs({_G.CharacterMainHandSlot, _G.CharacterSecondaryHandSlot, _G.CharacterRangedSlot}) do
@@ -783,7 +812,8 @@ local function PreSkinCharacterSheet()
         "CharacterHeadSlot", "CharacterLegsSlot", "CharacterMainHandSlot",
         "CharacterNeckSlot", "CharacterSecondaryHandSlot", "CharacterShirtSlot",
         "CharacterShoulderSlot", "CharacterTabardSlot", "CharacterTrinket0Slot",
-        "CharacterTrinket1Slot", "CharacterWaistSlot", "CharacterWristSlot"
+        "CharacterTrinket1Slot", "CharacterWaistSlot", "CharacterWristSlot",
+        "CharacterRangedSlot", "CharacterAmmoSlot"
     }
 
     for _, slotName in ipairs(slotsToHide) do
@@ -1999,42 +2029,6 @@ local function SkinCharacterSheet()
         return deduped
     end
 
-    -- M+ Score display (single inline FontString above itemlevel).
-    -- Number is uniquely colored via |cff...|r escapes based on score brackets.
-    local mythicRatingLabel = statsPanel:CreateFontString(nil, "OVERLAY")
-    mythicRatingLabel:SetFont(fontPath, 12, "")
-    -- Positioned below iLvlText once that FontString exists (see below).
-    mythicRatingLabel:SetTextColor(0.8, 0.8, 0.8, 1)
-    mythicRatingLabel:SetText(L("M+ Score:"))
-    GetFFD(frame).mythicRatingLabel = mythicRatingLabel
-
-    -- Legacy alias retained for call sites that test existence of the value
-    -- FontString. The label now hosts both parts via color escapes.
-    GetFFD(frame).mythicRatingValue = mythicRatingLabel
-
-    -- Color brackets: highest threshold that the score meets wins.
-    local MP_COLOR_BRACKETS = {
-        { 3850, "ff8000" }, { 3695, "f9753f" }, { 3575, "f16961" },
-        { 3455, "e75e7f" }, { 3335, "db529c" }, { 3215, "cc47b9" },
-        { 3095, "b83dd6" }, { 2965, "9c3eed" }, { 2845, "715be5" },
-        { 2725, "2c6dde" }, { 2565, "3b7fcd" }, { 2445, "5292b9" },
-        { 2325, "5ca6a4" }, { 2205, "5fba8d" }, { 2085, "5cce75" },
-        { 1965, "50e258" }, { 1845, "35f72d" }, { 1725, "3eff26" },
-        { 1600, "5eff43" }, { 1475, "74ff58" }, { 1350, "88ff6b" },
-        { 1225, "98ff7d" }, { 1100, "a8ff8d" }, { 975,  "b6ff9e" },
-        { 850,  "c3ffae" }, { 725,  "cfffbd" }, { 600,  "dbffcd" },
-        { 475,  "e7ffdd" }, { 350,  "f2ffec" }, { 225,  "fdfffc" },
-        { 200,  "ffffff" },
-    }
-    local function GetMPScoreHex(score)
-        for i = 1, #MP_COLOR_BRACKETS do
-            if score >= MP_COLOR_BRACKETS[i][1] then
-                return MP_COLOR_BRACKETS[i][2]
-            end
-        end
-        return "ffffff"
-    end
-
     -- Itemlevel display: sits just below the 3 tab buttons, inside the panel.
     local iLvlText = statsPanel:CreateFontString(nil, "OVERLAY")
     iLvlText:SetFont(fontPath, 18, "")
@@ -2049,9 +2043,6 @@ local function SkinCharacterSheet()
     pvpIlvlText:SetPoint("TOP", iLvlText, "BOTTOM", 0, -4)
     pvpIlvlText:Hide()
     GetFFD(frame).pvpIlvlText = pvpIlvlText
-
-    -- M+ Score sits below PvP ilvl (or iLvl if PvP is hidden).
-    mythicRatingLabel:SetPoint("TOP", pvpIlvlText, "BOTTOM", 0, -4)
 
     -- Button overlay for itemlevel tooltip
     local iLvlButton = EllesmereUI.SafeCreateFrame("Button", nil, statsPanel)
@@ -2134,51 +2125,21 @@ local function SkinCharacterSheet()
         -- Update PvP Item Level if option is enabled
         local isCharTab = PaperDollFrame and PaperDollFrame:IsShown()
         local showPvP = EllesmereUIDB and EllesmereUIDB.showPvpItemLevel
-        local pvpVisible = false
         if showPvP and avgItemLevelPvP and avgItemLevelPvP > 0 and GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:SetText(format("PvP iLvl: |cff00cc66%d|r", math.floor(avgItemLevelPvP)))
             if isCharTab then GetFFD(frame).pvpIlvlText:Show() else GetFFD(frame).pvpIlvlText:Hide() end
-            pvpVisible = isCharTab
         elseif GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:Hide()
         end
-
-        -- Re-anchor M+ Score: below PvP ilvl when visible, below iLvl when not
-        if GetFFD(frame).mythicRatingLabel then
-            GetFFD(frame).mythicRatingLabel:ClearAllPoints()
-            local anchor = pvpVisible and pvpIlvlText or iLvlText
-            GetFFD(frame).mythicRatingLabel:SetPoint("TOP", anchor, "BOTTOM", 0, -4)
-        end
-
-        -- Update M+ Score if option is enabled. Tab guard mirrors the slot-
-        -- label fix: PaperDollFrame:IsShown() is the truth-source for whether
-        -- the Character sub-pane is active (selectedTab is unreliable on the
-        -- initial open path).
-        if EllesmereUIDB and EllesmereUIDB.showMythicRating and GetFFD(frame).mythicRatingLabel then
-            -- TODO WotLK: Implement PvP rating/Arena points instead of M+
-            local mythicRating = C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore and C_ChallengeMode.GetOverallDungeonScore() or 0
-            if mythicRating and mythicRating > 0 then
-                local score = math.floor(mythicRating)
-                local hex = GetMPScoreHex(score)
-                GetFFD(frame).mythicRatingLabel:SetText(L("M+ Score:") .. string.format(" |cff%s%d|r", hex, score))
-                if isCharTab then GetFFD(frame).mythicRatingLabel:Show() else GetFFD(frame).mythicRatingLabel:Hide() end
-            else
-                GetFFD(frame).mythicRatingLabel:Hide()
-            end
-        elseif GetFFD(frame).mythicRatingLabel then
-            GetFFD(frame).mythicRatingLabel:Hide()
-        end
     end
 
-    -- Event-driven refresh of the center stats panel (ilvl + M+ score). Zero
-    -- cost when idle: only fires on inventory/spec/challenge-mode changes and
-    -- once when the character panel opens.
+    -- Event-driven refresh of the center stats panel. Zero cost when idle:
+    -- only fires on inventory/spec changes and once when the panel opens.
     local iLvlUpdateFrame = EllesmereUI.SafeCreateFrame("Frame")
     iLvlUpdateFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     iLvlUpdateFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
     iLvlUpdateFrame:RegisterEvent("BAG_UPDATE")
     iLvlUpdateFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    iLvlUpdateFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
     iLvlUpdateFrame:RegisterEvent("PLAYER_AVG_ITEM_LEVEL_UPDATE")
     -- GetItemInfo can return nil for a bag item whose data isn't cached yet
     -- (common for a tier-set piece on an uncommon upgrade track). Without this,
@@ -2221,14 +2182,13 @@ local function SkinCharacterSheet()
     end)
     UpdateItemLevelDisplay()
 
-    -- Store callback for option changes (M+ rating and PvP ilvl)
-    EllesmereUI._updateMythicRatingDisplay = function()
+    -- Store callback for PvP item-level option changes.
+    EllesmereUI._updatePvpIlvlDisplay = function()
         UpdateItemLevelDisplay()
         if EllesmereUI._updateScrollHeaderOffset then
             EllesmereUI._updateScrollHeaderOffset()
         end
     end
-    EllesmereUI._updatePvpIlvlDisplay = EllesmereUI._updateMythicRatingDisplay
 
     --[[ Stats panel border
     if EllesmereUI and EllesmereUI.PanelPP then
@@ -2236,11 +2196,11 @@ local function SkinCharacterSheet()
     end
     ]]--
 
-    -- Scroll frame starts below the button + iLvl + M+ header and stretches
+    -- Scroll frame starts below the button + iLvl header and stretches
     -- to the bottom-right of the panel. Right padding leaves room for the
     -- scrollbar (8px wide + a couple px breathing room).
-    -- Header height = buttonHeight(25) + iLvl(18) + M+(12) + gaps(~14) = ~70.
-    local HEADER_H = 75
+    -- Header height = buttonHeight(25) + iLvl(18) + gaps(~14) = ~59.
+    local HEADER_H = 59
     local scrollFrame = EllesmereUI.SafeCreateFrame("ScrollFrame", "EUI_CharSheet_ScrollFrame", statsPanel)
     scrollFrame:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, -HEADER_H)
     scrollFrame:SetPoint("BOTTOMRIGHT", statsPanel, "BOTTOMRIGHT", -12, 2)
@@ -2395,24 +2355,15 @@ local function SkinCharacterSheet()
     GetFFD(frame).updateScrollThumb      = scrollTrack._update
     GetFFD(frame).refreshVerticalScroll  = scrollTrack._refreshVerticalScroll
 
-    -- Re-anchor the scroll frame + track top edge based on whether the
-    -- PvP iLvl and M+ Score lines are visible. Each hidden line collapses
-    -- 16px of dead space so the stat sections start higher.
+    -- Re-anchor the scroll frame + track top edge when the PvP iLvl line is
+    -- visible so the stat sections start below the extra line.
     EllesmereUI._updateScrollHeaderOffset = function()
-        local showMP = EllesmereUIDB and EllesmereUIDB.showMythicRating
-        if showMP and C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore then
-            local score = (C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore) and C_ChallengeMode.GetOverallDungeonScore() or 0
-            if not score or score <= 0 then showMP = false end
-        end
         local showPvP = EllesmereUIDB and EllesmereUIDB.showPvpItemLevel
         if showPvP and GetAverageItemLevel then
             local _, _, pvp = GetAverageItemLevel()
             if not pvp or pvp <= 0 then showPvP = false end
         end
-        -- HEADER_H includes space for M+ (one extra line). Each hidden
-        -- line collapses 16px; each additional line beyond M+ adds 16px.
         local h = HEADER_H
-        if not showMP then h = h - 16 end
         if showPvP then h = h + 16 end
         scrollFrame:ClearAllPoints()
         scrollFrame:SetPoint("TOPLEFT",     statsPanel, "TOPLEFT",     0,  -h)
@@ -3524,7 +3475,7 @@ local function SkinCharacterSheet()
         "CharacterFinger0Slot", "CharacterFinger1Slot",
         "CharacterTrinket0Slot", "CharacterTrinket1Slot",
         "CharacterBackSlot", "CharacterMainHandSlot", "CharacterSecondaryHandSlot",
-        "CharacterShirtSlot", "CharacterTabardSlot"
+        "CharacterRangedSlot", "CharacterAmmoSlot", "CharacterShirtSlot", "CharacterTabardSlot"
     }
 
     -- Store on frame for use in tab hooks
@@ -4718,7 +4669,9 @@ local function SkinCharacterSheet()
         -- Shirt slot: skin the border but never show item level / upgrade
         -- track / enchant text. Shirts have no stats or enchants worth
         -- displaying and the labels just clutter the model area.
-        local skipLabels = (slotName == "CharacterShirtSlot" or slotName == "CharacterTabardSlot")
+        -- Ammo has no enchant and its item level is meaningless.
+        local skipLabels = (slotName == "CharacterShirtSlot" or slotName == "CharacterTabardSlot"
+            or slotName == "CharacterAmmoSlot")
 
         -- Create itemlevel labels
         local slot = _G[slotName]
@@ -4737,14 +4690,25 @@ local function SkinCharacterSheet()
                 -- Right column: show on left side
                 label:SetPoint("CENTER", slot, "LEFT", -15, 10)
             elseif slotName == "CharacterMainHandSlot" then
-                -- MainHand: show on left side
-                label:SetPoint("CENTER", slot, "LEFT", -15, 10)
+                -- MainHand: above the slot, growing left from its right edge.
+                -- The weapon row is MH / OH / Ranged side by side, so side
+                -- labels on the OH would run over the ranged slot. Re-anchored
+                -- on top of the enchant label once that exists.
+                label:SetPoint("BOTTOMRIGHT", slot, "TOPRIGHT", 0, 2)
+                label:SetJustifyH("RIGHT")
             elseif slotName == "CharacterSecondaryHandSlot" then
-                -- OffHand: show on right side
-                label:SetPoint("CENTER", slot, "RIGHT", 15, 10)
+                -- OffHand: above the slot, growing right from its left edge.
+                label:SetPoint("BOTTOMLEFT", slot, "TOPLEFT", 0, 2)
+                label:SetJustifyH("LEFT")
             elseif slotName == "CharacterRangedSlot" then
                 -- Ranged: show on right side
                 label:SetPoint("CENTER", slot, "RIGHT", 15, 10)
+                -- Ammo sits right after the ranged item level, above the
+                -- ranged enchant line.
+                if _G.CharacterAmmoSlot then
+                    _G.CharacterAmmoSlot:ClearAllPoints()
+                    _G.CharacterAmmoSlot:SetPoint("LEFT", label, "RIGHT", 4, 0)
+                end
             end
 
             GetFFD(slot).itemLevelLabel = label
@@ -4760,7 +4724,9 @@ local function SkinCharacterSheet()
             -- Position based on column (below itemlevel). Justify toward the
             -- icon so a width-capped enchant name hugs its slot: left-column
             -- text left-aligned, right-column text right-aligned (weapon slots
-            -- follow their anchor side).
+            -- follow their anchor side). MH/OH stack above the slot: enchant
+            -- right on the icon, item level on top of the enchant.
+            local ilvlLabel = GetFFD(slot).itemLevelLabel
             if tContains(leftColumnSlots, slotName) then
                 enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
                 enchantLabel:SetJustifyH("LEFT")
@@ -4768,11 +4734,19 @@ local function SkinCharacterSheet()
                 enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
                 enchantLabel:SetJustifyH("RIGHT")
             elseif slotName == "CharacterMainHandSlot" then
-                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                enchantLabel:SetPoint("BOTTOMRIGHT", slot, "TOPRIGHT", 0, 2)
                 enchantLabel:SetJustifyH("RIGHT")
+                if ilvlLabel then
+                    ilvlLabel:ClearAllPoints()
+                    ilvlLabel:SetPoint("BOTTOMRIGHT", enchantLabel, "TOPRIGHT", 0, 1)
+                end
             elseif slotName == "CharacterSecondaryHandSlot" then
-                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                enchantLabel:SetPoint("BOTTOMLEFT", slot, "TOPLEFT", 0, 2)
                 enchantLabel:SetJustifyH("LEFT")
+                if ilvlLabel then
+                    ilvlLabel:ClearAllPoints()
+                    ilvlLabel:SetPoint("BOTTOMLEFT", enchantLabel, "TOPLEFT", 0, 1)
+                end
             elseif slotName == "CharacterRangedSlot" then
                 enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
                 enchantLabel:SetJustifyH("LEFT")
@@ -4788,9 +4762,9 @@ local function SkinCharacterSheet()
             elseif tContains(rightColumnSlots, slotName) then
                 hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
             elseif slotName == "CharacterMainHandSlot" then
-                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                hoverFrame:SetPoint("BOTTOMRIGHT", enchantLabel, "BOTTOMRIGHT", 0, 0)
             elseif slotName == "CharacterSecondaryHandSlot" then
-                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                hoverFrame:SetPoint("BOTTOMLEFT", enchantLabel, "BOTTOMLEFT", 0, 0)
             elseif slotName == "CharacterRangedSlot" then
                 hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
             end
@@ -5368,12 +5342,8 @@ local function SkinCharacterSheet()
                     -- Enchant names render OUTLINE for legibility over the model.
                     local outlineFlag = EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG") or "OUTLINE"
                     GetFFD(slot).enchantLabel:SetFont(fontPath, enchFontSize, outlineFlag)
-                    -- Item-level color, blended 50% toward white so the name reads
-                    -- softer than the ilvl number.
-                    GetFFD(slot).enchantLabel:SetTextColor(
-                        ilvlColor.r + (1 - ilvlColor.r) * 0.5,
-                        ilvlColor.g + (1 - ilvlColor.g) * 0.5,
-                        ilvlColor.b + (1 - ilvlColor.b) * 0.5, 0.9)
+                    -- Tooltip enchant green (GREEN_FONT_COLOR).
+                    GetFFD(slot).enchantLabel:SetTextColor(0.1, 1, 0.1, 0.9)
                     -- Cap the name at 45% of the gap between the two equipment columns.
                     GetFFD(slot).enchantLabel:SetWordWrap(false)
                     GetFFD(slot).enchantLabel:SetWidth(maxW)
@@ -5400,6 +5370,9 @@ local function SkinCharacterSheet()
                     end)
                 end
             else
+                -- Clear the text too: weapon item levels stack on top of this
+                -- label, so a stale (hidden) name would keep them floating.
+                GetFFD(slot).enchantLabel:SetText("")
                 GetFFD(slot).enchantLabel:Hide()
                 if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Hide() end
             end
@@ -5975,8 +5948,8 @@ function EllesmereUI._refreshEnchantsColors()
                 -- Use custom color if enabled
                 displayColor = EllesmereUIDB.charSheetEnchantColor
             else
-                -- Use default color
-                displayColor = { r = 1, g = 1, b = 1 }
+                -- Use default color (tooltip enchant green)
+                displayColor = { r = 0.1, g = 1, b = 0.1 }
             end
 
             GetFFD(slot).enchantLabel:SetTextColor(displayColor.r, displayColor.g, displayColor.b, 1)

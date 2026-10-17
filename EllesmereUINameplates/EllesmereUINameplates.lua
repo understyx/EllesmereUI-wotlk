@@ -1216,7 +1216,9 @@ function PlateMethods:UpdateAuras()
             end
         end
     end
-    if helpful then
+    -- Pets/guardians: skip buffs (hovering a hunter pet would otherwise list
+    -- its whole kit through the mouseover poll). Debuffs/CC still show.
+    if helpful and not ns.AuraTracker:IsPetGUID(self.guid) then
         for _, aura in ipairs(helpful) do
             if buffCount >= #self.buffs then break end
             buffCount = buffCount + 1

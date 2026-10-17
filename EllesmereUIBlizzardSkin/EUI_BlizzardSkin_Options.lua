@@ -386,15 +386,6 @@ initFrame:SetScript("OnEvent", function(self)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.tooltipItemLevel = v
                       end },
-                    { type="toggle", label="Show M+ Score",
-                      disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
-                      get=function()
-                          return not EllesmereUIDB or EllesmereUIDB.tooltipMythicScore ~= false
-                      end,
-                      set=function(v)
-                          if not EllesmereUIDB then EllesmereUIDB = {} end
-                          EllesmereUIDB.tooltipMythicScore = v
-                      end },
                     { type="toggle", label="Show Mount",
                       tooltip="Adds the mount a player is riding to their tooltip, with a green check if you own it or a red X if you don't.",
                       disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
@@ -867,14 +858,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         local coreRow1
         coreRow1, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Mythic+ Rating",
-              tooltip="Display your Mythic+ rating above the item level on the character sheet.",
-              getValue=function() return EllesmereUIDB and EllesmereUIDB.showMythicRating or false end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.showMythicRating = v
-                  if EllesmereUI._updateMythicRatingDisplay then EllesmereUI._updateMythicRatingDisplay() end
-              end },
             { type="toggle", text="Item Level",
               tooltip="Toggle visibility of item level text on the character sheet.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showItemLevel ~= false end,
@@ -882,7 +865,8 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showItemLevel = v
                   if EllesmereUI._refreshItemLevelVisibility then EllesmereUI._refreshItemLevelVisibility() end
-              end }
+              end },
+            {}
         );  y = y - h
         AttachDisabledOverlay(coreRow1)
 
@@ -935,7 +919,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Show PvP Item Level",
-              tooltip="Display your PvP item level above the Mythic+ rating on the character sheet.",
+              tooltip="Display your PvP item level below the item level on the character sheet.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showPvpItemLevel or false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -954,7 +938,7 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Enchant Settings",
                 rows = {
                     { type="toggle", label="Show Enchant Names",
-                      tooltip="Show each enchant's name as text (colored to match that item's item level) instead of its icon. The name normally appears only when hovering the icon.",
+                      tooltip="Show each enchant's name as green text instead of its icon. The name normally appears only when hovering the icon.",
                       get=function() return (not EllesmereUIDB) or (EllesmereUIDB.charSheetEnchantNames ~= false) end,
                       set=function(v)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1527,16 +1511,6 @@ initFrame:SetScript("OnEvent", function(self)
             buildContent = BuildLFGMenuContent,
         },
         {
-            key   = "collections",
-            title = "Collections",
-            desc  = "Mounts, pets, toys, heirlooms, appearances, and campsites.",
-            reloadMsg = "Changing the Collections reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
-            setEnabled = function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.reskinCollections = v
-            end,
-        },
-        {
             key   = "playerspells",
             title = "Talents & Spellbook",
             desc  = "The Player Spells window: talents, spec selection, and the spellbook.",
@@ -1544,16 +1518,6 @@ initFrame:SetScript("OnEvent", function(self)
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinPlayerSpells = v
-            end,
-        },
-        {
-            key   = "professionsbook",
-            title = "Professions",
-            desc  = "The professions overview book with squared icons and flat progress bars.",
-            reloadMsg = "Changing the Professions reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
-            setEnabled = function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.reskinProfessionsBook = v
             end,
         },
         {
@@ -1671,16 +1635,6 @@ initFrame:SetScript("OnEvent", function(self)
             end,
         },
         {
-            key   = "transmog",
-            title = "Transmogrifier",
-            desc  = "The transmogrification window at the transmogrifier.",
-            reloadMsg = "Changing the Transmogrifier reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
-            setEnabled = function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.reskinTransmog = v
-            end,
-        },
-        {
             key   = "merchant",
             title = "Merchant",
             desc  = "The vendor window: item list, buyback, and bottom money bar.",
@@ -1759,16 +1713,6 @@ initFrame:SetScript("OnEvent", function(self)
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinQuest = v
-            end,
-        },
-        {
-            key   = "inspectrecipe",
-            title = "Inspect Recipe",
-            desc  = "The recipe preview window shown from a linked recipe or an inspected crafter.",
-            reloadMsg = "Changing the Inspect Recipe reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
-            setEnabled = function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.reskinInspectRecipe = v
             end,
         },
     }
@@ -2307,7 +2251,7 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIBlizzardSkin", {
         title       = "Blizz UI Enhanced",
         description = "Themed Blizzard frames: window skins, tooltips, menus, popups.",
-        searchTerms = "blizzard skin character sheet tooltip menu popup window skins lfg group finder premade queue pause game menu inspect collections mounts pets toys spellbook talents encounter journal professions guild communities calendar achievements mail gem socket loot window loot toast you received popup micro menu modern",
+        searchTerms = "blizzard skin character sheet tooltip menu popup window skins lfg group finder premade queue pause game menu inspect spellbook talents professions guild communities calendar achievements mail gem socket loot window loot toast you received popup micro menu modern",
         pages       = { PAGE_WINDOWSKINS, PAGE_TOOLTIPS },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_WINDOWSKINS then
@@ -2335,7 +2279,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.accentReskinElements = nil
                 EllesmereUIDB.tooltipPlayerTitles = nil
                 EllesmereUIDB.tooltipFontScale = nil
-                EllesmereUIDB.tooltipMythicScore = nil
                 EllesmereUIDB.tooltipAnchorCursor = nil
                 EllesmereUIDB.tooltipCursorPosition = nil
                 EllesmereUIDB.tooltipCursorOffsetX = nil
@@ -2381,9 +2324,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.blizzWinAccentBar = nil
                 EllesmereUIDB.blizzWinBarFill = nil
                 EllesmereUIDB.blizzWinLinks = nil
-                EllesmereUIDB.reskinCollections = nil
                 EllesmereUIDB.reskinPlayerSpells = nil
-                EllesmereUIDB.reskinProfessionsBook = nil
                 EllesmereUIDB.reskinGuild = nil
                 EllesmereUIDB.reskinCalendar = nil
                 EllesmereUIDB.reskinAchievements = nil
@@ -2397,7 +2338,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinProfessions = nil
                 EllesmereUIDB.reskinWorldMap = nil
                 EllesmereUIDB.reskinDressUp = nil
-                EllesmereUIDB.reskinTransmog = nil
                 EllesmereUIDB.reskinMerchant = nil
                 EllesmereUIDB.reskinAuctionHouse = nil
                 EllesmereUIDB.reskinMacros = nil
@@ -2407,11 +2347,9 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinTrainer = nil
                 EllesmereUIDB.reskinGossip = nil
                 EllesmereUIDB.reskinQuest = nil
-                EllesmereUIDB.reskinInspectRecipe = nil
                 EllesmereUIDB.reskinDelves = nil
                 EllesmereUIDB.lfgRememberRoles = nil
                 EllesmereUIDB.lfgSavedRoles = nil
-                EllesmereUIDB.showMythicRating = nil
                 EllesmereUIDB.showPvpItemLevel = nil
                 EllesmereUIDB.flyoutItemLevels = nil
                 EllesmereUIDB.statCategoryColors = nil

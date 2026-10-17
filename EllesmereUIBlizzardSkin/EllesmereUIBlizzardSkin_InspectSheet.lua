@@ -257,20 +257,6 @@ local function GetFFD(frame)
     return d
 end
 
-local MP_COLOR_BRACKETS = {
-    { 3850, "ff8000" }, { 3695, "f9753f" }, { 3575, "f16961" },
-    { 3455, "e75e7f" }, { 3335, "db529c" }, { 3215, "cc47b9" },
-    { 3095, "b83dd6" }, { 2965, "9c3eed" }, { 2845, "715be5" },
-    { 2725, "2c6dde" }, { 2565, "3b7fcd" }, { 2445, "5292b9" },
-    { 2325, "5ca6a4" }, { 2205, "5fba8d" }, { 2085, "5cce75" },
-    { 1965, "50e258" }, { 1845, "35f72d" }, { 1725, "3eff26" },
-    { 1600, "5eff43" }, { 1475, "74ff58" }, { 1350, "88ff6b" },
-    { 1225, "98ff7d" }, { 1100, "a8ff8d" }, { 975,  "b6ff9e" },
-    { 850,  "c3ffae" }, { 725,  "cfffbd" }, { 600,  "dbffcd" },
-    { 475,  "e7ffdd" }, { 350,  "f2ffec" }, { 225,  "fdfffc" },
-    { 200,  "ffffff" },
-}
-
 -- Equipment slot lists
 local EUI_ALL_SLOTS = {
     "InspectHeadSlot", "InspectNeckSlot", "InspectShoulderSlot", "InspectBackSlot",
@@ -374,10 +360,12 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             ilvlText:SetTextColor(1, 1, 1, 0.8)
             ilvlText:SetJustifyH("CENTER")
 
+            -- MH/OH stack above the slot (anchored at the end of this
+            -- function); a side label on the OH would run over the ranged slot.
             if slotName == "InspectMainHandSlot" then
-                ilvlText:SetPoint("CENTER", slot, "LEFT", -15, 10)
+                ilvlText:SetJustifyH("RIGHT")
             elseif slotName == "InspectSecondaryHandSlot" then
-                ilvlText:SetPoint("CENTER", slot, "RIGHT", 15, 10)
+                ilvlText:SetJustifyH("LEFT")
             elseif isRightColumn then
                 ilvlText:SetPoint("CENTER", slot, "LEFT", -15, 10)
             else
@@ -428,10 +416,10 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             if not enchantLabel then
                 enchantLabel = textOverlayFrame:CreateFontString(nil, "OVERLAY")
                 if slotName == "InspectMainHandSlot" then
-                    enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                    enchantLabel:SetPoint("BOTTOMRIGHT", slot, "TOPRIGHT", 0, 2)
                     enchantLabel:SetJustifyH("RIGHT")
                 elseif slotName == "InspectSecondaryHandSlot" then
-                    enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    enchantLabel:SetPoint("BOTTOMLEFT", slot, "TOPLEFT", 0, 2)
                     enchantLabel:SetJustifyH("LEFT")
                 elseif slotName == "InspectRangedSlot" then
                     enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
@@ -449,10 +437,8 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             local outlineFlag = EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG") or "OUTLINE"
             enchantLabel:SetFont(fontPath, enchantSize, useName and outlineFlag or "")
             if useName then
-                enchantLabel:SetTextColor(
-                    ilvlColor.r + (1 - ilvlColor.r) * 0.5,
-                    ilvlColor.g + (1 - ilvlColor.g) * 0.5,
-                    ilvlColor.b + (1 - ilvlColor.b) * 0.5, 0.9)
+                -- Tooltip enchant green (GREEN_FONT_COLOR), matches the character sheet.
+                enchantLabel:SetTextColor(0.1, 1, 0.1, 0.9)
             else
                 enchantLabel:SetTextColor(1, 1, 1, 0.8)
             end
@@ -464,9 +450,9 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
                 hoverFrame = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlayFrame)
                 hoverFrame:SetFrameLevel(textOverlayFrame:GetFrameLevel() + 20)
                 if slotName == "InspectMainHandSlot" then
-                    hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                    hoverFrame:SetPoint("BOTTOMRIGHT", enchantLabel, "BOTTOMRIGHT", 0, 0)
                 elseif slotName == "InspectSecondaryHandSlot" then
-                    hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                    hoverFrame:SetPoint("BOTTOMLEFT", enchantLabel, "BOTTOMLEFT", 0, 0)
                 elseif slotName == "InspectRangedSlot" then
                     hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
                 elseif isRightColumn then
@@ -497,7 +483,19 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
         if GetFFD(slot).enchantHoverFrame then GetFFD(slot).enchantHoverFrame:Hide() end
     end
 
-
+    -- MH/OH: enchant sits on the slot, item level stacks on top of it (or on
+    -- the slot when there is no visible enchant). Matches the character sheet.
+    local ilvlText = GetFFD(slot).iLvlText
+    if ilvlText and (slotName == "InspectMainHandSlot" or slotName == "InspectSecondaryHandSlot") then
+        local pt = slotName == "InspectMainHandSlot" and "RIGHT" or "LEFT"
+        local ench = GetFFD(slot).enchantText
+        ilvlText:ClearAllPoints()
+        if ench and ench:IsShown() then
+            ilvlText:SetPoint("BOTTOM" .. pt, ench, "TOP" .. pt, 0, 1)
+        else
+            ilvlText:SetPoint("BOTTOM" .. pt, slot, "TOP" .. pt, 0, 2)
+        end
+    end
 end
 
 -- Apply tab visibility: show labels only on Tab 1
@@ -526,11 +524,10 @@ local function ApplyTabVisibility(showLabels)
         end
     end
 
-    -- Hide/show avg ilvl + M+ score
+    -- Hide/show average item level
     local frame = InspectFrame
     if frame then
         if GetFFD(frame).avgIlvlText then if showLabels then GetFFD(frame).avgIlvlText:Show() else GetFFD(frame).avgIlvlText:Hide() end end
-        if GetFFD(frame).mPlusScoreText then if showLabels then GetFFD(frame).mPlusScoreText:Show() else GetFFD(frame).mPlusScoreText:Hide() end end
     end
 end
 
@@ -1055,7 +1052,24 @@ local function SkinInspectSheet()
         if not GetFFD(tal)._euiSkinned then
             GetFFD(tal)._euiSkinned = true
             local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
-            if S and S.StripTextures then S:StripTextures(tal, true) end
+            -- TalentFrame_Update writes the inspected class tree artwork into
+            -- these four regions, so strip everything except them.
+            local treeArt = {
+                { _G.InspectTalentFrameBackgroundTopLeft, 0, 1, 0, 1 },
+                { _G.InspectTalentFrameBackgroundTopRight, 0, 0.6875, 0, 1 },
+                { _G.InspectTalentFrameBackgroundBottomLeft, 0, 1, 0, 0.5859375 },
+                { _G.InspectTalentFrameBackgroundBottomRight, 0, 0.6875, 0, 0.5859375 },
+            }
+            local keepArt = {}
+            for _, info in ipairs(treeArt) do
+                if info[1] then keepArt[info[1]] = true end
+            end
+            for i = 1, tal:GetNumRegions() do
+                local region = select(i, tal:GetRegions())
+                if region and region:IsObjectType("Texture") and not keepArt[region] then
+                    if S and S.Kill then S:Kill(region) else region:SetTexture(nil); region:Hide() end
+                end
+            end
             tal:ClearAllPoints()
             tal:SetAllPoints(frame)
             if tal.SetClipsChildren then tal:SetClipsChildren(true) end
@@ -1076,6 +1090,30 @@ local function SkinInspectSheet()
             SetInspectSurface(surface, 0.025, 0.035, 0.04, 0.72)
             GetFFD(tal).surface = surface
 
+            -- Stretch the four art quadrants over the surface, keeping the
+            -- native 256:44 x 256:75 split once the scrollbar gutter is cropped.
+            local function LayoutTreeArt()
+                local w, h = surface:GetWidth() - 2, surface:GetHeight() - 2
+                if w <= 0 or h <= 0 then return end
+                local leftW, topH = w * 256 / 300, h * 256 / 331
+                for i, info in ipairs(treeArt) do
+                    local tex = info[1]
+                    if tex then
+                        local right, bottom = (i == 2 or i == 4), (i >= 3)
+                        tex:ClearAllPoints()
+                        tex:SetPoint("TOPLEFT", surface, "TOPLEFT",
+                            1 + (right and leftW or 0), -1 - (bottom and topH or 0))
+                        tex:SetSize(right and (w - leftW) or leftW, bottom and (h - topH) or topH)
+                        tex:SetTexCoord(info[2], info[3], info[4], info[5])
+                        tex:SetDrawLayer("BACKGROUND", 1)
+                        tex:SetAlpha(0.92)
+                    end
+                end
+            end
+            LayoutTreeArt()
+            surface:SetScript("OnSizeChanged", LayoutTreeArt)
+
+            local TALENT_TAB_W, TALENT_TAB_H = 124, 25
             local talentTabs = {}
             for i = 1, 3 do
                 local tab = _G["InspectTalentFrameTab" .. i]
@@ -1086,7 +1124,7 @@ local function SkinInspectSheet()
                         if S and S.StripTextures then S:StripTextures(tab) end
                         if S and S.HandleTab then S:HandleTab(tab) end
                     end
-                    tab:SetSize(124, 25)
+                    tab:SetSize(TALENT_TAB_W, TALENT_TAB_H)
                     local label = tab:GetFontString()
                     if label and not (S and S.StyleRetailTab) then
                         label:SetFont(fontPath, 10, "")
@@ -1135,12 +1173,29 @@ local function SkinInspectSheet()
                 end
             end
 
+            local function LayoutTalentTabs()
+                local count = #talentTabs
+                if count == 0 then return end
+                local gap = 4
+                local totalW = count * TALENT_TAB_W + (count - 1) * gap
+                for i, tab in ipairs(talentTabs) do
+                    tab:SetSize(TALENT_TAB_W, TALENT_TAB_H)
+                    tab:ClearAllPoints()
+                    if i == 1 then
+                        tab:SetPoint("TOPLEFT", tal, "TOP", -totalW / 2, -37)
+                    else
+                        tab:SetPoint("LEFT", talentTabs[i - 1], "RIGHT", gap, 0)
+                    end
+                end
+            end
+
             local function UpdateInspectTalentIcons()
                 local curTal = _G.InspectTalentFrame
                 if not curTal then return end
                 local tabIndex = (_G.PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(curTal))
                     or curTal.selectedTab or 1
 
+                LayoutTalentTabs()
                 if S and S.UpdateRetailTab then
                     for i, tab in ipairs(talentTabs) do
                         S:UpdateRetailTab(tab, i == tabIndex)
@@ -1202,21 +1257,6 @@ local function SkinInspectSheet()
 
             end
 
-            local function LayoutTalentTabs()
-                local count = #talentTabs
-                if count == 0 then return end
-                local gap = 4
-                local tabW = talentTabs[1]:GetWidth()
-                local totalW = count * tabW + (count - 1) * gap
-                for i, tab in ipairs(talentTabs) do
-                    tab:ClearAllPoints()
-                    if i == 1 then
-                        tab:SetPoint("TOPLEFT", tal, "TOP", -totalW / 2, -37)
-                    else
-                        tab:SetPoint("LEFT", talentTabs[i - 1], "RIGHT", gap, 0)
-                    end
-                end
-            end
 
             LayoutTalentTabs()
             UpdateInspectTalentIcons()
@@ -1229,6 +1269,15 @@ local function SkinInspectSheet()
             if _G.InspectTalentFrame_Update then
                 hooksecurefunc("InspectTalentFrame_Update", UpdateInspectTalentIcons)
             end
+            -- Blizzard's tab handlers shrink these tabs to their label width,
+            -- which leaves the centered row offset to the left.
+            if _G.PanelTemplates_TabResize then
+                local isTalentTab = {}
+                for _, tab in ipairs(talentTabs) do isTalentTab[tab] = true end
+                hooksecurefunc("PanelTemplates_TabResize", function(tab)
+                    if isTalentTab[tab] then LayoutTalentTabs() end
+                end)
+            end
             -- Reassert the native icon's render layer after Blizzard changes
             -- its texture/desaturation while switching inspected talent tabs.
             if _G.TalentFrame_Update then
@@ -1239,7 +1288,6 @@ local function SkinInspectSheet()
                 end)
             end
             tal:HookScript("OnShow", function()
-                LayoutTalentTabs()
                 UpdateInspectTalentIcons()
                 C_Timer.After(0, UpdateInspectTalentIcons)
             end)
@@ -1491,8 +1539,8 @@ local function SkinInspectSheet()
         end
     end
 
-    -- Average item level + M+ score, centered below the title/level text.
-    -- Anchored to frame TOP so they sit below the character info header.
+    -- Average item level, centered below the title/level text.
+    -- Anchored to frame TOP so it sits below the character info header.
     do
         local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
 
@@ -1516,15 +1564,6 @@ local function SkinInspectSheet()
             GetFFD(frame).avgIlvlText = ilvlFS
         end
 
-        if not GetFFD(frame).mPlusScoreText then
-            local mpFS = txo:CreateFontString(nil, "OVERLAY")
-            mpFS:SetFont(fontPath, 12, "")
-            mpFS:SetTextColor(0.8, 0.8, 0.8, 1)
-            mpFS:SetJustifyH("CENTER")
-            mpFS:SetPoint("TOP", GetFFD(frame).avgIlvlText, "BOTTOM", 0, -2)
-            GetFFD(frame).mPlusScoreText = mpFS
-        end
-
         local avg = CalculateAverageItemLevel()
         if avg and avg > 0 then
             GetFFD(frame).avgIlvlText:SetFormattedText("%.2f", avg)
@@ -1533,27 +1572,6 @@ local function SkinInspectSheet()
             GetFFD(frame).avgIlvlText:Hide()
         end
 
-        local inspectUnit = frame.unit
-        local mpScore = 0
-        if inspectUnit and C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary then
-            local summary = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(inspectUnit)
-            if summary and summary.currentSeasonScore then
-                mpScore = summary.currentSeasonScore
-            end
-        end
-        if mpScore > 0 then
-            local hex = "ffffff"
-            for i = 1, #MP_COLOR_BRACKETS do
-                if mpScore >= MP_COLOR_BRACKETS[i][1] then
-                    hex = MP_COLOR_BRACKETS[i][2]; break
-                end
-            end
-            GetFFD(frame).mPlusScoreText:SetFormattedText("%s |cff%s%d|r",
-                EllesmereUI.L("M+ Score:"), hex, math.floor(mpScore))
-            GetFFD(frame).mPlusScoreText:Show()
-        else
-            GetFFD(frame).mPlusScoreText:Hide()
-        end
     end
 
     -- Glyphs are an inspect page rather than a detached addon window. The tab
@@ -1759,12 +1777,9 @@ local function SkinInspectSheet()
             if isTab1 then GetFFD(frame).modelBgGlow:Show() else GetFFD(frame).modelBgGlow:Hide() end
         end
 
-        -- Show Talents/Transmog buttons only on Tab 1 (Character sheet)
+        -- Show the Talents button only on Tab 1 (Character sheet)
         if GetFFD(frame).talentsBtn then
             if isTab1 then GetFFD(frame).talentsBtn:Show() else GetFFD(frame).talentsBtn:Hide() end
-        end
-        if GetFFD(frame).transmogBtn then
-            if isTab1 then GetFFD(frame).transmogBtn:Show() else GetFFD(frame).transmogBtn:Hide() end
         end
 
         -- Update label visibility with ApplyTabVisibility - only show on Tab 1

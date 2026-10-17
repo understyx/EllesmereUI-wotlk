@@ -537,7 +537,6 @@ local flashlightEnabled = false  -- cursor flashlight toggle
 local hoverBarEnabled = false   -- show-bar-on-hover toggle
 local darkOverlaysEnabled = true  -- dark overlay backgrounds on movers
 local coordsEnabled = false     -- show coordinates for all elements at all times
-local _blizzOwnedOverlays = {}  -- info overlays for Blizzard-controlled elements
 local unlockTipFrame           -- one-time "how to use" tip frame
 local pendingAfterClose        -- callback to run after DoClose completes
 local selectedMover            -- currently selected mover frame (for arrow key nudging)
@@ -1868,7 +1867,7 @@ end
 -- moment they run, but nothing previously re-ran that conversion after a UI
 -- Scale change, so a source/target pair whose frames don't scale identically
 -- (e.g. a custom element parented to UIParent matched against a Blizzard
--- Edit Mode frame with its own independent scale) is left using the OLD
+-- system frame with its own independent scale) is left using the OLD
 -- scale ratio until something UNRELATED happens to trigger a re-match. This
 -- produced reports of "extra spacing" on Dragon Riding's Width Match to
 -- Cooldowns that only went away when changing something else forced a
@@ -4390,86 +4389,20 @@ function EllesmereUI.IsUnlockAnchored(unlockKey)
 end
 
 
--------------------------------------------------------------------------------
---  frame so that when Blizzard's Edit Mode tries to reposition a bar we
---  have a custom position for, the original method is skipped entirely.
---  This prevents the visual "jump" because the bar never moves to the
---  wrong position in the first place.
---
---  IMPORTANT: We use hooksecurefunc (post-hook) instead of replacing the
---  method outright.  Replacing ApplySystemAnchor taints the bar frame,
---  which propagates to child action buttons and causes
---  ADDON_ACTION_BLOCKED on SetShown().  A post-hook lets Blizzard's
---  secure code run first, then we re-position the bar in a deferred
---  timer so our addon code never executes inside the secure call chain.
--------------------------------------------------------------------------------
-local anchorGuardedBars = {}  -- { [barFrame] = true }
-
-local function InstallAnchorGuard(bar, barKey)
-    if anchorGuardedBars[bar] then return end
-    if not bar.ApplySystemAnchor then return end
-    anchorGuardedBars[bar] = true
-    hooksecurefunc(bar, "ApplySystemAnchor", function(self)
-        local db = GetPositionDB()
-        if db and db[barKey] and db[barKey].point then
-            -- Defer so we don't taint the secure execution context
-            C_Timer.After(0, function()
-                if InCombatLockdown() then
-                    -- Reapply once combat drops instead of losing the position
-                    EllesmereUI._AnchorPark.ParkBarPos(barKey)
-                    return
-                end
-                -- Use centralized apply for grow-direction-aware positioning
-                if not ApplyCenterPosition(barKey, db[barKey]) then
-                    pcall(function()
-                        self:ClearAllPoints()
-                        self:SetPoint(db[barKey].point, UIParent, db[barKey].relPoint,
-                                      db[barKey].x, db[barKey].y)
-                    end)
-                end
-            end)
-        end
-    end)
-end
-
-local function InstallAllAnchorGuards()
-    local db = GetPositionDB()
-    if not db then return end
-    for barKey, _ in pairs(db) do
-        local bar = GetBarFrame(barKey)
-        if bar then
-            InstallAnchorGuard(bar, barKey)
-        end
-    end
-end
-
--- Hook into the addon's ApplyAll chain (action bars only)
+-- Reapply saved positions after action bars initialize or rebuild.
 if EAB then
     local _origApplyAll = EAB.ApplyAll
     if _origApplyAll then
         function EAB:ApplyAll()
             _origApplyAll(self)
-            -- Install anchor guards on first ApplyAll (bars exist by now)
-            InstallAllAnchorGuards()
             C_Timer.After(0.6, ApplySavedPositions)
         end
     end
 
-    -- Called by EllesmereUIActionBars when Blizzard's Edit Mode saves or exits.
-    function EAB:OnEditModeLayoutReapply()
-        InstallAllAnchorGuards()
-        ApplySavedPositions()
-        C_Timer.After(0.3, function() self:ApplyAll() end)
-    end
-
-    -- Install anchor guards as early as possible — right after the DB is
-    -- initialized — so Blizzard's very first layout pass can't move bars
-    -- we have custom positions for.
     local _origOnInit = EAB.OnInitialize
     if _origOnInit then
         function EAB:OnInitialize()
             _origOnInit(self)
-            InstallAllAnchorGuards()
             ApplySavedPositions()
         end
     end
@@ -5620,248 +5553,6 @@ local function SortMoverFrameLevels()
         entry.mover._baseLevel = lvl
         entry.mover._raisedLevel = lvl + #sorted + 5
         entry.mover:SetFrameLevel(lvl)
-    end
-end
-
--------------------------------------------------------------------------------
---  Blizzard-Owned Info Overlays
---  Visual overlays shown during unlock mode on elements whose position is
---  controlled by Blizzard Edit Mode (chat, micro menu, bags, encounter bar).
---  Not draggable. Hover shows accent-colored "Move via Blizz Edit Mode"
---  text with the same animation as regular mover links. Clicking the text
---  closes unlock mode and opens Blizzard's Edit Mode.
--------------------------------------------------------------------------------
-local BLIZZ_OWNED_OVERLAY_DEFS = {
-    { label = "Chat", frame = function()
-          if not EllesmereUI._chatCFD then return nil end
-          return ChatFrame1
-      end,
-      anchor = function(ov, cf)
-          -- Span sidebar + bg + tabs for the full chat region.
-          -- Detect sidebar side by comparing screen positions.
-          local cfd = EllesmereUI._chatCFD and EllesmereUI._chatCFD(cf)
-          local bg = cfd and cfd.bg
-          local sidebar = cfd and cfd.sidebar
-          if not bg then
-              ov:SetAllPoints(cf)
-              return
-          end
-          local sidebarRight = false
-          if sidebar and bg and sidebar.GetLeft and bg.GetLeft then
-              local sl = sidebar:GetLeft() or 0
-              local bl = bg:GetLeft() or 0
-              sidebarRight = sl > bl
-          end
-          ov:ClearAllPoints()
-          if sidebarRight then
-              ov:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
-              ov:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
-          else
-              ov:SetPoint("TOPLEFT", sidebar or bg, "TOPLEFT", 0, 0)
-              ov:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
-          end
-          -- Extend top to cover tabs (they sit above the bg)
-          local tab1 = _G.ChatFrame1Tab
-          if tab1 and tab1:IsShown() then
-              local topAnchor = sidebarRight and bg or (sidebar or bg)
-              ov:SetPoint("TOPLEFT", topAnchor, "TOPLEFT", 0, tab1:GetHeight() + 2)
-          end
-      end },
-    { label = "Micro Menu",    frame = function() return _G.MicroMenuContainer end },
-    { label = "Bags",          frame = function() return _G.BagsBar end },
-    { label = "Encounter Bar", frame = function() return _G.PlayerPowerBarAlt end, showAlways = true, fallbackW = 240, fallbackH = 36, yOffset = 44 },
-    -- The Unit Frames module replaces these read-only overlays with real
-    -- draggable movers. Keep the Edit Mode handoff as a fallback when that
-    -- module is not loaded.
-    { label = "Buffs",         frame = function() return _G.BuffFrame end,
-      unlockKey = "EUF_PlayerBuffs" },
-    { label = "Debuffs",       frame = function() return _G.DebuffFrame end,
-      unlockKey = "EUF_PlayerDebuffs" },
-    -- Blizzard Edit Mode's default tooltip anchor. EUI permanently owns the
-    -- default tooltip position (see the fixed anchor in EllesmereUIBlizzardSkin,
-    -- which registers a real draggable mover), and Anchor to Cursor pins it to
-    -- the mouse -- in both cases this read-only Edit Mode overlay steps aside.
-    -- It only shows with "Reskin Tooltip" off, where Blizzard's Edit Mode
-    -- position genuinely applies again. The container is small/idle when no
-    -- tooltip is up, so use the showAlways fallback like the Encounter Bar.
-    { label = "Tooltip",       frame = function()
-          if not (EllesmereUIDB and EllesmereUIDB.customTooltips == false) then return nil end
-          return _G.GameTooltipDefaultContainer
-      end, showAlways = true, fallbackW = 280, fallbackH = 165 },
-}
-
-local function CreateBlizzOwnedOverlay(def, parent)
-    local ar, ag, ab = GetAccent()
-    local ov = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-    ov:EnableMouse(true)
-    -- Background: same as regular movers
-    local bg = ov:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetTexture(0.075, 0.113, 0.141, 0.95)
-    -- Border: accent at idle, white on hover
-    local brd = EllesmereUI.MakeBorder(ov, ar, ag, ab, 0.6)
-    ov._brd = brd
-    -- Label (always visible, same style as mover labels)
-    local nameFs = ov:CreateFontString(nil, "OVERLAY")
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(nameFs, true) end
-    nameFs:SetFont(FONT_PATH, 10 + (UIParent:GetEffectiveScale() < 0.6 and 1 or 0), "")
-    nameFs:SetPoint("CENTER", ov, "CENTER", 0, 0)
-    nameFs:SetTextColor(1, 1, 1, 0.75)
-    nameFs:SetText(EllesmereUI.L(def.label))
-    nameFs:SetWordWrap(false)
-    ov._nameFs = nameFs
-    -- Action text (hidden at idle, fades in on hover)
-    local actionFs = ov:CreateFontString(nil, "OVERLAY")
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(actionFs, true) end
-    actionFs:SetFont(FONT_PATH, 9 + (UIParent:GetEffectiveScale() < 0.6 and 1 or 0), "")
-    actionFs:SetPoint("TOP", nameFs, "BOTTOM", 0, -2)
-    actionFs:SetTextColor(ar, ag, ab, 0.9)
-    actionFs:SetText(EllesmereUI.L("Move via Blizz Edit Mode"))
-    actionFs:SetAlpha(0)
-    ov._actionFs = actionFs
-    -- Clickable button sized to the action text only
-    local actionBtn = EllesmereUI.SafeCreateFrame("Button", nil, ov)
-    actionBtn:SetFrameLevel(ov:GetFrameLevel() + 2)
-    actionBtn:SetPoint("TOPLEFT", actionFs, "TOPLEFT", -4, 2)
-    actionBtn:SetPoint("BOTTOMRIGHT", actionFs, "BOTTOMRIGHT", 4, -2)
-    actionBtn:Hide()
-    -- Hover animation state
-    local hoverT = 0
-    local hoverTarget = 0
-    local animFrame = EllesmereUI.SafeCreateFrame("Frame")
-    local function ApplyHover(t)
-        actionFs:SetAlpha(t)
-        if t > 0.01 then actionBtn:Show() else actionBtn:Hide() end
-        -- Shift label up to make room for action text
-        local yOff = t * 5
-        nameFs:SetPoint("CENTER", ov, "CENTER", 0, yOff)
-    end
-    animFrame:SetScript("OnUpdate", function(self, dt)
-        local dir = hoverTarget > hoverT and 1 or -1
-        hoverT = hoverT + dir * (dt / 0.15)
-        if (dir == 1 and hoverT >= hoverTarget) or (dir == -1 and hoverT <= hoverTarget) then
-            hoverT = hoverTarget
-            if hoverT == 0 then self:Hide() end
-        end
-        ApplyHover(hoverT)
-    end)
-    animFrame:Hide()
-    -- Hover handlers on the overlay frame
-    local function OnEnter()
-        hoverTarget = 1
-        ov._brd:SetColor(1, 1, 1, 0.9)
-        animFrame:Show()
-    end
-    local function OnLeave()
-        if actionBtn:IsShown() and actionBtn:IsMouseOver() then return end
-        if ov:IsMouseOver() then return end
-        hoverTarget = 0
-        ov._brd:SetColor(ar, ag, ab, 0.6)
-        animFrame:Show()
-    end
-    ov:SetScript("OnEnter", OnEnter)
-    ov:SetScript("OnLeave", OnLeave)
-    -- Action button hover: brighten text, keep overlay hovered
-    actionBtn:SetScript("OnEnter", function()
-        actionFs:SetTextColor(1, 1, 1, 1)
-        OnEnter()
-    end)
-    actionBtn:SetScript("OnLeave", function()
-        actionFs:SetTextColor(ar, ag, ab, 0.9)
-        OnLeave()
-    end)
-    -- Click: close unlock mode, open Blizzard Edit Mode
-    actionBtn:SetScript("OnClick", function()
-        if InCombatLockdown() then return end
-        if EditModeManagerFrame then
-            ns.RequestClose(false, function()
-                ShowUIPanel(EditModeManagerFrame)
-            end)
-        end
-    end)
-    ov._forceCollapse = function()
-        hoverT = 0; hoverTarget = 0
-        animFrame:Hide()
-        ApplyHover(0)
-        ov._brd:SetColor(ar, ag, ab, 0.6)
-    end
-    -- Shift+Right Click temporarily hides this overlay for the current unlock
-    -- session (matches the regular mover behavior). The _tempHidden flag is
-    -- cleared on the next unlock entry so the overlay reappears then. Purely a
-    -- visual toggle on the info overlay -- it never touches the Blizzard frame.
-    local function TempHide(_, button)
-        if button == "RightButton" and IsShiftKeyDown() then
-            ov._tempHidden = true
-            ov._forceCollapse()
-            ov:Hide()
-        end
-    end
-    ov:SetScript("OnMouseUp", TempHide)
-    -- The hover action strip (a child button) swallows mouse events over itself,
-    -- so wire the same handler there to catch a Shift+Right Click landing on it.
-    actionBtn:SetScript("OnMouseUp", TempHide)
-    return ov
-end
-
-local function ShowBlizzOwnedOverlays(parent)
-    for _, def in ipairs(BLIZZ_OWNED_OVERLAY_DEFS) do
-        local hasMover = def.unlockKey
-            and EllesmereUI._unlockRegisteredElements
-            and EllesmereUI._unlockRegisteredElements[def.unlockKey]
-        local anchorFrame = not hasMover and def.frame()
-        if not anchorFrame then
-            -- Frame doesn't exist, or a real unlock mover owns it: skip.
-        elseif anchorFrame:IsShown() and anchorFrame:GetWidth() > 1 then
-            -- Visible frame: anchor directly
-            local ov = _blizzOwnedOverlays[def.label]
-            if not ov then
-                ov = CreateBlizzOwnedOverlay(def, parent)
-                _blizzOwnedOverlays[def.label] = ov
-            end
-            -- Same strata as the regular movers (FULLSCREEN_DIALOG) but a lower level
-            -- (movers sit at unlockFrame+20), so non-Blizzard overlays always render
-            -- above these Blizzard Edit Mode overlays. Still above the dimmer (+1).
-            ov:SetFrameStrata("FULLSCREEN_DIALOG")
-            ov:SetFrameLevel(parent:GetFrameLevel() + 15)
-            ov:ClearAllPoints()
-            if def.anchor then
-                def.anchor(ov, anchorFrame)
-            else
-                ov:SetAllPoints(anchorFrame)
-            end
-            ov._forceCollapse()
-            ov:Show()
-        elseif def.showAlways then
-            -- Hidden frame but showAlways: position at frame's location with fallback size
-            local ov = _blizzOwnedOverlays[def.label]
-            if not ov then
-                ov = CreateBlizzOwnedOverlay(def, parent)
-                _blizzOwnedOverlays[def.label] = ov
-            end
-            -- FULLSCREEN_DIALOG (below movers at +20, above the dimmer at +1) so
-            -- non-Blizzard overlays always render above Blizzard Edit Mode overlays.
-            ov:SetFrameStrata("FULLSCREEN_DIALOG")
-            ov:SetFrameLevel(parent:GetFrameLevel() + 15)
-            ov:ClearAllPoints()
-            ov:SetSize(def.fallbackW or 200, def.fallbackH or 40)
-            -- Read the frame's current anchor or fall back to bottom center
-            local pt, rel, rpt, ox, oy = anchorFrame:GetPoint(1)
-            local yAdj = def.yOffset or 0
-            if pt and rel then
-                ov:SetPoint(pt, rel, rpt or pt, ox or 0, (oy or 0) + yAdj)
-            else
-                ov:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 200 + yAdj)
-            end
-            ov._forceCollapse()
-            ov:Show()
-        end
-    end
-end
-
-local function HideBlizzOwnedOverlays()
-    for _, ov in pairs(_blizzOwnedOverlays) do
-        if ov._forceCollapse then ov._forceCollapse() end
-        ov:Hide()
     end
 end
 
@@ -8650,11 +8341,7 @@ local function CreateMover(barKey)
                 settingsMapping = EllesmereUI._ELEMENT_SETTINGS_MAP["TBB_"]
             end
         end
-        -- Queue Status is a Blizzard-owned element with no EUI settings page; its
-        -- "Element Options" opens Blizzard Edit Mode instead of navigating to a tab
-        -- (the same action as clicking a Blizzard Edit Mode overlay in unlock mode).
-        local opensEditMode = (barKey == "QueueStatus")
-        if settingsMapping or opensEditMode then
+        if settingsMapping then
             local optItem = EllesmereUI.SafeCreateFrame("Button", nil, cogMenu)
             optItem:SetHeight(ITEM_H)
             optItem:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
@@ -8681,25 +8368,15 @@ local function CreateMover(barKey)
             end)
             optItem:SetScript("OnClick", function()
                 CloseCogMenu()
-                if opensEditMode then
-                    -- Open Blizzard Edit Mode, exactly as the Blizz-owned overlays do.
-                    if InCombatLockdown() then return end
-                    if EditModeManagerFrame then
-                        ns.RequestClose(false, function()
-                            ShowUIPanel(EditModeManagerFrame)
-                        end)
-                    end
-                else
-                    ns.RequestClose(true, function()
-                        EllesmereUI:NavigateToElementSettings(
-                            settingsMapping.module,
-                            settingsMapping.page,
-                            settingsMapping.sectionName,
-                            settingsMapping.preSelectFn,
-                            settingsMapping.highlightText
-                        )
-                    end)
-                end
+                ns.RequestClose(true, function()
+                    EllesmereUI:NavigateToElementSettings(
+                        settingsMapping.module,
+                        settingsMapping.page,
+                        settingsMapping.sectionName,
+                        settingsMapping.preSelectFn,
+                        settingsMapping.highlightText
+                    )
+                end)
             end)
             yOff = yOff - ITEM_H
 
@@ -10109,11 +9786,6 @@ local function CommitPositions()
                 end
             end
             SaveBarPosition(barKey, pt, rpt, px, py)
-            -- Install anchor guard for action bar positions
-            if not elem then
-                local bar = GetBarFrame(barKey)
-                if bar then InstallAnchorGuard(bar, barKey) end
-            end
         end
     end
     EllesmereUI._propagatingSave = false
@@ -10483,7 +10155,6 @@ local function DoClose(closeAction)
         m:Hide()
     end
     HideAllGuidesAndHighlight()
-    HideBlizzOwnedOverlays()
     unlockFrame:Hide()
     unlockFrame:SetAlpha(1)
 
@@ -11213,10 +10884,8 @@ function ns.OpenUnlockMode()
     hasChanges = false
     selectedMover = nil
     -- Clear per-session temporary overlay hides (Shift+Right Click). Every unlock
-    -- session starts with all overlays visible again. Cleared before the fade-in
-    -- Sync / ShowBlizzOwnedOverlays calls so last session's hides don't persist.
+    -- session starts with all movers visible again before the fade-in sync.
     for _, m in pairs(movers) do m._tempHidden = nil end
-    for _, ov in pairs(_blizzOwnedOverlays) do ov._tempHidden = nil end
     -- Strip any temporary anchor-target shift (e.g. ResourceBars "Shift Elements
     -- if No Resource") so movers snapshot TRUE saved positions. _unlockActive is
     -- already true above, so the shift provider returns 0 and this re-apply snaps
@@ -11452,13 +11121,6 @@ function ns.OpenUnlockMode()
                 -- Spec-override gold borders / special-session locks + banner
                 if EllesmereUI._unlockRefreshSpecOvMarks then EllesmereUI._unlockRefreshSpecOvMarks() end
 
-                -- Info overlays on Blizzard-owned elements (chat, micro, bags, encounter)
-                -- Start at alpha 0; the mover fade-in loop below handles them.
-                ShowBlizzOwnedOverlays(unlockFrame)
-                for _, bov in pairs(_blizzOwnedOverlays) do
-                    bov:SetAlpha(0)
-                end
-
                 -- Fallback ghost overlays for elements with a fallback link
                 -- (spawn at 0 alpha; the mover fade-in loop below ramps them)
                 if EllesmereUI._RefreshFallbackGhosts then
@@ -11548,16 +11210,6 @@ function ns.OpenUnlockMode()
                         m:SetAlpha((darkOverlaysEnabled and 1 or MOVER_ALPHA) * min(1, moverFadeT / GLITCH_DUR))
                     else
                         m:SetAlpha(0)
-                    end
-                end
-            end
-            -- Blizzard-owned overlays fade in on the same curve
-            for _, bov in pairs(_blizzOwnedOverlays) do
-                if bov:IsShown() then
-                    if moverFadeT > 0 then
-                        bov:SetAlpha(min(1, moverFadeT / GLITCH_DUR))
-                    else
-                        bov:SetAlpha(0)
                     end
                 end
             end
@@ -11896,7 +11548,6 @@ local function SuspendForCombat()
     DeselectMover()
     for _, m in pairs(movers) do m:Hide() end
     HideAllGuidesAndHighlight()
-    HideBlizzOwnedOverlays()
     if arrowKeyFrame then arrowKeyFrame:Hide() end
     selectedMover = nil
     selectElementPicker = nil

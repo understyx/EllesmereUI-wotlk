@@ -34,7 +34,6 @@ local DEFAULT_CATEGORIES = {
     -- as question marks or solid red blocks on Wrath clients.
     { name = "Pinned Items",       types = {}, isPinned = true, noGroup = true, noMove = true, icon = "Interface\\Icons\\INV_Misc_Note_01" },
     { name = "Recent Items",       types = {}, isRecent = true, noGroup = true, noMove = true, icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
-    { name = "Reagent Bag",        types = {}, isReagentBag = true, noGroup = true, icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue" },
     { name = "Item Set Gear",      types = { IC_ARMOR, IC_WEAPON }, isSetGear = true, icon = "Interface\\Icons\\INV_Misc_Desecrated_PlateChest" },
     { name = "Quest Items",        types = { IC_QUEST },                     icon = "Interface\\Icons\\INV_Misc_Book_09" },
     { name = "Weapons / Trinkets", types = { IC_WEAPON }, equipSlots = { "INVTYPE_TRINKET" }, icon = "Interface\\Icons\\INV_Sword_39" },
@@ -173,7 +172,6 @@ function CategoryManager:InitCategories()
                 excludeEquipSlots = def.excludeEquipSlots,
                 isCatchAll        = def.isCatchAll,
                 isSetGear         = def.isSetGear,
-                isReagentBag      = def.isReagentBag,
                 isPinned          = def.isPinned,
                 isRecent          = def.isRecent,
                 noGroup           = def.noGroup,
@@ -395,13 +393,6 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
     if not item then return nil end
 
     local cats = self:GetCategories()
-
-    -- Reagent bag items always go to the Reagent Bag category
-    if bag == 5 then
-        for i, cat in ipairs(cats) do
-            if cat.isReagentBag then return i end
-        end
-    end
 
     -- User item assignments: itemID -> category _defaultName.
     -- Checked before type matching so users can override auto-classification.
@@ -811,12 +802,12 @@ function CategoryManager:UnassignItem(itemID)
 end
 
 -- Check if a category can accept item assignments (drag targets).
--- Excludes Pinned, Recent, Reagent Bag (physical bag, not logical).
+-- Excludes Pinned and Recent, which are virtual categories.
 function CategoryManager:CanAssignToCategory(catIndex)
     local cats = self:GetCategories()
     local cat = cats[catIndex]
     if not cat then return false end
-    if cat.isPinned or cat.isRecent or cat.isReagentBag then return false end
+    if cat.isPinned or cat.isRecent then return false end
     return true
 end
 

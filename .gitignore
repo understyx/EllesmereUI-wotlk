@@ -24,3 +24,6 @@ MIDNIGHT_MERGE_PLAN.md
 # Local reference material and archived addons (never ship/commit)
 /DoNotCommit/
 /donotcommit/
+
+# DBM skin addon (local only, not upstreamed yet)
+/EllesmereUIDBMSkin/

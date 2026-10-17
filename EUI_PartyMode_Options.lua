@@ -267,7 +267,7 @@ do
             return function() return EllesmereUIDB and EllesmereUIDB[key] or false end
         end
 
-        -- Row 1: Randomly | Timed Keystone
+        -- Row 1: Randomly
         local CB_SPLITS = { 0.5, 0.5, rowHeight = 36 }
         _, h = W:DualRow(parent, y,
             { type = "checkbox", text = "Randomly",           getValue = TriggerGet("partyModeTriggerRandom"),     setValue = function(v)
@@ -281,7 +281,7 @@ do
                 local rl = EllesmereUI._widgetRefreshList
                 if rl then for i = 1, #rl do rl[i]() end end
             end },
-            { type = "checkbox", text = "Timed Keystone",     getValue = TriggerGet("partyModeTriggerKeystone"),   setValue = TriggerSet("partyModeTriggerKeystone") },
+            { type = "spacer" },
             CB_SPLITS
         );  y = y - h
 
@@ -293,10 +293,10 @@ do
             CB_SPLITS
         );  y = y - h
 
-        -- Row 3: Normal Boss Kill | Raid Finder Boss Kill
+        -- Row 3: Normal Boss Kill
         _, h = W:DualRow(parent, y,
             { type = "checkbox", text = "Normal Boss Kill",       getValue = TriggerGet("partyModeTriggerNormalBoss"),  setValue = TriggerSet("partyModeTriggerNormalBoss") },
-            { type = "checkbox", text = "Raid Finder Boss Kill",  getValue = TriggerGet("partyModeTriggerLFRBoss"),     setValue = TriggerSet("partyModeTriggerLFRBoss") },
+            { type = "spacer" },
             CB_SPLITS
         );  y = y - h
 
@@ -333,10 +333,8 @@ do
         do
             local function AnyCelebrationTriggerEnabled()
                 if not EllesmereUIDB then return false end
-                return EllesmereUIDB.partyModeTriggerKeystone
-                    or EllesmereUIDB.partyModeTriggerHeroicBoss
+                return EllesmereUIDB.partyModeTriggerHeroicBoss
                     or EllesmereUIDB.partyModeTriggerNormalBoss
-                    or EllesmereUIDB.partyModeTriggerLFRBoss
                     or EllesmereUIDB.partyModeTriggerRatedBG
                     or EllesmereUIDB.partyModeTriggerRatedArena
                     or EllesmereUIDB.partyModeTriggerRandom
@@ -346,13 +344,14 @@ do
             durFrame, h = W:Slider(parent, "Auto Celebration Duration", y, 10, 60, 1,
                 function()
                     local db = EllesmereUIDB
-                    local v = db and db.partyModeMPlusDuration
+                    local v = db and (db.partyModeTriggerDuration or db.partyModeMPlusDuration)
                     if v == nil then v = 30 end
                     return v
                 end,
                 function(v)
                     if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.partyModeMPlusDuration = v
+                    EllesmereUIDB.partyModeTriggerDuration = v
+                    EllesmereUIDB.partyModeMPlusDuration = nil
                 end,
                 nil
             );  y = y - h
@@ -563,14 +562,12 @@ do
             if EllesmereUIDB then
                 EllesmereUIDB.partyMode = nil
                 EllesmereUIDB.partyModeKey = nil
-                EllesmereUIDB.partyModeMPlus = nil
+                EllesmereUIDB.partyModeTriggerDuration = nil
                 EllesmereUIDB.partyModeMPlusDuration = nil
                 EllesmereUIDB.partyModeBrightness = nil
-                EllesmereUIDB.partyModeTriggerKeystone = nil
 
                 EllesmereUIDB.partyModeTriggerHeroicBoss = nil
                 EllesmereUIDB.partyModeTriggerNormalBoss = nil
-                EllesmereUIDB.partyModeTriggerLFRBoss = nil
                 EllesmereUIDB.partyModeTriggerBloodlust = nil
                 EllesmereUIDB.partyModeTriggerRatedBG = nil
                 EllesmereUIDB.partyModeTriggerRatedArena = nil

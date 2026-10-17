@@ -154,7 +154,6 @@ local EXTRA_BARS = {
     { key = "QueueStatus", label = "Queue Status", frameName = "QueueStatusButton", visibilityOnly = true, blizzOwnedVisibility = true, noManagedVisibility = true },
     { key = "XPBar",    label = "XP Bar",         visibilityOnly = true, isDataBar = true },
     { key = "RepBar",   label = "Reputation Bar",  visibilityOnly = true, isDataBar = true },
-    { key = "FavorBar", label = "House Favor Bar", visibilityOnly = true, isDataBar = true },
     { key = "EncounterBar",      label = "Encounter Bar",         visibilityOnly = true, isBlizzardMovable = true },
 }
 
@@ -565,10 +564,6 @@ for _, info in ipairs(EXTRA_BARS) do
         d.orientation = "HORIZONTAL"
         d.clickThrough = true  -- default on for data bars
     end
-end
--- House Favor bar ships opt-in: hidden until the user turns it on.
-if defaults.profile.bars.FavorBar then
-    defaults.profile.bars.FavorBar.alwaysHidden = true
 end
 
 -- Blizzard data bar override (let Blizzard control XP + Rep via Edit Mode)
@@ -7114,7 +7109,7 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
 
     -- Data bars always route through their update func: the hidden path ends
     -- in the same presentation call via BeginManagedDataBarUpdate, and bars
-    -- with event arming (House Favor) need the call to disarm when hidden.
+    -- with event arming need the call to disarm when hidden.
     if info.isDataBar and frame._updateFunc then
         frame._updateFunc()
     else
@@ -11395,7 +11390,6 @@ local DATA_BAR_COLORS = {
     xpRested   = { r = 0.00, g = 0.44, b = 0.87 },  -- shaman blue (XP when rested)
     xpNoRest   = { r = 0.60, g = 0.40, b = 0.85 },  -- purple (XP when no rested)
     xpRestedBG = { r = 0.15, g = 0.30, b = 0.60 },  -- dark blue (rested overlay)
-    favor = { r = 0.85, g = 0.64, b = 0.22 },   -- warm gold (house favor)
     rep = {
         [1] = { r = 0.80, g = 0.20, b = 0.20 },  -- Hated
         [2] = { r = 0.75, g = 0.30, b = 0.15 },  -- Hostile
@@ -11495,7 +11489,7 @@ end
 -- Accent-mode bars repaint live when the user changes the accent color.
 if EllesmereUI.RegAccent then
     EllesmereUI.RegAccent({ type = "callback", fn = function()
-        for _, bk in ipairs({ "XPBar", "RepBar", "FavorBar" }) do
+        for _, bk in ipairs({ "XPBar", "RepBar" }) do
             local f = dataBarFrames[bk]
             if f and f._updateFunc then f._updateFunc() end
         end
@@ -11897,160 +11891,6 @@ local function CreateRepBar()
 end
 
 -------------------------------------------------------------------------------
---  House Favor Bar
---  Blizzard's "Show as Experience Bar" favor watch renders through
---  StatusTrackingBarManager, which the custom data bars replace -- this bar
---  is the house-favor equivalent. The favor API is asynchronous:
---  GetPlayerOwnedHouses() -> PLAYER_HOUSE_LIST_UPDATED (house list) ->
---  GetCurrentHouseLevelFavor(guid) -> HOUSE_LEVEL_FAVOR_UPDATED (level +
---  favor payload); GetHouseLevelFavorForLevel(n) is the only sync read.
--------------------------------------------------------------------------------
--- do-end scoped + ns export: the file-scope local budget is nearly at the
--- Lua 5.1 200 cap.
-do
-local favorState  -- { level, displayLevel, favor, needed } from the last payload
-local favorEv, favorArmed
-local ArmFavorEvents  -- forward: mutual recursion with UpdateFavorBar
-
--- No favor requests or repaints inside an active keystone or a raid
--- instance.
-local function FavorBlocked()
-    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
-        and C_ChallengeMode.IsChallengeModeActive() then
-        return true
-    end
-    local inInst, instType = IsInInstance()
-    return (inInst and instType == "raid") and true or false
-end
-
--- Zero cost while hidden: events stay unregistered unless the bar can
--- actually show.
-local function FavorWanted()
-    if not (C_Housing and C_Housing.GetPlayerOwnedHouses) then return false end
-    local p = EAB.db and EAB.db.profile
-    if not p or p.useBlizzardDataBars then return false end
-    local s = p.bars and p.bars.FavorBar
-    return (s and not s.alwaysHidden) and true or false
-end
-
-local function UpdateFavorBar()
-    if ArmFavorEvents then ArmFavorEvents() end
-    local frame, s = EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate("FavorBar")
-    if not frame then return end
-
-    local bar = frame._bar
-    local text = frame._text
-
-    -- No house / no data yet / max house level (no next-level requirement).
-    local st = favorState
-    if not st or not st.needed or st.needed <= 0 then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["FavorBar"], frame, s, false, true)
-        return
-    end
-
-    local current = st.favor or 0
-    if current > st.needed then current = st.needed end
-    bar:SetMinMaxValues(0, st.needed)
-    bar:SetValue(current)
-    bar:SetStatusBarColor(ns.ResolveDataBarColor(s, DATA_BAR_COLORS.favor.r, DATA_BAR_COLORS.favor.g, DATA_BAR_COLORS.favor.b))
-
-    local pct = (current / st.needed) * 100
-    text:SetText(format("House Level %d: %d / %d", st.displayLevel or 1, current, st.needed))
-
-    -- Auto-size text if bar is too narrow
-    local barW = frame:GetWidth()
-    if text:GetStringWidth() > barW - 4 then
-        text:SetText(format("%.0f%%", pct))
-    end
-
-    EAB_VTABLE.ExtraBars.FinishManagedDataBarUpdate("FavorBar", frame, s)
-end
-
-local function OnFavorEvent(_, event, arg1)
-    if FavorBlocked() then return end
-    if not (C_Housing and C_Housing.GetPlayerOwnedHouses) then return end
-    if event == "PLAYER_ENTERING_WORLD" then
-        C_Housing.GetPlayerOwnedHouses()
-    elseif event == "PLAYER_HOUSE_LIST_UPDATED" then
-        local info = type(arg1) == "table" and arg1[1]
-        local guid = info and info.houseGUID
-        if guid and C_Housing.GetCurrentHouseLevelFavor then
-            C_Housing.GetCurrentHouseLevelFavor(guid)
-        else
-            favorState = nil
-            UpdateFavorBar()
-        end
-    elseif event == "HOUSE_LEVEL_FAVOR_UPDATED" then
-        if type(arg1) == "table" and arg1.houseLevel ~= nil then
-            local level = arg1.houseLevel or 0
-            local needed = C_Housing.GetHouseLevelFavorForLevel
-                and C_Housing.GetHouseLevelFavorForLevel(level + 1)
-            favorState = {
-                level = level,
-                displayLevel = level + 1,
-                favor = arg1.houseFavor or 0,
-                needed = needed or 0,
-            }
-        else
-            favorState = nil
-        end
-        UpdateFavorBar()
-    end
-end
-
-ArmFavorEvents = function()
-    local want = FavorWanted()
-    if want and not favorArmed then
-        favorArmed = true
-        if not favorEv then
-            favorEv = ns.TakeShell()
-            favorEv:SetScript("OnEvent", OnFavorEvent)
-        end
-        favorEv:RegisterEvent("PLAYER_ENTERING_WORLD")
-        favorEv:RegisterEvent("PLAYER_HOUSE_LIST_UPDATED")
-        favorEv:RegisterEvent("HOUSE_LEVEL_FAVOR_UPDATED")
-        -- Kick the async chain now; if inside blocked content the next
-        -- world-enter re-kicks instead.
-        if not FavorBlocked() then
-            C_Housing.GetPlayerOwnedHouses()
-        end
-    elseif not want and favorArmed then
-        favorArmed = false
-        if favorEv then favorEv:UnregisterAllEvents() end
-    end
-end
-
-local function CreateFavorBar()
-    local holder = CreateDataBarFrame("FavorBar", UpdateFavorBar)
-    holder:SetPoint("TOP", UIParent, "TOP", 0, -68)
-
-    -- Tooltip
-    holder:EnableMouse(true)
-    holder:SetScript("OnEnter", function(self)
-        local st = favorState
-        if not st or not st.needed or st.needed <= 0 then return end
-        GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
-        GameTooltip:ClearLines()
-        GameTooltip:AddLine(EllesmereUI.L("House Favor"), 1, 1, 1)
-        GameTooltip:AddDoubleLine(EllesmereUI.L("House Level"), tostring(st.displayLevel or 1), 1, 1, 1, 1, 1, 1)
-        local current = math.min(st.favor or 0, st.needed)
-        local pct = (current / st.needed) * 100
-        GameTooltip:AddDoubleLine(EllesmereUI.L("Favor"), format("%s / %s (%.1f%%)", BreakUpLargeNumbers(current), BreakUpLargeNumbers(st.needed), pct), 1, 1, 1, 1, 1, 1)
-        GameTooltip:AddDoubleLine(EllesmereUI.L("Remaining"), BreakUpLargeNumbers(st.needed - current), 1, 1, 1, 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    holder:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- Event registration is handled by ArmFavorEvents (via UpdateFavorBar):
-    -- nothing is registered while the bar is hidden.
-    ApplyDataBarLayout("FavorBar")
-    UpdateFavorBar()
-end
-
-ns._CreateFavorBar = CreateFavorBar
-end
-
--------------------------------------------------------------------------------
 --  Register Data Bars with Unlock Mode
 --  Uses the same pattern as action bars and blizzard movable frames:
 --  savePosition / loadPosition / applyPosition / clearPosition callbacks.
@@ -12137,8 +11977,6 @@ local function RegisterDataBarsWithUnlockMode()
                             frame:SetPoint("TOP", UIParent, "TOP", 0, -100)
                         elseif bk == "RepBar" then
                             frame:SetPoint("TOP", UIParent, "TOP", 0, -84)
-                        elseif bk == "FavorBar" then
-                            frame:SetPoint("TOP", UIParent, "TOP", 0, -68)
                         end
                     end
                 end,
@@ -12151,7 +11989,6 @@ end
 function EAB_VTABLE.ExtraBars.CreateManagedDataBarFrames()
     CreateXPBar()
     CreateRepBar()
-    if ns._CreateFavorBar then ns._CreateFavorBar() end
 end
 
 function EAB_VTABLE.ExtraBars.InitializeDataBarHoverState()

@@ -2835,7 +2835,6 @@ initFrame:SetScript("OnEvent", function(self)
                 }
             elseif b.type == "spec" then
                 typeRows = {
-                    MkToggle("Show Loadout Name", "showLoadout", "Shows the active talent loadout name."),
                     MkToggle("Uppercase Text", "useUppercase", "Renders the spec text in uppercase."),
                 }
             elseif b.type == "travel" then

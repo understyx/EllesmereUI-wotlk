@@ -30,9 +30,7 @@ local WINDOW_ENABLE_KEYS = {
     charsheet       = "themedCharacterSheet",
     inspect         = "themedInspectSheet",
     lfg             = "reskinLFGMenu",
-    collections     = "reskinCollections",
     playerspells    = "reskinPlayerSpells",
-    professionsbook = "reskinProfessionsBook",
     guild           = "reskinGuild",
     calendar        = "reskinCalendar",
     achievements    = "reskinAchievements",
@@ -44,7 +42,6 @@ local WINDOW_ENABLE_KEYS = {
     professions     = "reskinProfessions",
     worldmap        = "reskinWorldMap",
     dressup         = "reskinDressUp",
-    transmog        = "reskinTransmog",
     merchant        = "reskinMerchant",
     auctionhouse    = "reskinAuctionHouse",
     macros          = "reskinMacros",
@@ -54,7 +51,6 @@ local WINDOW_ENABLE_KEYS = {
     trainer         = "reskinTrainer",
     gossip          = "reskinGossip",
     quest           = "reskinQuest",
-    inspectrecipe   = "reskinInspectRecipe",
 }
 EllesmereUI.WINDOW_ENABLE_KEYS = WINDOW_ENABLE_KEYS
 --- Master PER-PROFILE kill switch for ALL Blizzard window skinning: the
@@ -620,21 +616,6 @@ end
                 end
             end
         end
-        -- M+ Score (append-only, deduped against any equivalent foreign line).
-        if unit and db and db.tooltipMythicScore ~= false
-            and C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary then
-            local info = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unit)
-            local score = info and info.currentSeasonScore
-            local scoreLabel = EllesmereUI.L("M+ Score:")
-            if score and not (_isSecret and _isSecret(score)) and score > 0
-                and not _tipHasLine(tt, scoreLabel) then
-                local sColor = C_ChallengeMode and C_ChallengeMode.GetDungeonScoreRarityColor
-                    and C_ChallengeMode.GetDungeonScoreRarityColor(score)
-                local r, g, b = 1, 1, 1
-                if sColor then r, g, b = sColor.r, sColor.g, sColor.b end
-                tt:AddDoubleLine(scoreLabel, score, 1, 1, 1, r, g, b)
-            end
-        end
         -- Mount name from the live helpful aura that MountJournal recognizes.
         -- Opt-in (default off). Per-GUID cached so refresh ticks on an
         -- unmounted player never re-walk the whole aura list.
@@ -740,9 +721,9 @@ end
         end
     end
 
-    -- Tooltip DATA additions: class-colored names, player-title control, M+ score,
+    -- Tooltip DATA additions: class-colored names, player-title control,
     -- item level (via _ttUnitColor) and accent spell/macro titles. Each has its own
-    -- toggle (tooltipPlayerTitles / tooltipMythicScore / tooltipItemLevel /
+    -- toggle (tooltipPlayerTitles / tooltipItemLevel /
     -- accentReskinElements), but the whole set is gated by the "Reskin Tooltip"
     -- master (customTooltips) -- the PLAYER_LOGIN handler only calls this when
     -- _enabled() -- so disabling the reskin grays out AND stops every tooltip

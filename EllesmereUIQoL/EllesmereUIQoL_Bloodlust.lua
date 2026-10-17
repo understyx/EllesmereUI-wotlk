@@ -479,30 +479,12 @@ local function _hideBuffOverlay()
 end
 
 -------------------------------------------------------------------------------
---  Content state (mirrors the BattleRes icon so "M+"/"Raid" mean the same
---  thing: M+ = an active keystone run, Raid = a raid encounter in progress).
+--  Content state for raid encounter visibility.
 -------------------------------------------------------------------------------
 local _state = {
     inEncounter     = false,
     encounterIsRaid = false,
-    inChallenge     = false,
 }
-
-local function _activeKeystoneLevel()
-    if not C_ChallengeMode then return nil end
-    if not C_ChallengeMode.IsChallengeModeActive or not C_ChallengeMode.IsChallengeModeActive() then
-        return nil
-    end
-    if C_ChallengeMode.GetActiveKeystoneInfo then
-        local lvl = C_ChallengeMode.GetActiveKeystoneInfo()
-        return (lvl and lvl > 0) and lvl or nil
-    end
-    return nil
-end
-
-local function _refreshKeystoneState()
-    _state.inChallenge = _activeKeystoneLevel() ~= nil
-end
 
 local function _refreshEncounterState()
     _state.inEncounter = IsEncounterInProgress() or false
@@ -529,9 +511,7 @@ local function ShouldShow()
     local _, instanceType = GetInstanceInfo()
     if instanceType ~= "party" and instanceType ~= "raid" then return false end
 
-    local wantMPlus = (v == "MPLUS_AND_RAID" or v == "MPLUS")
-    local wantRaid  = (v == "MPLUS_AND_RAID" or v == "RAID")
-    if wantMPlus and _state.inChallenge then return true end
+    local wantRaid = (v == "RAID")
     if wantRaid and _state.inEncounter and _state.encounterIsRaid then return true end
     return false
 end
@@ -605,8 +585,8 @@ end
 
 -------------------------------------------------------------------------------
 --  Events. The ONLY aura registration is UNIT_AURA filtered to the player unit
---  (never all units, never a global aura scan). The encounter / keystone events
---  mirror the BattleRes icon so the M+/Raid visibility modes match. Everything
+--  (never all units, never a global aura scan). Encounter events keep raid
+--  visibility in sync with the BattleRes icon. Everything
 --  is registered solely while the tracker is enabled.
 -------------------------------------------------------------------------------
 local _eventFrame
@@ -649,12 +629,6 @@ local function _onEvent(_, event, _, updateInfo)
     elseif event == "ENCOUNTER_END" then
         _state.inEncounter = false
         _state.encounterIsRaid = false
-    elseif event == "CHALLENGE_MODE_START" or event == "WORLD_STATE_TIMER_START" then
-        _refreshKeystoneState()
-    elseif event == "CHALLENGE_MODE_COMPLETED"
-        or event == "CHALLENGE_MODE_RESET"
-        or event == "WORLD_STATE_TIMER_STOP" then
-        _state.inChallenge = false
     elseif event == "PLAYER_ENTERING_WORLD" then
         _refreshSated()
         -- Baseline the edge tracker so a debuff already present on login/zone-in
@@ -663,7 +637,6 @@ local function _onEvent(_, event, _, updateInfo)
         _satedWasPresent = _satedActive
         _buffZoneGuard = GetTime() + 1.5
         _refreshEncounterState()
-        _refreshKeystoneState()
     end
     UpdateVisibility()
 end
@@ -677,11 +650,6 @@ local function _ensureEvents(enabled)
         _eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
         _eventFrame:RegisterEvent("ENCOUNTER_START")
         _eventFrame:RegisterEvent("ENCOUNTER_END")
-        _eventFrame:RegisterEvent("CHALLENGE_MODE_START")
-        _eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
-        _eventFrame:RegisterEvent("CHALLENGE_MODE_RESET")
-        _eventFrame:RegisterEvent("WORLD_STATE_TIMER_START")
-        _eventFrame:RegisterEvent("WORLD_STATE_TIMER_STOP")
         _eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         _eventFrame:RegisterEvent("PLAYER_DEAD")
     else
@@ -759,6 +727,10 @@ local function Apply()
     _applyBuffShape()
     ApplyPosition()
     local p = P()
+    -- Retain the raid part of old combined visibility settings; challenge-only
+    -- visibility has no matching state in this client.
+    if p and p.visibility == "MPLUS_AND_RAID" then p.visibility = "RAID"
+    elseif p and p.visibility == "MPLUS" then p.visibility = "NEVER" end
     local enabled = p and p.enabled and (p.visibility ~= "NEVER")
     _ensureEvents(enabled)
     if enabled then
@@ -767,7 +739,6 @@ local function Apply()
         -- not retroactively pop the 40s buff overlay.
         _satedWasPresent = _satedActive
         _refreshEncounterState()
-        _refreshKeystoneState()
     end
     UpdateVisibility()
 end

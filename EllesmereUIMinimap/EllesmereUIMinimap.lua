@@ -1625,8 +1625,8 @@ local function ScheduleFTTHide()
 end
 
 -- THE RULE: "protected content" = anywhere the chat / whisper system carries
--- secret values and a whisper action can taint Blizzard's chat code -- i.e. a
--- Mythic+ run (the entire run), raid combat, and rated / instanced PvP combat.
+-- secret values and a whisper action can taint Blizzard's chat code -- i.e.
+-- protected instances, raid combat, and rated / instanced PvP combat.
 -- This is exactly EllesmereUI.InProtectedInstance() (defined in EllesmereUI.lua),
 -- the canonical EUI guard for taint-sensitive operations. Whispering is suppressed
 -- entirely in this state; invites are still allowed (they touch no chat code).
@@ -1643,14 +1643,14 @@ end
 local function FTTOpenWhisper(charName, bnetName)
     -- Suppress whispers wherever chat is taint-sensitive: (1) protected content,
     -- and (2) while /euidev is on -- it forces addonChallengeModeRestrictionsForced,
-    -- i.e. the same secret-value restricted environment as a real Mythic+, so chat
+    -- i.e. a secret-value restricted environment, so chat
     -- would taint there too. InProtectedInstance() does NOT see the forced CVar, so
     -- the dev-mode check is separate.
     local blocked
     if EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
         blocked = "This action is protected while dev mode (/euidev) is on."
     elseif FTTInProtectedContent() then
-        blocked = "This action is protected in Mythic+ and raid combat."
+        blocked = "This action is protected in instances and raid combat."
     end
     if blocked then
         if UIErrorsFrame then UIErrorsFrame:AddMessage(blocked, 1.0, 0.3, 0.3, 1.0) end
@@ -4042,13 +4042,13 @@ local function ApplyMinimap()
             diffTextFrame._text = fs
             -- Difficulty ID -> suffix letter; count prefix rules alongside.
             local SUFFIX = {
-                [1] = "N", [2] = "H", [23] = "M",                         -- dungeons
-                [14] = "N", [15] = "H", [16] = "M", [233] = "M",          -- raids
+                [1] = "N", [2] = "H",                                      -- dungeons
+                [14] = "N", [15] = "H",                                    -- raids
                 [3] = "N", [4] = "N", [5] = "H", [6] = "H",               -- legacy raids
                 [9] = "N", [148] = "N", [173] = "N", [174] = "H",
-                [7] = "LFR", [17] = "LFR", [205] = "F",
+                [205] = "F",
             }
-            local FLEX = { [14] = true, [15] = true, [233] = true }       -- size = current group
+            local FLEX = { [14] = true, [15] = true }                     -- size = current group
             local NOCOUNT = { [205] = true }                              -- letter only
             local TW   = { [24] = true, [33] = true, [151] = true }
             local EVT  = { [18] = true, [19] = true, [30] = true }
@@ -4059,12 +4059,11 @@ local function ApplyMinimap()
                 [1159] = true, [1160] = true, [1330] = true, [1331] = true,
             }
             -- Difficulty (Reactive): letter colours by tier (normal and
-            -- scenarios bronze like delves, heroic blue, mythic purple,
-            -- keystones legendary orange).
+            -- scenarios bronze, heroic blue).
             local REACTIVE_HEX = {
-                N = "c69b6d", H = "0070dd", M = "a335ee",
+                N = "c69b6d", H = "0070dd",
                 S = "c69b6d", HS = "0070dd", MS = "a335ee",
-                LFR = "9d9d9d", F = "9d9d9d",
+                F = "9d9d9d",
                 TW = "00ccff", EVT = "ffffff", PvP = "ffffff",
             }
             diffTextFrame._update = function(self)
@@ -4086,15 +4085,6 @@ local function ApplyMinimap()
                     local _, _, _, h = GetDescColor(mp2)
                     hex = h
                 end
-                if diffID == 8 then
-                    -- Active keystone: key level after the colored M+
-                    if reactive then hex = "ff8000" end
-                    local lvl = C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo
-                        and C_ChallengeMode.GetActiveKeystoneInfo()
-                    out:SetFormattedText("|cff%sM+|r%s", hex, (lvl and lvl > 0) and lvl or "")
-                    return
-                end
-
                 local letter
                 if TW[diffID] then letter = "TW"
                 elseif EVT[diffID] then letter = "EVT"
@@ -4121,9 +4111,6 @@ local function ApplyMinimap()
         diffTextFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
         diffTextFrame:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
         diffTextFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-        diffTextFrame:RegisterEvent("CHALLENGE_MODE_START")
-        diffTextFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
-        diffTextFrame:RegisterEvent("CHALLENGE_MODE_RESET")
         diffTextFrame._update(diffTextFrame)
     elseif diffTextFrame then
         diffTextFrame:UnregisterAllEvents()

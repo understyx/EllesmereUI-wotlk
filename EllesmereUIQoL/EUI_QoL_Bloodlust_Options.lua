@@ -20,12 +20,10 @@ local BORDER_VALUES = { none = "None", thin = "Thin", normal = "Normal", heavy =
 local BORDER_ORDER  = { "none", "thin", "normal", "heavy", "strong" }
 
 local VIS_VALUES = {
-    MPLUS_AND_RAID = "M+ and Raid",
-    MPLUS          = "M+",
-    RAID           = "Raid",
-    NEVER          = "Never",
+    RAID  = "Raid",
+    NEVER = "Never",
 }
-local VIS_ORDER = { "MPLUS_AND_RAID", "MPLUS", "RAID", "NEVER" }
+local VIS_ORDER = { "RAID", "NEVER" }
 
 --  BLOODLUST TRACKER
 --  Legacy appearance values remain a compatibility fallback until the user

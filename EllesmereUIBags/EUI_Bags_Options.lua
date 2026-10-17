@@ -37,7 +37,6 @@ local BAGS_DEFAULTS = {
         bagHideAddCategory    = false,
         bagMoveNoShift        = false,
         enableGoldTracking    = true,
-        detachReagentBag      = false,
         enhancedBags          = true,
         bagDesaturateJunkItems = false,
         bagDisplayBindType    = false,
@@ -84,7 +83,6 @@ initFrame:SetScript("OnEvent", function(self)
                 "Gear Enhancements",
                 "Trade Goods",
                 "Professions",
-                "Reagent Bag",
                 "Miscellaneous",
                 "Quest Items",
             }
@@ -165,7 +163,6 @@ initFrame:SetScript("OnEvent", function(self)
                       db.profile.bagScale = v / 100
                       local s = v / 100
                       if _G.EUI_Bags then _G.EUI_Bags:SetScale(s) end
-                      if _G.EUI_BagsReagent then _G.EUI_BagsReagent:SetScale(s) end
                       if _G.EUI_BagsWindow then _G.EUI_BagsWindow:SetScale(s) end
                       if _G.EUI_Bank and _G.EUI_Bank:IsVisible() then _G.EUI_Bank:SetScale(s) end
                   end },
@@ -366,7 +363,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if _G.EUI_CategoryManager then
                     local cats = _G.EUI_CategoryManager:GetCategories()
                     for ci, cat in ipairs(cats) do
-                        if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag then
+                        if not cat.isCatchAll and not cat.isPinned and not cat.isRecent then
                             catItems[#catItems + 1] = { key = cat._defaultName, label = cat.name }
                         end
                     end

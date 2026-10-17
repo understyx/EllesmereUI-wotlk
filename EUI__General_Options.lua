@@ -419,14 +419,14 @@ EllesmereUI._WHATSNEW_PATCHES = {
             },
             {
                 -- Highlights the on-page "Text Size" slider in the first of the
-                -- three data-bar sections (Experience, Reputation, House Favor);
+                -- two data-bar sections (Experience and Reputation);
                 -- each section carries its own copy of the row. Note the rows
                 -- below a section's visibility dropdown are hidden entirely
                 -- while that bar's visibility is Never, so the pulse no-ops on
                 -- a profile with the Experience bar switched off.
                 module = "Action Bars",
                 title  = "Bar Text Size",
-                desc   = "Resize Experience, Reputation, and Favor text",
+                desc   = "Resize Experience and Reputation text",
                 nav    = { module = "EllesmereUIActionBars", page = "Menu, Bags & XP Bars", section = "EXPERIENCE BAR", highlight = "Text Size" },
             },
             {
@@ -4029,6 +4029,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
                 EllesmereUIRaidCooldowns     = "Configurable raid cooldown groups, announcements, and requests.",
                 EllesmereUISwingBars         = "Weapon swing timers for melee attacks and ranged Auto Shot.",
+                EllesmereUIDBMSkin           = "Replace DBM status bars with icon timers.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
 
@@ -6434,6 +6435,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
                 EllesmereUIRaidCooldowns     = "Configurable raid cooldown groups, announcements, and requests.",
                 EllesmereUISwingBars         = "Weapon swing timers for melee attacks and ranged Auto Shot.",
+                EllesmereUIDBMSkin           = "Replace DBM status bars with icon timers.",
 
                 EllesmereUIBlizzardSkin       = "Clean and beautiful visual refreshes for Blizzard UI elements.",
 

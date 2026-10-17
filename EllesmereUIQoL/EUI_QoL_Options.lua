@@ -2264,7 +2264,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.skipCinematics = false
                 EllesmereUIDB.skipCinematicsAuto = false
                 EllesmereUIDB.autoFillDelete = false
-                EllesmereUIDB.autoInsertKeystone = false
                 EllesmereUIDB.instanceResetAnnounce = false
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false

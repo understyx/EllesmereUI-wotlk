@@ -77,10 +77,8 @@ Add Specs
 Add Spell
 Add Spell ID
 Add Threshold
-Add Variant
 Add a Buff Spell
 Add a Debuff Spell
-Add a talent variant of this entry
 Add an action\n|cff66ccffLeft-click to pick an action from a list.\nYou can also drop an action from the cursor here.|r
 Add in Blizzard CDM
 Addon
@@ -94,7 +92,6 @@ All hints reset. /reload to see them again.
 All selected profiles will keep their %1$s settings in sync: changes made on any of them carry over to the others. Choose which profile's settings the group starts from.
 Already assigned to %s
 Already on %s
-Already used by another card for this spec
 Anchor
 Anchored
 Apply
@@ -292,7 +289,6 @@ Externals
 FIRST TIME SETUP
 Fallback
 Fallback Direction
-Favor
 Favorites
 Felguard
 Find it anytime: the class glyph beside the module search bar.
@@ -328,8 +324,6 @@ Health Bar Hash Lines
 Hex#
 Hide
 Hide Item Transforms
-House Favor
-House Level
 Hover Top Bar\nDisabled
 Hover Top Bar\nEnabled
 Hover an action button and press a key to bind it.\nPress Escape or right-click to clear all bindings for that button.
@@ -400,7 +394,6 @@ Low Durability (%d%%)
 Low Durability (Preview)
 Lower Alpha
 Lower Alpha (On CD)
-M+ Score:
 MAJOR GLYPH
 MAJOR GLYPHS
 MINI PATCH
@@ -426,7 +419,6 @@ Mode
 More Information
 Mount:
 Move Frames
-Move via Blizz Edit Mode
 Multi
 MultiBag
 Multiple
@@ -454,7 +446,6 @@ No gems in bags.
 No matches
 No patch notes yet.
 No spec macros for\x20
-No talent
 No talent reminders configured
 None
 None (Disabled)
@@ -518,7 +509,6 @@ Quest Item Hotkey
 Quick Keybind Mode
 Quickbind
 Quickbind: hover a spell, press a key
-REAGENTS
 Racial
 Raid Cooldowns
 Raid Frames
@@ -528,7 +518,6 @@ Re-sync
 Re-sync %1$s?
 Read only
 Ready
-Reagent Bag (%d / %d)
 Recent Colors
 Recent Items
 Regular Import
@@ -659,7 +648,6 @@ Synced with Simple Mode
 Syncing allows you to auto update all profiles whenever you change settings. This can be enabled per module.
 Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement.
 Tabs
-Talent gating is only available while playing this spec's class
 Target
 Target Unit
 Targeting:

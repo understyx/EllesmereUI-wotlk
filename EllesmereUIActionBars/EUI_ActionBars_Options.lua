@@ -99,9 +99,9 @@ initFrame:SetScript("OnEvent", function(self)
     local barLabels = {}
     local barOrder  = {}
     for _, key in ipairs(BAR_DROPDOWN_ORDER) do
-        -- Skip MicroBar/BagBar and XPBar/RepBar/FavorBar — these live on the
+        -- Skip MicroBar/BagBar and XPBar/RepBar — these live on the
         -- dedicated "Menu, Bags & XP Bars" tab, not the Bar Display bar selector.
-        if key ~= "MicroBar" and key ~= "BagBar" and key ~= "XPBar" and key ~= "RepBar" and key ~= "FavorBar" then
+        if key ~= "MicroBar" and key ~= "BagBar" and key ~= "XPBar" and key ~= "RepBar" then
             barLabels[key] = BAR_DROPDOWN_VALUES[key]
             barOrder[#barOrder + 1] = key
         end
@@ -1175,7 +1175,6 @@ initFrame:SetScript("OnEvent", function(self)
         BagBar   = "Bags",
         XPBar    = "XP",
         RepBar   = "Rep",
-        FavorBar = "Favor",
     }
 
     -- Spec Overrides capture: report which bar is selected so captured
@@ -1344,12 +1343,10 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   EAB.db.profile.useBlizzardDataBars = v
                   if v then
-                      for _, k in ipairs({"XPBar", "RepBar", "FavorBar"}) do
+                      for _, k in ipairs({"XPBar", "RepBar"}) do
                           local frame = ns.dataBarFrames and ns.dataBarFrames[k]
                           if frame then
                               frame:Hide()
-                              -- Runs the hidden path (Favor bar disarms its
-                              -- events immediately).
                               if frame._updateFunc then frame._updateFunc() end
                           end
                       end
@@ -1359,7 +1356,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                   else
                       local anyMissing = false
-                      for _, k in ipairs({"XPBar", "RepBar", "FavorBar"}) do
+                      for _, k in ipairs({"XPBar", "RepBar"}) do
                           local frame = ns.dataBarFrames and ns.dataBarFrames[k]
                           if frame then
                               local s = EAB.db.profile.bars[k]
@@ -1388,7 +1385,7 @@ initFrame:SetScript("OnEvent", function(self)
                   return EAB.db.profile.bars["XPBar"] and EAB.db.profile.bars["XPBar"].orientation or "HORIZONTAL"
               end,
               setValue=function(v)
-                  for _, k in ipairs({"XPBar", "RepBar", "FavorBar"}) do
+                  for _, k in ipairs({"XPBar", "RepBar"}) do
                       if EAB.db.profile.bars[k] then
                           EAB.db.profile.bars[k].orientation = v
                           if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(k) end
@@ -1399,7 +1396,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 12);  y = y - h
 
         -------------------------------------------------------------------
-        --  EXPERIENCE BAR / REPUTATION BAR / HOUSE FAVOR BAR
+        --  EXPERIENCE BAR / REPUTATION BAR
         -------------------------------------------------------------------
         -- Shared bar-texture dropdown tables (built-ins + SharedMedia, with
         -- menu preview backgrounds -- same treatment as the nameplate Bar
@@ -1427,7 +1424,6 @@ initFrame:SetScript("OnEvent", function(self)
         local REACTIVE_PREVIEW = {
             XPBar    = { 0.60, 0.40, 0.85 },
             RepBar   = { 0.30, 0.70, 0.25 },
-            FavorBar = { 0.85, 0.64, 0.22 },
         }
         local function RefreshDataBar(bk)
             local f = ns.dataBarFrames and ns.dataBarFrames[bk]
@@ -1581,8 +1577,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 12);  y = y - h
         BuildDataBarSection("RepBar", "REPUTATION BAR", "Rep Bar Visibility")
-        _, h = W:Spacer(parent, y, 12);  y = y - h
-        BuildDataBarSection("FavorBar", "HOUSE FAVOR BAR", "Favor Bar Visibility")
 
         return math.abs(y)
     end

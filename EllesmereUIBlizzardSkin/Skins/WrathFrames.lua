@@ -220,8 +220,7 @@ local function SkinTrainer()
 end
 
 local function SkinTradeSkill()
-	if not (WSkin:IsSkinEnabled("professions") or WSkin:IsSkinEnabled("professionsbook"))
-		or not _G.TradeSkillFrame then return end
+	if not WSkin:IsSkinEnabled("professions") or not _G.TradeSkillFrame then return end
 	SkinWindow("TradeSkillFrame", "TradeSkillFrameCloseButton")
 	Each({
 		"TradeSkillRankFrame", "TradeSkillExpandButtonFrame", "TradeSkillListScrollFrame",
@@ -339,7 +338,7 @@ local function SkinTrade()
 end
 
 local function SkinStable()
-	if not WSkin:IsSkinEnabled("collections") or not _G.PetStableFrame then return end
+	if not WSkin:IsSkinEnabled("misc") or not _G.PetStableFrame then return end
 	SkinWindow("PetStableFrame", "PetStableFrameCloseButton")
 	Each({ "PetStableModelRotateLeftButton", "PetStableModelRotateRightButton" }, WSkin.HandleRotateButton)
 	Buttons({ "PetStableFramePetInfoCloseButton" })
@@ -424,7 +423,7 @@ WSkin:AddCallback("Skin_DressingRoom", SkinDressingRoom, "dressup")
 WSkin:AddCallback("Skin_Settings", SkinSettings, "settings")
 WSkin:AddCallback("Skin_AddonList", SkinAddonList, "addonlist")
 WSkin:AddCallback("Skin_Trade", SkinTrade, "misc")
-WSkin:AddCallback("Skin_Stable", SkinStable, "collections")
+WSkin:AddCallback("Skin_Stable", SkinStable, "misc")
 WSkin:AddCallback("Skin_Taxi", SkinTaxi, "worldmap")
 WSkin:AddCallback("Skin_Help", SkinHelp, "misc")
 WSkin:AddCallback("Skin_GuildUtility", SkinGuildUtilityWindows, "guild")
