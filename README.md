@@ -36,7 +36,7 @@ directories.
 Contributions are welcome. Please read the
 [contribution guide](.github/CONTRIBUTING.md) before opening a pull request.
 
-Addon versions use the format `8.6.5-wotlk.YYYYMMDD`, where the suffix is the
+Addon versions use the format `8.6.4-wotlk.YYYYMMDD`, where the suffix is the
 UTC date of the latest commit. Run `.tools/update-version.sh` to synchronize all
 addon TOCs, or `.tools/update-version.sh --check` to verify them without making
 changes. Pushes to `main` synchronize the version automatically, and release

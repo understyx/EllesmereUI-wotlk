@@ -10930,7 +10930,7 @@ end
 --  Slash commands
 -------------------------------------------------------------------------------
 -- Keep the runtime version tied to the root addon's generated TOC metadata.
-EllesmereUI.VERSION = GetAddOnMetadata(EUI_HOST_ADDON, "Version") or "8.6.5-wotlk"
+EllesmereUI.VERSION = GetAddOnMetadata(EUI_HOST_ADDON, "Version") or "8.6.4-wotlk"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

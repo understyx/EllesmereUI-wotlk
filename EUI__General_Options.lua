@@ -405,13 +405,6 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
-        version = "8.6.5-wotlk",
-        mini = true,
-        fixes = {
-            { module = "Raid Frames", text = "Raid and party frames fade out of range again. Dead players fade too, and Rogues see players in another zone faded instead of in range." },
-        },
-    },
-    {
         version = "8.6.4-wotlk",
         heroes = {
             {
