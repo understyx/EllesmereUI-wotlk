@@ -4192,7 +4192,7 @@ local function SkinCharacterSheet()
             tile._hover:Hide()
 
             tile._text = tile:CreateFontString(nil, "OVERLAY")
-            tile._ApplySharedType(text, "secondary")
+            ApplySharedType(tile._text, "secondary")
             tile._text:SetPoint("LEFT", tile, "LEFT", 10, 0)
 
             tile._specIcon = tile:CreateTexture(nil, "OVERLAY")
