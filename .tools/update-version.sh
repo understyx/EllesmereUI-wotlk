@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_VERSION="8.6.4-wotlk"
+BASE_VERSION="8.6.5-wotlk"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 COMMIT_DATE="$(TZ=UTC git -C "$REPO_ROOT" log -1 --date=format:%Y%m%d --format=%cd)"
 VERSION="${BASE_VERSION}.${COMMIT_DATE}"
