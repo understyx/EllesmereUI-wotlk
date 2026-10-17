@@ -759,6 +759,19 @@ do
     probeFrame:Hide()
 end
 
+-- 3.3.5 only has EnableMouse: motion and clicks can't be split, so the
+-- last half set decides. Callers that want motion without clicks set the
+-- motion half last (see SafeEnableMouseMotionOnly in ActionBars).
+local function SetMouseEnabledCompat(self, enabled)
+    if self.EnableMouse then self:EnableMouse(enabled and true or false) end
+end
+
+-- 3.3.5 has no keyboard propagation: a keyboard-enabled frame always
+-- consumes the key. A no-op keeps retail call sites working. Toggling
+-- EnableKeyboard here instead broke every keybind picker, which asks to
+-- propagate a held modifier and so never saw the key that followed it.
+local function SetPropagateKeyboardInputCompat(self, propagate) end
+
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
 
@@ -912,16 +925,8 @@ function EUI.API.ApplyFrameCompat(frame)
     end
 
     if not frame.SetIgnoreParentAlpha then frame.SetIgnoreParentAlpha = function(self, ignore) end end
-    if not frame.SetMouseClickEnabled then
-        frame.SetMouseClickEnabled = function(self, enabled)
-            if self.EnableMouse then self:EnableMouse(enabled) end
-        end
-    end
-    if not frame.SetMouseMotionEnabled then
-        frame.SetMouseMotionEnabled = function(self, enabled)
-            if self.EnableMouse then self:EnableMouse(enabled) end
-        end
-    end
+    if not frame.SetMouseClickEnabled then frame.SetMouseClickEnabled = SetMouseEnabledCompat end
+    if not frame.SetMouseMotionEnabled then frame.SetMouseMotionEnabled = SetMouseEnabledCompat end
     -- Retail can let selected mouse buttons fall through a mouse-enabled
     -- region.  Wrath has no equivalent API, so retain the requested buttons
     -- for introspection and otherwise degrade safely.
@@ -941,11 +946,7 @@ function EUI.API.ApplyFrameCompat(frame)
     if not frame.SetFrameStrataFromParent then frame.SetFrameStrataFromParent = function(self) end end
     if not frame.SetFixedFrameStrata then frame.SetFixedFrameStrata = function(self, fixed) end end
     if not frame.SetPropagateKeyboardInput then
-        frame.SetPropagateKeyboardInput = function(self, propagate)
-            if self.EnableKeyboard then
-                self:EnableKeyboard(not propagate)
-            end
-        end
+        frame.SetPropagateKeyboardInput = SetPropagateKeyboardInputCompat
     end
 
     if frame.GetObjectType and frame:GetObjectType() == "Cooldown" then
@@ -1252,6 +1253,13 @@ local function PatchWidgetMetatable(obj)
         end
         if not idx.RegisterUnitEvent then
             idx.RegisterUnitEvent = RegisterUnitEventCompat
+        end
+        if idx.EnableMouse then
+            if not idx.SetMouseClickEnabled then idx.SetMouseClickEnabled = SetMouseEnabledCompat end
+            if not idx.SetMouseMotionEnabled then idx.SetMouseMotionEnabled = SetMouseEnabledCompat end
+        end
+        if idx.EnableKeyboard and not idx.SetPropagateKeyboardInput then
+            idx.SetPropagateKeyboardInput = SetPropagateKeyboardInputCompat
         end
         if not idx.SetPassThroughButtons then
             idx.SetPassThroughButtons = function(self, ...)

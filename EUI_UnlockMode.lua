@@ -541,6 +541,7 @@ local unlockTipFrame           -- one-time "how to use" tip frame
 local pendingAfterClose        -- callback to run after DoClose completes
 local selectedMover            -- currently selected mover frame (for arrow key nudging)
 local arrowKeyFrame            -- invisible frame that captures arrow key input
+local arrowKeyHandler          -- arrow nudge, called from unlockFrame's OnKeyDown
 local selectElementPicker      -- mover currently in "Select Element" pick mode (nil = off)
 local _overlayFadeFrame         -- tiny OnUpdate driver for select-element dimmer fade
 local SELECT_ELEMENT_ALPHA = 0.50  -- overlay alpha during select-element pick mode
@@ -5424,8 +5425,11 @@ local function SetupArrowKeyFrame()
     arrowKeyFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     arrowKeyFrame:SetFrameStrata("FULLSCREEN_DIALOG")
     arrowKeyFrame:SetFrameLevel(500)
-    arrowKeyFrame:EnableKeyboard(true)
-    arrowKeyFrame:SetPropagateKeyboardInput(true)
+    -- 3.3.5 cannot propagate keys: only the topmost keyboard-enabled frame
+    -- sees a key, and it always consumes it. A keyboard-enabled arrow frame
+    -- would swallow Escape from unlockFrame, so unlockFrame's OnKeyDown
+    -- forwards everything that isn't Escape to arrowKeyHandler instead.
+    arrowKeyFrame:EnableKeyboard(false)
     arrowKeyFrame:Hide()
 
     local ARROW_DIRS = {
@@ -5435,7 +5439,7 @@ local function SetupArrowKeyFrame()
         RIGHT = { 1,  0 },
     }
 
-    arrowKeyFrame:SetScript("OnKeyDown", function(self, key)
+    arrowKeyHandler = function(key)
         if not isUnlocked then return end
         local dir = ARROW_DIRS[key]
         if not dir then return end
@@ -5446,12 +5450,10 @@ local function SetupArrowKeyFrame()
             local gStep = PPg and PPg.mult or 1
             local gs = IsShiftKeyDown() and (100 * gStep) or gStep
             if EllesmereUI._NudgeSelectedFallbackGhost(dir[1] * gs, dir[2] * gs) then
-                self:SetPropagateKeyboardInput(false)
                 return
             end
         end
         if not selectedMover then return end
-        self:SetPropagateKeyboardInput(false)
         -- Scale by physical pixel size so each press moves exactly 1px
         local PPn = EllesmereUI and EllesmereUI.PP
         local pxStep = PPn and PPn.mult or 1
@@ -5466,11 +5468,7 @@ local function SetupArrowKeyFrame()
             if m.ReanchorToBar then m:ReanchorToBar() end
             if m._syncCogPos then m._syncCogPos() end
         end
-    end)
-
-    arrowKeyFrame:SetScript("OnKeyUp", function(self, key)
-        self:SetPropagateKeyboardInput(true)
-    end)
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -10514,8 +10512,8 @@ local function CreateUnlockFrame()
             end
             self:SetPropagateKeyboardInput(false)
             ns.CloseUnlockMode()
-        else
-            self:SetPropagateKeyboardInput(true)
+        elseif arrowKeyHandler then
+            arrowKeyHandler(key)
         end
     end)
 

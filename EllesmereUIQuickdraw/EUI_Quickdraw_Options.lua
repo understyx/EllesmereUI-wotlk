@@ -1559,46 +1559,44 @@ initFrame:SetScript("OnEvent", function(self)
         return out, dropped
     end
 
-    -- Every profession this character has, as the spells the profession book
-    -- itself offers. Cooking and fishing arrive the same way, GetProfessions
-    -- handing back all five slots.
+    -- Every profession spell this character has. 3.3.5 has no profession
+    -- book (GetProfessions/GetProfessionInfo arrived in Cataclysm); the
+    -- spells sit in the General tab, so they are matched by name the way the
+    -- forms are. Any rank's ID works, IsSpellKnownInBook compares names.
     --
-    -- Read through the profession's spellbook offset, which avoids maintaining
-    -- a separate list of profession spell IDs.
-    --
-    -- Passive entries are skipped: a profession's passive is a rank, not
-    -- something a menu entry can do.
+    -- Herbalism and Skinning are left out: neither has a castable spell.
+    local PROFESSION_SPELLS = {
+        2259,    -- Alchemy
+        2018,    -- Blacksmithing
+        7411,    -- Enchanting
+        13262,   -- Disenchant
+        4036,    -- Engineering
+        45357,   -- Inscription
+        51005,   -- Milling
+        25229,   -- Jewelcrafting
+        31252,   -- Prospecting
+        2108,    -- Leatherworking
+        3908,    -- Tailoring
+        2656,    -- Smelting
+        2580,    -- Find Minerals
+        2383,    -- Find Herbs
+        2550,    -- Cooking
+        818,     -- Basic Campfire
+        3273,    -- First Aid
+        7620,    -- Fishing
+    }
     local function ProfessionSlots()
+        ns.InvalidateSpellbookCache()
         local out, dropped = {}, 0
-        local seen = {}
-        local function AddProfession(index)
-            if not index then return end
-            local _, _, _, _, numSpells, spellOffset = GetProfessionInfo(index)
-            for i = 1, (numSpells or 0) do
-                local spellIndex = i + (spellOffset or 0)
-                local name = GetSpellName(spellIndex, BOOKTYPE_SPELL)
-                local link = GetSpellLink(spellIndex, BOOKTYPE_SPELL)
-                local spellID = link and tonumber(link:match("|Hspell:(%d+)"))
-                if name and spellID and not seen[name]
-                   and not IsPassiveSpell(spellIndex, BOOKTYPE_SPELL) then
-                    seen[name] = true
-                    if #out < MAX_SLOTS then
-                        out[#out + 1] = { kind = "spell", id = spellID }
-                    else
-                        dropped = dropped + 1
-                    end
+        for _, spellID in ipairs(PROFESSION_SPELLS) do
+            if ns.IsSpellKnownInBook(spellID) then
+                if #out < MAX_SLOTS then
+                    out[#out + 1] = { kind = "spell", id = spellID }
+                else
+                    dropped = dropped + 1
                 end
             end
         end
-        -- Passed one at a time rather than collected into a table: a character
-        -- missing a profession hands back a nil in the middle of those five
-        -- returns, and a table constructor holding one stops counting there.
-        local prof1, prof2, arch, fish, cook = GetProfessions()
-        AddProfession(prof1)
-        AddProfession(prof2)
-        AddProfession(arch)
-        AddProfession(fish)
-        AddProfession(cook)
         return out, dropped
     end
 
@@ -2257,15 +2255,15 @@ initFrame:SetScript("OnEvent", function(self)
             self:EnableKeyboard(true)
         end)
 
+        -- 3.3.5 has no SetPropagateKeyboardInput: a keyboard-enabled frame
+        -- always swallows the key. Keyboard is only enabled while listening,
+        -- so swallowing is what is wanted anyway.
         kbBtn:SetScript("OnKeyDown", function(self, key)
-            if not listening then self:SetPropagateKeyboardInput(true); return end
+            if not listening then return end
             key = ConvertBindingInput(key)
-            -- Bare modifiers pass through so the user can hold them for the
-            -- chord; everything the binding system ignores does too.
-            if BindingInputIsIgnored(key) then
-                self:SetPropagateKeyboardInput(true); return
-            end
-            self:SetPropagateKeyboardInput(false)
+            -- Bare modifiers are skipped so the user can hold them for the
+            -- chord; everything the binding system ignores is too.
+            if BindingInputIsIgnored(key) then return end
             listening = false
             self:EnableKeyboard(false)
             if key ~= "ESCAPE" then
