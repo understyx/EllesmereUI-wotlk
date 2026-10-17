@@ -1061,38 +1061,35 @@ Enum.AddOnProfilerMetric = {
 }
 C_UnitAuras = C_UnitAuras or {}
 C_UA = C_UA or {}
-local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind, index)
-    if name then
-        local fromPlayer = source == "player"
-            or source == "pet"
-            or (source and UnitIsUnit
-                and (UnitIsUnit(source, "player") or UnitIsUnit(source, "pet")))
-        return {
-            name = name,
-            icon = icon,
-            applications = count,
-            dispelType = dispelType,
-            dispelName = dispelType,
-            duration = duration,
-            expirationTime = expirationTime,
-            sourceUnit = source,
-            isStealable = isStealable == 1 or isStealable == true,
-            nameplateShowPersonal = nameplateShowPersonal == 1 or nameplateShowPersonal == true,
-            spellId = spellId,
-            -- Wrath has no aura instance IDs.  Spell IDs are not a safe
-            -- substitute: two copies of the same spell (or a helpful and a
-            -- harmful aura sharing an ID) collide in lookup maps.  Encode the
-            -- base-filter slot instead.  The value is stable for the lifetime
-            -- of this snapshot and every 3.3.5 UNIT_AURA consumer performs a
-            -- full refresh, so no caller relies on it across generations.
-            auraInstanceID = auraKind == "HARMFUL" and (1000 + index) or index,
-            castByPlayer = fromPlayer,
-            isFromPlayerOrPlayerPet = fromPlayer,
-            isHelpful = auraKind == "HELPFUL",
-            isHarmful = auraKind == "HARMFUL",
-        }
-    end
-    return nil
+-- Fills a (wiped) record in place so snapshot rebuilds reuse their tables.
+local function FillAuraData(aura, name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId, auraKind, index)
+    local fromPlayer = source == "player"
+        or source == "pet"
+        or (source and UnitIsUnit
+            and (UnitIsUnit(source, "player") or UnitIsUnit(source, "pet")))
+    aura.name = name
+    aura.icon = icon
+    aura.applications = count
+    aura.dispelType = dispelType
+    aura.dispelName = dispelType
+    aura.duration = duration
+    aura.expirationTime = expirationTime
+    aura.sourceUnit = source
+    aura.isStealable = isStealable == 1 or isStealable == true
+    aura.nameplateShowPersonal = nameplateShowPersonal == 1 or nameplateShowPersonal == true
+    aura.spellId = spellId
+    -- Wrath has no aura instance IDs.  Spell IDs are not a safe
+    -- substitute: two copies of the same spell (or a helpful and a
+    -- harmful aura sharing an ID) collide in lookup maps.  Encode the
+    -- base-filter slot instead.  The value is stable for the lifetime
+    -- of this snapshot and every 3.3.5 UNIT_AURA consumer performs a
+    -- full refresh, so no caller relies on it across generations.
+    aura.auraInstanceID = auraKind == "HARMFUL" and (1000 + index) or index
+    aura.castByPlayer = fromPlayer
+    aura.isFromPlayerOrPlayerPet = fromPlayer
+    aura.isHelpful = auraKind == "HELPFUL"
+    aura.isHarmful = auraKind == "HARMFUL"
+    return aura
 end
 
 -- WotLK has no incremental UNIT_AURA payload.  Build exactly two native lists
@@ -1112,12 +1109,55 @@ local auraSnapshots = {}
 -- repainting them) can run before the roster invalidator below. Stamp each
 -- snapshot with the GUID it was built for and discard it on mismatch, so a
 -- token never serves the previous occupant's auras.
+--
+-- Invalidation marks a snapshot stale instead of discarding it; the next read
+-- rebuilds it in place. In a raid UNIT_AURA fires for someone almost every
+-- frame, and allocating a fresh record per aura per event was the dominant
+-- source of combat garbage. Records are double-buffered by generation: a
+-- consumer that kept a record from the previous event still sees that
+-- event's data, and a buffer is only overwritten two generations later, by
+-- which point every UNIT_AURA consumer has rescanned.
+local function NewAuraBuffer()
+    return { list = {}, records = {} }
+end
+
+local function NewAuraSnapshot(guid)
+    return {
+        byID = {}, filtered = {}, filteredSpare = {}, guid = guid, gen = 0,
+        buffers = {
+            HELPFUL = { NewAuraBuffer(), NewAuraBuffer() },
+            HARMFUL = { NewAuraBuffer(), NewAuraBuffer() },
+        },
+    }
+end
+
+local function ResetAuraSnapshot(snapshot, guid)
+    snapshot.stale = nil
+    snapshot.guid = guid
+    snapshot.gen = snapshot.gen + 1
+    snapshot.HELPFUL = nil
+    snapshot.HARMFUL = nil
+    wipe(snapshot.byID)
+    -- Compound-filter lists never leave this file, so they can be reused in
+    -- place. Base-kind entries alias the double-buffered lists; skip those.
+    local spare = snapshot.filteredSpare
+    for filter, list in pairs(snapshot.filtered) do
+        if filter ~= "HELPFUL" and filter ~= "HARMFUL" then
+            wipe(list)
+            spare[filter] = list
+        end
+    end
+    wipe(snapshot.filtered)
+end
+
 local function UnitAuraSnapshot(unit)
     local guid = UnitGUID and UnitGUID(unit)
     local snapshot = auraSnapshots[unit]
-    if not snapshot or snapshot.guid ~= guid then
-        snapshot = { byID = {}, filtered = {}, guid = guid }
+    if not snapshot then
+        snapshot = NewAuraSnapshot(guid)
         auraSnapshots[unit] = snapshot
+    elseif snapshot.stale or snapshot.guid ~= guid then
+        ResetAuraSnapshot(snapshot, guid)
     end
     return snapshot
 end
@@ -1127,18 +1167,33 @@ local function BuildBaseAuraSnapshot(unit, auraKind)
     local list = snapshot[auraKind]
     if list then return list end
 
-    list = {}
-    snapshot[auraKind] = list
+    local buffer = snapshot.buffers[auraKind][snapshot.gen % 2 + 1]
+    list = buffer.list
+    local records = buffer.records
+    local byID = snapshot.byID
+    local n = 0
     for i = 1, 40 do
         local name, rank, icon, count, dispelType, duration, expirationTime, source,
             isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, auraKind)
         if not name then break end
-        local aura = PackAuraData(name, rank, icon, count, dispelType, duration,
+        local aura = records[i]
+        if aura then
+            -- Wipe rather than overwrite: callers may have cached extra
+            -- fields (e.g. _durationObject) on the previous occupant.
+            wipe(aura)
+        else
+            aura = {}
+            records[i] = aura
+        end
+        FillAuraData(aura, name, rank, icon, count, dispelType, duration,
             expirationTime, source, isStealable, nameplateShowPersonal, spellId,
             auraKind, i)
-        list[#list + 1] = aura
-        snapshot.byID[aura.auraInstanceID] = aura
+        n = n + 1
+        list[n] = aura
+        byID[aura.auraInstanceID] = aura
     end
+    for i = n + 1, #list do list[i] = nil end
+    snapshot[auraKind] = list
     return list
 end
 
@@ -1234,7 +1289,12 @@ local function BuildAuraSnapshot(unit, filter)
         return base
     end
 
-    local list = {}
+    local list = snapshot.filteredSpare[filter]
+    if list then
+        snapshot.filteredSpare[filter] = nil
+    else
+        list = {}
+    end
     for i = 1, #base do
         local aura = base[i]
         if AuraMatchesLegacyFilter(aura, filter, unit) then
@@ -1247,9 +1307,12 @@ end
 
 function C_UnitAuras.ClearCachedAuraData(unit)
     if unit then
-        auraSnapshots[unit] = nil
+        local snapshot = auraSnapshots[unit]
+        if snapshot then snapshot.stale = true end
     else
-        wipe(auraSnapshots)
+        for _, snapshot in pairs(auraSnapshots) do
+            snapshot.stale = true
+        end
     end
 end
 
@@ -1399,15 +1462,19 @@ C_UA.GetAuraApplicationDisplayCount = C_UnitAuras.GetAuraApplicationDisplayCount
 C_UA.GetAuraDispelTypeColor = C_UnitAuras.GetAuraDispelTypeColor
 C_UA.ClearCachedAuraData = C_UnitAuras.ClearCachedAuraData
 
+-- unpack() copies onto the stack, so one scratch table serves every call.
+local auraSlotScratch = {}
 C_UA.GetAuraSlots = function(unit, filter)
-    local slots = {}
+    local slots = auraSlotScratch
     local snapshot = BuildAuraSnapshot(unit, filter)
-    for i = 1, #snapshot do
-        slots[#slots + 1] = snapshot[i].auraInstanceID
+    local n = #snapshot
+    for i = 1, n do
+        slots[i] = snapshot[i].auraInstanceID
     end
+    for i = n + 1, #slots do slots[i] = nil end
     -- Retail returns a continuation token followed by the slot IDs. Callers
     -- intentionally collect the varargs and begin at index 2.
-    return nil, unpack(slots)
+    return nil, unpack(slots, 1, n)
 end
 C_UA.GetAuraDataBySlot = function(unit, slot)
     return C_UnitAuras.GetAuraDataByAuraInstanceID(unit, slot)
