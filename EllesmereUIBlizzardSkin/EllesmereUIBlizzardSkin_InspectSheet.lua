@@ -8,6 +8,11 @@ local ADDON_NAME, ns = ...
 local WSkin = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
 local skinned = false
 
+local function ApplySharedType(region, tier, alpha)
+    local skin = _G.EllesmereUIBlizzardSkin or WSkin
+    if skin and skin.ApplyRetailTypography then skin:ApplyRetailTypography(region, tier, alpha) end
+end
+
 local MAX_GLYPH_SOCKETS = 6
 local GLYPH_TYPE_MAJOR = 1
 local GLYPH_TYPE_MINOR = 2
@@ -564,6 +569,8 @@ local function SkinInspectSheet()
 
     local isLegacyInspect = not _G.InspectPaperDollItemsFrame and _G.InspectPaperDollFrame ~= nil
 
+
+
     -- The 3.3.5 sheet builds its ornate frame from unnamed texture regions,
     -- rather than NineSlice/Background members.  Strip only direct texture
     -- regions from the chrome containers; equipment icons are children of the
@@ -589,61 +596,6 @@ local function SkinInspectSheet()
     end
 
 
-    local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
-
-    -- Create custom background texture FIRST before hiding anything
-    if GetFFD(frame).bg then
-        GetFFD(frame).bg:Show()
-    else
-        local BG_ASPECT = 561 / 433
-        local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-        bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
-        bg:SetAllPoints(frame)
-        bg:SetAlpha(1)
-        GetFFD(frame).bg = bg
-        GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        -- Same retail shade as the character sheet: a 52px header band holds
-        -- the name and level lines above a near-black body.
-        local S = _G.EllesmereUIBlizzardSkin
-        if S and S.ApplyRetailShellShade then
-            GetFFD(frame).headerOverlay = S:ApplyRetailShellShade(frame, GetFFD(frame).bgOverlay, 52)
-        else
-            GetFFD(frame).bgOverlay:SetTexture(0, 0, 0, 0.62)
-            GetFFD(frame).bgOverlay:SetAllPoints(frame)
-        end
-        -- Aspect-ratio-preserving cover mode (matches character sheet)
-        local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
-        local BASE_U = BASE_R - BASE_L
-        local BASE_V = BASE_B - BASE_T
-        local function UpdateBgTexCoords()
-            local fw, fh = frame:GetSize()
-            if fw == 0 or fh == 0 then return end
-            local frameAspect = fw / fh
-            if frameAspect > BG_ASPECT then
-                local visV = BASE_V * (BG_ASPECT / frameAspect)
-                local trimV = (BASE_V - visV) / 2
-                bg:SetTexCoord(BASE_L, BASE_R, BASE_T + trimV, BASE_B - trimV)
-            else
-                local visU = BASE_U * (frameAspect / BG_ASPECT)
-                local trimU = (BASE_U - visU) / 2
-                bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
-            end
-        end
-        hooksecurefunc(frame, "SetSize", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
-        UpdateBgTexCoords()
-        -- Follows the Character Sheet window's style pick (the two share one
-        -- enable + style setting).
-        if ns.WSkin and ns.WSkin.AdoptShell then
-            ns.WSkin.AdoptShell("charsheet", frame, bg, GetFFD(frame).bgOverlay)
-        end
-    end
-
-    -- Standard window-reskin border (the AdventureMap_TopBorder atlas texture),
-    -- same as the character sheet and every other skinned Blizzard window.
-    if ns.WSkin and ns.WSkin.AtlasBorder then ns.WSkin.AtlasBorder(frame) end
-
     -- Hide Blizzard backgrounds and borders
     for _, elem in ipairs({frame.NineSlice, frame.Background, frame.TitleBg,
                            frame.TopTileStreaks, frame.Portrait, frame.Bg,
@@ -654,51 +606,67 @@ local function SkinInspectSheet()
     end
 
 
-    -- Hide Blizzard Bg textures (our atlas bg covers everything)
+    -- Hide Blizzard backgrounds; the shared retail shell replaces the native art.
     if InspectFrameBg then InspectFrameBg:SetAlpha(0) end
     if InspectFrameInset and InspectFrameInset.Bg then InspectFrameInset.Bg:SetAlpha(0) end
 
-    -- Create model background (matches character sheet: character-bg.tga, no glow/gradient)
-    -- Deferred until InspectModelFrame exists (created lazily by Blizzard)
+
+    local nativeTextures = {}
+    for i = 1, select("#", frame:GetRegions()) do
+        local region = select(i, frame:GetRegions())
+        if region and region.IsObjectType and region:IsObjectType("Texture") then
+            nativeTextures[#nativeTextures + 1] = region
+        end
+    end
+    local function HideFrameTextures()
+        for _, region in ipairs(nativeTextures) do region:SetAlpha(0) end
+    end
+    if WSkin and WSkin.SkinRetailWindow then
+        WSkin:SkinRetailWindow(frame, {
+            shellOnFrame = true,
+            strip = false,
+            pageSurface = false,
+            headerBand = WSkin.Retail.geometry.twoLineHeaderHeight,
+            titleRegion = _G.InspectNameText or _G.InspectFrameTitleText,
+            titlePosition = { point = "TOP", y = -7 },
+            closeButton = frame.CloseButton or _G.InspectFrameCloseButton,
+            artRegions = {
+                { object = frame, action = HideFrameTextures },
+                frame.NineSlice, frame.Background, frame.TitleBg, frame.TopTileStreaks,
+                frame.Portrait, frame.Bg, _G.InspectFramePortrait,
+                _G.InspectFrameBg,
+            },
+            rehideOnShow = true,
+        })
+    end
+    -- Create the same character-bg backing used by Character, once the
+    -- load-on-demand model widget exists. Its anchors follow the legacy slots.
     local function TryCreateModelBg()
         if GetFFD(frame).modelBgFrame then return end
         local myModel = _G.InspectModelFrame
-        if not myModel then return end
-        local bgFrame = EllesmereUI.SafeCreateFrame("Frame", nil, myModel)
-        bgFrame:SetFrameLevel(math.max(1, myModel:GetFrameLevel() - 1))
-        bgFrame:ClearAllPoints()
-        -- Match the Character sheet: span the backdrop across the full gear
-        -- width (left gear column to right gear column) and down to the model
-        -- bottom, so character-bg.tga covers the whole gear + model area. The
-        -- inspect model sits at Blizzard's default center spot, so its right edge
-        -- stops short of the right gear; anchor the right edge to the right gear
-        -- column instead. Falls back progressively if the slots are not up yet.
-        local headSlot  = _G.InspectHeadSlot
+        if not myModel or not (WSkin and WSkin.CreateRetailModelBacking) then return end
+        local headSlot = _G.InspectHeadSlot
         local handsSlot = _G.InspectHandsSlot
-        if headSlot and handsSlot then
-            bgFrame:SetPoint("TOPLEFT", headSlot, "TOPLEFT", -8, 10)
-            bgFrame:SetPoint("RIGHT", handsSlot, "RIGHT", 0, 0)
-            bgFrame:SetPoint("BOTTOM", myModel, "BOTTOM", 0, -18)
-        elseif headSlot then
-            bgFrame:SetPoint("TOPLEFT", headSlot, "TOPLEFT", -8, 10)
-            bgFrame:SetPoint("BOTTOMRIGHT", myModel, "BOTTOMRIGHT", 0, -18)
-        else
-            bgFrame:SetPoint("TOPLEFT", myModel, "TOPLEFT", -8, 10)
-            bgFrame:SetPoint("BOTTOMRIGHT", myModel, "BOTTOMRIGHT", 0, -18)
-        end
-        local bgTex = bgFrame:CreateTexture(nil, "BACKGROUND")
-        bgTex:SetAllPoints(bgFrame)
-        bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.tga")
-        bgTex:SetAlpha(1)
-
-        GetFFD(frame).modelBg      = bgTex
-        GetFFD(frame).modelBgFrame = bgFrame
+        local backing, texture = WSkin:CreateRetailModelBacking(frame, myModel, {
+            leftAnchor = headSlot or myModel,
+            leftPoint = "TOPLEFT",
+            leftRelativePoint = "TOPLEFT",
+            leftOffsetX = -8,
+            leftOffsetY = 10,
+            rightAnchor = handsSlot,
+            rightPoint = "RIGHT",
+            rightRelativePoint = "RIGHT",
+            bottomAnchor = myModel,
+            bottomPoint = "BOTTOM",
+            bottomRelativePoint = "BOTTOM",
+            bottomOffsetY = -18,
+        })
+        GetFFD(frame).modelBg = texture
+        GetFFD(frame).modelBgFrame = backing
     end
     TryCreateModelBg()
-    -- Retry on show in case model frame wasn't ready on first skin.
-    -- Staggered retries: Blizzard creates InspectModelFrame lazily
-    -- after the inspect target is set, which can take multiple frames.
-    -- HookScript only once to prevent accumulation on repeated reskins.
+    -- Retry on show in case Blizzard has not created the model widget yet.
+    -- Staggered retries preserve the existing load-on-demand timing behavior.
     if not GetFFD(frame)._modelBgHooked then
         GetFFD(frame)._modelBgHooked = true
         frame:HookScript("OnShow", function()
@@ -834,64 +802,11 @@ local function SkinInspectSheet()
         end
     end
 
-    -- Add pixel-perfect border to the frame
-    if EllesmereUI and EllesmereUI.PanelPP then
-        EllesmereUI.PanelPP.CreateBorder(frame, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
-    end
-
-    -- Style close button
-    local closeBtn = frame.CloseButton or _G.InspectFrameCloseButton
-    if closeBtn then
-        closeBtn:ClearAllPoints()
-        closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
-        closeBtn:SetSize(16, 16)
-        if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
-        if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
-        if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
-        if closeBtn.SetDisabledTexture then closeBtn:SetDisabledTexture("") end
-
-        for i = 1, select("#", closeBtn:GetRegions()) do
-            local region = select(i, closeBtn:GetRegions())
-            if region and region:IsObjectType("Texture") and region ~= GetFFD(closeBtn).x then
-                region:SetAlpha(0)
-            end
-        end
-
-        if not GetFFD(closeBtn).x then
-            local closeX = closeBtn:CreateTexture(nil, "OVERLAY")
-            closeX:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
-            closeX:SetSize(14, 14)
-            closeX:SetPoint("CENTER", 0, 0)
-            closeX:SetVertexColor(1, 1, 1, 0.75)
-            GetFFD(closeBtn).x = closeX
-
-            closeBtn:HookScript("OnEnter", function()
-                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1) end
-            end)
-            closeBtn:HookScript("OnLeave", function()
-                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75) end
-            end)
-        else
-            GetFFD(closeBtn).x:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
-            GetFFD(closeBtn).x:SetSize(14, 14)
-            GetFFD(closeBtn).x:SetPoint("CENTER", 0, 0)
-            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75)
-        end
-    end
-
-    local function SetInspectSurface(f, r, g, b, a)
+    local function SetInspectSurface(f)
         if not f or GetFFD(f)._euiSurface then return end
         local S = _G.EllesmereUIBlizzardSkin or (ns and ns.WSkin)
         if S and S.ApplyRetailSurface then
-            S:ApplyRetailSurface(f, "card", r, g, b, a)
-        else
-            f:SetBackdrop({
-                bgFile = "Interface\\Buttons\\WHITE8X8",
-                edgeFile = "Interface\\Buttons\\WHITE8X8",
-                edgeSize = 1,
-            })
-            f:SetBackdropColor(r or 0.025, g or 0.035, b or 0.04, a or 0.92)
-            f:SetBackdropBorderColor(1, 1, 1, 0.10)
+            S:ApplyRetailSurface(f, "card")
         end
         GetFFD(f)._euiSurface = true
     end
@@ -922,7 +837,7 @@ local function SkinInspectSheet()
                 statsCard:SetPoint("TOP", pvp, "TOP", 0, -45)
                 statsCard:SetSize(384, 112)
                 statsCard:SetFrameLevel(pvp:GetFrameLevel() + 1)
-                SetInspectSurface(statsCard, 0.030, 0.043, 0.048, 0.78)
+                SetInspectSurface(statsCard)
                 GetFFD(pvp).statsCard = statsCard
             end
 
@@ -983,7 +898,7 @@ local function SkinInspectSheet()
             }) do
                 local fs = _G[statName]
                 if fs then
-                    fs:SetFont(fontPath, 10, "")
+                    ApplySharedType(fs, "secondary")
                     fs:SetTextColor(1, 1, 1, 0.85)
                 end
             end
@@ -993,7 +908,7 @@ local function SkinInspectSheet()
                 local team = _G["InspectPVPTeam" .. i]
                 if team then
                     if S and S.StripTextures then S:StripTextures(team) end
-                    SetInspectSurface(team, 0.030, 0.043, 0.048, 0.78)
+                    SetInspectSurface(team)
                     team:SetWidth(384)
                     team:SetHeight(80)
                     team:ClearAllPoints()
@@ -1028,14 +943,14 @@ local function SkinInspectSheet()
                         for j = 1, select("#", data:GetRegions()) do
                             local region = select(j, data:GetRegions())
                             if region and region:IsObjectType("FontString") then
-                                region:SetFont(fontPath, 10, "")
+                                ApplySharedType(region, "secondary")
                             end
                         end
                     end
                     for j = 1, select("#", team:GetRegions()) do
                         local region = select(j, team:GetRegions())
                         if region and region:IsObjectType("FontString") then
-                            region:SetFont(fontPath, 10, "")
+                            ApplySharedType(region, "secondary")
                             region:SetTextColor(1, 1, 1, 0.85)
                         elseif region and region:IsObjectType("Texture") and region ~= team.backdrop then
                             region:SetAlpha(0)
@@ -1087,7 +1002,7 @@ local function SkinInspectSheet()
             surface:SetPoint("BOTTOMRIGHT", tal, "BOTTOMRIGHT", -16, 39)
             surface:SetFrameLevel(math.max(0, tal:GetFrameLevel() - 1))
             surface:EnableMouse(false)
-            SetInspectSurface(surface, 0.025, 0.035, 0.04, 0.72)
+            SetInspectSurface(surface)
             GetFFD(tal).surface = surface
 
             -- Stretch the four art quadrants over the surface, keeping the
@@ -1127,7 +1042,7 @@ local function SkinInspectSheet()
                     tab:SetSize(TALENT_TAB_W, TALENT_TAB_H)
                     local label = tab:GetFontString()
                     if label and not (S and S.StyleRetailTab) then
-                        label:SetFont(fontPath, 10, "")
+                        ApplySharedType(label, "secondary")
                         label:SetTextColor(1, 1, 1, 0.62)
                     end
                     talentTabs[#talentTabs + 1] = tab
@@ -1167,7 +1082,7 @@ local function SkinInspectSheet()
                 for i = 1, select("#", _G.InspectTalentFramePointsBar:GetRegions()) do
                     local r = select(i, _G.InspectTalentFramePointsBar:GetRegions())
                     if r and r:IsObjectType("FontString") then
-                        r:SetFont(fontPath, 10, "")
+                        ApplySharedType(r, "secondary")
                         r:SetTextColor(1, 1, 1, 0.85)
                     end
                 end
@@ -1244,7 +1159,7 @@ local function SkinInspectSheet()
                         end
 
                         if rank then
-                            rank:SetFont(fontPath, 9, "OUTLINE")
+                            ApplySharedType(rank, "secondary")
                             if rank.SetDrawLayer then rank:SetDrawLayer("OVERLAY", 7) end
                             rank:ClearAllPoints()
                             rank:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
@@ -1330,7 +1245,7 @@ local function SkinInspectSheet()
                 end
             end
             local label = btn:CreateFontString(nil, "OVERLAY")
-            label:SetFont(fontPath, 10, "")
+            ApplySharedType(label, "secondary")
             label:SetPoint("CENTER", btn, "CENTER", 0, 0)
             label:SetJustifyH("CENTER")
             label:SetText(labelText)
@@ -1425,7 +1340,8 @@ local function SkinInspectSheet()
 
             -- Add rarity-colored border
             if EllesmereUI and EllesmereUI.PanelPP then
-                EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1, 2, "OVERLAY", 7)
+                EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1,
+                    EllesmereUI.Style.Tokens.border.width, "OVERLAY", 7)
             end
 
             local parent = slot:GetParent()
@@ -1437,9 +1353,9 @@ local function SkinInspectSheet()
 
     -- Grid layout: 2 columns, 8 rows
     local slotWidth = 40
-    local cellWidth = isLegacyInspect and (INSPECT_WIDTH - 20 - slotWidth) or 280
+    local cellWidth = isLegacyInspect and (INSPECT_WIDTH - 28 - slotWidth) or 280
     local cellHeight = 41
-    local gridStartX = 10
+    local gridStartX = 14
     local gridStartY = -60
 
     -- Create overlay frame for text labels (above items, transparent, no mouse input)
@@ -1523,13 +1439,13 @@ local function SkinInspectSheet()
     if isLegacyInspect and InspectModelFrame then
         InspectModelFrame:ClearAllPoints()
         InspectModelFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 55, -76)
-        InspectModelFrame:SetSize(322, 324)
+        InspectModelFrame:SetSize(322, 352)
     end
 
     -- Position weapon slots at bottom (matches CharacterSheet pattern).
     if InspectMainHandSlot and InspectSecondaryHandSlot then
         InspectMainHandSlot:ClearAllPoints()
-        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", isLegacyInspect and 149 or 128, 10)
+        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", isLegacyInspect and 149 or 128, 18)
         InspectSecondaryHandSlot:ClearAllPoints()
         InspectSecondaryHandSlot:SetPoint("TOPLEFT", InspectMainHandSlot, "TOPRIGHT", 12, 0)
         if InspectRangedSlot then
@@ -1556,8 +1472,8 @@ local function SkinInspectSheet()
 
         if not GetFFD(frame).avgIlvlText then
             local ilvlFS = txo:CreateFontString(nil, "OVERLAY")
-            ilvlFS:SetFont(fontPath, 16, "")
-            ilvlFS:SetTextColor(0.6, 0.2, 1, 1)
+            ApplySharedType(ilvlFS, "title")
+            if WSkin and WSkin.ApplyRetailAccent then WSkin:ApplyRetailAccent(ilvlFS) end
             ilvlFS:SetJustifyH("CENTER")
             ilvlFS:SetPoint("TOP", frame, "TOP", 0, -43)
             GetFFD(frame).avgIlvlText = ilvlFS
@@ -1596,7 +1512,7 @@ local function SkinInspectSheet()
         end
 
         local majorHeader = surface:CreateFontString(nil, "OVERLAY")
-        majorHeader:SetFont(fontPath, 11, "")
+        ApplySharedType(majorHeader, "section")
         majorHeader:SetTextColor(ar, ag, ab, 0.95)
         majorHeader:SetJustifyH("LEFT")
         majorHeader:SetPoint("TOPLEFT", surface, "TOPLEFT", 10, -6)
@@ -1604,7 +1520,7 @@ local function SkinInspectSheet()
         majorHeader:SetText(EllesmereUI.L("MAJOR GLYPHS"))
 
         local minorHeader = surface:CreateFontString(nil, "OVERLAY")
-        minorHeader:SetFont(fontPath, 11, "")
+        ApplySharedType(minorHeader, "section")
         minorHeader:SetTextColor(0.52, 0.70, 1.00, 0.90)
         minorHeader:SetJustifyH("LEFT")
         minorHeader:SetPoint("TOPLEFT", surface, "TOPLEFT", 204, -6)
@@ -1634,7 +1550,6 @@ local function SkinInspectSheet()
             if WSkin and WSkin.ApplyRetailSurface then
                 WSkin:ApplyRetailSurface(row, "row")
             end
-            row:SetBackdropColor(0.030, 0.043, 0.048, 0.70)
             row:SetBackdropBorderColor(minor and 0.35 or ar, minor and 0.58 or ag,
                 minor and 1.00 or ab, minor and 0.42 or 0.55)
 
@@ -1644,8 +1559,6 @@ local function SkinInspectSheet()
             iconFrame:SetFrameLevel(row:GetFrameLevel() + 1)
             if WSkin and WSkin.ApplyRetailSurface then
                 WSkin:ApplyRetailSurface(iconFrame, "input")
-                iconFrame:SetBackdropColor(0.012, 0.018, 0.021, 0.96)
-                iconFrame:SetBackdropBorderColor(1, 1, 1, 0.10)
             end
             local icon = iconFrame:CreateTexture(nil, "ARTWORK")
             icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 2, -2)
@@ -1653,13 +1566,13 @@ local function SkinInspectSheet()
             icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
             local emptyMark = iconFrame:CreateFontString(nil, "OVERLAY")
-            emptyMark:SetFont(fontPath, 11, "")
+            ApplySharedType(emptyMark, "row")
             emptyMark:SetTextColor(minor and 0.52 or ar, minor and 0.70 or ag,
                 minor and 1.00 or ab, 0.70)
             emptyMark:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
 
             local name = row:CreateFontString(nil, "OVERLAY")
-            name:SetFont(fontPath, 10, "")
+            ApplySharedType(name, "secondary")
             name:SetTextColor(1, 1, 1, 0.88)
             name:SetJustifyH("LEFT")
             name:SetJustifyV("TOP")
@@ -1667,7 +1580,7 @@ local function SkinInspectSheet()
             name:SetSize(106, 27)
 
             local typeLabel = row:CreateFontString(nil, "OVERLAY")
-            typeLabel:SetFont(fontPath, 9, "")
+            ApplySharedType(typeLabel, "secondary")
             typeLabel:SetTextColor(minor and 0.52 or ar, minor and 0.70 or ag,
                 minor and 1.00 or ab, 0.90)
             typeLabel:SetJustifyH("LEFT")
@@ -1720,7 +1633,7 @@ local function SkinInspectSheet()
         tab:SetSize(108, 25)
         tab:SetFrameLevel(frame:GetFrameLevel() + 20)
         local label = tab:CreateFontString(nil, "OVERLAY")
-        label:SetFont(fontPath, 10, "")
+        ApplySharedType(label, "secondary")
         label:SetPoint("CENTER")
         tab:SetFontString(label)
         tab:SetText(EllesmereUI.L("Glyphs"))
@@ -1857,11 +1770,6 @@ local function SkinInspectSheet()
             levelText:ClearAllPoints()
             levelText:SetPoint("TOP", nameText or frame, nameText and "BOTTOM" or "TOP", 0, nameText and -4 or -28)
             levelText:SetJustifyH("CENTER")
-        end
-        local closeBtn = frame.CloseButton or _G.InspectFrameCloseButton
-        if closeBtn then
-            closeBtn:ClearAllPoints()
-            closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -7, -6)
         end
     end
 
@@ -2035,10 +1943,8 @@ local function EnsureInspectNineSliceHidden()
         frame.NineSlice:SetAlpha(0)
     end
 
-    -- Hide InspectFrameInset.NineSlice (borders). The inset is left transparent
-    -- so the window's modern_blizz bg + 0.62 black overlay show through, matching
-    -- the character sheet. Filling it with a solid color stacked a second dark
-    -- layer behind the model.
+    -- Hide InspectFrameInset.NineSlice (borders). The shared window shell and
+    -- model backing remain visible through this native inset.
     if InspectFrameInset and InspectFrameInset.NineSlice then
         InspectFrameInset.NineSlice:Hide()
         InspectFrameInset.NineSlice:SetAlpha(0)

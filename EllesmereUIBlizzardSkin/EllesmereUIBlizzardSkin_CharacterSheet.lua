@@ -6,6 +6,17 @@ local L = _G.EllesmereUI and _G.EllesmereUI.L or function(k) return k end
 local skinned = false
 local activeEquipmentSetID = nil
 
+local function ApplySharedType(region, tier, alpha)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.ApplyRetailTypography then skin:ApplyRetailTypography(region, tier, alpha) end
+end
+
+local function SetTokenTexture(texture, kind, alpha)
+    local tokens = EllesmereUI and EllesmereUI.Style and EllesmereUI.Style.Tokens
+    local color = tokens and tokens.colors[kind]
+    if texture and color then texture:SetTexture(color[1], color[2], color[3], alpha or color[4]) end
+end
+
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
 local function GetFFD(frame)
@@ -286,6 +297,38 @@ end
 -- CharacterFrame is hidden (before first open). Avoids the bug where
 -- running mid-OnShow prevents Rep/Currency ScrollBox data render.
 local _preSkinned = false
+local function SkinCharacterShell(frame)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if not (skin and skin.SkinRetailWindow) then return end
+    local nativeTextures = {}
+    for i = 1, select("#", frame:GetRegions()) do
+        local region = select(i, frame:GetRegions())
+        if region and region.IsObjectType and region:IsObjectType("Texture") then
+            nativeTextures[#nativeTextures + 1] = region
+        end
+    end
+    local function HideFrameTextures(owner)
+        for _, region in ipairs(nativeTextures) do region:SetAlpha(0) end
+    end
+    skin:SkinRetailWindow(frame, {
+        shellOnFrame = true,
+        strip = false,
+        pageSurface = false,
+        headerBand = skin.Retail.geometry.twoLineHeaderHeight,
+        titleRegion = _G.CharacterFrameTitleText,
+        closeButton = frame.CloseButton or _G.CharacterFrameCloseButton,
+        artRegions = {
+            { object = frame, action = HideFrameTextures },
+            frame.NineSlice, frame.Background, frame.TitleBg, frame.TopTileStreaks,
+            frame.Portrait, _G.CharacterFramePortrait, _G.CharacterFrameInsetBG,
+            _G.CharacterModelFrameBackgroundOverlay,
+            _G.CharacterModelFrameBackgroundTopLeft, _G.CharacterModelFrameBackgroundBotLeft,
+            _G.CharacterModelFrameBackgroundTopRight, _G.CharacterModelFrameBackgroundBotRight,
+        },
+        rehideOnShow = true,
+    })
+end
+
 local function PreSkinCharacterSheet()
     if _preSkinned then return end
     _preSkinned = true
@@ -330,13 +373,12 @@ local function PreSkinCharacterSheet()
         end
         CharacterFrameInset.NineSlice:SetAlpha(0)
     end
-    local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
     if CharacterFrameInset then
         if CharacterFrameInset.AbsBg then
-            CharacterFrameInset.AbsBg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B, 1)
+            SetTokenTexture(CharacterFrameInset.AbsBg, "body")
         end
         if CharacterFrameInset.Bg then
-            CharacterFrameInset.Bg:SetTexture(0.02, 0.02, 0.025, 1)
+            SetTokenTexture(CharacterFrameInset.Bg, "body")
             CharacterFrameInset.Bg:SetAlpha(0)
         end
     end
@@ -395,60 +437,6 @@ local function PreSkinCharacterSheet()
     -- These used to be hidden here and permanently suppressed with a Show
     -- hook, which also made Reputation, Skills, and Currency inaccessible.
 
-    -- Background scales proportionally to fill the frame without distorting.
-    -- Native aspect ratio: 561x433. On resize, compute the size that covers
-    -- the full frame (like CSS "cover") and center it, clipping overflow via
-    -- adjusted tex coords.
-    local BG_ASPECT = 561 / 433
-    local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.tga")
-    bg:SetAllPoints(frame)
-    GetFFD(frame).bg = bg
-    bg:SetAlpha(1)
-    GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-    -- Retail reads as a near-black body under a slightly lifted header band;
-    -- the band is 52px tall here to hold both the name and level lines.
-    local S = _G.EllesmereUIBlizzardSkin
-    if S and S.ApplyRetailShellShade then
-        GetFFD(frame).headerOverlay = S:ApplyRetailShellShade(frame, GetFFD(frame).bgOverlay, 52)
-    else
-        GetFFD(frame).bgOverlay:SetTexture(0, 0, 0, 0.62)
-        GetFFD(frame).bgOverlay:SetAllPoints(frame)
-    end
-
-    -- Recompute tex coords on resize to maintain aspect ratio (cover mode)
-    local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
-    local BASE_U = BASE_R - BASE_L  -- 0.75
-    local BASE_V = BASE_B - BASE_T  -- 0.75
-    local function UpdateBgTexCoords()
-        local fw, fh = frame:GetSize()
-        if fw == 0 or fh == 0 then return end
-        local frameAspect = fw / fh
-        if frameAspect > BG_ASPECT then
-            -- Frame is wider: crop top/bottom
-            local visV = BASE_V * (BG_ASPECT / frameAspect)
-            local trimV = (BASE_V - visV) / 2
-            bg:SetTexCoord(BASE_L, BASE_R, BASE_T + trimV, BASE_B - trimV)
-        else
-            -- Frame is taller: crop left/right
-            local visU = BASE_U * (frameAspect / BG_ASPECT)
-            local trimU = (BASE_U - visU) / 2
-            bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
-        end
-    end
-    hooksecurefunc(frame, "SetSize", UpdateBgTexCoords)
-    hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
-    hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
-    UpdateBgTexCoords()
-    -- Standard window-reskin border (the AdventureMap_TopBorder atlas texture),
-    -- matching every other skinned Blizzard window. Replaces the old 1px line.
-    if ns.WSkin and ns.WSkin.AtlasBorder then ns.WSkin.AtlasBorder(frame) end
-    -- Window-style system: lets the Modern flat backdrop live-swap in for the
-    -- atlas when the user picks Modern for the Character Sheet window.
-    if ns.WSkin and ns.WSkin.AdoptShell then
-        ns.WSkin.AdoptShell("charsheet", frame, bg, GetFFD(frame).bgOverlay)
-    end
-
     -- PlayerModel widget. SetUnit("player") natively follows shapeshift forms
     -- (Bear/Cat/Travel/Moonkin/Tree) and Dracthyr Visage -- no preset tricks
     -- needed. Backdrop + hover glow live on a sibling frame (3D model draws on top).
@@ -469,18 +457,23 @@ local function PreSkinCharacterSheet()
         myModel:EnableMouse(true)
         myModel:EnableMouseWheel(true)
 
-        -- Custom model background (our frame, no taint risk)
-        local bgFrame = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-        bgFrame:SetFrameLevel(math.max(1, myModel:GetFrameLevel() - 1))
-        bgFrame:SetPoint("TOPLEFT", CharacterHeadSlot, "TOPLEFT", -8, 10)
-        bgFrame:SetPoint("BOTTOMRIGHT", myModel, "BOTTOMRIGHT", 0, -18)
-        local bgTex = bgFrame:CreateTexture(nil, "BACKGROUND")
-        bgTex:SetAllPoints(bgFrame)
-        bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.tga")
-        bgTex:SetAlpha(1)
-
-        GetFFD(frame).modelBg      = bgTex
-        GetFFD(frame).modelBgFrame = bgFrame
+        -- Shared backing is a sibling of the model, preserving draw order.
+        local skin = _G.EllesmereUIBlizzardSkin
+        if skin and skin.CreateRetailModelBacking then
+            local bgFrame, bgTex = skin:CreateRetailModelBacking(frame, myModel, {
+                leftAnchor = CharacterHeadSlot,
+                leftPoint = "TOPLEFT",
+                leftRelativePoint = "TOPLEFT",
+                leftOffsetX = -8,
+                leftOffsetY = 10,
+                bottomAnchor = myModel,
+                bottomPoint = "BOTTOM",
+                bottomRelativePoint = "BOTTOM",
+                bottomOffsetY = -18,
+            })
+            GetFFD(frame).modelBg = bgTex
+            GetFFD(frame).modelBgFrame = bgFrame
+        end
 
         myModel:SetUnit("player")
         local zoomLevel = 0  -- 0 = full body, 1 = tight portrait
@@ -870,6 +863,7 @@ local function PreSkinCharacterSheet()
     if CharacterFrameInset then
         CharacterFrameInset:SetClipsChildren(false)
     end
+    SkinCharacterShell(frame)
     GetFFD(frame).sizeCheckDone = true
 end
 
@@ -881,47 +875,7 @@ local function SkinCharacterSheet()
 
     local frame = CharacterFrame
     if not frame then return end
-
-    local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
-
-    local closeBtn = frame.CloseButton or _G.CharacterFrameCloseButton
-    if closeBtn then
-        closeBtn:ClearAllPoints()
-        closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
-        closeBtn:SetSize(16, 16)
-        if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
-        if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
-        if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
-        if closeBtn.SetDisabledTexture then closeBtn:SetDisabledTexture("") end
-
-        for i = 1, select("#", closeBtn:GetRegions()) do
-            local region = select(i, closeBtn:GetRegions())
-            if region and region:IsObjectType("Texture") and region ~= GetFFD(closeBtn).x then
-                region:SetAlpha(0)
-            end
-        end
-
-        if not GetFFD(closeBtn).x then
-            local closeX = closeBtn:CreateTexture(nil, "OVERLAY")
-            closeX:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
-            closeX:SetSize(14, 14)
-            closeX:SetPoint("CENTER", 0, 0)
-            closeX:SetVertexColor(1, 1, 1, 0.75)
-            GetFFD(closeBtn).x = closeX
-
-            closeBtn:HookScript("OnEnter", function()
-                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1) end
-            end)
-            closeBtn:HookScript("OnLeave", function()
-                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75) end
-            end)
-        else
-            GetFFD(closeBtn).x:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
-            GetFFD(closeBtn).x:SetSize(14, 14)
-            GetFFD(closeBtn).x:SetPoint("CENTER", 0, 0)
-            GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75)
-        end
-    end
+    SkinCharacterShell(frame)
 
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
@@ -944,9 +898,9 @@ local function SkinCharacterSheet()
             if button then WSkin:HandleRetailButton(button, true) end
         end
 
-        local function SetSurface(frame, r, g, b, a)
+        local function SetSurface(frame, kind)
             if not frame or GetFFD(frame)._euiSurface then return end
-            WSkin:ApplyRetailSurface(frame, "card", r, g, b, a)
+            WSkin:ApplyRetailSurface(frame, kind or "card")
             GetFFD(frame)._euiSurface = true
         end
 
@@ -1047,13 +1001,13 @@ local function SkinCharacterSheet()
                 mountPanel:Hide()
 
                 local title = mountPanel:CreateFontString(nil, "OVERLAY")
-                title:SetFont(fontPath, 13, "")
+                ApplySharedType(title, "section")
                 title:SetText(_G.MOUNTS or "Mounts")
                 title:SetTextColor(1, 1, 1, 0.92)
                 title:SetPoint("TOPLEFT", 12, -10)
 
                 local countText = mountPanel:CreateFontString(nil, "OVERLAY")
-                countText:SetFont(fontPath, 10, "")
+                ApplySharedType(countText, "secondary")
                 countText:SetTextColor(1, 1, 1, 0.45)
                 countText:SetPoint("LEFT", title, "RIGHT", 8, 0)
 
@@ -1061,11 +1015,11 @@ local function SkinCharacterSheet()
                 search:SetSize(226, 24)
                 search:SetPoint("TOPLEFT", 12, -31)
                 search:SetAutoFocus(false)
-                search:SetFont(fontPath, 10, "")
+                ApplySharedType(search, "secondary")
                 search:SetTextInsets(8, 8, 0, 0)
-                SetSurface(search, 0.025, 0.035, 0.04, 1)
+                SetSurface(search, "input")
                 local searchHint = search:CreateFontString(nil, "ARTWORK")
-                searchHint:SetFont(fontPath, 10, "")
+                ApplySharedType(searchHint, "secondary")
                 searchHint:SetText(_G.SEARCH or "Search")
                 searchHint:SetTextColor(1, 1, 1, 0.32)
                 searchHint:SetPoint("LEFT", 8, 0)
@@ -1076,7 +1030,7 @@ local function SkinCharacterSheet()
                 list:SetWidth(226)
 
                 local divider = mountPanel:CreateTexture(nil, "ARTWORK")
-                divider:SetTexture(1, 1, 1, 0.09)
+                SetTokenTexture(divider, "border")
                 divider:SetWidth(1)
                 divider:SetPoint("TOP", mountPanel, "TOP", -4, -12)
                 divider:SetPoint("BOTTOM", mountPanel, "BOTTOM", -4, 12)
@@ -1084,10 +1038,10 @@ local function SkinCharacterSheet()
                 local preview = EllesmereUI.SafeCreateFrame("Frame", nil, mountPanel)
                 preview:SetPoint("TOPLEFT", divider, "TOPRIGHT", 12, 0)
                 preview:SetPoint("BOTTOMRIGHT", mountPanel, "BOTTOMRIGHT", -12, 45)
-                SetSurface(preview, 0.018, 0.025, 0.03, 0.72)
+                SetSurface(preview, "panel")
 
                 local emptyText = preview:CreateFontString(nil, "OVERLAY")
-                emptyText:SetFont(fontPath, 11, "")
+                ApplySharedType(emptyText, "row")
                 emptyText:SetText(_G.NO_MOUNTS or "No mounts found")
                 emptyText:SetTextColor(1, 1, 1, 0.42)
                 emptyText:SetPoint("CENTER")
@@ -1098,7 +1052,7 @@ local function SkinCharacterSheet()
                 action:SetPoint("BOTTOMRIGHT", -12, 10)
                 action:SetNormalFontObject("GameFontNormal")
                 action:SetText(_G.SUMMON or "Summon")
-                SetSurface(action, 0.07, 0.105, 0.115, 1)
+                WSkin:HandleRetailButton(action, true)
                 local actionHL = action:CreateTexture(nil, "HIGHLIGHT")
                 actionHL:SetTexture(1, 1, 1, 0.07)
                 actionHL:SetAllPoints()
@@ -1187,7 +1141,7 @@ local function SkinCharacterSheet()
                     if _G.CompanionPageNumber then
                         _G.CompanionPageNumber:ClearAllPoints()
                         _G.CompanionPageNumber:SetPoint("CENTER", pet, "BOTTOM", 0, 95)
-                        _G.CompanionPageNumber:SetFont(fontPath, 11, "")
+                        ApplySharedType(_G.CompanionPageNumber, "row")
                     end
                     if _G.CompanionNextPageButton then
                         _G.CompanionNextPageButton:ClearAllPoints()
@@ -1252,7 +1206,9 @@ local function SkinCharacterSheet()
                             row.icon:SetTexture(data.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
                             row.name:SetText(data.name or _G.UNKNOWN)
                             row.active:SetShown(data.active and true or false)
-                            row.selected:SetShown(data.index == selectedIndex)
+                            if WSkin.UpdateRetailRow then
+                                WSkin:UpdateRetailRow(row, data.index == selectedIndex, false, rowIndex % 2 == 0)
+                            end
                             row.name:SetTextColor(1, 1, 1, data.index == selectedIndex and 1 or 0.72)
                         end
                     end
@@ -1271,19 +1227,15 @@ local function SkinCharacterSheet()
                     row:SetHeight(ROW_HEIGHT - 2)
                     row:SetPoint("TOPLEFT", 0, -((i - 1) * ROW_HEIGHT))
                     row:SetPoint("RIGHT", list, "RIGHT", -9, 0)
-                    SetSurface(row, 0.03, 0.043, 0.048, i % 2 == 0 and 0.70 or 0.45)
-                    local selected = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-                    selected:SetTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 0.13)
-                    selected:SetAllPoints()
-                    selected:Hide()
-                    row.selected = selected
+                    if WSkin.UpdateRetailRow then WSkin:UpdateRetailRow(row, false, false, i % 2 == 0) end
                     local icon = row:CreateTexture(nil, "ARTWORK")
                     icon:SetSize(30, 30)
                     icon:SetPoint("LEFT", 4, 0)
                     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                     row.icon = icon
+                    if WSkin.ApplyRetailIcon then WSkin:ApplyRetailIcon(icon, row, 30) end
                     local name = row:CreateFontString(nil, "OVERLAY")
-                    name:SetFont(fontPath, 10, "")
+                    ApplySharedType(name, "secondary")
                     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
                     name:SetPoint("RIGHT", row, "RIGHT", -15, 0)
                     name:SetJustifyH("LEFT")
@@ -1296,7 +1248,8 @@ local function SkinCharacterSheet()
                     active:Hide()
                     row.active = active
                     local hover = row:CreateTexture(nil, "HIGHLIGHT")
-                    hover:SetTexture(1, 1, 1, 0.06)
+                    local hoverColor = EllesmereUI.Style.Tokens.colors.rowAlt
+                    hover:SetTexture(hoverColor[1], hoverColor[2], hoverColor[3], 0.35)
                     hover:SetAllPoints()
                     row:SetScript("OnClick", function(self)
                         if not self.data then return end
@@ -1691,7 +1644,7 @@ local function SkinCharacterSheet()
     sidebarBgFrame:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, 10)
     sidebarBgFrame:SetPoint("BOTTOMRIGHT", statsPanel, "BOTTOMRIGHT", 0, -10)
     local statsBg = sidebarBgFrame:CreateTexture(nil, "BACKGROUND")
-    statsBg:SetTexture(0, 0, 0, 0.2)
+    SetTokenTexture(statsBg, "body", 0.20)
     statsBg:SetAllPoints()
     GetFFD(frame).statsBg = statsBg
     GetFFD(frame).sidebarBgFrame = sidebarBgFrame
@@ -2030,14 +1983,16 @@ local function SkinCharacterSheet()
 
     -- Itemlevel display: sits just below the 3 tab buttons, inside the panel.
     local iLvlText = statsPanel:CreateFontString(nil, "OVERLAY")
-    iLvlText:SetFont(fontPath, 18, "")
+    ApplySharedType(iLvlText, "title")
     iLvlText:SetPoint("TOP", statsPanel, "TOP", 0, -(25 + 3))  -- buttonHeight(25) + 3 gap
-    iLvlText:SetTextColor(0.6, 0.2, 1, 1)
+    if _G.EllesmereUIBlizzardSkin and _G.EllesmereUIBlizzardSkin.ApplyRetailAccent then
+        _G.EllesmereUIBlizzardSkin:ApplyRetailAccent(iLvlText)
+    end
     GetFFD(frame).iLvlText = iLvlText  -- Store for tab visibility control
 
     -- PvP Item Level: sits directly below the iLvl text when enabled.
     local pvpIlvlText = statsPanel:CreateFontString(nil, "OVERLAY")
-    pvpIlvlText:SetFont(fontPath, 12, "")
+    ApplySharedType(pvpIlvlText, "value")
     pvpIlvlText:SetTextColor(0.8, 0.8, 0.8, 1)
     pvpIlvlText:SetPoint("TOP", iLvlText, "BOTTOM", 0, -4)
     pvpIlvlText:Hide()
@@ -2191,7 +2146,7 @@ local function SkinCharacterSheet()
 
     --[[ Stats panel border
     if EllesmereUI and EllesmereUI.PanelPP then
-        EllesmereUI.PanelPP.CreateBorder(statsPanel, 0.15, 0.15, 0.15, 1, 1, "OVERLAY", 1)
+        EllesmereUI.PanelPP.CreateBorder(statsPanel, unpack(EllesmereUI.Style.Tokens.colors.border), EllesmereUI.Style.Tokens.border.width, "OVERLAY", 1)
     end
     ]]--
 
@@ -2849,7 +2804,7 @@ local function SkinCharacterSheet()
 
         -- Section title (centered in container)
         local sectionTitle = titleContainer:CreateFontString(nil, "OVERLAY")
-        sectionTitle:SetFont(fontPath, 11, "")
+        ApplySharedType(sectionTitle, "section")
         sectionTitle:SetTextColor(section.color.r, section.color.g, section.color.b, 1)
         sectionTitle:SetPoint("CENTER", titleContainer, "CENTER", 0, 0)
         sectionTitle:SetText(L(section.title))
@@ -2923,14 +2878,14 @@ local function SkinCharacterSheet()
             if ShouldShowStat(stat.showWhen) and ShouldShowCrest(stat) then
                 -- Stat label
                 local label = sectionContainer:CreateFontString(nil, "OVERLAY")
-                label:SetFont(fontPath, 10, "")
+                ApplySharedType(label, "secondary")
                 label:SetTextColor(0.7, 0.7, 0.7, 0.8)
                 label:SetPoint("TOPLEFT", sectionContainer, "TOPLEFT", 0, statYOffset)
                 label:SetText(L(stat.name))
 
                 -- Stat value
                 local value = sectionContainer:CreateFontString(nil, "OVERLAY")
-                value:SetFont(fontPath, 10, "")
+                ApplySharedType(value, "value")
                 value:SetTextColor(section.color.r, section.color.g, section.color.b, 1)
                 value:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", 0, statYOffset)
                 value:SetJustifyH("RIGHT")
@@ -3451,9 +3406,9 @@ local function SkinCharacterSheet()
             end
         end
 
-        -- Add border directly on the slot with item color (2px thickness)
+        -- Item quality stays semantic; the shared token owns border thickness.
         if EllesmereUI and EllesmereUI.PanelPP then
-            EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1, 2, "OVERLAY", 1)
+            EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1, EllesmereUI.Style.Tokens.border.width, "OVERLAY", 1)
             local bdrFrame = EllesmereUI.PanelPP.GetBorders(slot)
             if bdrFrame then bdrFrame:SetFrameLevel(slot:GetFrameLevel()) end
         end
@@ -3518,7 +3473,7 @@ local function SkinCharacterSheet()
         btn:SetPoint("TOPLEFT", frame, "TOPLEFT", startX, startY)
 
         local text = btn:CreateFontString(nil, "OVERLAY")
-        text:SetFont(fontPath, 10, "")
+        ApplySharedType(text, "secondary")
         -- Anchor to TOP (not CENTER) so the text sits flush with the top of
         -- the panel section instead of floating ~12px down inside a tall
         -- button.
@@ -3572,16 +3527,16 @@ local function SkinCharacterSheet()
     titlesSearchBox:SetMaxLetters(20)
 
     local searchBg = titlesSearchBox:CreateTexture(nil, "BACKGROUND")
-    searchBg:SetTexture(0, 0, 0, 0.5)
+    SetTokenTexture(searchBg, "input", 0.50)
     searchBg:SetAllPoints()
 
     titlesSearchBox:SetTextColor(1, 1, 1, 1)
-    titlesSearchBox:SetFont(fontPath, 10, "")
+    ApplySharedType(titlesSearchBox, "secondary")
     titlesSearchBox:SetTextInsets(4, 4, 0, 0)
 
     -- Hint text
     local hintText = titlesSearchBox:CreateFontString(nil, "OVERLAY")
-    hintText:SetFont(fontPath, 10, "")
+    ApplySharedType(hintText, "secondary")
     hintText:SetText(L("Search titles..."))
     hintText:SetTextColor(0.6, 0.6, 0.6, 0.7)
     hintText:SetPoint("LEFT", titlesSearchBox, "LEFT", 4, 0)
@@ -3589,7 +3544,7 @@ local function SkinCharacterSheet()
     -- Clear "x" (visible only when the search box has text). Invisible click
     -- target sits on top of the glyph so it can be clicked to clear.
     local clearX = titlesSearchBox:CreateFontString(nil, "OVERLAY")
-    clearX:SetFont(fontPath, 11, "")
+    ApplySharedType(clearX, "row")
     clearX:SetText("x")
     clearX:SetTextColor(0.7, 0.7, 0.7, 1)
     clearX:SetPoint("RIGHT", titlesSearchBox, "RIGHT", -4, 0)
@@ -3679,7 +3634,7 @@ local function SkinCharacterSheet()
         btn._hover:Hide()
 
         btn._text = btn:CreateFontString(nil, "OVERLAY")
-        btn._text:SetFont(fontPath, 11, "")
+        ApplySharedType(btn._text, "row")
         btn._text:SetTextColor(1, 1, 1, 1)
         btn._text:SetPoint("LEFT", btn, "LEFT", 10, 0)
 
@@ -3917,9 +3872,9 @@ local function SkinCharacterSheet()
     setsHeaderFrame:SetPoint("TOPRIGHT", equipScrollChild, "TOPRIGHT", -5, -30)
 
     local setsHeaderText = setsHeaderFrame:CreateFontString(nil, "OVERLAY")
-    setsHeaderText:SetFont(fontPath, 11, "")
+    ApplySharedType(setsHeaderText, "section")
     setsHeaderText:SetText(L("Gear Sets"))
-    setsHeaderText:SetTextColor(0.047, 0.824, 0.616, 1)
+    setsHeaderText:SetTextColor(EG.r, EG.g, EG.b, 1)
     setsHeaderText:SetPoint("CENTER", setsHeaderFrame, "CENTER", 0, 0)
 
     do
@@ -3927,14 +3882,14 @@ local function SkinCharacterSheet()
         local LINE_H = (PP_ES and PP_ES.mult) or 1
 
         local leftLine = setsHeaderFrame:CreateTexture(nil, "ARTWORK")
-        leftLine:SetTexture(0.047, 0.824, 0.616, 0.8)
+        leftLine:SetTexture(EG.r, EG.g, EG.b, 0.8)
         if PP_ES and PP_ES.DisablePixelSnap then PP_ES.DisablePixelSnap(leftLine) end
         leftLine:SetHeight(LINE_H)
         leftLine:SetPoint("LEFT",  setsHeaderFrame, "LEFT", 0, 0)
         leftLine:SetPoint("RIGHT", setsHeaderText,  "LEFT", -6, 0)
 
         local rightLine = setsHeaderFrame:CreateTexture(nil, "ARTWORK")
-        rightLine:SetTexture(0.047, 0.824, 0.616, 0.8)
+        rightLine:SetTexture(EG.r, EG.g, EG.b, 0.8)
         if PP_ES and PP_ES.DisablePixelSnap then PP_ES.DisablePixelSnap(rightLine) end
         rightLine:SetHeight(LINE_H)
         rightLine:SetPoint("LEFT",  setsHeaderText,  "RIGHT", 6, 0)
@@ -3952,7 +3907,7 @@ local function SkinCharacterSheet()
     local function MakeTextLink(parent, label, onClick)
         local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
         local fs = btn:CreateFontString(nil, "OVERLAY")
-        fs:SetFont(fontPath, 10, "")
+        ApplySharedType(fs, "secondary")
         fs:SetText(label)
         fs:SetTextColor(1, 1, 1, 0.7)
         fs:SetPoint("CENTER", btn, "CENTER", 0, 0)
@@ -3988,7 +3943,7 @@ local function SkinCharacterSheet()
     equipTopBtn = MakeTextLink(linksRow, L("Equip"), function()
         if InCombatLockdown() then return end
         equipTopText:SetText(L("Equipped!"))
-        equipTopText:SetTextColor(0.047, 0.824, 0.616, 1)
+        equipTopText:SetTextColor(EG.r, EG.g, EG.b, 1)
         if selectedSetID then
             EUI_EquipSet(selectedSetID)
             activeEquipmentSetID = selectedSetID
@@ -4008,7 +3963,7 @@ local function SkinCharacterSheet()
     saveTopBtn = MakeTextLink(linksRow, L("Save"), function()
         if InCombatLockdown() then return end
         saveTopText:SetText(L("Saved!"))
-        saveTopText:SetTextColor(0.047, 0.824, 0.616, 1)
+        saveTopText:SetTextColor(EG.r, EG.g, EG.b, 1)
         if selectedSetID then C_EquipmentSet.SaveEquipmentSet(selectedSetID) end
         C_Timer.After(1, function()
             if saveTopText then
@@ -4135,7 +4090,7 @@ local function SkinCharacterSheet()
             tile._hover:Hide()
 
             tile._text = tile:CreateFontString(nil, "OVERLAY")
-            tile._text:SetFont(fontPath, 10, "")
+            tile._ApplySharedType(text, "secondary")
             tile._text:SetPoint("LEFT", tile, "LEFT", 10, 0)
 
             tile._specIcon = tile:CreateTexture(nil, "OVERLAY")
@@ -4224,7 +4179,7 @@ local function SkinCharacterSheet()
             local delTxt = del:CreateFontString(nil, "OVERLAY")
             -- Small clear-style "x" (12), nudged up 1px -- at 22 in a 14x14 button
             -- the glyph overflowed and rendered as a giant X.
-            delTxt:SetFont(fontPath, 12, "")
+            ApplySharedType(delTxt, "value")
             delTxt:SetText("x")
             delTxt:SetTextColor(1, 1, 1, 0.8)
             delTxt:SetPoint("CENTER", del, "CENTER", 0, 1)
@@ -4509,7 +4464,7 @@ local function SkinCharacterSheet()
             -- Dark background (matches skinned Blizzard tabs)
             local bg = calcTab:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetTexture(0.068, 0.056, 0.052, 1)
+            SetTokenTexture(bg, "tab")
 
             -- Active highlight overlay
             local activeHL = calcTab:CreateTexture(nil, "ARTWORK", nil, -6)
@@ -4520,7 +4475,7 @@ local function SkinCharacterSheet()
 
             -- Label
             local label = calcTab:CreateFontString(nil, "OVERLAY")
-            label:SetFont(fontPath, 9, "")
+            ApplySharedType(label, "secondary")
             label:SetPoint("CENTER", calcTab, "CENTER", 0, 0)
             label:SetJustifyH("CENTER")
             label:SetText(EllesmereUI.L("Upgrades"))
@@ -4966,7 +4921,7 @@ local function SkinCharacterSheet()
                             icon:SetTexture(EUI_EMPTY_SOCKET_TEXTURES[entry.icon])
                         else
                             if icon.SetAtlas then icon:SetAtlas(nil) end
-                            icon:SetTexture(0.22, 0.22, 0.26, 0.85)
+                            SetTokenTexture(icon, "input", 0.85)
                         end
                     else
                         -- Must clear atlas / color-texture mode before applying a
@@ -5504,7 +5459,7 @@ local function SkinCharacterSlot(slotName, slotID)
     -- Adjust IconTexture
     local iconTexture = _G[slotName .. "IconTexture"]
     if iconTexture then
-        iconTexture:SetTexCoord(0.07, 0.07, 0.07, 0.93, 0.93, 0.07, 0.93, 0.93)
+        iconTexture:SetTexCoord(unpack(_G.EllesmereUIBlizzardSkin.TexCoords))
     end
 
     -- Test: Hide CharacterHandsSlot completely
@@ -5521,12 +5476,14 @@ local function SkinCharacterSlot(slotName, slotID)
     -- EUI-style background for the slot
     local slotBg = slot:CreateTexture(nil, "BACKGROUND", nil, -5)
     slotBg:SetAllPoints(slot)
-    slotBg:SetTexture(0.5, 0.5, 0.5, 0.7)  -- Gray background with transparency
+    SetTokenTexture(slotBg, "input")
     GetFFD(slot).slotBg = slotBg
 
     -- Create custom border on the slot using PP.CreateBorder
     if EllesmereUI and EllesmereUI.PanelPP then
-        EllesmereUI.PanelPP.CreateBorder(slot, 1, 1, 1, 0.4, 2, "OVERLAY", 7)
+        local border = EllesmereUI.Style.Tokens.colors.border
+        EllesmereUI.PanelPP.CreateBorder(slot, border[1], border[2], border[3], border[4],
+            EllesmereUI.Style.Tokens.border.width, "OVERLAY", 7)
     end
 end
 

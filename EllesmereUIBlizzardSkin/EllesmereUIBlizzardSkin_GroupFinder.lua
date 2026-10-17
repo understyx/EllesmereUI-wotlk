@@ -25,8 +25,7 @@
 local ADDON_NAME, ns = ...
 local EUI = EllesmereUI
 
--- Advertise this before the toolkit and legacy skin callbacks load. The
--- Group Finder module also owns the modern Wrath PvP presentation.
+-- GroupFinder owns PVPParentFrame and its queue; Skins/PvP.lua skips those frames while enabled.
 EUI._GroupFinderOwnsLegacyPvP = true
 
 -- IsForbidden is not part of the stock 3.3.5 widget API. Some Wrath clients
@@ -53,22 +52,23 @@ local function SkinEnabled()
 end
 
 -------------------------------------------------------------------------------
---  Theme tokens. Resolved once at apply time; the accent is theme-driven and
---  re-registered via RegAccent so it tracks the user's accent color live.
+-- Shared tokens and a live accent lookup keep this skin on the same palette as
+-- the toolkit without a second local theme table.
 -------------------------------------------------------------------------------
-local Theme = {}
-local function ResolveTheme()
-    local EG = (EUI and EUI.ELLESMERE_GREEN) or { r = 0.047, g = 0.824, b = 0.616 }
-    Theme.accR, Theme.accG, Theme.accB = EG.r or 0.047, EG.g or 0.824, EG.b or 0.616
-    -- Neutral dark gray glass (no color cast). These are intentionally light
-    -- washes: the textured shell, rather than an opaque nested rectangle,
-    -- remains visible behind the content.
-    Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA = 0.08, 0.08, 0.08, 0.28
-    -- Darker gray for nested insets so sub-panels melt into the main backdrop.
-    Theme.insetR, Theme.insetG, Theme.insetB, Theme.insetA = 0.04, 0.04, 0.04, 0.22
-    -- Panel border (matches CharacterSheet grey).
-    Theme.brdR, Theme.brdG, Theme.brdB, Theme.brdA = 0.2, 0.2, 0.2, 1
-    Theme.fontPath = (EUI and EUI.GetFontPath and EUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
+local TOKENS = EUI.Style.Tokens
+local function RetailAccent()
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.GetRetailAccent then return skin:GetRetailAccent() end
+    return EUI.Style.GetAccent()
+end
+
+local function RetailColor(name)
+    return TOKENS.colors[name] or TOKENS.colors.card
+end
+
+local function SetTokenTexture(texture, name, alpha)
+    local color = RetailColor(name)
+    texture:SetTexture(color[1], color[2], color[3], alpha or color[4])
 end
 
 local function SolidTex(parent, layer, r, g, b, a, sublevel)
@@ -80,11 +80,12 @@ local function SolidTex(parent, layer, r, g, b, a, sublevel)
     return t
 end
 
-local function AddBorder(frame, r, g, b, a)
+local function AddBorder(frame)
     if GetFFD(frame).border then return end
     local PP = EUI and (EUI.PanelPP or EUI.PP)
+    local color = TOKENS.colors.border
     if PP and PP.CreateBorder then
-        PP.CreateBorder(frame, r or Theme.brdR, g or Theme.brdG, b or Theme.brdB, a or Theme.brdA, 1, "OVERLAY", 7)
+        PP.CreateBorder(frame, color[1], color[2], color[3], color[4], TOKENS.border.width, "OVERLAY", 7)
         GetFFD(frame).border = true
     end
 end
@@ -219,8 +220,8 @@ local function SkinPanel(frame, opts)
     FadeRegions(frame, keep)
     Register(frame, true)
     if not d.bg and not opts.noBg then
-        local r, g, b, a = Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA
-        if opts.inset then r, g, b, a = Theme.insetR, Theme.insetG, Theme.insetB, Theme.insetA end
+        local color = RetailColor(opts.inset and "panel" or "card")
+        local r, g, b, a = color[1], color[2], color[3], color[4]
         local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
         bg:SetTexture(r, g, b, a)
         bg:SetAllPoints(frame)
@@ -239,41 +240,11 @@ local function FadeInset(inset)
     Register(inset, true)
 end
 
--- Generic action button -> flat dark block with hover. keepKeys preserves named
--- regions (e.g. {"Icon"}); never reads any data.
-local function SkinButton(btn, keepKeys)
+-- Generic action button -> the toolkit's shared retail button treatment.
+local function SkinButton(btn)
     if not btn or IsForbidden(btn) then return end
-    local d = GetFFD(btn)
-    if d.skinned then return end
-    d.skinned = true
-
-    local keep = {}
-    if keepKeys then
-        for _, k in ipairs(keepKeys) do
-            local r = btn[k]; if r then keep[r] = true end
-        end
-    end
-    FadeRegions(btn, keep)
-    for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture", "GetHighlightTexture" }) do
-        local fn = btn[getter]
-        local t = fn and fn(btn)
-        if t and not keep[t] then t:SetAlpha(0) end
-    end
-    for _, k in ipairs({ "Left", "Middle", "Right", "LeftSeparator", "RightSeparator" }) do
-        local r = btn[k]; if r and not keep[r] and r.SetAlpha then r:SetAlpha(0) end
-    end
-
-    local fill = SolidTex(btn, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA)
-    fill:SetAllPoints(btn)
-    d.bg = fill
-    AddBorder(btn)
-
-    local hover = SolidTex(btn, "HIGHLIGHT", 1, 1, 1, 0.1)
-    hover:SetAllPoints(btn)
-    d.hover = hover
-
-    -- Button labels keep Blizzard's font (no-font widget policy).
-    Register(btn, keep)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.HandleRetailButton then skin:HandleRetailButton(btn, false) end
 end
 
 -- Seat a button 5px higher (one-shot: captured original anchors + fixed lift,
@@ -305,209 +276,50 @@ local function SkinEditBox(eb)
     for _, k in ipairs({ "Left", "Right", "Middle" }) do
         local r = eb[k]; if r and r.SetAlpha then r:SetAlpha(0) end
     end
-    local fill = SolidTex(eb, "BACKGROUND", 0.02, 0.02, 0.02, 1)
+    local fill = SolidTex(eb, "BACKGROUND", unpack(RetailColor("input")))
     fill:SetAllPoints(eb)
     d.bg = fill
-    AddBorder(eb, 0.25, 0.25, 0.25, 1)
+    AddBorder(eb)
 end
 
--- Checkbox -> the guild-roster "Show Offline Members" treatment: strip ALL
--- native art (regions + state textures) and drop a dedicated 14x14 bordered
--- box on the left, with a green tick when checked and a soft wash on
--- hover-or-checked. State is driven off the Blizzard checkbox via hooks so it
--- always mirrors the real value (no writing to the Blizzard frame's table).
+-- Checkbox styling and checked state stay in the shared toolkit.
 local function SkinCheckbox(cb)
     if not cb or IsForbidden(cb) then return end
-    local d = GetFFD(cb)
-    if d.skinned then return end
-    d.skinned = true
-    for i = 1, select("#", cb:GetRegions()) do
-        local r = select(i, cb:GetRegions())
-        if r and r.IsObjectType and r:IsObjectType("Texture") and r.SetTexture then
-            r:SetTexture("")
-        end
-    end
-    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture",
-                         "GetCheckedTexture", "GetDisabledCheckedTexture" }) do
-        local t = cb[g] and cb[g](cb)
-        if t and t.SetTexture then t:SetTexture("") end
-    end
-    local boxF = EllesmereUI.SafeCreateFrame("Frame", nil, cb)
-    boxF:SetSize(14, 14)
-    boxF:SetPoint("LEFT", cb, "LEFT", 4, 0)
-    local fill = SolidTex(boxF, "BACKGROUND", 0.02, 0.02, 0.02, 1)
-    fill:SetAllPoints(boxF)
-    d.bg = fill
-    AddBorder(boxF, 0.25, 0.25, 0.25, 1)
-    local tick = boxF:CreateTexture(nil, "OVERLAY")
-    tick:SetPoint("TOPLEFT", 3, -3)
-    tick:SetPoint("BOTTOMRIGHT", -3, 3)
-    tick:SetTexture(Theme.accR, Theme.accG, Theme.accB, 1)
-    local wash = SolidTex(boxF, "ARTWORK", 1, 1, 1, 0.1)
-    wash:SetAllPoints(boxF)
-    wash:Hide()
-    local hovering = false
-    local function updState()
-        local checked = cb:GetChecked()
-        checked = checked and true or false
-        tick:SetAlpha(1)
-        if checked then tick:Show() else tick:Hide() end
-        if hovering or checked then wash:Show() else wash:Hide() end
-    end
-    cb:HookScript("OnEnter", function() hovering = true; updState() end)
-    cb:HookScript("OnLeave", function() hovering = false; updState() end)
-    cb:HookScript("OnClick", updState)
-    hooksecurefunc(cb, "SetChecked", updState)
-    updState()
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.HandleCheckBox then skin:HandleCheckBox(cb, true) end
 end
 
 -- Modern dropdown / selector -> flat block. Heavily nil-guarded because the
 -- dropdown template changes shape across builds; a mismatch simply no-ops.
 local function SkinDropdown(dd)
     if not dd or IsForbidden(dd) then return end
-    local d = GetFFD(dd)
-    if d.skinned then return end
-    d.skinned = true
-    FadeRegions(dd)
-    -- Legacy UIDropDownMenu textures, if present.
-    local name = dd.GetName and dd:GetName()
-    if name then
-        for _, suffix in ipairs({ "Left", "Middle", "Right" }) do
-            local r = _G[name .. suffix]; if r and r.SetAlpha then r:SetAlpha(0) end
-        end
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.HandleRetailDropDown then
+        skin:HandleRetailDropDown(dd, dd.GetWidth and dd:GetWidth() or nil)
     end
-    if dd.Background then dd.Background:SetAlpha(0) end
-    if dd.Texture then dd.Texture:SetAlpha(0) end
-    local fill = SolidTex(dd, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA)
-    fill:SetAllPoints(dd)
-    d.bg = fill
-    AddBorder(dd, 0.25, 0.25, 0.25, 1)
-    -- Slight lighten on hover.
-    local hover = SolidTex(dd, "HIGHLIGHT", 1, 1, 1, 0.05)
-    hover:SetAllPoints(dd)
-    d.hover = hover
-    -- Our own arrow on the right (Blizzard's is faded with the rest).
-    -- Sized to the atlas's native 62x44 aspect.
-    local arrow = dd:CreateTexture(nil, "OVERLAY")
-    arrow:SetAtlas("Azerite-PointingArrow")
-    arrow:SetSize(14, 10)
-    arrow:SetPoint("RIGHT", dd, "RIGHT", -6, 0)
-    d.arrow = arrow
 end
 
--- MinimalScrollBar -> strip track/arrows; the thumb becomes a slim 5px white
--- strip centered in the thumb's hit area (the house scrollbar look).
+-- MinimalScrollBar -> the shared narrow track and thumb treatment.
 local function SkinScrollBar(sb)
     if not sb or IsForbidden(sb) then return end
-    local d = GetFFD(sb)
-    if d.skinned then return end
-    d.skinned = true
-    for _, k in ipairs({ "Back", "Forward" }) do
-        local b = sb[k]
-        if b then
-            FadeRegions(b)
-            if b.Texture then b.Texture:SetAlpha(0) end
-        end
-    end
-    local track = sb.Track
-    if track then FadeRegions(track) end
-    local thumb = (track and track.Thumb) or (sb.GetThumb and sb:GetThumb())
-    if thumb and not GetFFD(thumb).bg then
-        FadeRegions(thumb)
-        local t = SolidTex(thumb, "ARTWORK", 1, 1, 1, 0.3)
-        t:SetPoint("TOP", thumb, "TOP", 0, 0)
-        t:SetPoint("BOTTOM", thumb, "BOTTOM", 0, 0)
-        t:SetWidth(4)
-        GetFFD(thumb).bg = t
-    end
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.HandleRetailScrollBar then skin:HandleRetailScrollBar(sb) end
 end
 
 -- Close (X) button -> strip art, draw the house close glyph.
 local function SkinCloseButton(btn)
     if not btn or IsForbidden(btn) then return end
-    local d = GetFFD(btn)
-    if d.x then return end
-    if btn.SetNormalTexture then btn:SetNormalTexture("") end
-    if btn.SetPushedTexture then btn:SetPushedTexture("") end
-    if btn.SetHighlightTexture then btn:SetHighlightTexture("") end
-    if btn.SetDisabledTexture then btn:SetDisabledTexture("") end
-    FadeRegions(btn)
-    local x = btn:CreateTexture(nil, "OVERLAY")
-    x:SetAtlas("uitools-icon-close")
-    x:SetSize(14, 14)
-    x:SetPoint("CENTER", -2, 0)
-    x:SetVertexColor(1, 1, 1, 0.75)
-    d.x = x
-    btn:HookScript("OnEnter", function() if d.x then d.x:SetVertexColor(1, 1, 1, 1) end end)
-    btn:HookScript("OnLeave", function() if d.x then d.x:SetVertexColor(1, 1, 1, 0.75) end end)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.HandleCloseButton then skin:HandleCloseButton(btn) end
 end
 
 -- PVEFrame bottom tab -> CharacterSheet tab pattern (bg + accent underline when
 -- active). Visuals driven by UpdateTabVisuals (reads PVEFrame.selectedTab).
 local function SkinTab(tab)
     if not tab or IsForbidden(tab) then return end
-    local d = GetFFD(tab)
-    if d.bg then return end
-    for j = 1, select("#", tab:GetRegions()) do
-        local r = select(j, tab:GetRegions())
-        if r and r:IsObjectType("Texture") then
-            r:SetTexture("")
-            if r.SetAtlas then r:SetAtlas("") end
-        end
-    end
-    for _, k in ipairs({ "Left", "Middle", "Right", "LeftDisabled", "MiddleDisabled", "RightDisabled" }) do
-        if tab[k] then tab[k]:SetTexture("") end
-    end
-    local hl = tab.GetHighlightTexture and tab:GetHighlightTexture()
-    if hl then hl:SetTexture("") end
-
-    d.bg = SolidTex(tab, "BACKGROUND", 0.068, 0.056, 0.052, 1)
-    d.bg:SetAllPoints()
-
-    local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
-    activeHL:SetAllPoints()
-    activeHL:SetTexture(1, 1, 1, 0.02)
-    activeHL:SetBlendMode("ADD")
-    activeHL:Hide()
-    d.activeHL = activeHL
-
-    local blizLabel = tab.GetFontString and tab:GetFontString()
-    local labelText = (blizLabel and blizLabel:GetText()) or ""
-    if blizLabel then blizLabel:SetTextColor(0, 0, 0, 0) end
-    if tab.SetPushedTextOffset then tab:SetPushedTextOffset(0, 0) end
-
-    local label = tab:CreateFontString(nil, "OVERLAY")
-    label:SetFont(Theme.fontPath, 11, "")
-    label:SetPoint("CENTER", tab, "CENTER", 0, 0)
-    label:SetText(labelText)
-    d.label = label
-    hooksecurefunc(tab, "SetText", function(_, newText)
-        if newText and d.label then d.label:SetText(newText) end
-    end)
-
-    local underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
-    if EUI and EUI.PanelPP and EUI.PanelPP.DisablePixelSnap then
-        EUI.PanelPP.DisablePixelSnap(underline)
-        underline:SetHeight(EUI.PanelPP.mult or 1)
-    else
-        underline:SetHeight(1)
-    end
-    underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
-    underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
-    -- Color + visibility follow the Blizzard Window Skins "Global Options"
-    -- accent-bar setting; the window-skin engine recolors registered
-    -- underlines on option edits and accent changes.
-    local wsk = ns.WSkin
-    if wsk and wsk.AccentBarColor then
-        local ur, ug, ub = wsk.AccentBarColor()
-        underline:SetTexture(ur, ug, ub, 1)
-        if wsk.RegisterAccentUnderline then wsk.RegisterAccentUnderline(underline) end
-    else
-        underline:SetTexture(Theme.accR, Theme.accG, Theme.accB, 1)
-        if EUI and EUI.RegAccent then EUI.RegAccent({ type = "solid", obj = underline, a = 1 }) end
-    end
-    underline:Hide()
-    d.underline = underline
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.StyleRetailTab then skin:StyleRetailTab(tab) end
+    GetFFD(tab).skinned = true
 end
 
 local _gfLooksHooked = false
@@ -534,9 +346,8 @@ local function UpdateTabVisuals()
         local d = tab and FFD[tab]
         if d then
             local isActive = (sel == i)
-            if d.label then d.label:SetTextColor(1, 1, 1, isActive and 1 or 0.5) end
-            if d.underline then if isActive and barsOn then d.underline:Show() else d.underline:Hide() end end
-            if d.activeHL then if isActive then d.activeHL:Show() else d.activeHL:Hide() end end
+            local skin = _G.EllesmereUIBlizzardSkin
+            if skin and skin.UpdateRetailTab then skin:UpdateRetailTab(tab, isActive, barsOn) end
         end
     end
     -- Registered lazily: the engine file loads after this one, so ns.WSkin
@@ -774,7 +585,7 @@ local function Skin_PVEFrame()
         local es = PVEFrame:GetEffectiveScale()
         if PPx and PPx.perfect and es and es > 0 then px = PPx.perfect / es end
         local wash = PVEFrame:CreateTexture(nil, "BACKGROUND", nil, -6)
-        wash:SetTexture(0, 0, 0, 0.1)
+        SetTokenTexture(wash, "body", 0.10)
         if leftInset then
             wash:SetAllPoints(leftInset)
         else
@@ -783,7 +594,7 @@ local function Skin_PVEFrame()
         end
         d.leftWash = wash
         local sep = PVEFrame:CreateTexture(nil, "ARTWORK")
-        sep:SetTexture(0.15, 0.15, 0.15, 1)
+        SetTokenTexture(sep, "border")
         sep:SetWidth(px)
         sep:SetPoint("TOPLEFT", wash, "TOPRIGHT", 0, 0)
         sep:SetPoint("BOTTOMLEFT", wash, "BOTTOMRIGHT", 0, 0)
@@ -829,38 +640,6 @@ local function FindLegacyCloseButton(frame)
     end
 end
 
--- WotLK has no texture atlases, so the Retail-only close helper in this file
--- cannot be used here. The project close texture is available on every client.
-local function SkinLegacyCloseButton(button, owner)
-    if not button or IsForbidden(button) then return end
-    local d = GetFFD(button)
-    if not d.legacyClose then
-        d.legacyClose = button:CreateTexture(nil, "OVERLAY")
-        d.legacyClose:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.tga")
-        d.legacyClose:SetSize(14, 14)
-        d.legacyClose:SetPoint("CENTER")
-        d.legacyClose:SetVertexColor(1, 1, 1, 0.75)
-        button:HookScript("OnEnter", function()
-            if d.legacyClose then d.legacyClose:SetVertexColor(1, 1, 1, 1) end
-        end)
-        button:HookScript("OnLeave", function()
-            if d.legacyClose then d.legacyClose:SetVertexColor(1, 1, 1, 0.75) end
-        end)
-    end
-    for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
-        local texture = button[getter] and button[getter](button)
-        if texture and texture ~= d.legacyClose then texture:SetAlpha(0) end
-    end
-    for i = 1, select("#", button:GetRegions()) do
-        local region = select(i, button:GetRegions())
-        if region and region.IsObjectType and region:IsObjectType("Texture") and region ~= d.legacyClose then
-            region:SetAlpha(0)
-        end
-    end
-    button:ClearAllPoints()
-    button:SetPoint("TOPRIGHT", owner or button:GetParent(), "TOPRIGHT", -3, -3)
-    button:SetSize(24, 24)
-end
 
 local function SetLegacyPageTitle(frame, title, titleRegion)
     if not frame then return end
@@ -869,41 +648,34 @@ local function SetLegacyPageTitle(frame, title, titleRegion)
     if not titleRegion then
         if not d.legacyTitle then
             d.legacyTitle = frame:CreateFontString(nil, "OVERLAY")
-            -- An untemplated 3.3.5 FontString must receive a font before text.
+            -- A 3.3.5 FontString needs its font before its first text assignment.
             if S and S.ApplyRetailTypography then
                 S:ApplyRetailTypography(d.legacyTitle, "title")
             else
-                d.legacyTitle:SetFont(Theme.fontPath or STANDARD_TEXT_FONT, 14, "")
+                d.legacyTitle:SetFont((EUI.GetFontPath and EUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT, TOKENS.type.title.size, "")
             end
         end
         titleRegion = d.legacyTitle
     end
-    if S and S.SetRetailPageTitle then
-        S:SetRetailPageTitle(frame, title, titleRegion)
-    else
-        titleRegion:SetText(title or "")
-        titleRegion:ClearAllPoints()
-        titleRegion:SetPoint("TOP", frame, "TOP", 0, -6)
-    end
+    titleRegion:SetText(title or "")
+    return titleRegion
 end
 
 local function ApplyLegacyPVEShell(frame, titleRegion)
-    if not frame then return end
+    if not frame or IsForbidden(frame) then return end
     frame:SetSize(LEGACY_PVE_WIDTH, 440)
-    SkinAtlasPanel(frame)
-    SetLegacyPageTitle(frame, "Dungeons & Raids", titleRegion)
-    SkinLegacyCloseButton(FindLegacyCloseButton(frame), frame)
-
     local S = SharedSkin()
-    local d = GetFFD(frame)
-    if not d.legacyContentSurface then
-        local content = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
-        content:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -48)
-        content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 45)
-        content:SetFrameLevel(frame:GetFrameLevel())
-        if S and S.ApplyRetailSurface then S:ApplyRetailSurface(content, "body") end
-        d.legacyContentSurface = content
-    end
+    if not (S and S.SkinRetailWindow) then return end
+    local title = SetLegacyPageTitle(frame, "Dungeons & Raids", titleRegion)
+    S:SkinRetailWindow(frame, {
+        shellOnFrame = true,
+        pageSurface = true,
+        title = "Dungeons & Raids",
+        titleRegion = title,
+        closeButton = FindLegacyCloseButton(frame),
+        artRegions = { frame.NineSlice, frame.Background, frame.TitleBg, frame.Portrait, frame.Bg },
+        rehideOnShow = true,
+    })
 end
 
 local function SeatLegacyPVEPane(pane, parent)
@@ -917,34 +689,14 @@ end
 local function StyleLegacyDropDown(dropdown)
     if not dropdown or IsForbidden(dropdown) then return end
     local S = SharedSkin()
-    local d = GetFFD(dropdown)
+    if not (S and S.HandleRetailDropDown) then return end
+    S:HandleRetailDropDown(dropdown, dropdown.GetWidth and dropdown:GetWidth() or nil)
     local name = dropdown.GetName and dropdown:GetName()
-    FadeRegions(dropdown, d.legacyArrow and { [d.legacyArrow] = true } or nil)
     if name then
-        for _, suffix in ipairs({ "Left", "Middle", "Right" }) do
-            local region = _G[name .. suffix]
-            if region then region:SetAlpha(0) end
-        end
-        local button = _G[name .. "Button"]
-        if button then
-            for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
-                local texture = button[getter] and button[getter](button)
-                if texture then texture:SetAlpha(0) end
-            end
-        end
         local text = _G[name .. "Text"]
-        if text and S and S.ApplyRetailTypography then S:ApplyRetailTypography(text, "row") end
+        if text and S.ApplyRetailTypography then S:ApplyRetailTypography(text, "row") end
         local label = _G[name .. "Name"]
-        if label and S and S.ApplyRetailTypography then S:ApplyRetailTypography(label, "secondary") end
-    end
-    if S and S.ApplyRetailSurface then S:ApplyRetailSurface(dropdown, "input") end
-    if not d.legacyArrow then
-        local arrow = dropdown:CreateTexture(nil, "OVERLAY")
-        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.tga")
-        arrow:SetSize(10, 10)
-        arrow:SetPoint("RIGHT", dropdown, "RIGHT", -11, 1)
-        arrow:SetVertexColor(1, 1, 1, 0.72)
-        d.legacyArrow = arrow
+        if label and S.ApplyRetailTypography then S:ApplyRetailTypography(label, "secondary") end
     end
 end
 
@@ -1474,21 +1226,23 @@ end
 -------------------------------------------------------------------------------
 local function ApplyLegacyPVPShell()
     local parent = _G.PVPParentFrame
-    if not parent or _G.PVPUIFrame then return end
+    if not parent or _G.PVPUIFrame or IsForbidden(parent) then return end
     local S = SharedSkin()
+    if not (S and S.SkinRetailWindow) then return end
+    -- Keep Wrath's 432x512 canvas: the three native team cards and their data
+    -- rows need the vertical space; shrinking it would clip the third card.
     parent:SetSize(432, 512)
-    SkinAtlasPanel(parent)
-    SkinLegacyCloseButton(_G.PVPParentFrameCloseButton or FindLegacyCloseButton(parent), parent)
-
-    local d = GetFFD(parent)
-    if not d.legacyContentSurface then
-        local surface = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
-        surface:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, -48)
-        surface:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -14, 45)
-        surface:SetFrameLevel(parent:GetFrameLevel())
-        if S and S.ApplyRetailSurface then S:ApplyRetailSurface(surface, "body") end
-        d.legacyContentSurface = surface
-    end
+    local initialTitle = _G.PVPBattlegroundFrame and _G.PVPBattlegroundFrame:IsShown()
+        and (BATTLEGROUNDS or "Battlegrounds") or (PLAYER_V_PLAYER or "Player vs. Player")
+    local title = SetLegacyPageTitle(parent, initialTitle)
+    S:SkinRetailWindow(parent, {
+        shellOnFrame = true,
+        pageSurface = true,
+        titleRegion = title,
+        closeButton = _G.PVPParentFrameCloseButton or FindLegacyCloseButton(parent),
+        artRegions = { parent.NineSlice, parent.Background, parent.TitleBg, parent.Portrait, parent.Bg },
+        rehideOnShow = true,
+    })
 end
 
 local function UpdateLegacyPVPTabs()
@@ -1588,7 +1342,7 @@ local function StyleLegacyPVPStats()
         _G.PVPFrameLine1:ClearAllPoints()
         _G.PVPFrameLine1:SetPoint("TOP", honor, "TOP", 0, -31)
         _G.PVPFrameLine1:SetSize(250, 1)
-        _G.PVPFrameLine1:SetTexture(1, 1, 1, 0.10)
+        SetTokenTexture(_G.PVPFrameLine1, "border")
     end
     for _, name in ipairs({
         "PVPHonorTodayLabel", "PVPHonorTodayKills", "PVPHonorTodayHonor",
@@ -1629,7 +1383,7 @@ local function StyleLegacyPVPTeams()
                 highlight:ClearAllPoints()
                 highlight:SetAllPoints(team)
                 if S.ApplyRetailSurface then
-                    S:ApplyRetailSurface(highlight, "row", 0.03, 0.06, 0.06, 0.35)
+                    S:ApplyRetailSurface(highlight, "row")
                     local ar, ag, ab = S:GetRetailAccent()
                     highlight:SetBackdropBorderColor(ar, ag, ab, 0.65)
                 end
@@ -1661,15 +1415,18 @@ local function StyleLegacyBattlegroundRows()
     local S = SharedSkin()
     local holder = _G.PVPBattlegroundFrame
     if not S or not holder then return end
-    for i = 1, 5 do
+    local rowHeight = TOKENS.geometry.rowHeight
+    local rowCount = type(BATTLEFIELD_ZONES_DISPLAYED) == "number" and BATTLEFIELD_ZONES_DISPLAYED > 0
+        and BATTLEFIELD_ZONES_DISPLAYED or 5
+    -- Keep FauxScrollFrame's native visible-row count and repack those buttons
+    -- after its refresh; its scrolling range is based on row count, not height.
+    for i = 1, rowCount do
         local row = _G["BattlegroundType" .. i]
         if row then
             FadeRegions(row)
-            row:SetSize(372, 18)
-            if i == 1 then
-                row:ClearAllPoints()
-                row:SetPoint("TOPLEFT", holder, "TOPLEFT", 24, -80)
-            end
+            S:Size(row, 372, rowHeight)
+            row:ClearAllPoints()
+            S:Point(row, "TOPLEFT", holder, "TOPLEFT", 24, -80 - (i - 1) * rowHeight)
             local selected = row.BGindex and holder.selectedBG and row.BGindex == holder.selectedBG
             S:UpdateRetailRow(row, selected and true or false, false, i % 2 == 0)
             if row.title then S:ApplyRetailTypography(row.title, "row") end
@@ -1723,17 +1480,19 @@ local function SkinLegacyBattleground()
 
     local typeScroll = _G.PVPBattlegroundFrameTypeScrollFrame
     local typeScrollBar = _G.PVPBattlegroundFrameTypeScrollFrameScrollBar
+    local rowCount = type(BATTLEFIELD_ZONES_DISPLAYED) == "number" and BATTLEFIELD_ZONES_DISPLAYED > 0
+        and BATTLEFIELD_ZONES_DISPLAYED or 5
     if typeScroll then
         -- The FauxScrollFrame owns two 30px-wide ornamental scrollbar
         -- textures in addition to the actual scrollbar. Remove that native
         -- chrome and reserve a narrow gutter beside the widened list rows.
         FadeRegions(typeScroll)
         local first = _G.BattlegroundType1
-        local last = _G.BattlegroundType5
+        local last = _G["BattlegroundType" .. rowCount]
         if first and last then
             typeScroll:ClearAllPoints()
-            typeScroll:SetPoint("TOPLEFT", first, "TOPLEFT", 0, 2)
-            typeScroll:SetPoint("BOTTOMRIGHT", last, "BOTTOMRIGHT", 0, -5)
+            S:Point(typeScroll, "TOPLEFT", first, "TOPLEFT", 0, 2)
+            S:Point(typeScroll, "BOTTOMRIGHT", last, "BOTTOMRIGHT", 0, -5)
         end
     end
     if S.HandleRetailScrollBar then
@@ -1742,15 +1501,15 @@ local function SkinLegacyBattleground()
     end
     if typeScroll and typeScrollBar then
         typeScrollBar:ClearAllPoints()
-        typeScrollBar:SetPoint("TOPLEFT", typeScroll, "TOPRIGHT", 4, -2)
-        typeScrollBar:SetPoint("BOTTOMLEFT", typeScroll, "BOTTOMRIGHT", 4, 2)
+        S:Point(typeScrollBar, "TOPLEFT", typeScroll, "TOPRIGHT", 4, -2)
+        S:Point(typeScrollBar, "BOTTOMLEFT", typeScroll, "BOTTOMRIGHT", 4, 2)
     end
     local info = _G.PVPBattlegroundFrameInfoScrollFrame
     if info then
         FadeRegions(info)
         info:ClearAllPoints()
-        info:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -180)
-        info:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -24, 84)
+        S:Point(info, "TOPLEFT", frame, "TOPLEFT", 24, -(80 + rowCount * TOKENS.geometry.rowHeight + 16))
+        S:Point(info, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -24, 84)
         if S.ApplyRetailSurface then S:ApplyRetailSurface(info, "card") end
     end
     for _, name in ipairs({
@@ -2186,7 +1945,6 @@ end
 --  Skin on its ADDON_LOADED event, install repaint hooks once, and sweep at login.
 -------------------------------------------------------------------------------
 local function DoSkinPass()
-    if not Theme.bgR then ResolveTheme() end
     RefreshAll()
     InstallHooks()
     InstallLegacyHooks()
@@ -2196,7 +1954,6 @@ local ON_ADDON = {
     Blizzard_GroupFinder  = function() DoSkinPass() end,
     Blizzard_PVPUI = function()
         if not SkinEnabled() then return end
-        if not Theme.bgR then ResolveTheme() end
         Skin_PVP(); InstallPVPHooks(); Restrip()
     end,
 }
@@ -2206,7 +1963,6 @@ boot:RegisterEvent("PLAYER_LOGIN")
 boot:RegisterEvent("ADDON_LOADED")
 boot:SetScript("OnEvent", function(_, event, name)
     if event == "PLAYER_LOGIN" then
-        ResolveTheme()
         if SkinEnabled() then DoSkinPass() end
         if EllesmereUI._GroupFinder_InitQoL then EllesmereUI._GroupFinder_InitQoL() end
     elseif event == "ADDON_LOADED" then

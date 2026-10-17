@@ -9,13 +9,15 @@ local CustomTabs = {}
 _G.EllesmereUIBlizzardSkin_CustomCharacterTabs = CustomTabs
 
 local PAGE_WIDTH = 440
-local ROW_HEIGHT = 30
+local ROW_HEIGHT = EllesmereUI.Style.Tokens.geometry.rowHeight
 local ROW_COUNT = 7
-local REPUTATION_ROW_COUNT = 13
-local REPUTATION_DETAIL_ROWS = 2
+-- Twelve rows fit the page body at the shared 32px pitch. Reserve three
+-- row pitches while the detail card is open so it never covers the list.
+local REPUTATION_ROW_COUNT = 12
+local REPUTATION_DETAIL_ROWS = 3
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
-local WHITE_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local panels = setmetatable({}, { __mode = "k" })
+local TOKENS = EllesmereUI.Style.Tokens
 
 local function FontPath()
     return EllesmereUI and EllesmereUI.GetFontPath
@@ -35,18 +37,20 @@ end
 
 local function SetFont(region, size, alpha)
     if not region then return end
-    region:SetFont(FontPath(), size or 10, "")
-    region:SetTextColor(1, 1, 1, alpha or 0.82)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.ApplyRetailTypography then
+        local tier = (size and size >= 12 and "value") or (size and size >= 11 and "row") or "secondary"
+        skin:ApplyRetailTypography(region, tier, alpha)
+    else
+        region:SetFont(FontPath(), size or 10, "")
+        region:SetTextColor(1, 1, 1, alpha or 0.82)
+    end
 end
 
-local function Surface(frame, kind, r, g, b, a)
+local function Surface(frame, kind)
     local skin = _G.EllesmereUIBlizzardSkin
     if skin and skin.ApplyRetailSurface then
-        skin:ApplyRetailSurface(frame, kind or "card", r, g, b, a)
-    elseif frame.SetBackdrop then
-        frame:SetBackdrop({ bgFile = WHITE_TEXTURE, edgeFile = WHITE_TEXTURE, edgeSize = 1 })
-        frame:SetBackdropColor(r or 0.025, g or 0.035, b or 0.04, a or 0.96)
-        frame:SetBackdropBorderColor(1, 1, 1, 0.08)
+        skin:ApplyRetailSurface(frame, kind or "card")
     end
 end
 
@@ -125,8 +129,10 @@ end
 local function CreateTextButton(parent, text, width)
     local button = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     button:SetSize(width or 86, 22)
-    Surface(button, "button", 0.04, 0.055, 0.06, 0.96)
-    button.label = CreateLabel(button, "OVERLAY", 9, 0.8)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.HandleRetailButton then skin:HandleRetailButton(button, false)
+    else Surface(button, "button") end
+    button.label = CreateLabel(button, "OVERLAY", 11, 0.8)
     button.label:SetPoint("CENTER")
     button.label:SetText(text or "")
     local hover = button:CreateTexture(nil, "HIGHLIGHT")
@@ -140,34 +146,30 @@ end
 local function CreateCheck(parent, labelText)
     local check = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     check:SetHeight(18)
-    check.box = EllesmereUI.SafeCreateFrame("Frame", nil, check)
-    check.box:SetSize(13, 13)
+    check.box = EllesmereUI.SafeCreateFrame("CheckButton", nil, check)
+    check.box:SetSize(16, 16)
     check.box:SetPoint("LEFT")
-    Surface(check.box, "input", 0.025, 0.035, 0.04, 1)
-    check.mark = check.box:CreateTexture(nil, "OVERLAY")
-    check.mark:SetPoint("TOPLEFT", 3, -3)
-    check.mark:SetPoint("BOTTOMRIGHT", -3, 3)
-    local r, g, b = Accent()
-    check.mark:SetTexture(r, g, b, 1)
-    if EllesmereUI and EllesmereUI.RegAccent then
-        EllesmereUI.RegAccent({ type = "solid", obj = check.mark, a = 1 })
-    end
-    check.label = CreateLabel(check, "OVERLAY", 9, 0.72)
+    check.box:EnableMouse(false)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.HandleCheckBox then skin:HandleCheckBox(check.box, true) end
+    check.label = CreateLabel(check, "OVERLAY", 10, 0.72)
     check.label:SetPoint("LEFT", check.box, "RIGHT", 5, 0)
     check.label:SetText(labelText or "")
-    check:SetWidth(check.label:GetStringWidth() + 23)
-    function check:SetChecked(checked)
-        self.checked = checked and true or false
-        self.mark:SetShown(self.checked)
-    end
+    check:SetWidth(check.label:GetStringWidth() + 22)
+    function check:SetChecked(value) self.box:SetChecked(value and true or false) end
+    function check:GetChecked() return self.box:GetChecked() end
     function check:SetEnabledState(enabled)
         self.enabled = enabled and true or false
         self:SetAlpha(self.enabled and 1 or 0.35)
+        if self.enabled then self:Enable(); self.box:Enable()
+        else self:Disable(); self.box:Disable() end
     end
     check:SetChecked(false)
     check:SetEnabledState(true)
     check:SetScript("OnClick", function(self)
-        if self.enabled and self.callback then self.callback(not self.checked) end
+        if not self.enabled then return end
+        self.box:SetChecked(not self.box:GetChecked())
+        if self.callback then self.callback(self:GetChecked() and true or false) end
     end)
     return check
 end
@@ -175,7 +177,7 @@ end
 local function CreateRow(parent, index, rowHeight)
     rowHeight = rowHeight or ROW_HEIGHT
     local row = EllesmereUI.SafeCreateFrame("Button", nil, parent)
-    row:SetHeight(rowHeight - 1)
+    row:SetHeight(rowHeight)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -((index - 1) * rowHeight))
     row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -12, -((index - 1) * rowHeight))
 
@@ -194,7 +196,8 @@ local function CreateRow(parent, index, rowHeight)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(22, 22)
     row.icon:SetPoint("LEFT", 25, 0)
-    row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.ApplyRetailIcon then skin:ApplyRetailIcon(row.icon, row, 22) end
 
     row.name = CreateLabel(row, "OVERLAY", 10, 0.88)
     row.name:SetPoint("LEFT", 53, 0)
@@ -240,7 +243,7 @@ local function CreateBase(pane, kind, sectionTitle, rowCount)
     panel:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -14, 41)
     panel:SetFrameLevel(pane:GetFrameLevel() + 25)
     panel:EnableMouse(true)
-    Surface(panel, "body", 0.012, 0.02, 0.024, 0.98)
+    Surface(panel, "body")
     panel.kind = kind
     panel.offset = 0
     panel.selectedIndex = nil
@@ -281,7 +284,7 @@ local function CreateBase(pane, kind, sectionTitle, rowCount)
     panel.detail:SetPoint("BOTTOMLEFT", 8, 8)
     panel.detail:SetPoint("BOTTOMRIGHT", -8, 8)
     panel.detail:SetHeight(77)
-    Surface(panel.detail, "card", 0.025, 0.038, 0.043, 0.98)
+    Surface(panel.detail, "card")
     panel.detail.title = CreateLabel(panel.detail, "OVERLAY", 10, 0.92)
     panel.detail.title:SetPoint("TOPLEFT", 10, -9)
     panel.detail.title:SetPoint("TOPRIGHT", -10, -9)
@@ -361,7 +364,8 @@ local function SetupGroupedPanel(panel, listTopInset)
     panel.groupBackgrounds = {}
     for i = 1, panel.rowCount do
         local background = panel.list:CreateTexture(nil, "BACKGROUND")
-        background:SetTexture(0, 0, 0, 0.22)
+        local color = TOKENS.colors.panel
+        background:SetTexture(color[1], color[2], color[3], color[4])
         background:Hide()
         panel.groupBackgrounds[i] = background
     end
@@ -413,13 +417,6 @@ end
 
 local function StyleGroupedRow(row, selected, isHeader, alternate)
     StyleRow(row, selected, isHeader, alternate)
-    if isHeader then
-        row:SetBackdropColor(0.12, 0.12, 0.11, 0.94)
-        row:SetBackdropBorderColor(1, 1, 1, 0.08)
-    elseif not selected then
-        row:SetBackdropColor(0, 0, 0, 0)
-        row:SetBackdropBorderColor(0, 0, 0, 0)
-    end
 end
 
 local function BuildReputation(pane)
@@ -492,7 +489,7 @@ local function BuildReputation(pane)
         FinishRows(self, total, visibleRows)
         self.list:SetHeight(visibleRows * ROW_HEIGHT)
         -- When a row from the bottom of the expanded list is selected, the
-        -- options card consumes two row slots. Keep that faction in view
+        -- options card reserves three row slots. Keep that faction in view
         -- rather than letting the card appear after its source row vanishes.
         if selected then
             local nextOffset = self.offset
@@ -551,7 +548,7 @@ local function BuildReputation(pane)
                 row.bar.standing:SetShown(not isHeader and barMax and barMax > barMin)
                 if not isHeader and barMax and barMax > barMin then
                     if not row.repBarStyled then
-                        Surface(row.bar, "input", 0.08, 0.08, 0.08, 0.94)
+                        Surface(row.bar, "input")
                         row.repBarStyled = true
                     end
                     row.bar:SetMinMaxValues(barMin, barMax)

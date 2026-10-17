@@ -302,7 +302,9 @@ end
 
 local function ApplyWindowArt(frame, artRegions)
 	if not artRegions then return end
-	for _, entry in ipairs(artRegions) do
+	-- Descriptors often reference optional globals. Use pairs so a missing
+	-- NineSlice or portrait does not stop later native regions being stripped.
+	for _, entry in pairs(artRegions) do
 		local object, action
 		if type(entry) == "table" and entry.object then
 			object, action = entry.object, entry.action
@@ -358,6 +360,17 @@ function WSkin:ApplyRetailTypography(fontString, tier, alpha)
 	if fontString.SetShadowColor then fontString:SetShadowColor(0, 0, 0, 0.75) end
 end
 
+function WSkin:ApplyRetailAccent(fontString, alpha)
+	if not fontString or not fontString.SetTextColor then return end
+	local function SetAccent(r, g, b)
+		fontString:SetTextColor(r, g, b, alpha or 1)
+	end
+	SetAccent(RetailAccent())
+	if EllesmereUI and EllesmereUI.RegAccent then
+		EllesmereUI.RegAccent({ type = "callback", obj = fontString, fn = SetAccent })
+	end
+end
+
 function WSkin:ApplyRetailRegionTypography(frame, tier, alpha)
 	if not frame or not frame.GetRegions then return end
 	for i = 1, select("#", frame:GetRegions()) do
@@ -383,6 +396,45 @@ function WSkin:ApplyRetailSurface(frame, kind, r, g, b, a)
 	frame:SetBackdropColor(r or color[1], g or color[2], b or color[3], a or color[4])
 	frame:SetBackdropBorderColor(unpack(border))
 	RetailState(frame).surface = true
+	return frame
+end
+
+-- Skin the 3.3.5 UIDropDownMenu shape without storing helper fields on the
+-- Blizzard-owned dropdown or arrow button. All style state stays in RetailState.
+function WSkin:HandleRetailDropDown(frame, width, direction)
+	if not frame then return end
+	local state = RetailState(frame)
+	local frameName = frame.GetName and frame:GetName()
+	local button = frameName and _G[frameName .. "Button"]
+	local text = frameName and _G[frameName .. "Text"]
+	if not state.retailDropDown then
+		StripTextures(frame)
+		self:ApplyRetailSurface(frame, "input")
+		state.retailDropDown = true
+		if button then StripTextures(button) end
+	end
+	if width then Width(frame, width) end
+	if text then
+		text:ClearAllPoints()
+		if button then Point(text, "RIGHT", button, "LEFT", -2, 0)
+		else Point(text, "RIGHT", frame, "RIGHT", -8, 0) end
+	end
+	local arrowParent = button or frame
+	if not state.dropDownArrow then
+		state.dropDownArrow = arrowParent:CreateTexture(nil, "OVERLAY")
+	end
+	local arrow = state.dropDownArrow
+	arrow:ClearAllPoints()
+	Point(arrow, "CENTER", arrowParent, "CENTER", 0, 0)
+	Size(arrow, 10, 10)
+	local arrowNames = {
+		up = "eui-arrow-up3.tga",
+		down = "eui-arrow-down3.tga",
+		left = "eui-arrow-left.tga",
+		right = "eui-arrow-right.tga",
+	}
+	arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\" .. (arrowNames[direction or "down"] or arrowNames.down))
+	arrow:SetVertexColor(1, 1, 1, 0.72)
 	return frame
 end
 
@@ -452,6 +504,49 @@ function WSkin:ApplyRetailShellShade(frame, overlay, headerHeight)
 	header:SetTexture(0, 0, 0, geometry.headerShade)
 	header:Show()
 	return header
+end
+
+-- Shared backing for the character model region. Keep it as a sibling of the
+-- PlayerModel so the client can continue drawing the model above the artwork.
+-- Anchors and offsets are passed by the owner because Character and Inspect
+-- expose different native slot rectangles; all geometry still goes through
+-- the same pixel-snapped Point helper.
+function WSkin:CreateRetailModelBacking(owner, model, options)
+	if not owner or not model or not owner.CreateTexture then return end
+	options = options or {}
+	local state = RetailState(owner)
+	local backing = state.modelBacking
+	if not backing then
+		backing = CreateFrame("Frame", nil, owner)
+		state.modelBacking = backing
+		state.modelBackingTexture = backing:CreateTexture(nil, "BACKGROUND")
+		state.modelBackingShade = backing:CreateTexture(nil, "ARTWORK")
+		state.modelBackingTexture:SetAllPoints(backing)
+		state.modelBackingTexture:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.tga")
+		state.modelBackingShade:SetAllPoints(backing)
+		state.modelBackingShade:SetTexture(0, 0, 0, options.shade or 0.12)
+	end
+
+	backing:SetFrameLevel(math.max(1, model:GetFrameLevel() - 1))
+	backing:ClearAllPoints()
+	local left = options.leftAnchor or model
+	local leftPoint = options.leftPoint or "TOPLEFT"
+	local leftRelativePoint = options.leftRelativePoint or leftPoint
+	Point(backing, leftPoint, left, leftRelativePoint,
+		options.leftOffsetX or -WSkin.Retail.spacing.sm,
+		options.leftOffsetY or WSkin.Retail.spacing.sm)
+	if options.rightAnchor then
+		Point(backing, options.rightPoint or "RIGHT", options.rightAnchor,
+			options.rightRelativePoint or options.rightPoint or "RIGHT",
+			options.rightOffsetX or 0, options.rightOffsetY or 0)
+	else
+		Point(backing, "RIGHT", model, "RIGHT", options.rightOffsetX or 0, options.rightOffsetY or 0)
+	end
+	Point(backing, options.bottomPoint or "BOTTOM", options.bottomAnchor or model,
+		options.bottomRelativePoint or options.bottomPoint or "BOTTOM",
+		options.bottomOffsetX or 0, options.bottomOffsetY or -18)
+	backing:Show()
+	return backing, state.modelBackingTexture, state.modelBackingShade
 end
 
 -- Shared outer shell for the older 3.3.5 Blizzard panels.  A number of the
@@ -942,13 +1037,14 @@ function WSkin:LayoutRetailTabRow(tabs, owner)
 	return count
 end
 
-function WSkin:UpdateRetailTab(tab, active)
+function WSkin:UpdateRetailTab(tab, active, showAccent)
 	if not tab then return end
 	local state = RetailState(tab)
 	state.active = active and true or false
+	if showAccent ~= nil then state.showAccent = showAccent and true or false end
 	if state.background then state.background:Show() end
 	if state.activeFill then state.activeFill:SetShown(state.active) end
-	if state.underline then state.underline:SetShown(state.active) end
+	if state.underline then state.underline:SetShown(state.active and state.showAccent ~= false) end
 	if state.label then state.label:SetTextColor(1, 1, 1, state.active and 1 or 0.50) end
 end
 

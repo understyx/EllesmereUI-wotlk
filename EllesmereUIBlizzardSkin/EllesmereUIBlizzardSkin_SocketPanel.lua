@@ -36,7 +36,7 @@ local CHasItem         = _G.CursorHasItem
 -- Constants
 local SIZE       = 28
 local PAD        = 4
-local ROW_H      = 20   -- gem flyout row height
+local ROW_H      = EllesmereUI.Style.Tokens.geometry.rowHeight
 local FLYOUT_W   = 240
 local MAX_FLYOUT_ROWS = 12   -- flyout caps here; extra gems scroll with the wheel
 local GEM_CLASS  = (Enum and Enum.ItemClass and Enum.ItemClass.Gem) or 3
@@ -280,6 +280,9 @@ end
 --------------------------------------------------------------------------------
 
 local PP = EllesmereUI and EllesmereUI.PanelPP
+local function StyleTokens()
+    return EllesmereUI and EllesmereUI.Style and EllesmereUI.Style.Tokens
+end
 
 local function PaintFilledIcon(btn, gemLink)
     local icon = btn.icon
@@ -398,11 +401,14 @@ local function AcquireIcon(i)
     local icon = btn:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(btn)
     -- Standard icon zoom: crop the baked-in dark edge ring off icon art.
-    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+    local skin = _G.EllesmereUIBlizzardSkin
+    icon:SetTexCoord(unpack((skin and skin.TexCoords) or { 0.08, 0.92, 0.08, 0.92 }))
     btn.icon = icon
 
-    if PP and PP.CreateBorder then
-        PP.CreateBorder(btn, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
+    local tokens = StyleTokens()
+    if PP and PP.CreateBorder and tokens then
+        local border = tokens.colors.border
+        PP.CreateBorder(btn, border[1], border[2], border[3], border[4], tokens.border.width, "OVERLAY", 7)
     end
 
     -- Hover wash
@@ -617,19 +623,20 @@ local function AcquireGemRow(i)
     icon:SetSize(ROW_H - 2, ROW_H - 2)
     icon:SetPoint("LEFT", row, "LEFT", 2, 0)
     row.icon = icon
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.ApplyRetailIcon then skin:ApplyRetailIcon(icon, row, ROW_H - 2) end
+    if skin and skin.UpdateRetailRow then skin:UpdateRetailRow(row, false, false, i % 2 == 0) end
 
-    local fontPath = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
     local label = row:CreateFontString(nil, "OVERLAY")
-    label:SetFont(fontPath, 11, "")
+    if skin and skin.ApplyRetailTypography then skin:ApplyRetailTypography(label, "row") end
     label:SetPoint("LEFT", icon, "RIGHT", 5, 0)
     label:SetJustifyH("LEFT")
     row.label = label
 
     local count = row:CreateFontString(nil, "OVERLAY")
-    count:SetFont(fontPath, 11, "")
+    if skin and skin.ApplyRetailTypography then skin:ApplyRetailTypography(count, "secondary") end
     count:SetPoint("RIGHT", row, "RIGHT", -6, 0)
     count:SetJustifyH("RIGHT")
-    count:SetTextColor(0.7, 0.7, 0.7)
     row.count = count
 
     local hov = row:CreateTexture(nil, "HIGHLIGHT")
@@ -734,12 +741,8 @@ local function BuildFlyout()
     flyout:SetFrameStrata("FULLSCREEN_DIALOG")
     flyout:Hide()
 
-    local bg = flyout:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(flyout)
-    bg:SetTexture(0.06, 0.06, 0.06, 0.95)
-    if PP and PP.CreateBorder then
-        PP.CreateBorder(flyout, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 1)
-    end
+    local skin = _G.EllesmereUIBlizzardSkin
+    if skin and skin.ApplyRetailSurface then skin:ApplyRetailSurface(flyout, "panel") end
 
     -- Mouse-enabled so the hover-opened flyout can watch its own OnLeave; also
     -- keeps clicks on the menu background from falling through to the sheet.
