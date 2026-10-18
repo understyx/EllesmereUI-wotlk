@@ -929,6 +929,48 @@ local function ResolveSpecProfile()
     return targetProfile, resolvedSpecID, charKey
 end
 
+--- True when any spec is assigned to the named profile.
+local function IsSpecAssignedProfile(name)
+    local specProfiles = EllesmereUIDB and EllesmereUIDB.specProfiles
+    if not specProfiles then return false end
+    for _, pName in pairs(specProfiles) do
+        if pName == name then return true end
+    end
+    return false
+end
+
+--- Profile for a spec with no assignment: the last profile used outside
+--- spec assignment, else the first unassigned profile, else "Default".
+local function NonSpecFallbackProfile()
+    local db = EllesmereUIDB
+    local profiles = db and db.profiles
+    if not profiles then return nil end
+    local fallback = db.lastNonSpecProfile
+    if fallback and profiles[fallback] and not IsSpecAssignedProfile(fallback) then
+        return fallback
+    end
+    for _, pName in ipairs(db.profileOrder or {}) do
+        if profiles[pName] and not IsSpecAssignedProfile(pName) then
+            return pName
+        end
+    end
+    return profiles["Default"] and "Default" or nil
+end
+
+--- Profile to leave a spec-assigned profile for when the current spec has no
+--- assignment, or nil when the active profile should stay. Only applies when
+--- the active profile is spec-assigned (left over from another spec or
+--- character); a manually chosen unassigned profile is never overridden.
+local function ResolveUnassignedSpecFallback()
+    local db = EllesmereUIDB
+    if not db or not db.specProfiles or not next(db.specProfiles) then return nil end
+    local current = db.activeProfile or "Default"
+    if not IsSpecAssignedProfile(current) then return nil end
+    local fallback = NonSpecFallbackProfile()
+    if fallback and fallback ~= current then return fallback end
+    return nil
+end
+
 -------------------------------------------------------------------------------
 --  Spec profile pre-seed
 --
@@ -948,10 +990,26 @@ end
 function EllesmereUI.PreSeedSpecProfile()
     local targetProfile, resolvedSpecID = ResolveSpecProfile()
     if not targetProfile then
-        -- No spec assignment resolved; lock auto-save if spec profiles exist
-        if EllesmereUIDB and EllesmereUIDB.specProfiles and next(EllesmereUIDB.specProfiles) then
-            EllesmereUI._profileSaveLocked = true
+        if not (EllesmereUIDB and EllesmereUIDB.specProfiles and next(EllesmereUIDB.specProfiles)) then
+            return
         end
+        -- Known spec without an assignment, logging in on a different
+        -- character than last session: leave a spec-assigned profile behind
+        -- before any addon builds (the runtime handler would otherwise flip
+        -- it right after login).
+        local charKey = UnitName("player") .. " - " .. GetRealmName()
+        local cachedSpec = EllesmereUIDB.lastSpecByChar and EllesmereUIDB.lastSpecByChar[charKey]
+        local fallback = cachedSpec and EllesmereUIDB.lastActiveCharKey ~= charKey
+            and ResolveUnassignedSpecFallback()
+        if fallback then
+            StampUnlockLayoutIfMissing(EllesmereUIDB.profiles[fallback])
+            EllesmereUIDB.activeProfile = fallback
+            RepointAllDBs(fallback)
+            return
+        end
+        -- No spec assignment resolved; lock auto-save until the runtime
+        -- handler resolves the spec
+        EllesmereUI._profileSaveLocked = true
         return
     end
 
@@ -1792,7 +1850,8 @@ do
         "reskinPlayerSpells", "reskinProfessionsBook",
         "reskinProfessions", "reskinWorldMap", "reskinGuild", "reskinCalendar",
         "reskinAchievements", "reskinMail", "reskinSocket",
-        "reskinLoot", "reskinLootToast", "lootToastQualityStrip",
+        "reskinLoot", "lootRollScale", "lootRollGrowUp",
+        "reskinLootToast", "lootToastQualityStrip",
         "reskinMicroMenu", "reskinDressUp", "reskinTransmog",
         "reskinMerchant", "reskinAuctionHouse", "reskinMacros",
         "reskinSettings", "reskinAddonList", "reskinCraftOrders",
@@ -3563,6 +3622,47 @@ do
     local pendingSpecSwitch = false   -- true when a switch was deferred by combat
     local pendingOverrideOldSpec = nil -- outgoing spec for a combat-deferred Spec Overrides transition
     local specRetryTimer = nil        -- retry handle for new characters
+    local pendingFallbackCheck = false -- spec/char changed: an unassigned spec may need to leave a spec-assigned profile
+
+    -- Spec-driven switch away from an unassigned profile: remember it so an
+    -- unassigned spec returns to it (the logout hook only records it then).
+    local function RememberNonSpecProfile(current)
+        if not IsSpecAssignedProfile(current) then
+            EllesmereUIDB.lastNonSpecProfile = current
+        end
+    end
+
+    -- Switch to a spec-assignment fallback profile (see
+    -- ResolveUnassignedSpecFallback). deferFrames: let child OnEnable and
+    -- its deferred registrations finish first (login path).
+    local function SwitchToFallback(deferFrames)
+        local fallback = ResolveUnassignedSpecFallback()
+        if not fallback then return end
+        local function doSwitch()
+            if ResolveSpecProfile() then return end -- spec gained an assignment meanwhile
+            if (EllesmereUIDB.activeProfile or "Default") == fallback then return end
+            local fontWillChange = EllesmereUI.ProfileChangesFont(EllesmereUIDB.profiles[fallback])
+            local skinsWillChange = EllesmereUI.ProfileChangesWindowSkins(EllesmereUIDB.profiles[fallback])
+            EllesmereUI.SwitchProfile(fallback)
+            EllesmereUI.RefreshAllAddons()
+            if not deferFrames and (fontWillChange or skinsWillChange) then
+                EllesmereUI:ShowConfirmPopup({
+                    title       = "Reload Required",
+                    message     = fontWillChange
+                        and "Font changed. A UI reload is needed to apply the new font."
+                        or "Window skins changed for this profile. A UI reload is needed to apply them.",
+                    confirmText = "Reload Now",
+                    cancelText  = "Later",
+                    onConfirm   = function() ReloadUI() end,
+                })
+            end
+        end
+        if deferFrames then
+            C_Timer.After(0, function() C_Timer.After(0, doSwitch) end)
+        else
+            doSwitch()
+        end
+    end
 
     specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     specFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -3590,6 +3690,7 @@ do
                 if targetProfile then
                     local current = EllesmereUIDB and EllesmereUIDB.activeProfile or "Default"
                     if current ~= targetProfile then
+                        RememberNonSpecProfile(current)
                         local fontWillChange = EllesmereUI.ProfileChangesFont(
                             EllesmereUIDB.profiles[targetProfile])
                         local skinsWillChange = EllesmereUI.ProfileChangesWindowSkins(
@@ -3609,7 +3710,10 @@ do
                             })
                         end
                     end
+                elseif pendingFallbackCheck then
+                    SwitchToFallback(false)
                 end
+                pendingFallbackCheck = false
                 -- Spec Overrides: apply the (possibly re-resolved) current
                 -- spec's stored values. No-op when a profile switch above
                 -- already applied them.
@@ -3687,7 +3791,18 @@ do
         -- correct profile is loaded on next login via ResolveSpecProfile().
         if not EllesmereUIDB then EllesmereUIDB = {} end
         if not EllesmereUIDB.lastSpecByChar then EllesmereUIDB.lastSpecByChar = {} end
+        -- Spec or character differs from what was last persisted. Unlike
+        -- charChanged (session-local, so always false right after a relog),
+        -- this survives logouts and is what lets an unassigned spec leave a
+        -- profile assigned to another spec or another character's spec. A
+        -- missing lastActiveCharKey (first run of this check) counts as a
+        -- change.
+        local persistedChange = EllesmereUIDB.lastActiveCharKey ~= charKey
+            or EllesmereUIDB.lastSpecByChar[charKey] ~= specID
+            or (prevSpecID ~= nil and prevSpecID ~= specID)
+        if persistedChange then pendingFallbackCheck = true end
         EllesmereUIDB.lastSpecByChar[charKey] = specID
+        EllesmereUIDB.lastActiveCharKey = charKey
 
         -- Spec resolved successfully -- unlock auto-save if it was locked
         -- during PreSeedSpecProfile when spec was unavailable.
@@ -3740,6 +3855,12 @@ do
                     -- before PLAYER_SPECIALIZATION_CHANGED (CDM completes
                     -- before the flag is set, flag stuck true forever).
                     -- EllesmereUI._specProfileSwitching = true
+                    -- Deferred login switch: a later spec event may have
+                    -- already switched (or retargeted) in the meantime.
+                    if ResolveSpecProfile() ~= targetProfile then return end
+                    local switchFrom = db.activeProfile or "Default"
+                    if switchFrom == targetProfile then return end
+                    RememberNonSpecProfile(switchFrom)
                     local fontWillChange = EllesmereUI.ProfileChangesFont(db.profiles[targetProfile])
                     local skinsWillChange = EllesmereUI.ProfileChangesWindowSkins(db.profiles[targetProfile])
                     EllesmereUI.SwitchProfile(targetProfile)
@@ -3781,49 +3902,16 @@ do
                     end)
                 end
             end
-        elseif charChanged then
-            -- No spec assignment for this character and character changed
-            -- (alt swap). If the current activeProfile is spec-assigned
-            -- (left over from the previous character), switch to the last
-            -- non-spec profile so this character doesn't inherit another
-            -- character's spec layout. Skip on plain /reload (same char)
-            -- to respect the user's intentional profile choice.
-            local current = db.activeProfile or "Default"
-            local currentIsSpecAssigned = false
-            if db.specProfiles then
-                for _, pName in pairs(db.specProfiles) do
-                    if pName == current then currentIsSpecAssigned = true; break end
-                end
-            end
-            if currentIsSpecAssigned then
-                -- Find the best fallback: lastNonSpecProfile, or any profile
-                -- that isn't spec-assigned, or Default as last resort.
-                local fallback = db.lastNonSpecProfile
-                if not fallback or not db.profiles[fallback] then
-                    -- Walk profileOrder to find first non-spec-assigned profile
-                    local specAssignedSet = {}
-                    if db.specProfiles then
-                        for _, pName in pairs(db.specProfiles) do
-                            specAssignedSet[pName] = true
-                        end
-                    end
-                    for _, pName in ipairs(db.profileOrder or {}) do
-                        if not specAssignedSet[pName] and db.profiles[pName] then
-                            fallback = pName
-                            break
-                        end
-                    end
-                end
-                fallback = fallback or "Default"
-                if fallback ~= current and db.profiles[fallback] then
-                    C_Timer.After(0, function()
-                        C_Timer.After(0, function()
-                            EllesmereUI.SwitchProfile(fallback)
-                        end)
-                    end)
-                end
-            end
+        elseif pendingFallbackCheck then
+            -- No spec assignment for the current spec, and the spec or
+            -- character changed since it was last persisted. If the active
+            -- profile is spec-assigned (another spec's, or another
+            -- character's), return to the last non-spec profile so this spec
+            -- doesn't keep that layout. A plain /reload on the same char and
+            -- spec skips this to respect a manual profile choice.
+            SwitchToFallback(isFirstLogin)
         end
+        pendingFallbackCheck = false
 
         -- Spec Overrides: apply the incoming spec's stored values. Any
         -- spec-profile switch above already applied values inside its

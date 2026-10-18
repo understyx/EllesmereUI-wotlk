@@ -783,6 +783,9 @@ end
 
 -- Returns the live Blizzard frame only when it is safe to reposition.
 local function LootFrame(name)
+    -- The Loot & Roll Windows skin owns the roll stack (its own Unlock Mode
+    -- mover); stand down so the two never fight over GroupLootFrame1.
+    if name == "GroupLootContainer" and EllesmereUI._lootRollsOwned then return nil end
     local frame = _G[name] or _G[LOOT_FRAME_FALLBACKS[name]]
     if not frame or not frame.HookScript then return nil end
     if frame.IsForbidden and frame:IsForbidden() then return nil end

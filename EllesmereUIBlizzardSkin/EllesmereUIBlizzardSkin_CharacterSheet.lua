@@ -466,6 +466,12 @@ local function PreSkinCharacterSheet()
                 leftRelativePoint = "TOPLEFT",
                 leftOffsetX = -8,
                 leftOffsetY = 10,
+                -- Mirror the left edge so the backing also covers the
+                -- right-hand slot column.
+                rightAnchor = CharacterHandsSlot,
+                rightPoint = "RIGHT",
+                rightRelativePoint = "RIGHT",
+                rightOffsetX = 8,
                 bottomAnchor = myModel,
                 bottomPoint = "BOTTOM",
                 bottomRelativePoint = "BOTTOM",
@@ -783,6 +789,16 @@ local function PreSkinCharacterSheet()
             if r:GetObjectType() == "Texture" and not keep[r] then
                 r:SetTexture(nil)
                 r:Hide()
+            end
+        end
+        -- Only classes that can fire ammo get the slot; the OnShow hook keeps
+        -- the later slot loops and Blizzard updates from re-showing it.
+        local _, class = UnitClass("player")
+        if class ~= "HUNTER" and class ~= "ROGUE" and class ~= "WARRIOR" then
+            ammo:Hide()
+            if not GetFFD(ammo).ammoHideHooked then
+                GetFFD(ammo).ammoHideHooked = true
+                ammo:HookScript("OnShow", ammo.Hide)
             end
         end
     end

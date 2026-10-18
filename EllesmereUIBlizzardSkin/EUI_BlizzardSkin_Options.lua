@@ -1300,6 +1300,40 @@ initFrame:SetScript("OnEvent", function(self)
         return y
     end
 
+    local function BuildLootContent(parent, y)
+        local W = EllesmereUI.Widgets
+        local _, h
+
+        _, h = WSCardSection(parent, "LOOT ROLLS", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Roll Frame Scale",
+              tooltip="Scales the need/greed roll frames. Position them with the Loot Rolls mover in Unlock Mode.",
+              min=0.6, max=1.5, step=0.05, format="%.0f%%",
+              displayMul=100,
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.lootRollScale or 1.0
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.lootRollScale = v
+                  if EllesmereUI._LootRolls_Refresh then EllesmereUI._LootRolls_Refresh() end
+              end },
+            { type="toggle", text="Grow Upward",
+              tooltip="Stacks additional rolls above the first one instead of below it.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.lootRollGrowUp == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.lootRollGrowUp = v
+                  if EllesmereUI._LootRolls_Refresh then EllesmereUI._LootRolls_Refresh() end
+              end }
+        ); y = y - h
+
+        return y
+    end
+
     local function BuildLootToastContent(parent, y)
         local W = EllesmereUI.Widgets
         local _, h
@@ -1578,12 +1612,13 @@ initFrame:SetScript("OnEvent", function(self)
         {
             key   = "loot",
             title = "Loot & Roll Windows",
-            desc  = "The loot window and need/greed roll panels, with squared icons and preserved item quality colors.",
+            desc  = "The loot window and retail-style need/greed roll frames, with quality-framed icons, a flat timer, and a Loot Rolls mover in Unlock Mode.",
             reloadMsg = "Changing the Loot & Roll Windows reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinLoot = v
             end,
+            buildContent = BuildLootContent,
         },
         {
             key   = "loottoast",
@@ -2313,6 +2348,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinMail = nil
                 EllesmereUIDB.reskinSocket = nil
                 EllesmereUIDB.reskinLoot = nil
+                EllesmereUIDB.lootRollScale = nil
+                EllesmereUIDB.lootRollGrowUp = nil
                 EllesmereUIDB.reskinLootToast = nil
                 EllesmereUIDB.lootToastQualityStrip = nil
                 EllesmereUIDB.reskinMicroMenu = nil

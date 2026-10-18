@@ -398,7 +398,22 @@ local function LayoutRaidContent(frame)
 	local top = WSkin.Retail.geometry.headerHeight + WSkin.Retail.spacing.sm
 	ClearPoints(_G.RaidFrameConvertToRaidButton, _G.RaidFrameRaidInfoButton)
 	Point(_G.RaidFrameConvertToRaidButton, "TOPLEFT", frame, "TOPLEFT", left, -top)
-	Point(_G.RaidFrameRaidInfoButton, "TOPRIGHT", frame, "TOPRIGHT", -left, -top)
+	local browserButton, readyCheck = _G.RaidFrameRaidBrowserButton, _G.RaidFrameReadyCheckButton
+	if browserButton and browserButton:IsShown() then
+		-- In a raid Blizzard_RaidUI's group grid starts at y=-70, so the shell's
+		-- usual button row would sit on top of group 1/2.  Raise the whole row
+		-- (Raid Browser + Ready Check left, Raid Info right) clear of the grid.
+		local gap = WSkin.Retail.spacing.sm
+		local raidTop = 70 - gap - browserButton:GetHeight() - 12
+		ClearPoints(browserButton, readyCheck)
+		Point(browserButton, "TOPLEFT", frame, "TOPLEFT", left, -raidTop)
+		if readyCheck then
+			Point(readyCheck, "LEFT", browserButton, "RIGHT", gap, 0)
+		end
+		Point(_G.RaidFrameRaidInfoButton, "TOPRIGHT", frame, "TOPRIGHT", -left, -raidTop)
+	else
+		Point(_G.RaidFrameRaidInfoButton, "TOPRIGHT", frame, "TOPRIGHT", -left, -top)
+	end
 	-- The native description text is 300 wide at x=29 for the 384px art rect;
 	-- span it across the body instead so it centres in the wider shell.
 	local raidDescription = _G.RaidFrameRaidDescription
@@ -739,3 +754,14 @@ local function SkinSocial()
 end
 
 WSkin:AddCallback("Skin_FriendsGuild", SkinSocial, "guild")
+
+-- RaidGroupFrame_Update re-anchors Raid Info beside Ready Check without
+-- clearing its points, so re-apply the raid row after every update.
+WSkin:AddCallbackForAddon("Blizzard_RaidUI", "Skin_FriendsRaidLayout", function()
+	if not WSkin:IsSkinEnabled("guild") or not _G.FriendsFrame then return end
+	if type(_G.RaidGroupFrame_Update) ~= "function" then return end
+	hooksecurefunc("RaidGroupFrame_Update", function()
+		LayoutRaidContent(_G.FriendsFrame)
+	end)
+	LayoutRaidContent(_G.FriendsFrame)
+end, "guild")
