@@ -148,8 +148,101 @@ for _, info in ipairs(BAR_CONFIG) do
     info.fallbackFrame = nil
 end
 
+local function EnsureMicroMenuBarFrame()
+    local frame = _G.EllesmereUIMicroMenuBar
+    if not frame then
+        frame = CreateFrame("Frame", "EllesmereUIMicroMenuBar", UIParent)
+        frame:SetSize(253, 58)
+        frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 10, 2)
+    end
+    return frame
+end
+
+EnsureMicroMenuBarFrame()
+
+local microMenuLayout = {
+    buttonNames = {
+        "CharacterMicroButton", "SpellbookMicroButton", "TalentMicroButton",
+        "AchievementMicroButton", "QuestLogMicroButton", "SocialsMicroButton",
+        "PVPMicroButton", "LFDMicroButton", "MainMenuMicroButton", "HelpMicroButton",
+    },
+}
+
+function microMenuLayout.ApplyClassic()
+    if InCombatLockdown() then
+        microMenuLayout.pending = true
+        return
+    end
+
+    local frame = EnsureMicroMenuBarFrame()
+    local buttons = {}
+    for i = 1, #microMenuLayout.buttonNames do
+        local button = _G[microMenuLayout.buttonNames[i]]
+        if button then buttons[#buttons + 1] = button end
+    end
+
+    local buttonWidth, buttonHeight, buttonStep = 28, 58, 25
+    for i = 1, #buttons do
+        local button = buttons[i]
+        if button:GetParent() ~= frame then button:SetParent(frame) end
+        button:SetSize(buttonWidth, buttonHeight)
+        button:ClearAllPoints()
+        button:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", (i - 1) * buttonStep, 0)
+        button:SetHitRectInsets(0, 0, 18, 0)
+    end
+    frame:SetSize(buttonWidth + math.max(0, #buttons - 1) * buttonStep, buttonHeight)
+    if not frame:GetPoint(1) then
+        frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 10, 2)
+    end
+    microMenuLayout.pending = false
+end
+
+-- Keep the visible Wrath buttons working even if Blizzard Skins is disabled.
+_G.EllesmereUI_ApplyMicroMenuLayout = microMenuLayout.ApplyClassic
+
+function microMenuLayout.Apply()
+    if InCombatLockdown() then
+        microMenuLayout.pending = true
+        return
+    end
+    local applyLayout = _G.EllesmereUI_ApplyMicroMenuLayout
+    if type(applyLayout) == "function" then
+        applyLayout()
+    else
+        microMenuLayout.ApplyClassic()
+    end
+    microMenuLayout.pending = false
+end
+
+function microMenuLayout.Queue()
+    if InCombatLockdown() then
+        microMenuLayout.pending = true
+    else
+        microMenuLayout.Apply()
+    end
+end
+
+microMenuLayout.events = CreateFrame("Frame")
+microMenuLayout.events:RegisterEvent("PLAYER_LOGIN")
+microMenuLayout.events:RegisterEvent("PLAYER_REGEN_ENABLED")
+microMenuLayout.events:RegisterEvent("VEHICLE_UPDATE")
+microMenuLayout.events:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_ENABLED" and not microMenuLayout.pending then return end
+    microMenuLayout.Apply()
+end)
+
+if type(UpdateMicroButtons) == "function" then
+    hooksecurefunc("UpdateMicroButtons", microMenuLayout.Queue)
+end
+if type(MoveMicroButtons) == "function" then
+    hooksecurefunc("MoveMicroButtons", microMenuLayout.Queue)
+end
+if type(VehicleMenuBar_MoveMicroButtons) == "function" then
+    hooksecurefunc("VehicleMenuBar_MoveMicroButtons", microMenuLayout.Queue)
+end
+
 local EXTRA_BARS = {
-    { key = "MicroBar", label = "Micro Menu Bar", frameName = "MicroMenuContainer", hoverFrame = "MicroMenu", visibilityOnly = true, blizzOwnedVisibility = true },
+    { key = "MicroBar", label = "Micro Menu Bar", frameName = "EllesmereUIMicroMenuBar", hoverFrame = "EllesmereUIMicroMenuBar", visibilityOnly = true, blizzOwnedVisibility = true },
     { key = "BagBar",   label = "Bag Bar",        frameName = "BagsBar", visibilityOnly = true, blizzOwnedVisibility = true },
     { key = "QueueStatus", label = "Queue Status", frameName = "QueueStatusButton", visibilityOnly = true, blizzOwnedVisibility = true, noManagedVisibility = true },
     { key = "XPBar",    label = "XP Bar",         visibilityOnly = true, isDataBar = true },
@@ -1556,6 +1649,12 @@ local function HideBlizzardBars()
     -- ActionBarController retains all events so Blizzard's vehicle/override
     -- transition system (ValidateActionBarTransition) works correctly.
     if MainMenuBarPageNumber then MainMenuBarPageNumber:Hide() end
+
+    -- MainMenuBarArtFrame owns the Wrath micro buttons. Move them out after
+    -- MainMenuBar is hidden so that hidden parent no longer suppresses them.
+    -- Blizzard Skins provides the selected art/layout; this Classic fallback
+    -- also keeps MicroBar usable when that sub-addon is disabled.
+    microMenuLayout.Apply()
 
     -- Replace ActionBar_PageUp / ActionBar_PageDown with versions that
     -- read the current page from our state driver. The stock versions
@@ -6476,8 +6575,8 @@ function EAB:RefreshMouseover()
         if s then
             local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
             if frame then
-                -- For extra bars (MicroBar, BagBar), fade the Blizzard frame directly
-                -- since that's what AttachExtraBarHoverHooks targets.
+                -- For extra bars (MicroBar, BagBar), fade the visible frame
+                -- directly since that's what AttachExtraBarHoverHooks targets.
                 if info.visibilityOnly and not info.isDataBar and not info.isBlizzardMovable then
                     local blizzFrame = _G[info.frameName]
                     if blizzFrame then frame = blizzFrame end
@@ -9219,8 +9318,8 @@ function EAB:OnInitialize()
         end
     end
 
-    -- MicroBar position is fully Blizzard-owned (Edit Mode). No anchor
-    -- flipping needed. Stubs kept so callers don't error.
+    -- Unlock Mode owns MicroBar's wrapper position. These compatibility stubs
+    -- remain for callers that still invoke them.
     _G._EAB_UnlockModeOpen = function() end
     _G._EAB_UnlockModeClose = function() end
 
@@ -11811,8 +11910,8 @@ local function SetupBlizzardMovableFrames()
 end
 
 -------------------------------------------------------------------------------
---  Extra Bar Holders (MicroBar, BagBar) positioning via holder frames
---  Reparents Blizzard frames into holder frames so unlock mode can position them.
+--  Extra Bar Holders (MicroBar, BagBar) positioning
+--  MicroBar is an EUI wrapper; Blizzard-owned bars keep their own handling.
 -------------------------------------------------------------------------------
 AttachExtraBarHoverHooks = function(info)
     -- Position-only Blizzard-owned bars (the QueueStatus eye) never get mouseover
@@ -11871,8 +11970,7 @@ AttachExtraBarHoverHooks = function(info)
     hoverRoot:HookScript("OnEnter", OnEnter)
     hoverRoot:HookScript("OnLeave", OnLeave)
 
-    -- Recurse into child frames to hook all interactive buttons, including
-    -- those nested inside sub-containers (e.g. MicroMenu inside MicroMenuContainer).
+    -- Recurse into child frames to hook every interactive button in the bar.
     local function HookChildren(parent, depth)
         depth = depth or 0
         if depth > 3 then return end
@@ -11972,6 +12070,20 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
     local blizzFrame = _G[frameName]
     if not blizzFrame then return end
 
+    if barKey == "MicroBar" then
+        -- The EUI wrapper is both the visible bar and its unlock mover.
+        extraBarHolders[barKey] = blizzFrame
+        blizzFrame:SetClampedToScreen(true)
+        local pos = EAB.db.profile.barPositions[barKey]
+        blizzFrame:ClearAllPoints()
+        if pos and pos.point then
+            blizzFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+        else
+            blizzFrame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 10, 2)
+        end
+        return blizzFrame
+    end
+
     local holder = CreateFrame("Frame", "EllesmereEAB_" .. barKey, UIParent)
     holder:SetClampedToScreen(true)
     extraBarHolders[barKey] = holder
@@ -11984,10 +12096,8 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
         holder:SetSize(200, 40)
     end
 
-    -- MicroBar/BagBar: position fully owned by Blizzard Edit Mode.
-    -- Don't save or restore positions -- passive-follow handles it.
-    -- Early return skips all position capture/restore code below.
-    if barKey == "MicroBar" or barKey == "BagBar" then
+    -- BagBar position remains fully owned by Blizzard Edit Mode.
+    if barKey == "BagBar" then
         EAB.db.profile.barPositions[barKey] = nil
         local function SyncFollow()
             local fw, fh = blizzFrame:GetWidth(), blizzFrame:GetHeight()
@@ -12133,8 +12243,7 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
 
         return holder
     end
-    -- All current extra bars (MicroBar, BagBar, QueueStatus) return above;
-    -- nothing reaches here.
+    -- BagBar and QueueStatus return above; MicroBar is positioned directly.
 end
 
 local function SetupExtraBarHolders()
@@ -12153,9 +12262,9 @@ local function RegisterExtraBarsWithUnlockMode()
     for idx, info in ipairs(EXTRA_BARS) do
         if not info.isDataBar and not info.isBlizzardMovable and info.frameName then
             local bk = info.key
-            -- MicroBar, BagBar: position fully owned by Blizzard Edit Mode.
-            -- Skip unlock registration entirely.
-            if bk == "MicroBar" or bk == "BagBar" then
+            -- BagBar remains owned by Blizzard. MicroBar is our real Wrath
+            -- wrapper and participates in the standard unlock mover.
+            if bk == "BagBar" then
                 -- no-op: visibility-only holder, no unlock mover
             else
             local isBlizzOwned = (bk == "QueueStatus")
@@ -12203,11 +12312,13 @@ local function RegisterExtraBarsWithUnlockMode()
                     local pos = EAB.db.profile.barPositions[bk]
                     local holder = extraBarHolders[bk]
                     if not holder then return end
-                    -- MicroBar/BagBar: Blizzard owns position, never move
-                    if bk == "MicroBar" or bk == "BagBar" then return end
+                    -- BagBar's position remains Blizzard-owned.
+                    if bk == "BagBar" then return end
                     holder:ClearAllPoints()
                     if pos and pos.point then
                         holder:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+                    elseif bk == "MicroBar" then
+                        holder:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 10, 2)
                     else
                         holder:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
                     end
@@ -12263,6 +12374,10 @@ local function SetupExtraBars()
 
     -- Setup data bars (XP, Rep)
     SetupDataBars()
+
+    -- Run the visibility pass now that the MicroBar wrapper and all extra-bar
+    -- frames exist; ApplyAll ran before these frames were created.
+    EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
 
     -- Apply correct initial alpha now that holders exist.
     -- RefreshMouseover ran at OnEnable before holders were created, so

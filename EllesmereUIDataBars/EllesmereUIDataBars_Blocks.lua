@@ -3508,7 +3508,7 @@ end
 -- Refresh/Destroy and every bar enable/disable/delete (engine calls this
 -- from AfterBarStateChange).
 local mmLastApplied = nil  -- last driver state pushed ("hide"/"show"); nil = never touched
-function ns.RefreshMicroMenuHider()
+function ns.RefreshMicroMenuHider(force)
     local hide = false
     local profile = ns.GetProfile()
     if profile then
@@ -3532,8 +3532,7 @@ function ns.RefreshMicroMenuHider()
     -- Steady-state guard: re-registering the same driver re-runs the secure
     -- snippet (and re-Shows the target) for no reason. Only push changes.
     local want = hide and "hide" or "show"
-    if want == mmLastApplied then return end
-    mmLastApplied = want
+    if want == mmLastApplied and not force then return end
     ns.DeferUntilOOC("edb_mm_blizz", function()
         -- Build the target list without array holes (any of these globals
         -- may be absent on a given client).
@@ -3541,15 +3540,41 @@ function ns.RefreshMicroMenuHider()
         if _G.MicroMenuContainer then targets[#targets + 1] = _G.MicroMenuContainer end
         if _G.MainMenuBarMicroButtons then targets[#targets + 1] = _G.MainMenuBarMicroButtons end
         if _G.MicroButtonAndBagsBar then targets[#targets + 1] = _G.MicroButtonAndBagsBar end
+        -- Wrath has no MicroMenuContainer. Keep the individual buttons
+        -- covered as well, so a later Show() on their wrapper cannot defeat
+        -- this state's visibility choice.
+        local microNames = {
+            "CharacterMicroButton", "SpellbookMicroButton", "TalentMicroButton",
+            "AchievementMicroButton", "QuestLogMicroButton", "SocialsMicroButton",
+            "PVPMicroButton", "LFDMicroButton", "MainMenuMicroButton", "HelpMicroButton",
+        }
+        for i = 1, #microNames do
+            local button = _G[microNames[i]]
+            if button then targets[#targets + 1] = button end
+        end
+        local applied = false
         for i = 1, #targets do
             local hider = MMGetHider(targets[i])
             if hider then
                 UnregisterStateDriver(hider, "vis")
                 RegisterStateDriver(hider, "vis", want)
+                applied = true
             end
         end
+        mmLastApplied = applied and want or nil
     end)
 end
+
+-- VehicleMenuBar_MoveMicroButtons explicitly Shows Wrath's micro buttons. If
+-- a micromenu block owns the secure hide state, reapply it after vehicle UI
+-- transitions so that Blizzard's Show() calls cannot undo the block setting.
+local mmVehicleWatcher = CreateFrame("Frame")
+mmVehicleWatcher:RegisterEvent("VEHICLE_UPDATE")
+mmVehicleWatcher:SetScript("OnEvent", function()
+    if mmLastApplied == "hide" then
+        ns.RefreshMicroMenuHider(true)
+    end
+end)
 
 -- Character stats tooltip (opt-in via the micromenu block's charStatsTooltip
 -- setting). Fixed set: equipped item level, primary stat, and the four

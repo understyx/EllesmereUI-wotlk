@@ -4151,7 +4151,7 @@ GetBarFrame = function(barKey)
         return f
     end
     -- Extra bars (MicroBar, BagBar — not in BAR_LOOKUP)
-    if barKey == "MicroBar"   then return _G["MicroMenuContainer"] or _G["MicroMenu"] end
+    if barKey == "MicroBar"   then return _G["EllesmereUIMicroMenuBar"] or _G["MicroMenuContainer"] or _G["MicroMenu"] end
     if barKey == "BagBar"     then return _G["BagsBar"] end
     return nil
 end

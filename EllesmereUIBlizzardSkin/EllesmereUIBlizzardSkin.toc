@@ -11,6 +11,7 @@
 
 # Main Luas
 EllesmereUIBlizzardSkin.lua
+EllesmereUIBlizzardSkin_MicroMenu.lua
 EllesmereUIBlizzardSkin_DiminishingReturns.lua
 EllesmereUIBlizzardSkin_CharacterSheet.lua
 EllesmereUIBlizzardSkin_CharacterTabs.lua

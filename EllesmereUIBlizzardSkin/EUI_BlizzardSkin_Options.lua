@@ -1635,8 +1635,8 @@ initFrame:SetScript("OnEvent", function(self)
         {
             key   = "micromenu",
             title = "Micro Menu",
-            desc  = "Flattens the micro menu buttons into the EllesmereUI style.",
-            reloadMsg = "Changing the Micro Menu reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            desc  = "The Wrath micro menu buttons styled to match the selected window skin style.",
+            reloadMsg = "Changing the Micro Menu reskin requires a UI reload to fully apply.",
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinMicroMenu = v
