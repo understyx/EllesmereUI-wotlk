@@ -308,8 +308,8 @@ ns.CC_ParseKeyString = ParseKeyString
 -- in ALT-CTRL-SHIFT order, so a double-modifier bind saved that way silently
 -- failed (just targeted the frame). Rewrites the key in place -- the DB binding
 -- tables are referenced directly -- so old binds start working without the user
--- re-binding. Called once at the top of CC_ApplyBindings, which only fires on
--- load / binding change / spec change / profile swap (never per-frame or in
+-- re-binding. Called once at the top of CC_ApplyBindings, which runs on load,
+-- binding/profile changes, or an actual spec change (never per-frame or in
 -- combat); it is a no-op once every key is already canonical, so there is no
 -- steady-state cost.
 local function NormalizeSavedBindingKeys()
@@ -1329,6 +1329,7 @@ end
 --  Apply bindings to all registered frames + global button
 -------------------------------------------------------------------------------
 local prevBindings = {}
+local lastAppliedSpecID
 
 function ns.CC_ApplyBindings()
     if not ccInitialized then pendingApply = true; return end
@@ -1517,6 +1518,7 @@ function ns.CC_ApplyBindings()
     for i, b in ipairs(bindings) do
         prevBindings[i] = { b = b, idx = i }
     end
+    lastAppliedSpecID = GetCurrentSpecID()
 end
 
 -------------------------------------------------------------------------------
@@ -1719,8 +1721,8 @@ end
 -- menu -- with nothing to re-apply it afterwards (PLAYER_SPECIALIZATION_CHANGED
 -- does not fire on a plain login). Poll briefly until GetCurrentSpecID resolves,
 -- then reapply so spec bindings take effect. Safe when there is no spec (new /
--- low-level characters): the cap stops the poll and a later spec pick fires
--- PLAYER_SPECIALIZATION_CHANGED, which reapplies.
+-- low-level characters): the cap stops the poll and a later talent-group or
+-- specialization event reapplies.
 local specReadyTicker
 local function ReapplyWhenSpecReady()
     if InCombatLockdown() then pendingApply = true; return end
@@ -1743,6 +1745,20 @@ local function ReapplyWhenSpecReady()
     end)
 end
 
+-- Wrath's active talent group and spellbook can settle across separate events.
+-- Coalesce those notifications to the next short timer turn so the active spec
+-- and newly learned spells are both visible before secure attrs are rebuilt.
+local bindingRefreshQueued = false
+local function QueueBindingRefresh()
+    if bindingRefreshQueued then return end
+    bindingRefreshQueued = true
+    C_Timer.After(0.1, function()
+        bindingRefreshQueued = false
+        if GetCurrentSpecID() == lastAppliedSpecID then return end
+        if InCombatLockdown() then pendingApply = true else ns.CC_ApplyBindings() end
+    end)
+end
+
 local function OnCCEvent(self, event)
     if event == "PLAYER_REGEN_ENABLED" then
         local cc = GetClickCastDB()
@@ -1762,8 +1778,11 @@ local function OnCCEvent(self, event)
         for _, frame in ipairs(unregQueue) do DoUnregisterFrame(frame) end
         wipe(unregQueue)
         if pendingApply then pendingApply = false; ns.CC_ApplyBindings() end
-    elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
-        if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+    elseif event == "PLAYER_SPECIALIZATION_CHANGED"
+        or event == "ACTIVE_TALENT_GROUP_CHANGED"
+        or event == "PLAYER_TALENT_UPDATE"
+        or event == "SPELLS_CHANGED" then
+        QueueBindingRefresh()
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Reapply bindings after zone/loading screen to clear any stuck
         -- frame-based bindings (OnLeave may not fire during transitions).
@@ -1809,7 +1828,10 @@ function ns.CC_Init()
 
     ccEventFrame = EllesmereUI.SafeCreateFrame("Frame")
     ccEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    ccEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    if not IS_WRATH then ccEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED") end
+    ccEventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+    ccEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    ccEventFrame:RegisterEvent("SPELLS_CHANGED")
     ccEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     ccEventFrame:SetScript("OnEvent", OnCCEvent)
 

@@ -1952,6 +1952,59 @@ local function GetPowerColor(unit)
     return 0.5, 0.5, 0.5
 end
 
+-- Wrath reports power changes by power type rather than through UNIT_POWER_UPDATE.
+-- Keep only the current type's value/max events registered for each unit; form
+-- changes are covered by UNIT_DISPLAYPOWER and resync that unit's registrations.
+ns._POWER_EVENTS_BY_TYPE = {
+    [0] = { "UNIT_MANA", "UNIT_MAXMANA" },
+    [1] = { "UNIT_RAGE", "UNIT_MAXRAGE" },
+    [2] = { "UNIT_FOCUS", "UNIT_MAXFOCUS" },
+    [3] = { "UNIT_ENERGY", "UNIT_MAXENERGY" },
+    [6] = { "UNIT_RUNIC_POWER", "UNIT_MAXRUNIC_POWER" },
+}
+ns._POWER_EVENT_NAMES = {
+    "UNIT_MANA", "UNIT_MAXMANA", "UNIT_RAGE", "UNIT_MAXRAGE",
+    "UNIT_FOCUS", "UNIT_MAXFOCUS", "UNIT_ENERGY", "UNIT_MAXENERGY",
+    "UNIT_RUNIC_POWER", "UNIT_MAXRUNIC_POWER",
+}
+ns._POWER_EVENT_SET = { UNIT_DISPLAYPOWER = true }
+for _, event in ipairs(ns._POWER_EVENT_NAMES) do ns._POWER_EVENT_SET[event] = true end
+
+ns._SyncPowerEvents = function(tracker, unit, enabled)
+    for _, event in ipairs(ns._POWER_EVENT_NAMES) do tracker:UnregisterEvent(event) end
+    tracker:UnregisterEvent("UNIT_DISPLAYPOWER")
+    if not enabled or not unit or not UnitExists(unit) then return end
+    local events = ns._POWER_EVENTS_BY_TYPE[UnitPowerType(unit) or 0]
+    if events then
+        for _, event in ipairs(events) do tracker:RegisterUnitEvent(event, unit) end
+    end
+    tracker:RegisterUnitEvent("UNIT_DISPLAYPOWER", unit)
+end
+
+ns._UpdatePowerBar = function(d, unit, s, animate, forceTint)
+    local power = d and d.power
+    if not power then return 0, 0 end
+    local pType = UnitPowerType(unit) or 0
+    local maxPower = UnitPowerMax(unit, pType) or 0
+    local current = UnitPower(unit, pType) or 0
+    local smoothPower = animate and s.smoothPowerBars and Enum
+        and Enum.StatusBarInterpolation
+        and Enum.StatusBarInterpolation.ExponentialEaseOut
+    power:SetMinMaxValues(0, maxPower)
+    if smoothPower then power:SetValue(current, smoothPower) else power:SetValue(current) end
+    local pr, pg, pb = GetPowerColor(unit)
+    power:SetStatusBarColor(pr, pg, pb, 1)
+    if s.powerBgPowerColored and d.powerBg then
+        local f = EllesmereUI.GetPowerBgDarkenFactor()
+        if forceTint or d._pwBgTintType ~= pType or d._pwBgTintF ~= f then
+            d.powerBg:SetTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
+            d._pwBgTintType = pType
+            d._pwBgTintF = f
+        end
+    end
+    return pType, maxPower
+end
+
 -------------------------------------------------------------------------------
 --  Absorb style application
 --  Single-fill styles match the unit-frame look. The RaidFrames-only compound
@@ -4031,6 +4084,7 @@ local function StyleButton(button)
             elseif d._isParty then ns._partyUnitToButton[u] = self
             else unitToButton[u] = self end
             if ns._RefreshAssignedButton then ns._RefreshAssignedButton(self, u) end
+            if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration(u) end
             if ns._UpdateButtonRange then ns._UpdateButtonRange(u, self) end
         end
     end)
@@ -4274,26 +4328,7 @@ local function UpdateButton(button)
             local wasShown = power:IsShown()
             power:Show()
             if d.UpdatePowerBorder then d.UpdatePowerBorder() end
-            local smoothPower = wasShown and s.smoothPowerBars and Enum
-                and Enum.StatusBarInterpolation
-                and Enum.StatusBarInterpolation.ExponentialEaseOut
-            power:SetMinMaxValues(0, 100)
-            local ppct = UnitPowerPercent(unit, pType, true, CurveConstants.ScaleTo100)
-            if smoothPower then
-                power:SetValue(ppct, smoothPower)
-            else
-                power:SetValue(ppct)
-            end
-            local pr, pg, pb = GetPowerColor(unit)
-            power:SetStatusBarColor(pr, pg, pb, 1)
-            -- Background: power-colored bg tracks this unit's power color
-            -- (opt-in; the custom color is applied statically in ReloadFrames).
-            if s.powerBgPowerColored and d.powerBg then
-                local f = EllesmereUI.GetPowerBgDarkenFactor()
-                d.powerBg:SetTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
-                d._pwBgTintType = pType
-                d._pwBgTintF = f
-            end
+            ns._UpdatePowerBar(d, unit, s, wasShown, true)
         end
     end
 
@@ -6961,7 +6996,7 @@ end
 -- unit-payload broadcast events (READY_CHECK_CONFIRM, PLAYER_FLAGS_CHANGED)
 -- are plain registrations filtered in the handler.
 XF.EVENTS = {
-    "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_AURA", "UNIT_POWER_UPDATE",
+    "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_AURA",
     "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
     "UNIT_HEAL_PREDICTION", "UNIT_MAX_HEALTH_MODIFIERS_CHANGED",
     "UNIT_THREAT_LIST_UPDATE", "UNIT_THREAT_SITUATION_UPDATE",
@@ -7012,25 +7047,20 @@ XF.EnsureBuilt = function(count)
                 if ns.BM_UpdateIndicators then
                     ns.BM_UpdateIndicators(b, unit, db, updateInfo, auraScan)
                 end
-            elseif event == "UNIT_POWER_UPDATE" then
+            elseif ns._POWER_EVENT_SET[event] then
                 local d = GetFFD(b)
-                if d.power and d.power:IsShown() then
-                    local pType = UnitPowerType(unit) or 0
-                    d.power:SetMinMaxValues(0, 100)
-                    d.power:SetValue(UnitPowerPercent(unit, pType, true, CurveConstants.ScaleTo100))
-                    local pr, pg, pb = GetPowerColor(unit)
-                    d.power:SetStatusBarColor(pr, pg, pb, 1)
-                    -- Power-colored bg: retint only when the power type or BG
-                    -- darken changed; the stamps keep the hot path allocation-free.
-                    local s = d._isExtra and ns._scaledExtraProxy or ns._scaledProfile
-                    if s.powerBgPowerColored and d.powerBg then
-                        local f = EllesmereUI.GetPowerBgDarkenFactor()
-                        if d._pwBgTintType ~= pType or d._pwBgTintF ~= f then
-                            d.powerBg:SetTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
-                            d._pwBgTintType = pType
-                            d._pwBgTintF = f
-                        end
-                    end
+                local s = ns._scaledExtraProxy
+                if event == "UNIT_DISPLAYPOWER" then
+                    UpdateButton(b)
+                    local role = ns._ResolvePowerRole(unit)
+                    local want = IsPowerBarEnabled(s)
+                        and ((role == "HEALER" and s.powerShowForHealer)
+                            or (role == "TANK" and s.powerShowForTank)
+                            or ((role == "DAMAGER" or role == "NONE") and s.powerShowForDPS))
+                    ns._SyncPowerEvents(t, unit, want)
+                elseif d.power and d.power:IsShown() then
+                    local _, maxPower = ns._UpdatePowerBar(d, unit, s, true, false)
+                    if maxPower <= 0 then UpdateButton(b) end
                 end
             elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
                 or event == "UNIT_HEAL_PREDICTION" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
@@ -7126,6 +7156,13 @@ function ns.XF_Apply()
             for _, ev in ipairs(XF.EVENTS) do
                 t:RegisterUnitEvent(ev, unit)
             end
+            local role = ns._ResolvePowerRole(unit)
+            local xs = ns._scaledExtraProxy
+            local wantPower = IsPowerBarEnabled(xs)
+                and ((role == "HEALER" and xs.powerShowForHealer)
+                    or (role == "TANK" and xs.powerShowForTank)
+                    or ((role == "DAMAGER" or role == "NONE") and xs.powerShowForDPS))
+            ns._SyncPowerEvents(t, unit, wantPower)
             -- UNIT_FLAGS is opt-in: extra frames mirror the raid combat-icon toggle.
             if db.profile.showCombatIndicator then
                 t:RegisterUnitEvent("UNIT_FLAGS", unit)
@@ -9184,6 +9221,15 @@ local function OnEvent(self, event, arg1, ...)
     elseif event == "ENCOUNTER_END" then
         ns._inBossCombat = false
     elseif event == "PLAYER_ROLES_ASSIGNED" then
+        if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
+        for _, btn in ipairs(allButtons) do
+            local u = btn:GetAttribute("unit")
+            if u and btn:IsVisible() then UpdateButton(btn) end
+        end
+        for _, btn in ipairs(ns._partyAllButtons) do
+            local u = btn:GetAttribute("unit")
+            if u and btn:IsVisible() then UpdateButton(btn) end
+        end
         -- Roles changed: refresh raid sort so the player's-group nameList
         -- (Show Self First) re-orders the rest by the new roles. The other
         -- groups re-sort natively. Out of combat only; no-op if order unchanged.
@@ -9353,26 +9399,18 @@ local function OnEvent(self, event, arg1, ...)
     elseif event == "UNIT_MAXHEALTH" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then local t0 = ns.ProfBegin("UpdateButton:MAXHEALTH"); ns._UpdateButtonHealth(btn); ns.ProfEnd("UpdateButton:MAXHEALTH", t0) end
-    elseif event == "UNIT_POWER_UPDATE" then
+    elseif ns._POWER_EVENT_SET[event] then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn and GetFFD(btn).power then
             local t0 = ns.ProfBegin("PowerUpdate")
             local d = GetFFD(btn)
-            local pType = UnitPowerType(arg1) or 0
-            d.power:SetMinMaxValues(0, 100)
-            d.power:SetValue(UnitPowerPercent(arg1, pType, true, CurveConstants.ScaleTo100))
-            local pr, pg, pb = GetPowerColor(arg1)
-            d.power:SetStatusBarColor(pr, pg, pb, 1)
-            -- Power-colored bg: retint only when the power type or BG darken
-            -- changed; the stamps keep the hot path allocation-free.
             local s = d._isParty and ns._scaledPartyProxy or ns._scaledProfile
-            if s.powerBgPowerColored and d.powerBg then
-                local f = EllesmereUI.GetPowerBgDarkenFactor()
-                if d._pwBgTintType ~= pType or d._pwBgTintF ~= f then
-                    d.powerBg:SetTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
-                    d._pwBgTintType = pType
-                    d._pwBgTintF = f
-                end
+            if event == "UNIT_DISPLAYPOWER" then
+                UpdateButton(btn)
+                if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration(arg1) end
+            else
+                local _, maxPower = ns._UpdatePowerBar(d, arg1, s, true, false)
+                if maxPower <= 0 then UpdateButton(btn) end
             end
             ns.ProfEnd("PowerUpdate", t0)
         end
@@ -10547,7 +10585,7 @@ ns.ReloadPartyFrames = function()
     -- Re-layout header
     ns._LayoutPartyFrames()
     ns._RebuildPartyUnitMap()
-    -- Re-sync UNIT_POWER_UPDATE registration: a Power Bar section sync/unsync
+    -- Re-sync per-type power registrations: a Power Bar section sync/unsync
     -- (or a party-side role-flag edit) changes the party's effective power
     -- gating, same reasoning as UpdateCombatEventRegistration above. Must run
     -- after the temp-swap restore so raid reads see raid values.
@@ -15423,7 +15461,7 @@ function ERF:OnEnable()
             end
         end
         if ns.ReloadPartyFrames then ns.ReloadPartyFrames() end
-        -- Re-sync per-unit UNIT_POWER_UPDATE registration to the new profile's
+        -- Re-sync per-unit power event registration to the new profile's
         -- power role filters, so units that GAIN power across the swap get live
         -- updates instead of a frozen one-shot snapshot (rage/runic power would
         -- otherwise sit empty out of combat). Event registration is combat-safe.
@@ -15532,7 +15570,6 @@ function ERF:OnEnable()
         for _, ev in ipairs(UNIT_EVENTS_BASE) do
             f:RegisterUnitEvent(ev, unit)
         end
-        f:RegisterUnitEvent("UNIT_POWER_UPDATE", unit)
         f:SetScript("OnEvent", OnEvent)
         unitTrackers[unit] = f
     end
@@ -15544,14 +15581,14 @@ function ERF:OnEnable()
     -- UNIT_FLAGS is opt-in: only registered while the combat icon is enabled.
     if ns.UpdateCombatEventRegistration then ns.UpdateCombatEventRegistration() end
 
-    -- Dynamically register/unregister UNIT_POWER_UPDATE per unit based on
-    -- role and power display settings. Called after roster changes and
+    -- Dynamically register/unregister Wrath power events per unit based on
+    -- role, power type, and power display settings. Called after roster changes and
     -- when the user changes power bar role filters. The trackers are shared
     -- by raid AND party frames: player/party1-4 tokens also drive the party
     -- buttons, whose Power Bar section can be unsynced from raid -- those
     -- must consult the party proxy too, or raid-off/party-on would strip
     -- their events and freeze the party power bars mid-combat.
-    local function UpdatePowerEventRegistration()
+    local function UpdatePowerEventRegistration(onlyUnit)
         local rs = db.profile
         local ps = ns._partyProxy
         local function wantsPower(s, role)
@@ -15560,7 +15597,7 @@ function ERF:OnEnable()
                 or (role == "DAMAGER" and s.powerShowForDPS)
                 or (role == "NONE" and s.powerShowForDPS)
         end
-        for unit, tracker in pairs(unitTrackers) do
+        local function update(unit, tracker)
             local wantPower = false
             if UnitExists(unit) then
                 local role = ns._ResolvePowerRole(unit)
@@ -15574,14 +15611,17 @@ function ERF:OnEnable()
                     wantPower = wantsPower(ps, role)
                 end
             end
-            if wantPower then
-                tracker:RegisterUnitEvent("UNIT_POWER_UPDATE", unit)
-            else
-                tracker:UnregisterEvent("UNIT_POWER_UPDATE")
-            end
+            ns._SyncPowerEvents(tracker, unit, wantPower)
+        end
+        if onlyUnit then
+            local tracker = unitTrackers[onlyUnit]
+            if tracker then update(onlyUnit, tracker) end
+        else
+            for unit, tracker in pairs(unitTrackers) do update(unit, tracker) end
         end
     end
     ns.UpdatePowerEventRegistration = UpdatePowerEventRegistration
+    UpdatePowerEventRegistration()
 
     -- Initial update after a short delay
     C_Timer.After(0.5, function()
