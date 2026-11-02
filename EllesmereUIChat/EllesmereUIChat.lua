@@ -212,6 +212,30 @@ function ECHAT.DB()
     }
 end
 
+local function GetSelectedChatFrame()
+    local selectedChat = SELECTED_CHAT_FRAME
+    if selectedChat and not selectedChat.isDocked and selectedChat.IsShown and selectedChat:IsShown() then
+        return selectedChat
+    end
+    local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
+        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
+    return selected or SELECTED_DOCK_FRAME or selectedChat or _G.ChatFrame1
+end
+
+local function UpdateScrollButton()
+    local cf1 = _G.ChatFrame1
+    local btn = cf1 and CFD(cf1).scrollBtn
+    if not btn then return end
+
+    local cfg = ECHAT.DB()
+    local selected = GetSelectedChatFrame()
+    if cfg.showScroll ~= false and selected and selected.AtBottom and not selected:AtBottom() then
+        btn:Show()
+    else
+        btn:Hide()
+    end
+end
+
 local PP = EUI.PP
 local function GetFont()
     local cfg = ECHAT.DB()
@@ -827,7 +851,7 @@ function ECHAT.ApplySidebarIcons()
     end
 
     -- Scroll is independent
-    if sbd.scrollBtn then if cfg.showScroll ~= false then sbd.scrollBtn:Show() else sbd.scrollBtn:Hide() end end
+    if sbd.scrollBtn then UpdateScrollButton() end
 
     -- Re-apply free move offsets after chain layout
     if ECHAT.ApplyIconFreeMove then ECHAT.ApplyIconFreeMove() end
@@ -3118,12 +3142,11 @@ local function SkinChatFrame(cf)
         if settingsBtn then HookIconTooltip(settingsBtn, "Settings") end
         HookIconTooltip(scrollBtn, "Scroll to Bottom")
 
-        -- Scroll to bottom
+        -- Scroll the active tab to bottom.
         scrollBtn:SetScript("OnClick", function()
-            local cf1 = ChatFrame1
-            if cf1 and cf1.ScrollBar and cf1.ScrollBar.SetScrollPercentage then
-                cf1.ScrollBar:SetScrollPercentage(1)
-            end
+            local selected = GetSelectedChatFrame()
+            if selected and selected.ScrollToBottom then selected:ScrollToBottom() end
+            UpdateScrollButton()
         end)
 
         -- Copy chat history from the active tab (reads directly from the frame)
@@ -3304,6 +3327,18 @@ local function SkinChatFrame(cf)
     if cf.ScrollToBottomButton then
         cf.ScrollToBottomButton:SetParent(_hiddenParent)
     end
+
+    -- Keep the sidebar button in sync with native scrolling on every frame,
+    -- including temporary whisper windows. The selected tab determines its
+    -- visibility; switching tabs refreshes it separately below.
+    if not CFD(cf).scrollHooks then
+        CFD(cf).scrollHooks = true
+        for _, method in ipairs({ "ScrollUp", "ScrollDown", "PageUp", "PageDown",
+            "ScrollToTop", "ScrollToBottom", "SetScrollOffset" }) do
+            if cf[method] then hooksecurefunc(cf, method, UpdateScrollButton) end
+        end
+    end
+    if name == "ChatFrame1" then UpdateScrollButton() end
 
     -- Minimize button
     local minBtn = _G[name .. "MinimizeButton"]
@@ -3585,10 +3620,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- Blizzard rebuilds the tab anchor chain while selecting a window.
             -- Re-apply spacing after that secure update has fully completed.
             C_Timer.After(0, function()
+                UpdateScrollButton()
                 UpdateTabColors()
                 ECHAT.ApplyTabLayout()
             end)
         end)
+    end
+    if FCF_Tab_OnClick then
+        hooksecurefunc("FCF_Tab_OnClick", UpdateScrollButton)
     end
     local _tabPassQueued = false
     local function QueueTabPass()
@@ -3619,6 +3658,7 @@ initFrame:SetScript("OnEvent", function(self)
     if FCF_Close then
         hooksecurefunc("FCF_Close", function()
             C_Timer.After(0, function()
+                UpdateScrollButton()
                 UpdateTabColors()
                 ECHAT.ApplyTabLayout()
             end)
@@ -3988,7 +4028,7 @@ initFrame:SetScript("OnEvent", function(self)
         local _cf1 = _G.ChatFrame1
         if _cfg and _cf1 then
             local _sbd = CFD(_cf1)
-            if _sbd.scrollBtn then if _cfg.showScroll ~= false then _sbd.scrollBtn:Show() else _sbd.scrollBtn:Hide() end end
+            if _sbd.scrollBtn then UpdateScrollButton() end
             if _sbd.friendsBtn then if _cfg.showFriends ~= false then _sbd.friendsBtn:Show() else _sbd.friendsBtn:Hide() end end
             if _sbd.durabilityBtn then if _cfg.showDurability ~= false then _sbd.durabilityBtn:Show() else _sbd.durabilityBtn:Hide() end end
             if _sbd.copyBtn then if _cfg.showCopy ~= false then _sbd.copyBtn:Show() else _sbd.copyBtn:Hide() end end
@@ -4019,7 +4059,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _cf1 = _G.ChatFrame1
             if _cfg and _cf1 then
                 local _sbd = CFD(_cf1)
-                if _sbd.scrollBtn then if _cfg.showScroll ~= false then _sbd.scrollBtn:Show() else _sbd.scrollBtn:Hide() end end
+                if _sbd.scrollBtn then UpdateScrollButton() end
                 if _sbd.friendsBtn then if _cfg.showFriends ~= false then _sbd.friendsBtn:Show() else _sbd.friendsBtn:Hide() end end
                 if _sbd.durabilityBtn then if _cfg.showDurability ~= false then _sbd.durabilityBtn:Show() else _sbd.durabilityBtn:Hide() end end
                 if _sbd.copyBtn then if _cfg.showCopy ~= false then _sbd.copyBtn:Show() else _sbd.copyBtn:Hide() end end
